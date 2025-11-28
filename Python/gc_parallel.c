@@ -8,6 +8,7 @@
 #include "pycore_gc_parallel.h"
 #include "pycore_pystate.h"
 #include "pycore_interp.h"
+#include "pycore_gc.h"  // For GC internals
 #include "condvar.h"  // PyMUTEX_INIT, PyCOND_INIT, etc.
 
 #include <stdio.h>
@@ -305,6 +306,39 @@ _PyGC_ParallelGetConfig(PyInterpreterState *interp)
     Py_DECREF(workers_obj);
 
     return result;
+}
+
+// =============================================================================
+// Parallel Marking
+// =============================================================================
+
+int
+_PyGC_ParallelMoveUnreachable(
+    PyInterpreterState *interp,
+    PyGC_Head *young,
+    PyGC_Head *unreachable)
+{
+    // Get parallel GC state
+    _PyParallelGCState *par_gc = interp->gc.parallel_gc;
+
+    // If parallel GC not enabled, fall back to serial
+    if (par_gc == NULL || !par_gc->enabled || par_gc->num_workers_active == 0) {
+        return 0;  // Use serial marking
+    }
+
+    // TODO: Implement actual parallel marking algorithm
+    // For Phase 4 initial implementation, we'll just return 0 to use serial
+    // This proves the hook works and can be called from gc.c
+
+    // Future phases will implement:
+    // 1. Scan young list for roots (gc_refs > 0)
+    // 2. Distribute roots to worker deques
+    // 3. Signal workers to start marking
+    // 4. Workers traverse object graphs with work-stealing
+    // 5. Wait for workers to complete
+    // 6. Return 1 to indicate parallel marking was used
+
+    return 0;  // Fall back to serial for now
 }
 
 #endif // Py_PARALLEL_GC

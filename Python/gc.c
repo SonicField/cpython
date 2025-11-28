@@ -7,6 +7,9 @@
 #include "pycore_dict.h"          // _PyInlineValuesSize()
 #include "pycore_initconfig.h"    // _PyStatus_OK()
 #include "pycore_interp.h"        // PyInterpreterState.gc
+#ifdef Py_PARALLEL_GC
+#include "pycore_gc_parallel.h"   // _PyGC_ParallelMoveUnreachable()
+#endif
 #include "pycore_interpframe.h"   // _PyFrame_GetLocalsArray()
 #include "pycore_object_alloc.h"  // _PyObject_MallocWithType()
 #include "pycore_pystate.h"       // _PyThreadState_GET()
@@ -1289,7 +1292,18 @@ deduce_unreachable(PyGC_Head *base, PyGC_Head *unreachable) {
      * the reachable objects instead.  But this is a one-time cost, probably not
      * worth complicating the code to speed just a little.
      */
+
+#ifdef Py_PARALLEL_GC
+    // Try parallel marking first
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    if (!_PyGC_ParallelMoveUnreachable(interp, base, unreachable)) {
+        // Parallel marking not available or chose not to run, use serial
+        move_unreachable(base, unreachable);
+    }
+#else
     move_unreachable(base, unreachable);  // gc_prev is pointer again
+#endif
+
     validate_list(base, collecting_clear_unreachable_clear);
     validate_list(unreachable, collecting_set_unreachable_set);
     return candidates;

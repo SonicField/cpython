@@ -16,6 +16,7 @@ extern "C" {
 #include "pycore_pystate.h"        // _PyInterpreterState
 #include "pycore_ws_deque.h"       // _PyWSDeque
 #include "pycore_condvar.h"        // PyMUTEX_T, PyCOND_T
+#include "pycore_gc.h"             // PyGC_Head
 
 // Parallel GC Configuration
 // Only enabled when built with --with-parallel-gc
@@ -149,6 +150,14 @@ PyAPI_FUNC(int) _PyGC_ParallelIsEnabled(PyInterpreterState *interp);
 
 // Get current configuration
 PyAPI_FUNC(PyObject *) _PyGC_ParallelGetConfig(PyInterpreterState *interp);
+
+// Parallel marking entry point (called from gc.c)
+// Returns 1 if parallel marking was used, 0 if should fall back to serial
+PyAPI_FUNC(int) _PyGC_ParallelMoveUnreachable(
+    PyInterpreterState *interp,
+    PyGC_Head *young,
+    PyGC_Head *unreachable
+);
 
 #endif // Py_PARALLEL_GC
 
