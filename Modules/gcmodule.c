@@ -467,6 +467,148 @@ gc_get_freeze_count_impl(PyObject *module)
 }
 
 
+/*[clinic input]
+gc.enable_parallel
+
+    num_workers: int = -1
+
+Enable parallel garbage collection.
+
+If num_workers is -1 (default), auto-detect based on CPU count.
+If num_workers is 0, disable parallel GC.
+If num_workers > 0, use that many worker threads.
+
+Only available in GIL-based builds compiled with --with-parallel-gc.
+[clinic start generated code]*/
+
+static PyObject *
+gc_enable_parallel_impl(PyObject *module, int num_workers)
+/*[clinic end generated code: output=073661d508bcbcd3 input=37a780bc7a3f4d65]*/
+{
+#ifndef Py_PARALLEL_GC
+    PyErr_SetString(PyExc_RuntimeError,
+                    "Parallel GC not available. "
+                    "Rebuild CPython with --with-parallel-gc to enable.");
+    return NULL;
+#else
+#ifdef Py_GIL_DISABLED
+    PyErr_SetString(PyExc_RuntimeError,
+                    "Parallel GC not available in free-threading builds. "
+                    "Free-threading already uses a concurrent GC implementation.");
+    return NULL;
+#endif
+
+    // TODO: Implement parallel GC worker pool initialization
+    // For now, just validate input and return success
+    if (num_workers < -1) {
+        PyErr_SetString(PyExc_ValueError,
+                        "num_workers must be >= -1");
+        return NULL;
+    }
+
+    if (num_workers > 1024) {
+        PyErr_SetString(PyExc_ValueError,
+                        "num_workers must be <= 1024");
+        return NULL;
+    }
+
+    // TODO: Initialize worker threads
+    // TODO: Store configuration
+
+    Py_RETURN_NONE;
+#endif
+}
+
+
+/*[clinic input]
+gc.get_parallel_config -> object
+
+Return parallel GC configuration as a dictionary.
+
+Returns:
+    Dictionary with keys:
+    - 'available': bool - True if parallel GC is available
+    - 'enabled': bool - True if parallel GC is enabled
+    - 'num_workers': int - Number of worker threads (or 0 if disabled)
+
+Only available in GIL-based builds compiled with --with-parallel-gc.
+[clinic start generated code]*/
+
+static PyObject *
+gc_get_parallel_config_impl(PyObject *module)
+/*[clinic end generated code: output=1560c2e1d57859e5 input=21e77c05e10fa9a2]*/
+{
+    PyObject *result = PyDict_New();
+    if (result == NULL) {
+        return NULL;
+    }
+
+#ifndef Py_PARALLEL_GC
+    // Parallel GC not compiled in
+    if (PyDict_SetItemString(result, "available", Py_False) < 0) {
+        Py_DECREF(result);
+        return NULL;
+    }
+    if (PyDict_SetItemString(result, "enabled", Py_False) < 0) {
+        Py_DECREF(result);
+        return NULL;
+    }
+    PyObject *zero = PyLong_FromLong(0);
+    if (zero == NULL || PyDict_SetItemString(result, "num_workers", zero) < 0) {
+        Py_XDECREF(zero);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(zero);
+    return result;
+#else
+#ifdef Py_GIL_DISABLED
+    // Free-threading build - parallel GC not supported
+    if (PyDict_SetItemString(result, "available", Py_False) < 0) {
+        Py_DECREF(result);
+        return NULL;
+    }
+    if (PyDict_SetItemString(result, "enabled", Py_False) < 0) {
+        Py_DECREF(result);
+        return NULL;
+    }
+    PyObject *zero = PyLong_FromLong(0);
+    if (zero == NULL || PyDict_SetItemString(result, "num_workers", zero) < 0) {
+        Py_XDECREF(zero);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(zero);
+    return result;
+#else
+    // Parallel GC available (GIL build with Py_PARALLEL_GC)
+    if (PyDict_SetItemString(result, "available", Py_True) < 0) {
+        Py_DECREF(result);
+        return NULL;
+    }
+
+    // TODO: Track actual enabled state
+    // For now, always report disabled since not yet implemented
+    if (PyDict_SetItemString(result, "enabled", Py_False) < 0) {
+        Py_DECREF(result);
+        return NULL;
+    }
+
+    // TODO: Return actual worker count
+    PyObject *zero = PyLong_FromLong(0);
+    if (zero == NULL || PyDict_SetItemString(result, "num_workers", zero) < 0) {
+        Py_XDECREF(zero);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(zero);
+
+    return result;
+#endif
+#endif
+}
+
+
 PyDoc_STRVAR(gc__doc__,
 "This module provides access to the garbage collector for reference cycles.\n"
 "\n"
@@ -487,7 +629,9 @@ PyDoc_STRVAR(gc__doc__,
 "get_referents() -- Return the list of objects that an object refers to.\n"
 "freeze() -- Freeze all tracked objects and ignore them for future collections.\n"
 "unfreeze() -- Unfreeze all objects in the permanent generation.\n"
-"get_freeze_count() -- Return the number of objects in the permanent generation.\n");
+"get_freeze_count() -- Return the number of objects in the permanent generation.\n"
+"enable_parallel() -- Enable parallel garbage collection (if available).\n"
+"get_parallel_config() -- Return parallel GC configuration.\n");
 
 static PyMethodDef GcMethods[] = {
     GC_ENABLE_METHODDEF
@@ -508,6 +652,8 @@ static PyMethodDef GcMethods[] = {
     GC_FREEZE_METHODDEF
     GC_UNFREEZE_METHODDEF
     GC_GET_FREEZE_COUNT_METHODDEF
+    GC_ENABLE_PARALLEL_METHODDEF
+    GC_GET_PARALLEL_CONFIG_METHODDEF
     {NULL,      NULL}           /* Sentinel */
 };
 

@@ -1774,6 +1774,24 @@ then
   AC_MSG_ERROR([--disable-gil cannot be used with --with-trace-refs])
 fi
 
+# Check for --with-parallel-gc
+AC_MSG_CHECKING([for --with-parallel-gc])
+AC_ARG_WITH([parallel-gc],
+  [AS_HELP_STRING([--with-parallel-gc], [enable parallel garbage collection (GIL builds only, default is no)])],
+  [], [with_parallel_gc=no]
+)
+AC_MSG_RESULT([$with_parallel_gc])
+
+if test "$with_parallel_gc" = "yes"
+then
+  if test "$disable_gil" = "yes"
+  then
+    AC_MSG_ERROR([--with-parallel-gc requires GIL-based build (do not use --disable-gil)])
+  fi
+  AC_DEFINE([Py_PARALLEL_GC], [1],
+            [Define if you want to enable parallel garbage collection])
+fi
+
 # Check for --enable-pystats
 AC_MSG_CHECKING([for --enable-pystats])
 AC_ARG_ENABLE([pystats],

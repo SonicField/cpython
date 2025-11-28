@@ -647,6 +647,7 @@ struct _Py_global_strings {
         STRUCT_FOR_ID(nstype)
         STRUCT_FOR_ID(nt)
         STRUCT_FOR_ID(null)
+        STRUCT_FOR_ID(num_workers)
         STRUCT_FOR_ID(number)
         STRUCT_FOR_ID(obj)
         STRUCT_FOR_ID(object)
