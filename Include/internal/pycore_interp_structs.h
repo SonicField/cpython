@@ -260,6 +260,10 @@ struct _gc_runtime_state {
     /* Mutex held for gc_should_collect_mem_usage(). */
     PyMutex mutex;
 #endif
+
+#ifdef Py_PARALLEL_GC
+    struct _PyParallelGCState *parallel_gc;
+#endif
 };
 
 #include "pycore_gil.h"           // struct _gil_runtime_state

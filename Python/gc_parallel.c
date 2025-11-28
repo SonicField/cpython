@@ -8,6 +8,7 @@
 #include "pycore_gc_parallel.h"
 #include "pycore_pystate.h"
 #include "pycore_interp.h"
+#include "condvar.h"  // PyMUTEX_INIT, PyCOND_INIT, etc.
 
 #include <stdio.h>
 
@@ -17,6 +18,48 @@
 #elif defined(NT_THREADS)
 #include <windows.h>
 #endif
+
+// =============================================================================
+// Barrier Synchronization
+// =============================================================================
+
+void
+_PyGCBarrier_Init(_PyGCBarrier *barrier, int capacity)
+{
+    barrier->capacity = capacity;
+    barrier->num_left = capacity;
+    barrier->epoch = 0;
+    PyMUTEX_INIT(&barrier->lock);
+    PyCOND_INIT(&barrier->cond);
+}
+
+void
+_PyGCBarrier_Fini(_PyGCBarrier *barrier)
+{
+    PyMUTEX_FINI(&barrier->lock);
+    PyCOND_FINI(&barrier->cond);
+}
+
+void
+_PyGCBarrier_Wait(_PyGCBarrier *barrier)
+{
+    PyMUTEX_LOCK(&barrier->lock);
+    barrier->num_left--;
+    if (barrier->num_left == 0) {
+        // We were the last one to get to the barrier; reset it and unblock
+        // everyone else.
+        barrier->num_left = barrier->capacity;
+        barrier->epoch++;
+        PyCOND_BROADCAST(&barrier->cond);
+    }
+    else {
+        unsigned int epoch = barrier->epoch;
+        while (epoch == barrier->epoch) {
+            PyCOND_WAIT(&barrier->cond, &barrier->lock);
+        }
+    }
+    PyMUTEX_UNLOCK(&barrier->lock);
+}
 
 // =============================================================================
 // Worker Thread Function
@@ -96,9 +139,7 @@ _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
     }
 
     // Store in interpreter state
-    // TODO: Add field to _PyInterpreterState
-    // For now, store in runtime state (will fix in integration)
-    // interp->gc.parallel_gc = par_gc;
+    interp->gc.parallel_gc = par_gc;
 
     return 0;
 }
@@ -106,9 +147,8 @@ _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
 void
 _PyGC_ParallelFini(PyInterpreterState *interp)
 {
-    // TODO: Get from interpreter state
-    // _PyParallelGCState *par_gc = interp->gc.parallel_gc;
-    _PyParallelGCState *par_gc = NULL;  // Placeholder
+    // Get from interpreter state
+    _PyParallelGCState *par_gc = interp->gc.parallel_gc;
 
     if (par_gc == NULL) {
         return;
@@ -135,14 +175,14 @@ _PyGC_ParallelFini(PyInterpreterState *interp)
     PyMem_Free(par_gc);
 
     // Clear from interpreter state
-    // interp->gc.parallel_gc = NULL;
+    interp->gc.parallel_gc = NULL;
 }
 
 int
 _PyGC_ParallelStart(PyInterpreterState *interp)
 {
-    // TODO: Get from interpreter state
-    _PyParallelGCState *par_gc = NULL;  // Placeholder
+    // Get from interpreter state
+    _PyParallelGCState *par_gc = interp->gc.parallel_gc;
 
     if (par_gc == NULL) {
         PyErr_SetString(PyExc_RuntimeError,
@@ -186,8 +226,8 @@ _PyGC_ParallelStart(PyInterpreterState *interp)
 void
 _PyGC_ParallelStop(PyInterpreterState *interp)
 {
-    // TODO: Get from interpreter state
-    _PyParallelGCState *par_gc = NULL;  // Placeholder
+    // Get from interpreter state
+    _PyParallelGCState *par_gc = interp->gc.parallel_gc;
 
     if (par_gc == NULL || par_gc->num_workers_active == 0) {
         return;
@@ -219,8 +259,8 @@ _PyGC_ParallelStop(PyInterpreterState *interp)
 int
 _PyGC_ParallelIsEnabled(PyInterpreterState *interp)
 {
-    // TODO: Get from interpreter state
-    _PyParallelGCState *par_gc = NULL;  // Placeholder
+    // Get from interpreter state
+    _PyParallelGCState *par_gc = interp->gc.parallel_gc;
 
     return (par_gc != NULL && par_gc->enabled);
 }
@@ -228,11 +268,17 @@ _PyGC_ParallelIsEnabled(PyInterpreterState *interp)
 PyObject *
 _PyGC_ParallelGetConfig(PyInterpreterState *interp)
 {
-    // TODO: Get from interpreter state
-    _PyParallelGCState *par_gc = NULL;  // Placeholder
+    // Get from interpreter state
+    _PyParallelGCState *par_gc = interp->gc.parallel_gc;
 
     PyObject *result = PyDict_New();
     if (result == NULL) {
+        return NULL;
+    }
+
+    // Always available since we're built with Py_PARALLEL_GC
+    if (PyDict_SetItemString(result, "available", Py_True) < 0) {
+        Py_DECREF(result);
         return NULL;
     }
 

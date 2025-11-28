@@ -15,7 +15,7 @@ extern "C" {
 #include "Python.h"
 #include "pycore_pystate.h"        // _PyInterpreterState
 #include "pycore_ws_deque.h"       // _PyWSDeque
-#include "Python/condvar.h"        // PyMUTEX_T, PyCOND_T
+#include "pycore_condvar.h"        // PyMUTEX_T, PyCOND_T
 
 // Parallel GC Configuration
 // Only enabled when built with --with-parallel-gc
@@ -47,44 +47,10 @@ typedef struct {
     PyCOND_T cond;
 } _PyGCBarrier;
 
-static inline void
-_PyGCBarrier_Init(_PyGCBarrier *barrier, int capacity)
-{
-    barrier->capacity = capacity;
-    barrier->num_left = capacity;
-    barrier->epoch = 0;
-    PyMUTEX_INIT(&barrier->lock);
-    PyCOND_INIT(&barrier->cond);
-}
-
-static inline void
-_PyGCBarrier_Fini(_PyGCBarrier *barrier)
-{
-    PyMUTEX_FINI(&barrier->lock);
-    PyCOND_FINI(&barrier->cond);
-}
-
-// Wait for all threads to reach the barrier before continuing.
-static inline void
-_PyGCBarrier_Wait(_PyGCBarrier *barrier)
-{
-    PyMUTEX_LOCK(&barrier->lock);
-    barrier->num_left--;
-    if (barrier->num_left == 0) {
-        // We were the last one to get to the barrier; reset it and unblock
-        // everyone else.
-        barrier->num_left = barrier->capacity;
-        barrier->epoch++;
-        PyCOND_BROADCAST(&barrier->cond);
-    }
-    else {
-        unsigned int epoch = barrier->epoch;
-        while (epoch == barrier->epoch) {
-            PyCOND_WAIT(&barrier->cond, &barrier->lock);
-        }
-    }
-    PyMUTEX_UNLOCK(&barrier->lock);
-}
+// Barrier functions (implemented in Python/gc_parallel.c)
+void _PyGCBarrier_Init(_PyGCBarrier *barrier, int capacity);
+void _PyGCBarrier_Fini(_PyGCBarrier *barrier);
+void _PyGCBarrier_Wait(_PyGCBarrier *barrier);
 
 // =============================================================================
 // Worker Thread State

@@ -6,6 +6,9 @@
 
 #include "Python.h"
 #include "pycore_gc.h"
+#ifdef Py_PARALLEL_GC
+#include "pycore_gc_parallel.h"
+#endif
 #include "pycore_object.h"      // _PyObject_IS_GC()
 #include "pycore_pystate.h"     // _PyInterpreterState_GET()
 
@@ -498,8 +501,17 @@ gc_enable_parallel_impl(PyObject *module, int num_workers)
     return NULL;
 #endif
 
-    // TODO: Implement parallel GC worker pool initialization
-    // For now, just validate input and return success
+    // Get interpreter state
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+
+    // Check if already enabled
+    if (interp->gc.parallel_gc != NULL) {
+        PyErr_SetString(PyExc_RuntimeError,
+                       "Parallel GC already enabled");
+        return NULL;
+    }
+
+    // Validate input
     if (num_workers < -1) {
         PyErr_SetString(PyExc_ValueError,
                         "num_workers must be >= -1");
@@ -512,8 +524,22 @@ gc_enable_parallel_impl(PyObject *module, int num_workers)
         return NULL;
     }
 
-    // TODO: Initialize worker threads
-    // TODO: Store configuration
+    // Use number of CPUs if -1
+    if (num_workers == -1) {
+        // TODO: Get actual CPU count, for now use 4 as default
+        num_workers = 4;
+    }
+
+    // Initialize parallel GC state
+    if (_PyGC_ParallelInit(interp, num_workers) < 0) {
+        return NULL;
+    }
+
+    // Start worker threads
+    if (_PyGC_ParallelStart(interp) < 0) {
+        _PyGC_ParallelFini(interp);
+        return NULL;
+    }
 
     Py_RETURN_NONE;
 #endif
@@ -582,28 +608,13 @@ gc_get_parallel_config_impl(PyObject *module)
     return result;
 #else
     // Parallel GC available (GIL build with Py_PARALLEL_GC)
-    if (PyDict_SetItemString(result, "available", Py_True) < 0) {
-        Py_DECREF(result);
-        return NULL;
-    }
+    Py_DECREF(result);  // Free the dict we created earlier
 
-    // TODO: Track actual enabled state
-    // For now, always report disabled since not yet implemented
-    if (PyDict_SetItemString(result, "enabled", Py_False) < 0) {
-        Py_DECREF(result);
-        return NULL;
-    }
+    // Get interpreter state
+    PyInterpreterState *interp = _PyInterpreterState_GET();
 
-    // TODO: Return actual worker count
-    PyObject *zero = PyLong_FromLong(0);
-    if (zero == NULL || PyDict_SetItemString(result, "num_workers", zero) < 0) {
-        Py_XDECREF(zero);
-        Py_DECREF(result);
-        return NULL;
-    }
-    Py_DECREF(zero);
-
-    return result;
+    // Call the actual implementation
+    return _PyGC_ParallelGetConfig(interp);
 #endif
 #endif
 }
