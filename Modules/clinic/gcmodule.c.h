@@ -681,4 +681,34 @@ gc_get_parallel_config(PyObject *module, PyObject *Py_UNUSED(ignored))
 {
     return gc_get_parallel_config_impl(module);
 }
-/*[clinic end generated code: output=11a264ba17a36f53 input=a9049054013a1b77]*/
+
+PyDoc_STRVAR(gc_get_parallel_stats__doc__,
+"get_parallel_stats($module, /)\n"
+"--\n"
+"\n"
+"Return parallel GC statistics as a dictionary.\n"
+"\n"
+"Returns:\n"
+"    Dictionary with keys:\n"
+"    - \'enabled\': bool - True if parallel GC is enabled\n"
+"    - \'num_workers\': int - Number of worker threads\n"
+"    - \'roots_found\': int - Number of roots identified in last collection\n"
+"    - \'roots_distributed\': int - Number of roots distributed to workers\n"
+"    - \'collections_attempted\': int - Times parallel marking was attempted\n"
+"    - \'collections_succeeded\': int - Times parallel marking succeeded (vs serial fallback)\n"
+"    - \'workers\': list - Per-worker statistics (objects_marked, steal_attempts, steal_successes)\n"
+"\n"
+"Only available in GIL-based builds compiled with --with-parallel-gc.");
+
+#define GC_GET_PARALLEL_STATS_METHODDEF    \
+    {"get_parallel_stats", (PyCFunction)gc_get_parallel_stats, METH_NOARGS, gc_get_parallel_stats__doc__},
+
+static PyObject *
+gc_get_parallel_stats_impl(PyObject *module);
+
+static PyObject *
+gc_get_parallel_stats(PyObject *module, PyObject *Py_UNUSED(ignored))
+{
+    return gc_get_parallel_stats_impl(module);
+}
+/*[clinic end generated code: output=1fc5775060d75fa6 input=a9049054013a1b77]*/

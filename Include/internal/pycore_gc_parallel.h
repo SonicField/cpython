@@ -124,6 +124,12 @@ struct _PyParallelGCState {
     // Flag indicating parallel GC is enabled
     int enabled;
 
+    // Statistics for TDD/debugging
+    size_t roots_found;                      // Total roots identified in last collection
+    size_t roots_distributed;                // Roots distributed to workers in last collection
+    size_t parallel_collections_attempted;   // Times parallel marking was attempted
+    size_t parallel_collections_succeeded;   // Times parallel marking was used (vs serial fallback)
+
     // Worker threads (flexible array member - allocated based on num_workers)
     _PyParallelGCWorker workers[];
 };
@@ -150,6 +156,9 @@ PyAPI_FUNC(int) _PyGC_ParallelIsEnabled(PyInterpreterState *interp);
 
 // Get current configuration
 PyAPI_FUNC(PyObject *) _PyGC_ParallelGetConfig(PyInterpreterState *interp);
+
+// Get current statistics (for testing/debugging)
+PyAPI_FUNC(PyObject *) _PyGC_ParallelGetStats(PyInterpreterState *interp);
 
 // Parallel marking entry point (called from gc.c)
 // Returns 1 if parallel marking was used, 0 if should fall back to serial

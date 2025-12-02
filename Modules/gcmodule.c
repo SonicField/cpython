@@ -620,6 +620,63 @@ gc_get_parallel_config_impl(PyObject *module)
 }
 
 
+/*[clinic input]
+gc.get_parallel_stats -> object
+
+Return parallel GC statistics as a dictionary.
+
+Returns:
+    Dictionary with keys:
+    - 'enabled': bool - True if parallel GC is enabled
+    - 'num_workers': int - Number of worker threads
+    - 'roots_found': int - Number of roots identified in last collection
+    - 'roots_distributed': int - Number of roots distributed to workers
+    - 'collections_attempted': int - Times parallel marking was attempted
+    - 'collections_succeeded': int - Times parallel marking succeeded (vs serial fallback)
+    - 'workers': list - Per-worker statistics (objects_marked, steal_attempts, steal_successes)
+
+Only available in GIL-based builds compiled with --with-parallel-gc.
+[clinic start generated code]*/
+
+static PyObject *
+gc_get_parallel_stats_impl(PyObject *module)
+/*[clinic end generated code: output=bdc0714efc1df08c input=10079e4be8230ed3]*/
+{
+#ifndef Py_PARALLEL_GC
+    // Parallel GC not compiled in - return minimal dict
+    PyObject *result = PyDict_New();
+    if (result == NULL) {
+        return NULL;
+    }
+    if (PyDict_SetItemString(result, "enabled", Py_False) < 0) {
+        Py_DECREF(result);
+        return NULL;
+    }
+    return result;
+#else
+#ifdef Py_GIL_DISABLED
+    // Free-threading build - parallel GC not supported
+    PyObject *result = PyDict_New();
+    if (result == NULL) {
+        return NULL;
+    }
+    if (PyDict_SetItemString(result, "enabled", Py_False) < 0) {
+        Py_DECREF(result);
+        return NULL;
+    }
+    return result;
+#else
+    // Parallel GC available (GIL build with Py_PARALLEL_GC)
+    // Get interpreter state
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+
+    // Call the actual implementation
+    return _PyGC_ParallelGetStats(interp);
+#endif
+#endif
+}
+
+
 PyDoc_STRVAR(gc__doc__,
 "This module provides access to the garbage collector for reference cycles.\n"
 "\n"
@@ -642,7 +699,8 @@ PyDoc_STRVAR(gc__doc__,
 "unfreeze() -- Unfreeze all objects in the permanent generation.\n"
 "get_freeze_count() -- Return the number of objects in the permanent generation.\n"
 "enable_parallel() -- Enable parallel garbage collection (if available).\n"
-"get_parallel_config() -- Return parallel GC configuration.\n");
+"get_parallel_config() -- Return parallel GC configuration.\n"
+"get_parallel_stats() -- Return parallel GC statistics.\n");
 
 static PyMethodDef GcMethods[] = {
     GC_ENABLE_METHODDEF
@@ -665,6 +723,7 @@ static PyMethodDef GcMethods[] = {
     GC_GET_FREEZE_COUNT_METHODDEF
     GC_ENABLE_PARALLEL_METHODDEF
     GC_GET_PARALLEL_CONFIG_METHODDEF
+    GC_GET_PARALLEL_STATS_METHODDEF
     {NULL,      NULL}           /* Sentinel */
 };
 

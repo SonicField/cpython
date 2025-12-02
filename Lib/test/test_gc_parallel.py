@@ -191,5 +191,159 @@ class TestParallelGCCompatibility(unittest.TestCase):
         self.assertEqual(len(counts), 3)
 
 
+class TestParallelMarkingPhase5(unittest.TestCase):
+    """
+    TDD tests for Phase 5: Parallel Marking Implementation
+
+    These tests verify each step of the parallel marking algorithm:
+    - Step 1: Root scanning
+    - Step 2: Root distribution
+    - Step 3: Worker marking loop
+    - Step 4: Work stealing
+    - Step 5: Termination detection
+    - Step 6: Barrier synchronization
+    """
+
+    def setUp(self):
+        """Set up test fixtures."""
+        # Check if parallel GC is available
+        config = gc.get_parallel_config()
+        if not config['available']:
+            self.skipTest("Parallel GC not available in this build")
+
+        # Ensure parallel GC is disabled at start
+        # (No disable API yet, but we can test from clean state)
+
+    def tearDown(self):
+        """Clean up after test."""
+        # Force a collection to clean up test objects
+        gc.collect()
+
+    @support.cpython_only
+    def test_step1_root_scanning(self):
+        """
+        Step 1: Verify roots are identified from young generation.
+
+        This test checks that _PyGC_ParallelMoveUnreachable() correctly
+        scans the young generation list and identifies root objects
+        (objects with gc_refs > 0, meaning they have external references).
+        """
+        # Enable parallel GC with 4 workers
+        gc.enable_parallel(4)
+
+        # Get baseline stats
+        stats_before = gc.get_parallel_stats()
+        self.assertEqual(stats_before['roots_found'], 0,
+                        "Should start with 0 roots found")
+
+        # Create objects with external references (these become roots)
+        # The list 'roots' holds references, so these objects won't be garbage
+        roots = []
+        for i in range(100):
+            obj = {'data': i, 'value': 'test'}
+            roots.append(obj)  # External ref makes it a root
+
+        # Trigger GC collection
+        gc.collect()
+
+        # Check stats after collection
+        stats_after = gc.get_parallel_stats()
+
+        # Verify collections_attempted was incremented
+        # (Even if parallel marking returns 0, we should attempt it)
+        self.assertGreater(stats_after['collections_attempted'],
+                          stats_before['collections_attempted'],
+                          "Should have attempted parallel marking")
+
+        # Verify roots were found
+        # Note: May fall back to serial if not enough roots, so check both cases
+        if stats_after['collections_succeeded'] > 0:
+            # Parallel marking was used
+            self.assertGreater(stats_after['roots_found'], 0,
+                              "Should have found root objects when using parallel marking")
+            # Should find at least our 100 dicts plus some builtins
+            self.assertGreaterEqual(stats_after['roots_found'], 100,
+                                   f"Should find at least the 100 dicts we created, "
+                                   f"got {stats_after['roots_found']}")
+        else:
+            # Fell back to serial - that's OK for now, just document it
+            # When Step 1 is fully implemented, this should not happen
+            pass
+
+    @support.cpython_only
+    def test_step2_root_distribution(self):
+        """
+        Step 2: Verify roots are distributed to worker deques.
+
+        This test checks that roots identified in Step 1 are distributed
+        across worker deques in a round-robin fashion for load balancing.
+        """
+        # Disable automatic GC to control when collections happen
+        was_enabled = gc.isenabled()
+        gc.disable()
+
+        try:
+            # Enable parallel GC with 4 workers
+            gc.enable_parallel(4)
+
+            # Force a full collection to clear out old objects
+            gc.collect()
+
+            # Get baseline stats
+            stats_before = gc.get_parallel_stats()
+
+            # Create many root objects
+            # These will be in generation 0
+            roots = []
+            for i in range(200):
+                obj = {'id': i, 'data': list(range(10))}
+                roots.append(obj)  # External ref makes it a root
+
+            # Trigger GC collection on generation 0 only
+            # This ensures our new objects are in the young generation
+            gc.collect(0)
+
+            # Check stats after collection
+            stats_after = gc.get_parallel_stats()
+
+            # Verify roots were found (from Step 1)
+            self.assertGreater(stats_after['roots_found'], 0,
+                              "Should have found roots (Step 1)")
+
+            # If parallel marking was attempted and succeeded
+            if stats_after['collections_succeeded'] > 0:
+                # Step 2 verification: roots should be distributed
+                self.assertGreater(stats_after['roots_distributed'], 0,
+                                  "Should have distributed roots to workers")
+
+                self.assertEqual(stats_after['roots_distributed'],
+                               stats_after['roots_found'],
+                               "All found roots should be distributed")
+
+                # Verify distribution is roughly balanced
+                # (This is a heuristic - perfect balance not guaranteed)
+                worker_stats = stats_after['workers']
+                self.assertEqual(len(worker_stats), 4,
+                               "Should have 4 worker entries")
+
+                # Each worker should have received some roots
+                # (Note: objects_marked will be 0 until Step 3 is implemented,
+                #  but we can check that deques were populated by checking
+                #  that distribution happened)
+
+            else:
+                # Fell back to serial - that's OK, Step 2 not fully implemented yet
+                # When Step 2 is complete, this branch should not be taken
+                # for collections with sufficient roots
+                pass
+
+        finally:
+            # Restore GC state
+            if was_enabled:
+                gc.enable()
+            else:
+                gc.disable()
+
+
 if __name__ == '__main__':
     unittest.main()

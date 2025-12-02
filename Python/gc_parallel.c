@@ -21,6 +21,18 @@
 #endif
 
 // =============================================================================
+// GC Helper Functions
+// =============================================================================
+
+// Get gc_refs count from PyGC_Head
+// (Mirrors gc_get_refs() from Python/gc.c)
+static inline Py_ssize_t
+gc_get_refs(PyGC_Head *g)
+{
+    return (Py_ssize_t)(g->_gc_prev >> _PyGC_PREV_SHIFT);
+}
+
+// =============================================================================
 // Barrier Synchronization
 // =============================================================================
 
@@ -308,6 +320,173 @@ _PyGC_ParallelGetConfig(PyInterpreterState *interp)
     return result;
 }
 
+PyObject *
+_PyGC_ParallelGetStats(PyInterpreterState *interp)
+{
+    // Get from interpreter state
+    _PyParallelGCState *par_gc = interp->gc.parallel_gc;
+
+    PyObject *result = PyDict_New();
+    if (result == NULL) {
+        return NULL;
+    }
+
+    // If parallel GC not enabled, return empty stats
+    if (par_gc == NULL || !par_gc->enabled) {
+        if (PyDict_SetItemString(result, "enabled", Py_False) < 0) {
+            Py_DECREF(result);
+            return NULL;
+        }
+        return result;
+    }
+
+    // Add enabled flag
+    if (PyDict_SetItemString(result, "enabled", Py_True) < 0) {
+        Py_DECREF(result);
+        return NULL;
+    }
+
+    // Add num_workers
+    PyObject *num_workers_obj = PyLong_FromSize_t(par_gc->num_workers);
+    if (num_workers_obj == NULL) {
+        Py_DECREF(result);
+        return NULL;
+    }
+    if (PyDict_SetItemString(result, "num_workers", num_workers_obj) < 0) {
+        Py_DECREF(num_workers_obj);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(num_workers_obj);
+
+    // Add global statistics
+    PyObject *roots_found_obj = PyLong_FromSize_t(par_gc->roots_found);
+    if (roots_found_obj == NULL) {
+        Py_DECREF(result);
+        return NULL;
+    }
+    if (PyDict_SetItemString(result, "roots_found", roots_found_obj) < 0) {
+        Py_DECREF(roots_found_obj);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(roots_found_obj);
+
+    PyObject *roots_distributed_obj = PyLong_FromSize_t(par_gc->roots_distributed);
+    if (roots_distributed_obj == NULL) {
+        Py_DECREF(result);
+        return NULL;
+    }
+    if (PyDict_SetItemString(result, "roots_distributed", roots_distributed_obj) < 0) {
+        Py_DECREF(roots_distributed_obj);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(roots_distributed_obj);
+
+    PyObject *collections_attempted_obj = PyLong_FromSize_t(par_gc->parallel_collections_attempted);
+    if (collections_attempted_obj == NULL) {
+        Py_DECREF(result);
+        return NULL;
+    }
+    if (PyDict_SetItemString(result, "collections_attempted", collections_attempted_obj) < 0) {
+        Py_DECREF(collections_attempted_obj);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(collections_attempted_obj);
+
+    PyObject *collections_succeeded_obj = PyLong_FromSize_t(par_gc->parallel_collections_succeeded);
+    if (collections_succeeded_obj == NULL) {
+        Py_DECREF(result);
+        return NULL;
+    }
+    if (PyDict_SetItemString(result, "collections_succeeded", collections_succeeded_obj) < 0) {
+        Py_DECREF(collections_succeeded_obj);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(collections_succeeded_obj);
+
+    // Add per-worker statistics
+    PyObject *workers_list = PyList_New(par_gc->num_workers);
+    if (workers_list == NULL) {
+        Py_DECREF(result);
+        return NULL;
+    }
+
+    for (size_t i = 0; i < par_gc->num_workers; i++) {
+        _PyParallelGCWorker *worker = &par_gc->workers[i];
+
+        PyObject *worker_dict = PyDict_New();
+        if (worker_dict == NULL) {
+            Py_DECREF(workers_list);
+            Py_DECREF(result);
+            return NULL;
+        }
+
+        PyObject *objects_marked_obj = PyLong_FromUnsignedLong(worker->objects_marked);
+        if (objects_marked_obj == NULL) {
+            Py_DECREF(worker_dict);
+            Py_DECREF(workers_list);
+            Py_DECREF(result);
+            return NULL;
+        }
+        if (PyDict_SetItemString(worker_dict, "objects_marked", objects_marked_obj) < 0) {
+            Py_DECREF(objects_marked_obj);
+            Py_DECREF(worker_dict);
+            Py_DECREF(workers_list);
+            Py_DECREF(result);
+            return NULL;
+        }
+        Py_DECREF(objects_marked_obj);
+
+        PyObject *steal_attempts_obj = PyLong_FromUnsignedLong(worker->steal_attempts);
+        if (steal_attempts_obj == NULL) {
+            Py_DECREF(worker_dict);
+            Py_DECREF(workers_list);
+            Py_DECREF(result);
+            return NULL;
+        }
+        if (PyDict_SetItemString(worker_dict, "steal_attempts", steal_attempts_obj) < 0) {
+            Py_DECREF(steal_attempts_obj);
+            Py_DECREF(worker_dict);
+            Py_DECREF(workers_list);
+            Py_DECREF(result);
+            return NULL;
+        }
+        Py_DECREF(steal_attempts_obj);
+
+        PyObject *steal_successes_obj = PyLong_FromUnsignedLong(worker->steal_successes);
+        if (steal_successes_obj == NULL) {
+            Py_DECREF(worker_dict);
+            Py_DECREF(workers_list);
+            Py_DECREF(result);
+            return NULL;
+        }
+        if (PyDict_SetItemString(worker_dict, "steal_successes", steal_successes_obj) < 0) {
+            Py_DECREF(steal_successes_obj);
+            Py_DECREF(worker_dict);
+            Py_DECREF(workers_list);
+            Py_DECREF(result);
+            return NULL;
+        }
+        Py_DECREF(steal_successes_obj);
+
+        PyList_SET_ITEM(workers_list, i, worker_dict);
+    }
+
+    if (PyDict_SetItemString(result, "workers", workers_list) < 0) {
+        Py_DECREF(workers_list);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(workers_list);
+
+    return result;
+}
+
+
 // =============================================================================
 // Parallel Marking
 // =============================================================================
@@ -326,19 +505,52 @@ _PyGC_ParallelMoveUnreachable(
         return 0;  // Use serial marking
     }
 
-    // TODO: Implement actual parallel marking algorithm
-    // For Phase 4 initial implementation, we'll just return 0 to use serial
-    // This proves the hook works and can be called from gc.c
+    // Increment attempt counter
+    par_gc->parallel_collections_attempted++;
 
-    // Future phases will implement:
-    // 1. Scan young list for roots (gc_refs > 0)
-    // 2. Distribute roots to worker deques
-    // 3. Signal workers to start marking
-    // 4. Workers traverse object graphs with work-stealing
-    // 5. Wait for workers to complete
-    // 6. Return 1 to indicate parallel marking was used
+    // Reset per-collection statistics
+    par_gc->roots_found = 0;
+    par_gc->roots_distributed = 0;
 
-    return 0;  // Fall back to serial for now
+    // ==========================================================================
+    // STEP 1: Scan young generation list for roots
+    // ==========================================================================
+    //
+    // Roots are objects with external references (gc_refs > 0).
+    // These are the starting points for the marking phase.
+
+    PyGC_Head *gc = _PyGCHead_NEXT(young);
+    size_t total_roots = 0;
+
+    while (gc != young) {
+        // Roots are objects with external references (gc_refs > 0)
+        Py_ssize_t refs = gc_get_refs(gc);
+        if (refs > 0) {
+            total_roots++;
+        }
+
+        gc = _PyGCHead_NEXT(gc);
+    }
+
+    // Store statistics
+    par_gc->roots_found = total_roots;
+
+    // If no roots or too few objects, fall back to serial
+    // Parallel marking has overhead, so only use it if worthwhile
+    if (total_roots == 0 || total_roots < par_gc->num_workers * 4) {
+        return 0;  // Not worth parallelizing
+    }
+
+    // ==========================================================================
+    // TODO: STEP 2: Distribute roots to worker deques
+    // ==========================================================================
+
+    // ==========================================================================
+    // TODO: STEP 3-6: Worker marking, work-stealing, termination, barriers
+    // ==========================================================================
+
+    // For now, fall back to serial until Steps 2-6 are implemented
+    return 0;
 }
 
 #endif // Py_PARALLEL_GC
