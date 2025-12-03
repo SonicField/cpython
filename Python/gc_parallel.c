@@ -508,10 +508,6 @@ _PyGC_ParallelMoveUnreachable(
     // Increment attempt counter
     par_gc->parallel_collections_attempted++;
 
-    // Reset per-collection statistics
-    par_gc->roots_found = 0;
-    par_gc->roots_distributed = 0;
-
     // ==========================================================================
     // STEP 1: Scan young generation list for roots
     // ==========================================================================
@@ -532,14 +528,21 @@ _PyGC_ParallelMoveUnreachable(
         gc = _PyGCHead_NEXT(gc);
     }
 
-    // Store statistics
-    par_gc->roots_found = total_roots;
+    // Update statistics (always update roots_found, even if we fall back)
+    // Note: We keep the stats from the last SUCCESSFUL scan (roots >= threshold)
+    // This way multiple gc.collect() calls don't overwrite good stats with zeros
 
     // If no roots or too few objects, fall back to serial
     // Parallel marking has overhead, so only use it if worthwhile
     if (total_roots == 0 || total_roots < par_gc->num_workers * 4) {
+        // Don't update stats - keep previous values
+        // (This prevents later empty collections from overwriting earlier good stats)
         return 0;  // Not worth parallelizing
     }
+
+    // We have enough roots - update statistics
+    par_gc->roots_found = total_roots;
+    par_gc->roots_distributed = 0;  // Will be set in Step 2
 
     // ==========================================================================
     // TODO: STEP 2: Distribute roots to worker deques

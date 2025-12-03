@@ -292,12 +292,15 @@ class TestParallelMarkingPhase5(unittest.TestCase):
             # Get baseline stats
             stats_before = gc.get_parallel_stats()
 
-            # Create many root objects
-            # These will be in generation 0
+            # Create multiple root objects
+            # Each separate list is a root (has external reference from 'roots' list)
+            # We need at least num_workers * 4 = 16 roots
+            # Create 50 separate lists to ensure we exceed threshold
             roots = []
-            for i in range(200):
-                obj = {'id': i, 'data': list(range(10))}
-                roots.append(obj)  # External ref makes it a root
+            for i in range(50):
+                # Each list is a separate root object
+                obj_list = [{'id': i, 'data': j} for j in range(5)]
+                roots.append(obj_list)
 
             # Trigger GC collection on generation 0 only
             # This ensures our new objects are in the young generation
@@ -309,6 +312,12 @@ class TestParallelMarkingPhase5(unittest.TestCase):
             # Verify roots were found (from Step 1)
             self.assertGreater(stats_after['roots_found'], 0,
                               "Should have found roots (Step 1)")
+
+            # Should have found at least our 50 list objects as roots
+            # (plus potentially the outer 'roots' list and other internals)
+            self.assertGreaterEqual(stats_after['roots_found'], 16,
+                                   f"Should have found at least 16 roots, "
+                                   f"got {stats_after['roots_found']}")
 
             # If parallel marking was attempted and succeeded
             if stats_after['collections_succeeded'] > 0:
