@@ -545,14 +545,43 @@ _PyGC_ParallelMoveUnreachable(
     par_gc->roots_distributed = 0;  // Will be set in Step 2
 
     // ==========================================================================
-    // TODO: STEP 2: Distribute roots to worker deques
+    // STEP 2: Distribute roots to worker deques
     // ==========================================================================
+    //
+    // Distribute roots to worker deques in round-robin fashion for load balancing.
+    // Each worker will start marking from their assigned roots.
+
+    gc = _PyGCHead_NEXT(young);
+    size_t worker_idx = 0;
+    size_t distributed = 0;
+
+    while (gc != young) {
+        Py_ssize_t refs = gc_get_refs(gc);
+
+        if (refs > 0) {
+            // This is a root - push to worker's deque
+            PyObject *op = _Py_FROM_GC(gc);
+            _PyParallelGCWorker *worker = &par_gc->workers[worker_idx];
+
+            _PyWSDeque_Push(&worker->deque, op);
+
+            distributed++;
+
+            // Round-robin to next worker
+            worker_idx = (worker_idx + 1) % par_gc->num_workers;
+        }
+
+        gc = _PyGCHead_NEXT(gc);
+    }
+
+    // Update statistics
+    par_gc->roots_distributed = distributed;
 
     // ==========================================================================
     // TODO: STEP 3-6: Worker marking, work-stealing, termination, barriers
     // ==========================================================================
 
-    // For now, fall back to serial until Steps 2-6 are implemented
+    // For now, fall back to serial until Steps 3-6 are implemented
     return 0;
 }
 

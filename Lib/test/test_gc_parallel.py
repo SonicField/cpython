@@ -228,8 +228,10 @@ class TestParallelMarkingPhase5(unittest.TestCase):
         scans the young generation list and identifies root objects
         (objects with gc_refs > 0, meaning they have external references).
         """
-        # Enable parallel GC with 4 workers
-        gc.enable_parallel(4)
+        # Enable parallel GC with 4 workers (skip if already enabled)
+        config = gc.get_parallel_config()
+        if not config.get('enabled', False):
+            gc.enable_parallel(4)
 
         # Get baseline stats
         stats_before = gc.get_parallel_stats()
@@ -283,8 +285,10 @@ class TestParallelMarkingPhase5(unittest.TestCase):
         gc.disable()
 
         try:
-            # Enable parallel GC with 4 workers
-            gc.enable_parallel(4)
+            # Enable parallel GC with 4 workers (skip if already enabled)
+            config = gc.get_parallel_config()
+            if not config.get('enabled', False):
+                gc.enable_parallel(4)
 
             # Force a full collection to clear out old objects
             gc.collect()
