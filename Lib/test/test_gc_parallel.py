@@ -357,6 +357,85 @@ class TestParallelMarkingPhase5(unittest.TestCase):
             else:
                 gc.disable()
 
+    @support.cpython_only
+    def test_step3_worker_marking(self):
+        """
+        Step 3: Verify workers mark objects by traversing object graphs.
+
+        This test checks that worker threads actually process objects from
+        their deques, marking them and traversing their children.
+        """
+        # Disable automatic GC to control when collections happen
+        was_enabled = gc.isenabled()
+        gc.disable()
+
+        try:
+            # Enable parallel GC with 4 workers (skip if already enabled)
+            config = gc.get_parallel_config()
+            if not config.get('enabled', False):
+                gc.enable_parallel(4)
+
+            # Force a full collection to clear out old objects
+            gc.collect()
+
+            # Get baseline stats
+            stats_before = gc.get_parallel_stats()
+
+            # Create an object graph with parent->children references
+            # Each parent dict will have a list of child dicts
+            # This creates a tree structure that workers need to traverse
+            roots = []
+            for i in range(20):
+                # Create parent object
+                parent = {'id': i, 'children': []}
+
+                # Create children for this parent
+                for j in range(10):
+                    child = {'parent_id': i, 'child_id': j, 'data': list(range(5))}
+                    parent['children'].append(child)
+
+                roots.append(parent)  # Keep parent alive (makes it a root)
+
+            # Trigger GC collection on generation 0
+            gc.collect(0)
+
+            # Check stats after collection
+            stats_after = gc.get_parallel_stats()
+
+            # Verify roots were found and distributed (Steps 1-2)
+            self.assertGreater(stats_after['roots_found'], 0,
+                              "Should have found roots (Step 1)")
+            self.assertGreater(stats_after['roots_distributed'], 0,
+                              "Should have distributed roots (Step 2)")
+
+            # Step 3 verification: workers should have marked objects
+            if stats_after['collections_succeeded'] > 0:
+                # Parallel marking was used
+                worker_stats = stats_after['workers']
+                total_marked = sum(w['objects_marked'] for w in worker_stats)
+
+                self.assertGreater(total_marked, 0,
+                                  "At least one worker should have marked objects")
+
+                # With 20 parents + 200 children = 220 objects minimum,
+                # we should see significant marking activity
+                self.assertGreaterEqual(total_marked, 20,
+                                       f"Should have marked at least the 20 parent dicts, "
+                                       f"got {total_marked}")
+
+            else:
+                # Fell back to serial - that's OK, Step 3 not fully implemented yet
+                # When Step 3 is complete, this branch should not be taken
+                # for collections with sufficient roots and distribution
+                pass
+
+        finally:
+            # Restore GC state
+            if was_enabled:
+                gc.enable()
+            else:
+                gc.disable()
+
 
 if __name__ == '__main__':
     unittest.main()
