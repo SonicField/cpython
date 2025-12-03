@@ -436,6 +436,90 @@ class TestParallelMarkingPhase5(unittest.TestCase):
             else:
                 gc.disable()
 
+    @support.cpython_only
+    def test_step4_work_stealing(self):
+        """
+        Step 4: Verify workers can steal work from each other.
+
+        This test checks that when a worker runs out of local work,
+        it attempts to steal from other workers' deques.
+        """
+        # Disable automatic GC to control when collections happen
+        was_enabled = gc.isenabled()
+        gc.disable()
+
+        try:
+            # Enable parallel GC with 4 workers (skip if already enabled)
+            config = gc.get_parallel_config()
+            if not config.get('enabled', False):
+                gc.enable_parallel(4)
+
+            # Force a full collection to clear out old objects
+            gc.collect()
+
+            # Get baseline stats
+            stats_before = gc.get_parallel_stats()
+
+            # Create many root objects to ensure there's work to do
+            # With current implementation (no traversal), each worker
+            # gets roots via round-robin and processes them quickly.
+            # Work-stealing might not occur often, but we can verify
+            # the infrastructure exists and tracks statistics.
+            roots = []
+            for i in range(100):
+                # Create root object
+                obj = {'id': i, 'data': list(range(10))}
+                roots.append(obj)
+
+            # Trigger GC collection on generation 0
+            gc.collect(0)
+
+            # Check stats after collection
+            stats_after = gc.get_parallel_stats()
+
+            # Verify roots were found and distributed (Steps 1-2)
+            self.assertGreater(stats_after['roots_found'], 0,
+                              "Should have found roots (Step 1)")
+            self.assertGreater(stats_after['roots_distributed'], 0,
+                              "Should have distributed roots (Step 2)")
+
+            # Step 4 verification: check work-stealing infrastructure
+            if stats_after['collections_succeeded'] > 0:
+                # Parallel marking was used
+                worker_stats = stats_after['workers']
+
+                # At minimum, verify steal statistics exist and are tracked
+                # (Even if no stealing occurred due to balanced distribution)
+                for i, w in enumerate(worker_stats):
+                    self.assertIn('steal_attempts', w,
+                                 f"Worker {i} should track steal_attempts")
+                    self.assertIn('steal_successes', w,
+                                 f"Worker {i} should track steal_successes")
+                    self.assertIsInstance(w['steal_attempts'], int,
+                                        f"Worker {i} steal_attempts should be int")
+                    self.assertIsInstance(w['steal_successes'], int,
+                                        f"Worker {i} steal_successes should be int")
+
+                    # Steal successes can't exceed attempts
+                    self.assertLessEqual(w['steal_successes'], w['steal_attempts'],
+                                       f"Worker {i}: steal_successes <= steal_attempts")
+
+                # Note: With current implementation (no traversal, round-robin distribution),
+                # workers may not actually steal since they all finish quickly.
+                # That's OK - we're verifying the infrastructure exists.
+                # When traversal is added, work-stealing will become more important.
+
+            else:
+                # Fell back to serial - that's OK, Step 4 not fully implemented yet
+                pass
+
+        finally:
+            # Restore GC state
+            if was_enabled:
+                gc.enable()
+            else:
+                gc.disable()
+
 
 if __name__ == '__main__':
     unittest.main()

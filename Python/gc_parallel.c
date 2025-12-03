@@ -109,9 +109,43 @@ _parallel_gc_worker_thread(void *arg)
 
             if (obj == NULL) {
                 // Local deque empty
-                // TODO STEP 4: Try work-stealing from other workers
-                // For now: just break and wait for next collection
-                break;
+                // =============================================================
+                // STEP 4: Try work-stealing from other workers
+                // =============================================================
+                int steal_attempts_made = 0;
+                const int MAX_STEAL_ATTEMPTS = (int)par_gc->num_workers * 2;
+
+                while (steal_attempts_made < MAX_STEAL_ATTEMPTS) {
+                    // Pick a random victim worker to steal from
+                    // Use simple linear congruential generator for random selection
+                    worker->steal_seed = worker->steal_seed * 1103515245 + 12345;
+                    size_t victim_id = (worker->steal_seed / 65536) % par_gc->num_workers;
+
+                    // Don't steal from ourselves
+                    if (victim_id == worker->thread_id) {
+                        victim_id = (victim_id + 1) % par_gc->num_workers;
+                    }
+
+                    _PyParallelGCWorker *victim = &par_gc->workers[victim_id];
+
+                    // Try to steal from victim's deque (FIFO - from top)
+                    worker->steal_attempts++;
+                    steal_attempts_made++;
+
+                    obj = (PyObject *)_PyWSDeque_Steal(&victim->deque);
+                    if (obj != NULL) {
+                        // Steal successful!
+                        worker->steal_successes++;
+                        break;  // Got work, process it
+                    }
+
+                    // Steal failed, try another victim
+                }
+
+                // If still no work after all steal attempts, we're done
+                if (obj == NULL) {
+                    break;
+                }
             }
 
             // Mark this object (increment counter for statistics)
