@@ -78,6 +78,37 @@ _PyGCBarrier_Wait(_PyGCBarrier *barrier)
 // Worker Thread Function
 // =============================================================================
 
+// Visit function called by tp_traverse() to discover child objects
+// This is called for each object reference during traversal
+static int
+_parallel_gc_visit_and_enqueue(PyObject *op, void *arg)
+{
+    _PyParallelGCWorker *worker = (_PyParallelGCWorker *)arg;
+
+    // Skip non-GC objects (e.g., ints, strings, etc.)
+    if (!PyObject_IS_GC(op)) {
+        return 0;
+    }
+
+    PyGC_Head *gc = _Py_AS_GC(op);
+
+    // Check if object has gc_refs > 0 (is a root or already marked reachable)
+    // We use gc_get_refs() which reads _gc_prev field
+    Py_ssize_t refs = gc_get_refs(gc);
+    if (refs <= 0) {
+        // Not a root and not yet marked as reachable
+        return 0;
+    }
+
+    // This is a reachable object - add to work queue for traversal
+    worker->objects_discovered++;
+
+    // Push onto worker's deque (returns void - always succeeds or grows deque)
+    _PyWSDeque_Push(&worker->deque, op);
+
+    return 0;  // Continue traversal
+}
+
 // Worker thread entry point
 static void *
 _parallel_gc_worker_thread(void *arg)
@@ -149,12 +180,24 @@ _parallel_gc_worker_thread(void *arg)
             }
 
             // Mark this object (increment counter for statistics)
-            // NOTE: For Step 3, we're just counting roots distributed to us
-            // We're NOT traversing children yet - that requires proper GIL handling
             worker->objects_marked++;
 
-            // TODO STEP 3b: Add proper GIL handling for object traversal
-            // For now, skip traversal to avoid segfaults
+            // ================================================================
+            // STEP 3b: Object traversal via tp_traverse()
+            // ================================================================
+            // Call tp_traverse to discover children and add them to work queue
+            // This is SAFE because:
+            // 1. Main thread holds GIL (in gc.collect())
+            // 2. All Python threads are blocked (waiting for GIL)
+            // 3. Object graph is frozen (no mutations)
+            // 4. tp_traverse() only reads object fields
+            traverseproc traverse = Py_TYPE(obj)->tp_traverse;
+            if (traverse != NULL) {
+                // Call tp_traverse with our visit callback
+                // The callback will add discovered children to our work queue
+                traverse(obj, (visitproc)_parallel_gc_visit_and_enqueue, worker);
+                worker->traversals_performed++;
+            }
         }
 
         // =======================================================================
@@ -211,6 +254,8 @@ _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
         worker->objects_marked = 0;
         worker->steal_attempts = 0;
         worker->steal_successes = 0;
+        worker->objects_discovered = 0;      // NEW: Step 3b
+        worker->traversals_performed = 0;    // NEW: Step 3b
         worker->steal_seed = (unsigned int)(i + 1);
         worker->par_gc = par_gc;
         worker->thread_id = i;
@@ -474,6 +519,23 @@ _PyGC_ParallelGetStats(PyInterpreterState *interp)
     }
     Py_DECREF(collections_succeeded_obj);
 
+    // NEW: Step 3b - Calculate total objects traversed (sum of all workers' discoveries)
+    unsigned long total_objects_traversed = 0;
+    for (size_t i = 0; i < par_gc->num_workers; i++) {
+        total_objects_traversed += par_gc->workers[i].objects_discovered;
+    }
+    PyObject *objects_traversed_obj = PyLong_FromUnsignedLong(total_objects_traversed);
+    if (objects_traversed_obj == NULL) {
+        Py_DECREF(result);
+        return NULL;
+    }
+    if (PyDict_SetItemString(result, "objects_traversed", objects_traversed_obj) < 0) {
+        Py_DECREF(objects_traversed_obj);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(objects_traversed_obj);
+
     // Add per-worker statistics
     PyObject *workers_list = PyList_New(par_gc->num_workers);
     if (workers_list == NULL) {
@@ -538,6 +600,39 @@ _PyGC_ParallelGetStats(PyInterpreterState *interp)
             return NULL;
         }
         Py_DECREF(steal_successes_obj);
+
+        // NEW: Step 3b traversal statistics
+        PyObject *objects_discovered_obj = PyLong_FromUnsignedLong(worker->objects_discovered);
+        if (objects_discovered_obj == NULL) {
+            Py_DECREF(worker_dict);
+            Py_DECREF(workers_list);
+            Py_DECREF(result);
+            return NULL;
+        }
+        if (PyDict_SetItemString(worker_dict, "objects_discovered", objects_discovered_obj) < 0) {
+            Py_DECREF(objects_discovered_obj);
+            Py_DECREF(worker_dict);
+            Py_DECREF(workers_list);
+            Py_DECREF(result);
+            return NULL;
+        }
+        Py_DECREF(objects_discovered_obj);
+
+        PyObject *traversals_performed_obj = PyLong_FromUnsignedLong(worker->traversals_performed);
+        if (traversals_performed_obj == NULL) {
+            Py_DECREF(worker_dict);
+            Py_DECREF(workers_list);
+            Py_DECREF(result);
+            return NULL;
+        }
+        if (PyDict_SetItemString(worker_dict, "traversals_performed", traversals_performed_obj) < 0) {
+            Py_DECREF(traversals_performed_obj);
+            Py_DECREF(worker_dict);
+            Py_DECREF(workers_list);
+            Py_DECREF(result);
+            return NULL;
+        }
+        Py_DECREF(traversals_performed_obj);
 
         PyList_SET_ITEM(workers_list, i, worker_dict);
     }

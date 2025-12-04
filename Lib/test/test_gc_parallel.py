@@ -520,6 +520,88 @@ class TestParallelMarkingPhase5(unittest.TestCase):
             else:
                 gc.disable()
 
+    @support.cpython_only
+    def test_step3b_object_traversal(self):
+        """
+        Step 3b: Verify workers traverse object graphs and discover children.
+
+        This test checks that workers actually call tp_traverse() to discover
+        child objects, not just process the initial roots. This is the critical
+        step that makes parallel GC actually useful.
+        """
+        # Disable automatic GC to control when collections happen
+        was_enabled = gc.isenabled()
+        gc.disable()
+
+        try:
+            # Enable parallel GC with 4 workers (skip if already enabled)
+            config = gc.get_parallel_config()
+            if not config.get('enabled', False):
+                gc.enable_parallel(4)
+
+            # Force a full collection to clear out old objects
+            gc.collect()
+
+            # Create deep object graph:
+            # Root -> 10 level-1 children -> 100 level-2 grandchildren
+            # Total: 1 + 10 + 100 = 111 objects
+            root = {'level': 0, 'children': []}
+            for i in range(10):
+                child = {'level': 1, 'parent': root, 'children': []}
+                root['children'].append(child)
+                for j in range(10):
+                    grandchild = {'level': 2, 'parent': child, 'id': f'{i}_{j}'}
+                    child['children'].append(grandchild)
+
+            # Trigger GC collection on generation 0
+            gc.collect(0)
+
+            # Check stats after collection
+            stats = gc.get_parallel_stats()
+
+            # Step 3b verification: workers should traverse and discover children
+            if stats['collections_succeeded'] > 0:
+                # Parallel marking was used
+
+                # Should have distributed only the root (or few roots)
+                # but discovered many more objects via traversal
+                self.assertGreater(stats['roots_distributed'], 0,
+                                  "Should have distributed root objects")
+
+                # **KEY TEST**: Objects traversed should be MUCH larger than roots distributed
+                # With traversal, we expect to discover all 111 objects (root + children + grandchildren)
+                # Without traversal, we'd only see the root(s)
+                self.assertGreater(stats.get('objects_traversed', 0), 100,
+                                  "Workers should discover 100+ objects via tp_traverse(). "
+                                  "Currently only counting roots - need to implement traversal!")
+
+                # Verify workers actually performed traversals
+                worker_stats = stats['workers']
+                total_traversed = sum(w.get('objects_marked', 0) for w in worker_stats)
+                self.assertGreater(total_traversed, 100,
+                                  "Workers should have marked 100+ objects via traversal")
+
+                # Verify traversal statistics exist
+                for i, w in enumerate(worker_stats):
+                    # New fields for Step 3b
+                    if w.get('objects_marked', 0) > 0:
+                        # If worker marked objects, it should have performed traversals
+                        self.assertIn('traversals_performed', w,
+                                     f"Worker {i} should track traversals_performed")
+                        self.assertGreater(w.get('traversals_performed', 0), 0,
+                                         f"Worker {i} should have performed tp_traverse calls")
+
+            else:
+                # Fell back to serial - that's OK for now
+                self.skipTest("Parallel GC not used (fell back to serial)")
+
+        finally:
+            # Restore GC state
+            if was_enabled:
+                gc.enable()
+            else:
+                gc.disable()
+
 
 if __name__ == '__main__':
     unittest.main()

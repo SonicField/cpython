@@ -69,6 +69,8 @@ typedef struct {
     unsigned long objects_marked;
     unsigned long steal_attempts;
     unsigned long steal_successes;
+    unsigned long objects_discovered;     // Children found via tp_traverse
+    unsigned long traversals_performed;   // Number of tp_traverse calls
 
     // Random seed for steal victim selection
     unsigned int steal_seed;
