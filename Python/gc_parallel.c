@@ -362,7 +362,12 @@ _PyGC_ParallelStop(PyInterpreterState *interp)
         par_gc->workers[i].should_exit = 1;
     }
 
-    // Wait for workers to finish
+    // Wake up workers from mark_barrier so they can check should_exit and exit
+    // Workers check should_exit right after mark_barrier and break if set
+    // They will NOT reach done_barrier when exiting, so we only signal mark_barrier
+    _PyGCBarrier_Wait(&par_gc->mark_barrier);
+
+    // Wait for workers to finish (they exit after seeing should_exit)
     for (size_t i = 0; i < par_gc->num_workers; i++) {
         _PyParallelGCWorker *worker = &par_gc->workers[i];
 

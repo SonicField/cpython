@@ -25,6 +25,9 @@
 #include "pycore_time.h"          // _PyTime_Init()
 #include "pycore_uop.h"           // UOP_BUFFER_SIZE
 #include "pycore_uniqueid.h"      // _PyObject_FinalizePerThreadRefcounts()
+#ifdef Py_PARALLEL_GC
+#include "pycore_gc_parallel.h"   // _PyGC_ParallelFini()
+#endif
 
 
 /* --------------------------------------------------------------------------
@@ -808,6 +811,11 @@ interpreter_clear(PyInterpreterState *interp, PyThreadState *tstate)
     // All Python types must be destroyed before the last GC collection. Python
     // types create a reference cycle to themselves in their in their
     // PyTypeObject.tp_mro member (the tuple contains the type).
+
+#ifdef Py_PARALLEL_GC
+    /* Shutdown parallel GC workers before final collection */
+    _PyGC_ParallelFini(interp);
+#endif
 
     /* Last garbage collection on this interpreter */
     _PyGC_CollectNoFail(tstate);
