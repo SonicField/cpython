@@ -65,12 +65,28 @@ typedef struct {
     // Work-stealing deque for marking queue
     _PyWSDeque deque;
 
+    // Static slice assignment (for temporal locality)
+    // Each worker gets a contiguous portion of the GC list
+    // This preserves allocation order locality - objects allocated together
+    // tend to reference each other and stay on the same worker
+    PyGC_Head *slice_start;  // First object in this worker's slice (inclusive)
+    PyGC_Head *slice_end;    // End of slice (exclusive, or list head)
+
+    // Thread-local memory pool for deque arrays
+    // Pre-allocated to avoid calloc during collections
+    // Size: 256K entries = 2MB per worker (handles up to 256K objects per worker)
+    void *local_pool;           // Pre-allocated buffer
+    size_t local_pool_size;     // Size in entries (not bytes)
+    int local_pool_in_use;      // 1 if deque is using local_pool, 0 if using malloc'd array
+
     // Statistics (for debugging/profiling)
     unsigned long objects_marked;
     unsigned long steal_attempts;
     unsigned long steal_successes;
     unsigned long objects_discovered;     // Children found via tp_traverse
     unsigned long traversals_performed;   // Number of tp_traverse calls
+    unsigned long roots_in_slice;         // Roots found in this worker's slice
+    unsigned long pool_overflows;         // Times we exceeded local pool and fell back to malloc
 
     // Random seed for steal victim selection
     unsigned int steal_seed;
@@ -112,6 +128,10 @@ struct _PyParallelGCState {
     // Synchronizes all worker threads and the main thread at the end of
     // parallel collection
     _PyGCBarrier done_barrier;
+
+    // Synchronizes worker startup - ensures all workers are ready before
+    // ParallelStart returns (prevents race condition in Stop)
+    _PyGCBarrier startup_barrier;
 
     // Tracks the number of workers actively running. When this reaches zero
     // it is safe to destroy shared state.

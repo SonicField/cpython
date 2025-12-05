@@ -16,6 +16,7 @@ extern "C" {
 #include "pyatomic.h"                      // Atomic operations
 #include <stdint.h>                        // uintptr_t
 #include <stdlib.h>                        // calloc, free
+#include <string.h>                        // memset
 #include <assert.h>                        // assert
 
 // This implements the Chase-Lev work stealing deque first described in
@@ -107,6 +108,31 @@ _PyWSArray_Grow(_PyWSArray *arr, size_t top, size_t bot)
 // Initial size for work-stealing deque arrays
 static const size_t _Py_WSDEQUE_INITIAL_ARRAY_SIZE = 1 << 12;  // 4096 elements
 
+// Large initial size for parallel GC (avoids runtime growth in most cases)
+static const size_t _Py_WSDEQUE_LARGE_ARRAY_SIZE = 1 << 18;  // 262144 elements = 2MB
+
+// Create a WSArray using a pre-allocated buffer (no malloc during hot path)
+// The buffer must be at least sizeof(_PyWSArray) + sizeof(uintptr_t) * size bytes
+// Returns the array, or NULL if buffer is too small
+static inline _PyWSArray *
+_PyWSArray_NewWithBuffer(void *buffer, size_t buffer_bytes, size_t size)
+{
+    // size must be a power of two > 0
+    assert(size > 0 && (size & (size - 1)) == 0);
+
+    size_t required = sizeof(_PyWSArray) + sizeof(uintptr_t) * size;
+    if (buffer_bytes < required) {
+        return NULL;
+    }
+
+    _PyWSArray *arr = (_PyWSArray *)buffer;
+    arr->size = size;
+    arr->next = NULL;
+    // Zero the buffer for safety
+    memset(arr->buf, 0, sizeof(uintptr_t) * size);
+    return arr;
+}
+
 // Cache line size for padding to prevent false sharing
 // Ideally this would be determined based on architecture, but hardcoded for now.
 #define _Py_CACHELINE_SIZE 64
@@ -155,6 +181,46 @@ _PyWSDeque_Init(_PyWSDeque *deque)
     _Py_atomic_store_ssize_relaxed((Py_ssize_t *)&deque->top, 1);
     _Py_atomic_store_ssize_relaxed((Py_ssize_t *)&deque->bot, 1);
     _Py_atomic_store_int_relaxed(&deque->num_resizes, 0);
+}
+
+// Initialize deque with a pre-allocated buffer (for thread-local pools)
+// This avoids malloc/calloc during the hot path of GC collections.
+// The buffer must be large enough for sizeof(_PyWSArray) + sizeof(uintptr_t) * size
+// Returns 1 on success, 0 if buffer too small (falls back to malloc)
+static inline int
+_PyWSDeque_InitWithBuffer(_PyWSDeque *deque, void *buffer, size_t buffer_bytes, size_t size)
+{
+    _PyWSArray *arr = _PyWSArray_NewWithBuffer(buffer, buffer_bytes, size);
+    if (arr == NULL) {
+        // Buffer too small, fall back to regular init
+        _PyWSDeque_Init(deque);
+        return 0;
+    }
+
+    _Py_atomic_store_ptr_relaxed(&deque->arr, arr);
+    _Py_atomic_store_ssize_relaxed((Py_ssize_t *)&deque->top, 1);
+    _Py_atomic_store_ssize_relaxed((Py_ssize_t *)&deque->bot, 1);
+    _Py_atomic_store_int_relaxed(&deque->num_resizes, 0);
+    return 1;
+}
+
+// Finalize deque - but skip freeing if using external buffer
+static inline void
+_PyWSDeque_FiniExternal(_PyWSDeque *deque, void *external_buffer)
+{
+    _PyWSArray *arr = (_PyWSArray *)_Py_atomic_load_ptr(&deque->arr);
+
+    // If the current array is the external buffer, don't free it
+    // But we still need to free any grown arrays linked from arr->next
+    if ((void *)arr == external_buffer) {
+        if (arr->next != NULL) {
+            _PyWSArray_Destroy(arr->next);
+            arr->next = NULL;
+        }
+    } else {
+        // Array was replaced by growth, free the whole chain
+        _PyWSArray_Destroy(arr);
+    }
 }
 
 static inline void
