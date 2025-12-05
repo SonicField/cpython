@@ -504,11 +504,21 @@ gc_enable_parallel_impl(PyObject *module, int num_workers)
     // Get interpreter state
     PyInterpreterState *interp = _PyInterpreterState_GET();
 
-    // Check if already enabled
+    // Check if already initialized
     if (interp->gc.parallel_gc != NULL) {
-        PyErr_SetString(PyExc_RuntimeError,
-                       "Parallel GC already enabled");
-        return NULL;
+        // Already initialized - check if just disabled
+        if (_PyGC_ParallelIsEnabled(interp)) {
+            PyErr_SetString(PyExc_RuntimeError,
+                           "Parallel GC already enabled");
+            return NULL;
+        }
+        // Was disabled - re-enable and restart workers
+        _PyGC_ParallelSetEnabled(interp, 1);
+        if (_PyGC_ParallelStart(interp) < 0) {
+            _PyGC_ParallelSetEnabled(interp, 0);
+            return NULL;
+        }
+        Py_RETURN_NONE;
     }
 
     // Validate input
@@ -540,6 +550,57 @@ gc_enable_parallel_impl(PyObject *module, int num_workers)
         _PyGC_ParallelFini(interp);
         return NULL;
     }
+
+    Py_RETURN_NONE;
+#endif
+}
+
+
+/*[clinic input]
+gc.disable_parallel
+
+Disable parallel garbage collection.
+
+Stops worker threads and switches back to incremental/serial GC.
+Can be re-enabled later with gc.enable_parallel().
+
+Only available in GIL-based builds compiled with --with-parallel-gc.
+[clinic start generated code]*/
+
+static PyObject *
+gc_disable_parallel_impl(PyObject *module)
+/*[clinic end generated code: output=ad7defd925ecd9b6 input=912e72cb61fee6fe]*/
+{
+#ifndef Py_PARALLEL_GC
+    PyErr_SetString(PyExc_RuntimeError,
+                    "Parallel GC not available. "
+                    "Rebuild CPython with --with-parallel-gc to enable.");
+    return NULL;
+#else
+#ifdef Py_GIL_DISABLED
+    PyErr_SetString(PyExc_RuntimeError,
+                    "Parallel GC not available in free-threading builds.");
+    return NULL;
+#endif
+
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+
+    // Check if parallel GC is initialized
+    if (interp->gc.parallel_gc == NULL) {
+        // Not initialized - nothing to disable
+        Py_RETURN_NONE;
+    }
+
+    // Check if already disabled
+    if (!_PyGC_ParallelIsEnabled(interp)) {
+        Py_RETURN_NONE;
+    }
+
+    // Stop worker threads
+    _PyGC_ParallelStop(interp);
+
+    // Disable parallel GC (will fall back to serial/incremental)
+    _PyGC_ParallelSetEnabled(interp, 0);
 
     Py_RETURN_NONE;
 #endif
@@ -722,6 +783,7 @@ static PyMethodDef GcMethods[] = {
     GC_UNFREEZE_METHODDEF
     GC_GET_FREEZE_COUNT_METHODDEF
     GC_ENABLE_PARALLEL_METHODDEF
+    GC_DISABLE_PARALLEL_METHODDEF
     GC_GET_PARALLEL_CONFIG_METHODDEF
     GC_GET_PARALLEL_STATS_METHODDEF
     {NULL,      NULL}           /* Sentinel */

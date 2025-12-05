@@ -156,6 +156,9 @@ PyAPI_FUNC(void) _PyGC_ParallelStop(PyInterpreterState *interp);
 // Check if parallel GC is enabled
 PyAPI_FUNC(int) _PyGC_ParallelIsEnabled(PyInterpreterState *interp);
 
+// Enable or disable parallel GC at runtime (workers must be started/stopped separately)
+PyAPI_FUNC(void) _PyGC_ParallelSetEnabled(PyInterpreterState *interp, int enabled);
+
 // Get current configuration
 PyAPI_FUNC(PyObject *) _PyGC_ParallelGetConfig(PyInterpreterState *interp);
 

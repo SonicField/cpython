@@ -656,6 +656,29 @@ exit:
     return return_value;
 }
 
+PyDoc_STRVAR(gc_disable_parallel__doc__,
+"disable_parallel($module, /)\n"
+"--\n"
+"\n"
+"Disable parallel garbage collection.\n"
+"\n"
+"Stops worker threads and switches back to incremental/serial GC.\n"
+"Can be re-enabled later with gc.enable_parallel().\n"
+"\n"
+"Only available in GIL-based builds compiled with --with-parallel-gc.");
+
+#define GC_DISABLE_PARALLEL_METHODDEF    \
+    {"disable_parallel", (PyCFunction)gc_disable_parallel, METH_NOARGS, gc_disable_parallel__doc__},
+
+static PyObject *
+gc_disable_parallel_impl(PyObject *module);
+
+static PyObject *
+gc_disable_parallel(PyObject *module, PyObject *Py_UNUSED(ignored))
+{
+    return gc_disable_parallel_impl(module);
+}
+
 PyDoc_STRVAR(gc_get_parallel_config__doc__,
 "get_parallel_config($module, /)\n"
 "--\n"
@@ -711,4 +734,4 @@ gc_get_parallel_stats(PyObject *module, PyObject *Py_UNUSED(ignored))
 {
     return gc_get_parallel_stats_impl(module);
 }
-/*[clinic end generated code: output=1fc5775060d75fa6 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=71dfafdf34121105 input=a9049054013a1b77]*/

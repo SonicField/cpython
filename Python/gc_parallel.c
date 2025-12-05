@@ -450,6 +450,15 @@ _PyGC_ParallelIsEnabled(PyInterpreterState *interp)
     return (par_gc != NULL && par_gc->enabled);
 }
 
+void
+_PyGC_ParallelSetEnabled(PyInterpreterState *interp, int enabled)
+{
+    _PyParallelGCState *par_gc = interp->gc.parallel_gc;
+    if (par_gc != NULL) {
+        par_gc->enabled = enabled;
+    }
+}
+
 PyObject *
 _PyGC_ParallelGetConfig(PyInterpreterState *interp)
 {
