@@ -33,6 +33,56 @@ gc_get_refs(PyGC_Head *g)
 }
 
 // =============================================================================
+// Atomic Marking Helpers for Parallel GC
+// =============================================================================
+//
+// During parallel marking, we use the COLLECTING flag in _gc_prev to track
+// which objects have been visited. The algorithm is:
+//
+// 1. Before parallel marking: All objects in collection set have COLLECTING=1
+// 2. During marking: Workers atomically clear COLLECTING to mark as reachable
+// 3. After marking: Objects still with COLLECTING=1 are unreachable
+//
+// We use compare-and-swap (CAS) to atomically mark objects, ensuring each
+// object is only processed once even with concurrent workers.
+
+// Check if object has COLLECTING flag set (is in collection set and not yet marked)
+static inline int
+gc_is_collecting_atomic(PyGC_Head *gc)
+{
+    uintptr_t prev = _Py_atomic_load_uintptr_relaxed(&gc->_gc_prev);
+    return (prev & _PyGC_PREV_MASK_COLLECTING) != 0;
+}
+
+// Atomically try to mark object as reachable by clearing COLLECTING flag.
+// Returns 1 if we successfully marked it (we should process it).
+// Returns 0 if already marked by another worker (skip it).
+static inline int
+gc_try_mark_reachable_atomic(PyGC_Head *gc)
+{
+    // Read current value
+    uintptr_t prev = _Py_atomic_load_uintptr_relaxed(&gc->_gc_prev);
+
+    // Check if COLLECTING flag is set
+    if (!(prev & _PyGC_PREV_MASK_COLLECTING)) {
+        // Already marked reachable by another worker
+        return 0;
+    }
+
+    // Try to clear COLLECTING flag atomically
+    uintptr_t new_prev = prev & ~_PyGC_PREV_MASK_COLLECTING;
+
+    // CAS: Only succeed if value hasn't changed
+    int success = _Py_atomic_compare_exchange_uintptr(
+        &gc->_gc_prev,
+        &prev,
+        new_prev
+    );
+
+    return success;
+}
+
+// =============================================================================
 // Barrier Synchronization
 // =============================================================================
 
@@ -80,6 +130,12 @@ _PyGCBarrier_Wait(_PyGCBarrier *barrier)
 
 // Visit function called by tp_traverse() to discover child objects
 // This is called for each object reference during traversal
+//
+// IMPORTANT: We use atomic CAS to mark objects as reachable. The algorithm:
+// 1. Check if object is in collection set (has COLLECTING flag)
+// 2. Atomically try to clear COLLECTING flag (marks as reachable)
+// 3. If CAS succeeds, we claimed this object - enqueue for traversal
+// 4. If CAS fails, another worker already claimed it - skip
 static int
 _parallel_gc_visit_and_enqueue(PyObject *op, void *arg)
 {
@@ -92,18 +148,18 @@ _parallel_gc_visit_and_enqueue(PyObject *op, void *arg)
 
     PyGC_Head *gc = _Py_AS_GC(op);
 
-    // Check if object has gc_refs > 0 (is a root or already marked reachable)
-    // We use gc_get_refs() which reads _gc_prev field
-    Py_ssize_t refs = gc_get_refs(gc);
-    if (refs <= 0) {
-        // Not a root and not yet marked as reachable
+    // Check if object is in collection set and try to mark as reachable
+    // Objects not in collection set (COLLECTING flag not set) are either:
+    // - In a different generation (skip)
+    // - Already marked reachable by another worker (skip)
+    if (!gc_try_mark_reachable_atomic(gc)) {
+        // Object not in collection set, or already marked by another worker
         return 0;
     }
 
-    // This is a reachable object - add to work queue for traversal
+    // We successfully marked this object as reachable
+    // Add to work queue for traversal of its children
     worker->objects_discovered++;
-
-    // Push onto worker's deque (returns void - always succeeds or grows deque)
     _PyWSDeque_Push(&worker->deque, op);
 
     return 0;  // Continue traversal
@@ -725,9 +781,13 @@ _PyGC_ParallelMoveUnreachable(
         Py_ssize_t refs = gc_get_refs(gc);
 
         if (refs > 0) {
-            // This is a root - push to worker's deque
+            // This is a root - mark as reachable and push to worker's deque
             PyObject *op = _Py_FROM_GC(gc);
             _PyParallelGCWorker *worker = &par_gc->workers[worker_idx];
+
+            // Mark root as reachable by clearing COLLECTING flag
+            // (This must be done BEFORE workers start, so no CAS needed here)
+            gc->_gc_prev &= ~_PyGC_PREV_MASK_COLLECTING;
 
             _PyWSDeque_Push(&worker->deque, op);
 
@@ -757,28 +817,64 @@ _PyGC_ParallelMoveUnreachable(
     // Wait for workers to finish (they'll signal done_barrier when done)
     _PyGCBarrier_Wait(&par_gc->done_barrier);
 
-    // Workers have finished processing their deques
-    // For Step 3, we just tested that workers can process roots
-    // We didn't actually do GC collection, so fall back to serial
-    // Increment success counter anyway to show parallel attempt worked
+    // ==========================================================================
+    // STEP 7: Sweep - move unmarked objects to unreachable list
+    // ==========================================================================
+    //
+    // After parallel marking, objects are in two states:
+    // - COLLECTING flag cleared: reachable (visited by workers)
+    // - COLLECTING flag still set: unreachable (never visited)
+    //
+    // We sweep through the young list single-threaded:
+    // 1. Reachable objects: restore _gc_prev as doubly-linked list pointer
+    // 2. Unreachable objects: move to unreachable list
+
+    // Previous element in young list (for restoring _gc_prev pointers)
+    PyGC_Head *prev = young;
+    gc = _PyGCHead_NEXT(young);
+
+    // Flags for unreachable list (preserve old space bit)
+    uintptr_t flags = 2 | (gc->_gc_next & _PyGC_NEXT_MASK_OLD_SPACE_1);  // NEXT_MASK_UNREACHABLE = 2
+
+    while (gc != young) {
+        PyGC_Head *next = _PyGCHead_NEXT(gc);
+
+        if (gc_is_collecting_atomic(gc)) {
+            // Object still has COLLECTING flag - it's unreachable
+            // Move to unreachable list
+
+            // Unlink from young list (update prev's next pointer)
+            prev->_gc_next = gc->_gc_next;
+
+            // Add to unreachable list with NEXT_MASK_UNREACHABLE flag
+            PyGC_Head *last = (PyGC_Head *)(unreachable->_gc_prev);
+            last->_gc_next = flags | (uintptr_t)gc;
+            _PyGCHead_SET_PREV(gc, last);
+            gc->_gc_next = flags | (uintptr_t)unreachable;
+            unreachable->_gc_prev = (uintptr_t)gc;
+
+            // Don't advance prev - we removed current element
+        }
+        else {
+            // Object is reachable - restore _gc_prev as list pointer
+            _PyGCHead_SET_PREV(gc, prev);
+            prev = gc;
+        }
+
+        gc = next;
+    }
+
+    // Fix up young list tail
+    young->_gc_prev = (uintptr_t)prev;
+    // Clean up any pollution of list head next pointer flags
+    young->_gc_next &= _PyGC_PREV_MASK;
+    unreachable->_gc_next &= _PyGC_PREV_MASK;
+
+    // Update success counter
     par_gc->parallel_collections_succeeded++;
 
-    // ==========================================================================
-    // TODO STEP 3b-7: Actually perform parallel marking and collection
-    // ==========================================================================
-    // For Step 3, we verified infrastructure works (barriers, deques, workers)
-    // But we need to actually integrate with GC to collect garbage
-    // This requires:
-    // - Proper GIL handling for object access
-    // - Object traversal (visit children)
-    // - Move unreachable objects to 'unreachable' list
-    // - Integration with serial GC path
-    //
-    // For now, fall back to serial GC to actually collect objects
-
-    // Return 0 to use serial marking (prevents GC corruption)
-    // Note: stats show parallel_collections_succeeded++ to indicate we tried
-    return 0;
+    // Return 1 to indicate parallel marking was used successfully
+    return 1;
 }
 
 #endif // Py_PARALLEL_GC
