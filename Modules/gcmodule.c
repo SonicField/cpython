@@ -9,6 +9,9 @@
 #ifdef Py_PARALLEL_GC
 #include "pycore_gc_parallel.h"
 #endif
+#ifdef Py_GIL_DISABLED
+#include "pycore_gc_ft_parallel.h"
+#endif
 #include "pycore_object.h"      // _PyObject_IS_GC()
 #include "pycore_pystate.h"     // _PyInterpreterState_GET()
 
@@ -488,18 +491,64 @@ static PyObject *
 gc_enable_parallel_impl(PyObject *module, int num_workers)
 /*[clinic end generated code: output=073661d508bcbcd3 input=37a780bc7a3f4d65]*/
 {
-#ifndef Py_PARALLEL_GC
-    PyErr_SetString(PyExc_RuntimeError,
-                    "Parallel GC not available. "
-                    "Rebuild CPython with --with-parallel-gc to enable.");
-    return NULL;
-#else
 #ifdef Py_GIL_DISABLED
-    PyErr_SetString(PyExc_RuntimeError,
-                    "Parallel GC not available in free-threading builds. "
-                    "Free-threading already uses a concurrent GC implementation.");
-    return NULL;
-#endif
+    // FTP (free-threading) parallel GC
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+
+    // Validate input
+    if (num_workers < -1) {
+        PyErr_SetString(PyExc_ValueError, "num_workers must be >= -1");
+        return NULL;
+    }
+    if (num_workers > 64) {
+        PyErr_SetString(PyExc_ValueError, "num_workers must be <= 64");
+        return NULL;
+    }
+
+    // If already enabled with same settings, just return
+    if (interp->gc.parallel_gc_enabled && interp->gc.thread_pool != NULL) {
+        int current_workers = interp->gc.thread_pool->num_workers;
+        int requested_workers = (num_workers == -1) ?
+                               _PyGC_GetParallelWorkers(interp) : num_workers;
+        if (current_workers == requested_workers) {
+            Py_RETURN_NONE;  // Already enabled with same worker count
+        }
+        // Different worker count - need to reinitialize
+        _PyGC_ThreadPoolFini(interp);
+    }
+
+    // Determine actual worker count
+    int actual_workers;
+    if (num_workers == -1 || num_workers == 0) {
+        // Auto-detect
+        long ncpus = sysconf(_SC_NPROCESSORS_ONLN);
+        if (ncpus < 1) ncpus = 1;
+        actual_workers = (int)(ncpus / 2);
+        if (actual_workers < 2) actual_workers = 2;
+        if (actual_workers > 8) actual_workers = 8;
+    } else {
+        actual_workers = num_workers;
+    }
+
+    // Need at least 2 workers for parallelism
+    if (actual_workers < 2) {
+        actual_workers = 2;
+    }
+
+    // Initialize thread pool
+    if (_PyGC_ThreadPoolInit(interp, actual_workers) < 0) {
+        PyErr_SetString(PyExc_RuntimeError, "Failed to initialize GC thread pool");
+        return NULL;
+    }
+
+    // Set configuration
+    interp->gc.parallel_gc_enabled = 1;
+    interp->gc.parallel_gc_num_workers = actual_workers;
+
+    Py_RETURN_NONE;
+
+#elif defined(Py_PARALLEL_GC)
+    // GIL-based parallel GC (existing implementation)
 
     // Get interpreter state
     PyInterpreterState *interp = _PyInterpreterState_GET();
@@ -552,6 +601,12 @@ gc_enable_parallel_impl(PyObject *module, int num_workers)
     }
 
     Py_RETURN_NONE;
+#else
+    // No parallel GC available
+    PyErr_SetString(PyExc_RuntimeError,
+                    "Parallel GC not available. "
+                    "Use a free-threading build or --with-parallel-gc.");
+    return NULL;
 #endif
 }
 
@@ -571,18 +626,21 @@ static PyObject *
 gc_disable_parallel_impl(PyObject *module)
 /*[clinic end generated code: output=ad7defd925ecd9b6 input=912e72cb61fee6fe]*/
 {
-#ifndef Py_PARALLEL_GC
-    PyErr_SetString(PyExc_RuntimeError,
-                    "Parallel GC not available. "
-                    "Rebuild CPython with --with-parallel-gc to enable.");
-    return NULL;
-#else
 #ifdef Py_GIL_DISABLED
-    PyErr_SetString(PyExc_RuntimeError,
-                    "Parallel GC not available in free-threading builds.");
-    return NULL;
-#endif
+    // FTP (free-threading) parallel GC
+    PyInterpreterState *interp = _PyInterpreterState_GET();
 
+    // Finalize thread pool if active
+    if (interp->gc.thread_pool != NULL) {
+        _PyGC_ThreadPoolFini(interp);
+    }
+
+    interp->gc.parallel_gc_enabled = 0;
+    interp->gc.parallel_gc_num_workers = 0;
+    Py_RETURN_NONE;
+
+#elif defined(Py_PARALLEL_GC)
+    // GIL-based parallel GC
     PyInterpreterState *interp = _PyInterpreterState_GET();
 
     // Check if parallel GC is initialized
@@ -603,6 +661,12 @@ gc_disable_parallel_impl(PyObject *module)
     _PyGC_ParallelSetEnabled(interp, 0);
 
     Py_RETURN_NONE;
+#else
+    // No parallel GC available
+    PyErr_SetString(PyExc_RuntimeError,
+                    "Parallel GC not available. "
+                    "Use a free-threading build or --with-parallel-gc.");
+    return NULL;
 #endif
 }
 
@@ -630,45 +694,48 @@ gc_get_parallel_config_impl(PyObject *module)
         return NULL;
     }
 
-#ifndef Py_PARALLEL_GC
-    // Parallel GC not compiled in
-    if (PyDict_SetItemString(result, "available", Py_False) < 0) {
-        Py_DECREF(result);
-        return NULL;
-    }
-    if (PyDict_SetItemString(result, "enabled", Py_False) < 0) {
-        Py_DECREF(result);
-        return NULL;
-    }
-    PyObject *zero = PyLong_FromLong(0);
-    if (zero == NULL || PyDict_SetItemString(result, "num_workers", zero) < 0) {
-        Py_XDECREF(zero);
-        Py_DECREF(result);
-        return NULL;
-    }
-    Py_DECREF(zero);
-    return result;
-#else
 #ifdef Py_GIL_DISABLED
-    // Free-threading build - parallel GC not supported
-    if (PyDict_SetItemString(result, "available", Py_False) < 0) {
+    // FTP (free-threading) parallel GC
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+
+    if (PyDict_SetItemString(result, "available", Py_True) < 0) {
         Py_DECREF(result);
         return NULL;
     }
-    if (PyDict_SetItemString(result, "enabled", Py_False) < 0) {
+
+    PyObject *enabled = interp->gc.parallel_gc_enabled ? Py_True : Py_False;
+    if (PyDict_SetItemString(result, "enabled", enabled) < 0) {
         Py_DECREF(result);
         return NULL;
     }
-    PyObject *zero = PyLong_FromLong(0);
-    if (zero == NULL || PyDict_SetItemString(result, "num_workers", zero) < 0) {
-        Py_XDECREF(zero);
+
+    int num_workers = interp->gc.parallel_gc_enabled ?
+                      _PyGC_GetParallelWorkers(interp) : 0;
+    PyObject *workers = PyLong_FromLong(num_workers);
+    if (workers == NULL || PyDict_SetItemString(result, "num_workers", workers) < 0) {
+        Py_XDECREF(workers);
         Py_DECREF(result);
         return NULL;
     }
-    Py_DECREF(zero);
+    Py_DECREF(workers);
+
+    // Add threshold
+    size_t threshold = interp->gc.parallel_gc_threshold;
+    if (threshold == 0) {
+        threshold = _PyGC_PARALLEL_THRESHOLD_DEFAULT;
+    }
+    PyObject *threshold_obj = PyLong_FromSize_t(threshold);
+    if (threshold_obj == NULL || PyDict_SetItemString(result, "threshold", threshold_obj) < 0) {
+        Py_XDECREF(threshold_obj);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(threshold_obj);
+
     return result;
-#else
-    // Parallel GC available (GIL build with Py_PARALLEL_GC)
+
+#elif defined(Py_PARALLEL_GC)
+    // GIL-based parallel GC
     Py_DECREF(result);  // Free the dict we created earlier
 
     // Get interpreter state
@@ -676,7 +743,24 @@ gc_get_parallel_config_impl(PyObject *module)
 
     // Call the actual implementation
     return _PyGC_ParallelGetConfig(interp);
-#endif
+#else
+    // No parallel GC available
+    if (PyDict_SetItemString(result, "available", Py_False) < 0) {
+        Py_DECREF(result);
+        return NULL;
+    }
+    if (PyDict_SetItemString(result, "enabled", Py_False) < 0) {
+        Py_DECREF(result);
+        return NULL;
+    }
+    PyObject *zero = PyLong_FromLong(0);
+    if (zero == NULL || PyDict_SetItemString(result, "num_workers", zero) < 0) {
+        Py_XDECREF(zero);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(zero);
+    return result;
 #endif
 }
 
@@ -703,37 +787,81 @@ static PyObject *
 gc_get_parallel_stats_impl(PyObject *module)
 /*[clinic end generated code: output=bdc0714efc1df08c input=10079e4be8230ed3]*/
 {
-#ifndef Py_PARALLEL_GC
-    // Parallel GC not compiled in - return minimal dict
-    PyObject *result = PyDict_New();
-    if (result == NULL) {
-        return NULL;
-    }
-    if (PyDict_SetItemString(result, "enabled", Py_False) < 0) {
-        Py_DECREF(result);
-        return NULL;
-    }
-    return result;
-#else
 #ifdef Py_GIL_DISABLED
-    // Free-threading build - parallel GC not supported
-    PyObject *result = PyDict_New();
-    if (result == NULL) {
-        return NULL;
-    }
-    if (PyDict_SetItemString(result, "enabled", Py_False) < 0) {
-        Py_DECREF(result);
-        return NULL;
-    }
-    return result;
-#else
-    // Parallel GC available (GIL build with Py_PARALLEL_GC)
-    // Get interpreter state
+    // FTP (free-threading) parallel GC - return basic stats
     PyInterpreterState *interp = _PyInterpreterState_GET();
 
-    // Call the actual implementation
+    PyObject *result = PyDict_New();
+    if (result == NULL) {
+        return NULL;
+    }
+
+    PyObject *enabled = interp->gc.parallel_gc_enabled ? Py_True : Py_False;
+    if (PyDict_SetItemString(result, "enabled", enabled) < 0) {
+        Py_DECREF(result);
+        return NULL;
+    }
+
+    int num_workers = interp->gc.parallel_gc_enabled ?
+                      _PyGC_GetParallelWorkers(interp) : 0;
+    PyObject *workers = PyLong_FromLong(num_workers);
+    if (workers == NULL || PyDict_SetItemString(result, "num_workers", workers) < 0) {
+        Py_XDECREF(workers);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(workers);
+
+    return result;
+
+#elif defined(Py_PARALLEL_GC)
+    // GIL-based parallel GC
+    PyInterpreterState *interp = _PyInterpreterState_GET();
     return _PyGC_ParallelGetStats(interp);
+#else
+    // No parallel GC available
+    PyObject *result = PyDict_New();
+    if (result == NULL) {
+        return NULL;
+    }
+    if (PyDict_SetItemString(result, "enabled", Py_False) < 0) {
+        Py_DECREF(result);
+        return NULL;
+    }
+    return result;
 #endif
+}
+
+
+/*[clinic input]
+gc.set_parallel_threshold
+
+    threshold: Py_ssize_t
+
+Set the minimum number of roots before parallel GC is used.
+
+Only affects free-threading (GIL-disabled) builds.
+If threshold is 0, parallel GC is always used (when enabled).
+Default threshold is 10000.
+[clinic start generated code]*/
+
+static PyObject *
+gc_set_parallel_threshold_impl(PyObject *module, Py_ssize_t threshold)
+/*[clinic end generated code: output=7e8123a38d3bec0a input=3241e310f9fb3c3f]*/
+{
+#ifdef Py_GIL_DISABLED
+    if (threshold < 0) {
+        PyErr_SetString(PyExc_ValueError, "threshold must be >= 0");
+        return NULL;
+    }
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    interp->gc.parallel_gc_threshold = (size_t)threshold;
+    Py_RETURN_NONE;
+#else
+    (void)threshold;  // Suppress unused warning
+    PyErr_SetString(PyExc_NotImplementedError,
+                   "Parallel GC threshold only available in free-threading builds");
+    return NULL;
 #endif
 }
 
@@ -763,6 +891,239 @@ PyDoc_STRVAR(gc__doc__,
 "get_parallel_config() -- Return parallel GC configuration.\n"
 "get_parallel_stats() -- Return parallel GC statistics.\n");
 
+//=============================================================================
+// FTP Parallel GC Test APIs (debug builds only)
+//=============================================================================
+
+#if defined(Py_GIL_DISABLED) && defined(Py_DEBUG)
+#include "pycore_gc_ft_parallel.h"
+
+// gc._count_gc_pages() - Count GC pages for testing
+static PyObject *
+gc_count_gc_pages(PyObject *module, PyObject *Py_UNUSED(ignored))
+{
+    size_t count = _PyGC_TestCountPages();
+    return PyLong_FromSize_t(count);
+}
+
+// gc._test_page_assignment(num_pages, num_workers) - Test bucket filling
+static PyObject *
+gc_test_page_assignment(PyObject *module, PyObject *args)
+{
+    Py_ssize_t num_pages;
+    int num_workers;
+
+    if (!PyArg_ParseTuple(args, "ni", &num_pages, &num_workers)) {
+        return NULL;
+    }
+
+    if (num_pages < 0) {
+        PyErr_SetString(PyExc_ValueError, "num_pages must be non-negative");
+        return NULL;
+    }
+    if (num_workers <= 0) {
+        PyErr_SetString(PyExc_ValueError, "num_workers must be positive");
+        return NULL;
+    }
+
+    size_t *assignment = _PyGC_TestPageAssignment((size_t)num_pages, num_workers);
+    if (assignment == NULL) {
+        return PyErr_NoMemory();
+    }
+
+    PyObject *result = PyList_New(num_workers);
+    if (result == NULL) {
+        PyMem_RawFree(assignment);
+        return NULL;
+    }
+
+    for (int i = 0; i < num_workers; i++) {
+        PyObject *count = PyLong_FromSize_t(assignment[i]);
+        if (count == NULL) {
+            Py_DECREF(result);
+            PyMem_RawFree(assignment);
+            return NULL;
+        }
+        PyList_SET_ITEM(result, i, count);
+    }
+
+    PyMem_RawFree(assignment);
+    return result;
+}
+
+// gc._test_real_page_enumeration(num_workers) - Test REAL page enumeration
+// Stops the world, runs actual _PyGC_AssignPagesToBuckets(), returns results
+static PyObject *
+gc_test_real_page_enumeration(PyObject *module, PyObject *args)
+{
+    int num_workers;
+
+    if (!PyArg_ParseTuple(args, "i", &num_workers)) {
+        return NULL;
+    }
+
+    if (num_workers <= 0) {
+        PyErr_SetString(PyExc_ValueError, "num_workers must be positive");
+        return NULL;
+    }
+    if (num_workers > 64) {
+        PyErr_SetString(PyExc_ValueError, "num_workers must be <= 64");
+        return NULL;
+    }
+
+    size_t *data = _PyGC_TestRealPageEnumeration(num_workers);
+    if (data == NULL) {
+        return PyErr_NoMemory();
+    }
+
+    // Return dict with total_pages and bucket_sizes list
+    PyObject *bucket_sizes = PyList_New(num_workers);
+    if (bucket_sizes == NULL) {
+        PyMem_RawFree(data);
+        return NULL;
+    }
+
+    size_t total_in_buckets = 0;
+    for (int i = 0; i < num_workers; i++) {
+        size_t bucket_count = data[i + 1];
+        total_in_buckets += bucket_count;
+        PyObject *count = PyLong_FromSize_t(bucket_count);
+        if (count == NULL) {
+            Py_DECREF(bucket_sizes);
+            PyMem_RawFree(data);
+            return NULL;
+        }
+        PyList_SET_ITEM(bucket_sizes, i, count);
+    }
+
+    PyObject *result = Py_BuildValue(
+        "{s:n, s:n, s:O}",
+        "total_pages", (Py_ssize_t)data[0],
+        "pages_enumerated", (Py_ssize_t)total_in_buckets,
+        "bucket_sizes", bucket_sizes
+    );
+
+    Py_DECREF(bucket_sizes);
+    PyMem_RawFree(data);
+    return result;
+}
+
+// gc._test_parallel_mark(num_workers) - Test REAL parallel marking
+// Stops the world, assigns pages, runs parallel marking, returns results
+static PyObject *
+gc_test_parallel_mark(PyObject *module, PyObject *args)
+{
+    int num_workers;
+
+    if (!PyArg_ParseTuple(args, "i", &num_workers)) {
+        return NULL;
+    }
+
+    if (num_workers <= 0) {
+        PyErr_SetString(PyExc_ValueError, "num_workers must be positive");
+        return NULL;
+    }
+    if (num_workers > 64) {
+        PyErr_SetString(PyExc_ValueError, "num_workers must be <= 64");
+        return NULL;
+    }
+
+    size_t *data = _PyGC_TestParallelMark(num_workers);
+    if (data == NULL) {
+        return PyErr_NoMemory();
+    }
+
+    // Return dict with total_objects and per_worker_marked list
+    PyObject *per_worker_marked = PyList_New(num_workers);
+    if (per_worker_marked == NULL) {
+        PyMem_RawFree(data);
+        return NULL;
+    }
+
+    for (int i = 0; i < num_workers; i++) {
+        PyObject *count = PyLong_FromSize_t(data[i + 1]);
+        if (count == NULL) {
+            Py_DECREF(per_worker_marked);
+            PyMem_RawFree(data);
+            return NULL;
+        }
+        PyList_SET_ITEM(per_worker_marked, i, count);
+    }
+
+    PyObject *result = Py_BuildValue(
+        "{s:n, s:O}",
+        "total_objects", (Py_ssize_t)data[0],
+        "per_worker_marked", per_worker_marked
+    );
+
+    Py_DECREF(per_worker_marked);
+    PyMem_RawFree(data);
+    return result;
+}
+
+// Get thread pool statistics for testing
+static PyObject *
+gc_get_thread_pool_stats(PyObject *module, PyObject *args)
+{
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+
+    PyObject *result = PyDict_New();
+    if (result == NULL) {
+        return NULL;
+    }
+
+    int is_active = _PyGC_ThreadPoolIsActive(interp);
+    if (PyDict_SetItemString(result, "active", is_active ? Py_True : Py_False) < 0) {
+        Py_DECREF(result);
+        return NULL;
+    }
+
+    size_t threads_created = _PyGC_ThreadPoolGetThreadsCreated(interp);
+    PyObject *tc = PyLong_FromSize_t(threads_created);
+    if (tc == NULL || PyDict_SetItemString(result, "threads_created", tc) < 0) {
+        Py_XDECREF(tc);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(tc);
+
+    size_t collections = _PyGC_ThreadPoolGetCollectionsCompleted(interp);
+    PyObject *cc = PyLong_FromSize_t(collections);
+    if (cc == NULL || PyDict_SetItemString(result, "collections_completed", cc) < 0) {
+        Py_XDECREF(cc);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(cc);
+
+    return result;
+}
+
+#define GC_COUNT_GC_PAGES_METHODDEF \
+    {"_count_gc_pages", gc_count_gc_pages, METH_NOARGS, \
+     "Count GC pages (FTP test API)"},
+#define GC_TEST_PAGE_ASSIGNMENT_METHODDEF \
+    {"_test_page_assignment", gc_test_page_assignment, METH_VARARGS, \
+     "Test page assignment algorithm (FTP test API)"},
+#define GC_TEST_REAL_PAGE_ENUMERATION_METHODDEF \
+    {"_test_real_page_enumeration", gc_test_real_page_enumeration, METH_VARARGS, \
+     "Test REAL page enumeration - stops the world (FTP test API)"},
+#define GC_TEST_PARALLEL_MARK_METHODDEF \
+    {"_test_parallel_mark", gc_test_parallel_mark, METH_VARARGS, \
+     "Test REAL parallel marking - stops the world (FTP test API)"},
+#define GC_GET_THREAD_POOL_STATS_METHODDEF \
+    {"_get_thread_pool_stats", gc_get_thread_pool_stats, METH_NOARGS, \
+     "Get thread pool statistics (FTP test API)"},
+
+#else
+// Not FTP debug build - don't expose test APIs
+#define GC_COUNT_GC_PAGES_METHODDEF
+#define GC_TEST_PAGE_ASSIGNMENT_METHODDEF
+#define GC_TEST_REAL_PAGE_ENUMERATION_METHODDEF
+#define GC_TEST_PARALLEL_MARK_METHODDEF
+#define GC_GET_THREAD_POOL_STATS_METHODDEF
+#endif
+
 static PyMethodDef GcMethods[] = {
     GC_ENABLE_METHODDEF
     GC_DISABLE_METHODDEF
@@ -786,6 +1147,13 @@ static PyMethodDef GcMethods[] = {
     GC_DISABLE_PARALLEL_METHODDEF
     GC_GET_PARALLEL_CONFIG_METHODDEF
     GC_GET_PARALLEL_STATS_METHODDEF
+    GC_SET_PARALLEL_THRESHOLD_METHODDEF
+    // FTP parallel GC test APIs (debug builds only)
+    GC_COUNT_GC_PAGES_METHODDEF
+    GC_TEST_PAGE_ASSIGNMENT_METHODDEF
+    GC_TEST_REAL_PAGE_ENUMERATION_METHODDEF
+    GC_TEST_PARALLEL_MARK_METHODDEF
+    GC_GET_THREAD_POOL_STATS_METHODDEF
     {NULL,      NULL}           /* Sentinel */
 };
 

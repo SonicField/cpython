@@ -734,4 +734,77 @@ gc_get_parallel_stats(PyObject *module, PyObject *Py_UNUSED(ignored))
 {
     return gc_get_parallel_stats_impl(module);
 }
-/*[clinic end generated code: output=71dfafdf34121105 input=a9049054013a1b77]*/
+
+PyDoc_STRVAR(gc_set_parallel_threshold__doc__,
+"set_parallel_threshold($module, /, threshold)\n"
+"--\n"
+"\n"
+"Set the minimum number of roots before parallel GC is used.\n"
+"\n"
+"Only affects free-threading (GIL-disabled) builds.\n"
+"If threshold is 0, parallel GC is always used (when enabled).\n"
+"Default threshold is 10000.");
+
+#define GC_SET_PARALLEL_THRESHOLD_METHODDEF    \
+    {"set_parallel_threshold", _PyCFunction_CAST(gc_set_parallel_threshold), METH_FASTCALL|METH_KEYWORDS, gc_set_parallel_threshold__doc__},
+
+static PyObject *
+gc_set_parallel_threshold_impl(PyObject *module, Py_ssize_t threshold);
+
+static PyObject *
+gc_set_parallel_threshold(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObject *kwnames)
+{
+    PyObject *return_value = NULL;
+    #if defined(Py_BUILD_CORE) && !defined(Py_BUILD_CORE_MODULE)
+
+    #define NUM_KEYWORDS 1
+    static struct {
+        PyGC_Head _this_is_not_used;
+        PyObject_VAR_HEAD
+        Py_hash_t ob_hash;
+        PyObject *ob_item[NUM_KEYWORDS];
+    } _kwtuple = {
+        .ob_base = PyVarObject_HEAD_INIT(&PyTuple_Type, NUM_KEYWORDS)
+        .ob_hash = -1,
+        .ob_item = { &_Py_ID(threshold), },
+    };
+    #undef NUM_KEYWORDS
+    #define KWTUPLE (&_kwtuple.ob_base.ob_base)
+
+    #else  // !Py_BUILD_CORE
+    #  define KWTUPLE NULL
+    #endif  // !Py_BUILD_CORE
+
+    static const char * const _keywords[] = {"threshold", NULL};
+    static _PyArg_Parser _parser = {
+        .keywords = _keywords,
+        .fname = "set_parallel_threshold",
+        .kwtuple = KWTUPLE,
+    };
+    #undef KWTUPLE
+    PyObject *argsbuf[1];
+    Py_ssize_t threshold;
+
+    args = _PyArg_UnpackKeywords(args, nargs, NULL, kwnames, &_parser,
+            /*minpos*/ 1, /*maxpos*/ 1, /*minkw*/ 0, /*varpos*/ 0, argsbuf);
+    if (!args) {
+        goto exit;
+    }
+    {
+        Py_ssize_t ival = -1;
+        PyObject *iobj = _PyNumber_Index(args[0]);
+        if (iobj != NULL) {
+            ival = PyLong_AsSsize_t(iobj);
+            Py_DECREF(iobj);
+        }
+        if (ival == -1 && PyErr_Occurred()) {
+            goto exit;
+        }
+        threshold = ival;
+    }
+    return_value = gc_set_parallel_threshold_impl(module, threshold);
+
+exit:
+    return return_value;
+}
+/*[clinic end generated code: output=a1472aaf83ad30b8 input=a9049054013a1b77]*/

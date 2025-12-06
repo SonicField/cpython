@@ -1,0 +1,412 @@
+// Free-threading parallel garbage collector.
+// This extends gc_free_threading.c with parallel marking support.
+
+#ifndef Py_INTERNAL_GC_FT_PARALLEL_H
+#define Py_INTERNAL_GC_FT_PARALLEL_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#ifndef Py_BUILD_CORE
+#  error "this header requires Py_BUILD_CORE define"
+#endif
+
+#ifdef Py_GIL_DISABLED
+
+#include "pycore_gc.h"       // _PyGC_BITS_*
+#include "pycore_ws_deque.h" // Chase-Lev work-stealing deque
+
+// For barrier implementation we need pthread primitives
+#ifdef _POSIX_THREADS
+#include <pthread.h>
+#include <unistd.h>  // sysconf for CPU count
+#endif
+
+//-----------------------------------------------------------------------------
+// Barrier Synchronization for FTP Parallel GC
+//-----------------------------------------------------------------------------
+
+// A barrier for synchronizing N worker threads.
+// All N threads must reach the barrier before any can proceed.
+typedef struct {
+    unsigned int num_left;   // Threads remaining before barrier lifts
+    unsigned int capacity;   // Total number of threads
+    unsigned int epoch;      // Disambiguates spurious wakeups
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+} _PyGCFTBarrier;
+
+// Initialize barrier for capacity threads
+static inline void
+_PyGCFTBarrier_Init(_PyGCFTBarrier *barrier, int capacity)
+{
+    barrier->capacity = capacity;
+    barrier->num_left = capacity;
+    barrier->epoch = 0;
+    pthread_mutex_init(&barrier->lock, NULL);
+    pthread_cond_init(&barrier->cond, NULL);
+}
+
+// Finalize barrier resources
+static inline void
+_PyGCFTBarrier_Fini(_PyGCFTBarrier *barrier)
+{
+    pthread_cond_destroy(&barrier->cond);
+    pthread_mutex_destroy(&barrier->lock);
+}
+
+// Wait at barrier - blocks until all threads arrive
+static inline void
+_PyGCFTBarrier_Wait(_PyGCFTBarrier *barrier)
+{
+    pthread_mutex_lock(&barrier->lock);
+
+    unsigned int current_epoch = barrier->epoch;
+    barrier->num_left--;
+
+    if (barrier->num_left == 0) {
+        // Last thread to arrive - lift the barrier
+        barrier->epoch++;
+        barrier->num_left = barrier->capacity;
+        pthread_cond_broadcast(&barrier->cond);
+    } else {
+        // Wait until the barrier is lifted
+        while (barrier->epoch == current_epoch) {
+            pthread_cond_wait(&barrier->cond, &barrier->lock);
+        }
+    }
+
+    pthread_mutex_unlock(&barrier->lock);
+}
+
+//-----------------------------------------------------------------------------
+// Atomic GC bit operations for parallel marking
+//-----------------------------------------------------------------------------
+
+// Try to atomically set a GC bit on an object.
+// Returns 1 if this call set the bit (was previously 0).
+// Returns 0 if the bit was already set.
+// Uses compare-and-swap to ensure only one worker "wins".
+static inline int
+_PyGC_TrySetBit(PyObject *op, uint8_t bit)
+{
+    uint8_t old_bits = _Py_atomic_load_uint8_relaxed(&op->ob_gc_bits);
+    while (!(old_bits & bit)) {
+        uint8_t new_bits = old_bits | bit;
+        if (_Py_atomic_compare_exchange_uint8(
+                &op->ob_gc_bits, &old_bits, new_bits)) {
+            return 1;  // We set the bit
+        }
+        // CAS failed, old_bits now contains current value, retry
+    }
+    return 0;  // Bit was already set
+}
+
+// Try to atomically clear a GC bit on an object.
+// Returns 1 if this call cleared the bit (was previously 1).
+// Returns 0 if the bit was already clear.
+static inline int
+_PyGC_TryClearBit(PyObject *op, uint8_t bit)
+{
+    uint8_t old_bits = _Py_atomic_load_uint8_relaxed(&op->ob_gc_bits);
+    while (old_bits & bit) {
+        uint8_t new_bits = old_bits & ~bit;
+        if (_Py_atomic_compare_exchange_uint8(
+                &op->ob_gc_bits, &old_bits, new_bits)) {
+            return 1;  // We cleared the bit
+        }
+        // CAS failed, old_bits now contains current value, retry
+    }
+    return 0;  // Bit was already clear
+}
+
+// Atomically set a GC bit (fire-and-forget, for when we don't need return value).
+static inline void
+_PyGC_AtomicSetBit(PyObject *op, uint8_t bit)
+{
+    (void)_Py_atomic_or_uint8(&op->ob_gc_bits, bit);
+}
+
+// Atomically clear a GC bit (fire-and-forget, for when we don't need return value).
+static inline void
+_PyGC_AtomicClearBit(PyObject *op, uint8_t bit)
+{
+    (void)_Py_atomic_and_uint8(&op->ob_gc_bits, ~bit);
+}
+
+// Convenience functions for common operations
+
+// Try to mark object as ALIVE. Returns 1 if we were first to mark it.
+static inline int
+_PyGC_TryMarkAlive(PyObject *op)
+{
+    return _PyGC_TrySetBit(op, _PyGC_BITS_ALIVE);
+}
+
+// Check if object is marked ALIVE (atomic read).
+static inline int
+_PyGC_IsAlive(PyObject *op)
+{
+    return (_Py_atomic_load_uint8_relaxed(&op->ob_gc_bits) & _PyGC_BITS_ALIVE) != 0;
+}
+
+// Check if object is marked UNREACHABLE (atomic read).
+static inline int
+_PyGC_IsUnreachable(PyObject *op)
+{
+    return (_Py_atomic_load_uint8_relaxed(&op->ob_gc_bits) & _PyGC_BITS_UNREACHABLE) != 0;
+}
+
+//-----------------------------------------------------------------------------
+// Persistent Thread Pool for Parallel GC
+//-----------------------------------------------------------------------------
+
+// Work types for the thread pool
+typedef enum {
+    _PyGC_WORK_NONE = 0,        // No work pending
+    _PyGC_WORK_PROPAGATE,       // Propagate alive from roots
+    _PyGC_WORK_MARK_PAGES,      // Mark alive from page buckets
+    _PyGC_WORK_SHUTDOWN         // Shutdown workers
+} _PyGCWorkType;
+
+// Forward declarations
+struct _PyGCThreadPool;
+struct _PyGCPageBucket;
+
+// Per-worker state for parallel GC (define early so _PyGCWorkDescriptor can use it)
+typedef struct _PyGCWorkerState {
+    _PyWSDeque deque;        // Work-stealing deque for this worker
+    int worker_id;           // Worker identifier (0..num_workers-1)
+
+    // Statistics (updated atomically)
+    size_t objects_marked;   // Objects marked by this worker
+    size_t objects_stolen;   // Objects stolen from other workers
+    size_t steals_attempted; // Number of steal attempts
+} _PyGCWorkerState;
+
+// Work descriptor - describes work for a single collection
+typedef struct {
+    _PyGCWorkType type;
+
+    // For PROPAGATE work
+    PyObject **roots;           // Array of root objects (not owned)
+    size_t num_roots;           // Number of roots
+
+    // For MARK_PAGES work
+    struct _PyGCPageBucket *buckets;  // Page buckets (not owned)
+
+    // Shared worker state (deques, etc.)
+    _PyGCWorkerState *workers;        // Now uses the full typedef
+
+    // Result
+    volatile int error_flag;    // Set if any worker encounters an error
+
+    // Statistics
+    size_t *per_worker_marked;  // Per-worker objects marked (caller allocates)
+} _PyGCWorkDescriptor;
+
+// Persistent thread pool for parallel GC
+// Created once on gc.enable_parallel(), destroyed on gc.disable_parallel()
+//
+// Uses barrier synchronization like the GIL-based parallel GC:
+// - mark_barrier: Workers wait here until main signals work ready
+// - done_barrier: All workers (including main as worker 0) wait here when done
+//
+// This guarantees correct termination: barriers only release when ALL
+// participants arrive, ensuring no work is in flight.
+typedef struct _PyGCThreadPool {
+    int num_workers;            // Number of workers (including main thread as worker 0)
+    pthread_t *threads;         // Thread handles for workers 1..N-1
+
+    // Persistent worker states (allocated once, reused across collections)
+    _PyGCWorkerState *workers;  // Per-worker state including deques
+
+    // Barrier synchronization (like GIL-based parallel GC)
+    _PyGCFTBarrier mark_barrier;     // Workers wait here for work
+    _PyGCFTBarrier done_barrier;     // All workers wait here when done
+
+    // Worker control
+    volatile int shutdown;           // 1 = pool is shutting down
+
+    // Debug/testing counters (for assertions)
+    size_t threads_created;          // Total threads ever created (should equal num_workers-1)
+    size_t collections_completed;    // Number of GC collections processed
+} _PyGCThreadPool;
+
+// Thread pool management functions
+PyAPI_FUNC(int) _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers);
+PyAPI_FUNC(void) _PyGC_ThreadPoolFini(PyInterpreterState *interp);
+PyAPI_FUNC(int) _PyGC_ThreadPoolIsActive(PyInterpreterState *interp);
+
+// Get thread pool statistics for testing
+PyAPI_FUNC(size_t) _PyGC_ThreadPoolGetThreadsCreated(PyInterpreterState *interp);
+PyAPI_FUNC(size_t) _PyGC_ThreadPoolGetCollectionsCompleted(PyInterpreterState *interp);
+
+//-----------------------------------------------------------------------------
+// Page-based work distribution
+//-----------------------------------------------------------------------------
+
+// A page assignment for a single worker
+typedef struct _PyGCPageBucket {
+    mi_page_t **pages;       // Array of page pointers
+    size_t num_pages;        // Number of pages assigned
+    size_t capacity;         // Allocated capacity
+} _PyGCPageBucket;
+
+// State for page-based parallel GC
+typedef struct {
+    int num_workers;
+    _PyGCPageBucket *buckets;     // One bucket per worker
+    _PyGCWorkerState *workers;    // Per-worker state (including deques)
+    pthread_t *threads;           // Thread handles (workers 1..N-1)
+
+    // Barriers for phase synchronization
+    _PyGCFTBarrier phase_barrier;  // Sync between GC phases
+    _PyGCFTBarrier done_barrier;   // Sync at end of parallel work
+
+    // Flags
+    volatile int error_flag;       // Set if any worker encounters an error
+    volatile int workers_done;     // Count of workers that finished
+
+    // Statistics
+    size_t total_pages;
+    size_t total_objects;
+    size_t *per_worker_marked;    // Per-worker objects marked (saved before free)
+} _PyGCFTParState;
+
+//-----------------------------------------------------------------------------
+// Page counting and assignment
+//-----------------------------------------------------------------------------
+
+// Count total GC pages across all heaps in the interpreter.
+// Must be called with world stopped.
+PyAPI_FUNC(size_t) _PyGC_CountPages(PyInterpreterState *interp);
+
+// Assign pages to worker buckets using sequential filling.
+// Returns 0 on success, -1 on error.
+// Must be called with world stopped.
+PyAPI_FUNC(int) _PyGC_AssignPagesToBuckets(
+    PyInterpreterState *interp,
+    _PyGCFTParState *state);
+
+// Free resources used by page buckets.
+PyAPI_FUNC(void) _PyGC_FreeBuckets(_PyGCFTParState *state);
+
+//-----------------------------------------------------------------------------
+// Parallel marking (Phase 1: mark alive)
+//-----------------------------------------------------------------------------
+
+// Run parallel mark-alive phase.
+// Each worker processes its assigned pages and uses work-stealing
+// for transitively discovered objects.
+PyAPI_FUNC(int) _PyGC_ParallelMarkAlive(
+    PyInterpreterState *interp,
+    _PyGCFTParState *state);
+
+// Parallel propagation from roots.
+// Takes initial roots (already marked alive) and transitively marks
+// all reachable objects as alive using parallel workers.
+// This is the integration point for gc_mark_alive_from_roots().
+PyAPI_FUNC(int) _PyGC_ParallelPropagateAlive(
+    PyInterpreterState *interp,
+    PyObject **initial_roots,
+    size_t num_roots,
+    int num_workers);
+
+// Parallel propagation using persistent thread pool.
+// Same as _PyGC_ParallelPropagateAlive but uses the thread pool
+// instead of spawning new threads per collection.
+// Requires thread pool to be initialized first.
+PyAPI_FUNC(int) _PyGC_ParallelPropagateAliveWithPool(
+    PyInterpreterState *interp,
+    PyObject **initial_roots,
+    size_t num_roots,
+    int num_workers);
+
+// Default threshold for parallel GC (minimum roots before using parallel)
+#define _PyGC_PARALLEL_THRESHOLD_DEFAULT 10000
+
+// Get number of parallel GC workers based on configuration.
+// Returns 0 if parallel GC is disabled, otherwise the worker count.
+static inline int
+_PyGC_GetParallelWorkers(PyInterpreterState *interp)
+{
+    struct _gc_runtime_state *gc = &interp->gc;
+    if (!gc->parallel_gc_enabled) {
+        return 0;
+    }
+    if (gc->parallel_gc_num_workers > 0) {
+        return gc->parallel_gc_num_workers;
+    }
+    // Auto: use half of available CPUs, minimum 2, maximum 8
+    // Note: os.cpu_count() uses sysconf(_SC_NPROCESSORS_ONLN) on Linux
+    long ncpus = sysconf(_SC_NPROCESSORS_ONLN);
+    if (ncpus < 1) ncpus = 1;
+    int workers = (int)(ncpus / 2);
+    if (workers < 2) workers = 2;
+    if (workers > 8) workers = 8;
+    return workers;
+}
+
+// Check if parallel GC should be used for given number of roots.
+// Returns worker count if parallel should be used, 0 otherwise.
+static inline int
+_PyGC_ShouldUseParallel(PyInterpreterState *interp, size_t num_roots)
+{
+    int workers = _PyGC_GetParallelWorkers(interp);
+    if (workers <= 1) {
+        return 0;
+    }
+    // Check threshold
+    struct _gc_runtime_state *gc = &interp->gc;
+    size_t threshold = gc->parallel_gc_threshold;
+    if (threshold == 0) {
+        threshold = _PyGC_PARALLEL_THRESHOLD_DEFAULT;
+    }
+    if (num_roots < threshold) {
+        return 0;  // Too few roots, overhead not worth it
+    }
+    return workers;
+}
+
+//-----------------------------------------------------------------------------
+// Testing / debugging APIs (exposed for unit tests)
+//-----------------------------------------------------------------------------
+
+#ifdef Py_DEBUG
+
+// Get page count for testing
+PyAPI_FUNC(size_t) _PyGC_TestCountPages(void);
+
+// Test page assignment algorithm
+// Returns array of page counts per worker (caller must free)
+PyAPI_FUNC(size_t *) _PyGC_TestPageAssignment(
+    size_t total_pages,
+    int num_workers);
+
+// Test atomic bit operations
+// Creates test object and runs concurrent bit operations
+// Returns 0 on success, -1 on failure
+PyAPI_FUNC(int) _PyGC_TestAtomicBitOps(int num_threads);
+
+// Test REAL page enumeration (stops the world, runs actual code path)
+// Returns array of [total_pages, bucket0, bucket1, ...] (num_workers+1 elements)
+// Caller must free with PyMem_RawFree. Returns NULL on error.
+PyAPI_FUNC(size_t *) _PyGC_TestRealPageEnumeration(int num_workers);
+
+// Test REAL parallel marking (stops the world, runs actual marking)
+// Returns array of [total_objects, worker0_marked, worker1_marked, ...]
+// (num_workers+1 elements). Caller must free with PyMem_RawFree.
+// Returns NULL on error.
+PyAPI_FUNC(size_t *) _PyGC_TestParallelMark(int num_workers);
+
+#endif  // Py_DEBUG
+
+#endif  // Py_GIL_DISABLED
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif  // Py_INTERNAL_GC_FT_PARALLEL_H

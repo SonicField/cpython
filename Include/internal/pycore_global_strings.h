@@ -807,6 +807,7 @@ struct _Py_global_strings {
         STRUCT_FOR_ID(term)
         STRUCT_FOR_ID(text)
         STRUCT_FOR_ID(third)
+        STRUCT_FOR_ID(threshold)
         STRUCT_FOR_ID(threading)
         STRUCT_FOR_ID(throw)
         STRUCT_FOR_ID(time)

@@ -5,6 +5,7 @@
 #include "pycore_dict.h"          // _PyInlineValuesSize()
 #include "pycore_frame.h"         // FRAME_CLEARED
 #include "pycore_freelist.h"      // _PyObject_ClearFreeLists()
+#include "pycore_gc_ft_parallel.h" // Parallel GC support
 #include "pycore_genobject.h"     // _PyGen_GetGeneratorFromFrame()
 #include "pycore_initconfig.h"    // _PyStatus_NO_MEMORY()
 #include "pycore_interp.h"        // PyInterpreterState.gc
@@ -1413,10 +1414,64 @@ gc_mark_alive_from_roots(PyInterpreterState *interp,
 #endif
     #undef MARK_ENQUEUE
 
-    // Use tp_traverse to find everything reachable from roots.
-    if (gc_propagate_alive(&mark_args) < 0) {
-        gc_abort_mark_alive(interp, state, &mark_args);
-        return -1;
+    // Count roots in stack and buffer first (needed for threshold check)
+    size_t num_roots = 0;
+    size_t buffer_count = gc_mark_buffer_len(&mark_args);
+    num_roots += buffer_count;
+
+    // Count objects in stack (linked list)
+    _PyObjectStackChunk *chunk = mark_args.stack.head;
+    while (chunk != NULL) {
+        num_roots += chunk->n;
+        chunk = chunk->prev;
+    }
+
+    // Check if parallel GC should be used (considers both enabled and threshold)
+    int num_workers = _PyGC_ShouldUseParallel(interp, num_roots);
+
+    if (num_workers > 1 && num_roots > 0) {
+        // Parallel propagation: drain stack into array and use parallel workers
+        // Allocate array for roots
+        PyObject **roots = PyMem_RawMalloc(num_roots * sizeof(PyObject *));
+        if (roots == NULL) {
+            gc_abort_mark_alive(interp, state, &mark_args);
+            return -1;
+        }
+
+        // Extract from buffer first
+        size_t idx = 0;
+        while (!gc_mark_buffer_is_empty(&mark_args)) {
+            roots[idx++] = gc_mark_buffer_pop(&mark_args);
+        }
+
+        // Extract from stack
+        PyObject *op;
+        while ((op = _PyObjectStack_Pop(&mark_args.stack)) != NULL) {
+            roots[idx++] = op;
+        }
+        assert(idx == num_roots);
+
+        // Run parallel propagation using thread pool if available
+        // Thread pool uses barrier synchronization for correct termination.
+        int err;
+        if (_PyGC_ThreadPoolIsActive(interp)) {
+            err = _PyGC_ParallelPropagateAliveWithPool(interp, roots, num_roots, num_workers);
+        } else {
+            err = _PyGC_ParallelPropagateAlive(interp, roots, num_roots, num_workers);
+        }
+        PyMem_RawFree(roots);
+
+        if (err < 0) {
+            gc_abort_mark_alive(interp, state, &mark_args);
+            return -1;
+        }
+    }
+    else {
+        // Serial propagation (original path)
+        if (gc_propagate_alive(&mark_args) < 0) {
+            gc_abort_mark_alive(interp, state, &mark_args);
+            return -1;
+        }
     }
 
     assert(mark_args.spans.size == 0);
