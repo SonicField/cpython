@@ -87,38 +87,28 @@ _PyGCFTBarrier_Wait(_PyGCFTBarrier *barrier)
 // Try to atomically set a GC bit on an object.
 // Returns 1 if this call set the bit (was previously 0).
 // Returns 0 if the bit was already set.
-// Uses compare-and-swap to ensure only one worker "wins".
+//
+// Uses atomic fetch-or instead of CAS loop because:
+// 1. GC bits only transition 0->1 during marking (monotonic)
+// 2. fetch-or is a single atomic instruction (no retry loop)
+// 3. Returns old value so we can detect if we were first
 static inline int
 _PyGC_TrySetBit(PyObject *op, uint8_t bit)
 {
-    uint8_t old_bits = _Py_atomic_load_uint8_relaxed(&op->ob_gc_bits);
-    while (!(old_bits & bit)) {
-        uint8_t new_bits = old_bits | bit;
-        if (_Py_atomic_compare_exchange_uint8(
-                &op->ob_gc_bits, &old_bits, new_bits)) {
-            return 1;  // We set the bit
-        }
-        // CAS failed, old_bits now contains current value, retry
-    }
-    return 0;  // Bit was already set
+    uint8_t old_bits = _Py_atomic_or_uint8(&op->ob_gc_bits, bit);
+    return !(old_bits & bit);  // Return 1 if bit was not set before
 }
 
 // Try to atomically clear a GC bit on an object.
 // Returns 1 if this call cleared the bit (was previously 1).
 // Returns 0 if the bit was already clear.
+//
+// Uses atomic fetch-and instead of CAS loop (same rationale as TrySetBit).
 static inline int
 _PyGC_TryClearBit(PyObject *op, uint8_t bit)
 {
-    uint8_t old_bits = _Py_atomic_load_uint8_relaxed(&op->ob_gc_bits);
-    while (old_bits & bit) {
-        uint8_t new_bits = old_bits & ~bit;
-        if (_Py_atomic_compare_exchange_uint8(
-                &op->ob_gc_bits, &old_bits, new_bits)) {
-            return 1;  // We cleared the bit
-        }
-        // CAS failed, old_bits now contains current value, retry
-    }
-    return 0;  // Bit was already clear
+    uint8_t old_bits = _Py_atomic_and_uint8(&op->ob_gc_bits, ~bit);
+    return (old_bits & bit) != 0;  // Return 1 if bit was set before
 }
 
 // Atomically set a GC bit (fire-and-forget, for when we don't need return value).
