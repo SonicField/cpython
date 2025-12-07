@@ -1383,22 +1383,81 @@ cleanup:
 // Forward declaration
 static int propagate_pool_visitproc(PyObject *obj, void *arg);
 
+// Flush local buffer to deque (when buffer is full or before stealing)
+// This is the only place where we pay deque push overhead.
+static void
+flush_local_buffer_to_deque(_PyGCWorkerState *worker)
+{
+    _PyGCLocalBuffer *local = &worker->local;
+    // Transfer items from local buffer to deque
+    // We flush in reverse order to maintain LIFO semantics when popping from deque
+    while (!_PyGCLocalBuffer_IsEmpty(local)) {
+        PyObject *obj = _PyGCLocalBuffer_Pop(local);
+        _PyWSDeque_Push(&worker->deque, obj);
+    }
+}
+
+// Refill local buffer from deque (when buffer is empty)
+// Pull a batch to amortize deque take overhead.
+static void
+refill_local_buffer_from_deque(_PyGCWorkerState *worker)
+{
+    _PyGCLocalBuffer *local = &worker->local;
+    // Pull up to half the buffer size to leave room for discovered children
+    const size_t max_pull = _PyGC_LOCAL_BUFFER_SIZE / 2;
+    size_t pulled = 0;
+
+    while (pulled < max_pull) {
+        PyObject *obj = _PyWSDeque_Take(&worker->deque);
+        if (obj == NULL) {
+            break;  // Deque is empty
+        }
+        _PyGCLocalBuffer_Push(local, obj);
+        pulled++;
+    }
+}
+
+// Steal a batch from another worker's deque
+// Returns number of objects stolen
+static size_t
+steal_batch_from_worker(_PyGCWorkerState *thief, _PyGCWorkerState *victim)
+{
+    _PyGCLocalBuffer *local = &thief->local;
+    // Steal up to half buffer size
+    const size_t max_steal = _PyGC_LOCAL_BUFFER_SIZE / 2;
+    size_t stolen = 0;
+
+    while (stolen < max_steal && !_PyGCLocalBuffer_IsFull(local)) {
+        PyObject *obj = _PyWSDeque_Steal(&victim->deque);
+        if (obj == NULL) {
+            break;  // Victim's deque is empty
+        }
+        _PyGCLocalBuffer_Push(local, obj);
+        stolen++;
+    }
+    return stolen;
+}
+
 // Work-stealing loop for a single worker
 // Called by both background workers and main thread (worker 0)
 static void
 thread_pool_do_work(_PyGCThreadPool *pool, int worker_id)
 {
     _PyGCWorkerState *worker = &pool->workers[worker_id];
+    _PyGCLocalBuffer *local = &worker->local;
 
-    // Work loop: process local deque + steal until no work left
+    // Ensure local buffer is initialized
+    _PyGCLocalBuffer_Init(local);
+
+    // Work loop: process local buffer + deque + steal until no work left
     int steal_attempts_since_work = 0;
     const int MAX_STEAL_ATTEMPTS = pool->num_workers * 2;
 
     while (1) {
-        // Process local deque (LIFO for cache locality)
-        PyObject *obj;
-        while ((obj = _PyWSDeque_Take(&worker->deque)) != NULL) {
+        // Phase 1: Process local buffer (fast path - no fences!)
+        while (!_PyGCLocalBuffer_IsEmpty(local)) {
             steal_attempts_since_work = 0;
+            PyObject *obj = _PyGCLocalBuffer_Pop(local);
             if (Py_TYPE(obj)->tp_traverse != NULL) {
                 Py_TYPE(obj)->tp_traverse(obj,
                     (visitproc)propagate_pool_visitproc,
@@ -1407,35 +1466,43 @@ thread_pool_do_work(_PyGCThreadPool *pool, int worker_id)
             worker->objects_marked++;
         }
 
-        // Local deque empty - try stealing
-        PyObject *stolen = NULL;
+        // Phase 2: Local buffer empty - try to refill from deque
+        refill_local_buffer_from_deque(worker);
+        if (!_PyGCLocalBuffer_IsEmpty(local)) {
+            continue;  // Got work from deque, continue processing
+        }
+
+        // Phase 3: Deque also empty - try stealing from other workers
+        size_t total_stolen = 0;
         for (int offset = 1; offset < pool->num_workers; offset++) {
-            int victim = (worker_id + offset) % pool->num_workers;
-            stolen = _PyWSDeque_Steal(&pool->workers[victim].deque);
-            if (stolen != NULL) {
-                worker->objects_stolen++;
-                break;
+            int victim_id = (worker_id + offset) % pool->num_workers;
+            _PyGCWorkerState *victim = &pool->workers[victim_id];
+
+            // First try victim's deque
+            size_t batch_stolen = steal_batch_from_worker(worker, victim);
+            if (batch_stolen > 0) {
+                worker->objects_stolen += batch_stolen;
+                total_stolen += batch_stolen;
+                break;  // Got work, stop looking
             }
             worker->steals_attempted++;
         }
 
-        if (stolen != NULL) {
+        if (total_stolen > 0) {
             steal_attempts_since_work = 0;
-            // Process stolen object
-            if (Py_TYPE(stolen)->tp_traverse != NULL) {
-                Py_TYPE(stolen)->tp_traverse(stolen,
-                    (visitproc)propagate_pool_visitproc,
-                    (void *)worker);
-            }
-            worker->objects_marked++;
-        } else {
-            // No work found
-            steal_attempts_since_work++;
-            if (steal_attempts_since_work >= MAX_STEAL_ATTEMPTS) {
-                break;  // Give up - all workers appear idle
-            }
+            continue;  // Process stolen work
+        }
+
+        // No work found anywhere
+        steal_attempts_since_work++;
+        if (steal_attempts_since_work >= MAX_STEAL_ATTEMPTS) {
+            break;  // Give up - all workers appear idle
         }
     }
+
+    // Flush any remaining local work back to deque before exiting
+    // (shouldn't happen normally, but ensures correctness)
+    flush_local_buffer_to_deque(worker);
 }
 
 // Background worker thread entry point
@@ -1475,6 +1542,7 @@ thread_pool_worker(void *arg)
 }
 
 // Visitproc for pool-based propagation
+// Pushes to local buffer (fast) and only overflows to deque when buffer is full
 static int
 propagate_pool_visitproc(PyObject *obj, void *arg)
 {
@@ -1483,9 +1551,14 @@ propagate_pool_visitproc(PyObject *obj, void *arg)
     }
     _PyGCWorkerState *worker = (_PyGCWorkerState *)arg;
 
-    // Try to mark as alive - if we win, push to our deque
+    // Try to mark as alive - if we win, push to our local buffer
     if (_PyGC_TryMarkAlive(obj)) {
-        _PyWSDeque_Push(&worker->deque, obj);
+        _PyGCLocalBuffer *local = &worker->local;
+        if (_PyGCLocalBuffer_IsFull(local)) {
+            // Local buffer full - flush to deque before pushing
+            flush_local_buffer_to_deque(worker);
+        }
+        _PyGCLocalBuffer_Push(local, obj);
     }
     return 0;
 }
@@ -1658,6 +1731,8 @@ _PyGC_ParallelPropagateAliveWithPool(PyInterpreterState *interp,
         pool->workers[i].objects_marked = 0;
         pool->workers[i].objects_stolen = 0;
         pool->workers[i].steals_attempted = 0;
+        // Initialize local buffer for this collection
+        _PyGCLocalBuffer_Init(&pool->workers[i].local);
         // Note: deques should be empty from last collection
     }
 

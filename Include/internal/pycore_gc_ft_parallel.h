@@ -128,9 +128,17 @@ _PyGC_AtomicClearBit(PyObject *op, uint8_t bit)
 // Convenience functions for common operations
 
 // Try to mark object as ALIVE. Returns 1 if we were first to mark it.
+// Uses check-first optimization: fast relaxed load before atomic RMW.
+// This is a significant win for objects visited multiple times (type objects,
+// builtins, shared containers) - we skip the expensive atomic RMW entirely.
 static inline int
 _PyGC_TryMarkAlive(PyObject *op)
 {
+    // Fast path: check if already marked (relaxed load - very cheap)
+    if (_Py_atomic_load_uint8_relaxed(&op->ob_gc_bits) & _PyGC_BITS_ALIVE) {
+        return 0;  // Already marked, skip atomic RMW
+    }
+    // Slow path: not marked yet (or race), do atomic set
     return _PyGC_TrySetBit(op, _PyGC_BITS_ALIVE);
 }
 
@@ -152,6 +160,10 @@ _PyGC_IsUnreachable(PyObject *op)
 // Persistent Thread Pool for Parallel GC
 //-----------------------------------------------------------------------------
 
+// Local work buffer size - chosen to amortize deque fence overhead
+// while maintaining good cache locality. 1024 objects = 8KB on 64-bit.
+#define _PyGC_LOCAL_BUFFER_SIZE 1024
+
 // Work types for the thread pool
 typedef enum {
     _PyGC_WORK_NONE = 0,        // No work pending
@@ -164,9 +176,52 @@ typedef enum {
 struct _PyGCThreadPool;
 struct _PyGCPageBucket;
 
+// Local work buffer for fast-path push/pop without deque fences.
+// Used as a stack (LIFO) for cache locality.
+typedef struct {
+    PyObject *items[_PyGC_LOCAL_BUFFER_SIZE];
+    size_t count;  // Number of items in buffer (0..1024)
+} _PyGCLocalBuffer;
+
+// Initialize local buffer
+static inline void
+_PyGCLocalBuffer_Init(_PyGCLocalBuffer *buf)
+{
+    buf->count = 0;
+}
+
+// Check if buffer is empty
+static inline int
+_PyGCLocalBuffer_IsEmpty(_PyGCLocalBuffer *buf)
+{
+    return buf->count == 0;
+}
+
+// Check if buffer is full
+static inline int
+_PyGCLocalBuffer_IsFull(_PyGCLocalBuffer *buf)
+{
+    return buf->count >= _PyGC_LOCAL_BUFFER_SIZE;
+}
+
+// Push to local buffer (caller must ensure not full)
+static inline void
+_PyGCLocalBuffer_Push(_PyGCLocalBuffer *buf, PyObject *obj)
+{
+    buf->items[buf->count++] = obj;
+}
+
+// Pop from local buffer (caller must ensure not empty)
+static inline PyObject *
+_PyGCLocalBuffer_Pop(_PyGCLocalBuffer *buf)
+{
+    return buf->items[--buf->count];
+}
+
 // Per-worker state for parallel GC (define early so _PyGCWorkDescriptor can use it)
 typedef struct _PyGCWorkerState {
     _PyWSDeque deque;        // Work-stealing deque for this worker
+    _PyGCLocalBuffer local;  // Fast local buffer (no fences needed)
     int worker_id;           // Worker identifier (0..num_workers-1)
 
     // Statistics (updated atomically)
