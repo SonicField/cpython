@@ -250,6 +250,15 @@ gc_decref(PyObject *op)
     op->ob_tid -= 1;
 }
 
+//-----------------------------------------------------------------------------
+// Atomic versions of gc_refs operations for parallel deduce_unreachable
+// These inline functions are now defined in pycore_gc_ft_parallel.h
+// The declarations there are used when multiple workers may be modifying
+// gc_refs concurrently.
+//-----------------------------------------------------------------------------
+
+// (Non-atomic versions for serial path remain below)
+
 static Py_ssize_t
 merge_refcount(PyObject *op, Py_ssize_t extra)
 {
@@ -1492,7 +1501,64 @@ deduce_unreachable_heap(PyInterpreterState *interp,
     // Identify objects that are directly reachable from outside the GC heap
     // by computing the difference between the refcount and the number of
     // incoming references.
-    gc_visit_heaps(interp, &update_refs, &state->base);
+
+    // Check if we should use parallel update_refs
+    int num_workers = _PyGC_ShouldUseParallel(interp, interp->gc.long_lived_total);
+    int using_parallel = 0;
+    _PyGCFTParState par_state = {0};
+
+    if (num_workers > 1) {
+        // Parallel path: use parallel update_refs and mark_heap
+        par_state.num_workers = num_workers;
+        par_state.buckets = NULL;
+        par_state.workers = NULL;
+        par_state.threads = NULL;
+        par_state.error_flag = 0;
+        par_state.workers_done = 0;
+        par_state.total_pages = 0;
+        par_state.total_objects = 0;
+        par_state.per_worker_marked = NULL;
+
+        // Assign pages to worker buckets
+        if (_PyGC_AssignPagesToBuckets(interp, &par_state) < 0) {
+            // Fallback to serial path on failure
+            gc_visit_heaps(interp, &update_refs, &state->base);
+        } else {
+            using_parallel = 1;
+
+            // Run parallel update_refs on thread pages
+            Py_ssize_t candidates = _PyGC_ParallelUpdateRefs(interp, &par_state);
+
+            if (candidates < 0) {
+                // Error - free buckets and fail
+                _PyGC_FreeBuckets(&par_state);
+                return -1;
+            }
+            state->candidates = candidates;
+
+            // Also visit the abandoned pool (pages from dead threads)
+            // The parallel version only visits live thread heaps, not abandoned.
+            // Offset computation matches gc_visit_heaps_lock_held.
+            Py_ssize_t offset_base = 0;
+            if (_PyMem_DebugEnabled()) {
+                offset_base += 2 * sizeof(size_t);
+            }
+            Py_ssize_t offset_pre = offset_base + 2 * sizeof(PyObject*);
+
+            HEAD_LOCK(&_PyRuntime);
+            mi_abandoned_pool_t *pool = &interp->mimalloc.abandoned_pool;
+            state->base.offset = offset_base;
+            _mi_abandoned_pool_visit_blocks(pool, _Py_MIMALLOC_HEAP_GC, true,
+                                            update_refs, &state->base);
+            state->base.offset = offset_pre;
+            _mi_abandoned_pool_visit_blocks(pool, _Py_MIMALLOC_HEAP_GC_PRE, true,
+                                            update_refs, &state->base);
+            HEAD_UNLOCK(&_PyRuntime);
+        }
+    } else {
+        // Serial path
+        gc_visit_heaps(interp, &update_refs, &state->base);
+    }
 
 #ifdef GC_DEBUG
     // Check that all objects are marked as unreachable and that the computed
@@ -1505,7 +1571,36 @@ deduce_unreachable_heap(PyInterpreterState *interp,
 
     // Transitively mark reachable objects by clearing the
     // _PyGC_BITS_UNREACHABLE flag.
-    if (gc_visit_heaps(interp, &mark_heap_visitor, &state->base) < 0) {
+    int mark_result;
+    if (using_parallel) {
+        // Parallel path for mark_heap_visitor
+        mark_result = _PyGC_ParallelMarkHeap(interp, &par_state,
+                                              state->skip_deferred_objects);
+
+        // Also mark the abandoned pool (serial, since it's typically small)
+        Py_ssize_t offset_base = 0;
+        if (_PyMem_DebugEnabled()) {
+            offset_base += 2 * sizeof(size_t);
+        }
+        Py_ssize_t offset_pre = offset_base + 2 * sizeof(PyObject*);
+
+        HEAD_LOCK(&_PyRuntime);
+        mi_abandoned_pool_t *pool = &interp->mimalloc.abandoned_pool;
+        state->base.offset = offset_base;
+        _mi_abandoned_pool_visit_blocks(pool, _Py_MIMALLOC_HEAP_GC, true,
+                                        mark_heap_visitor, state);
+        state->base.offset = offset_pre;
+        _mi_abandoned_pool_visit_blocks(pool, _Py_MIMALLOC_HEAP_GC_PRE, true,
+                                        mark_heap_visitor, state);
+        HEAD_UNLOCK(&_PyRuntime);
+
+        // Now free the buckets
+        _PyGC_FreeBuckets(&par_state);
+    } else {
+        mark_result = gc_visit_heaps(interp, &mark_heap_visitor, &state->base) < 0 ? -1 : 0;
+    }
+
+    if (mark_result < 0) {
         // On out-of-memory, restore the refcounts and bail out.
         gc_visit_heaps(interp, &restore_refs, &state->base);
         return -1;

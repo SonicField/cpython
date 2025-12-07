@@ -21,6 +21,7 @@ extern "C" {
 #ifdef _POSIX_THREADS
 #include <pthread.h>
 #include <unistd.h>  // sysconf for CPU count
+#include <sched.h>   // sched_yield for spin-wait
 #endif
 
 //-----------------------------------------------------------------------------
@@ -156,6 +157,20 @@ _PyGC_IsUnreachable(PyObject *op)
     return (_Py_atomic_load_uint8_relaxed(&op->ob_gc_bits) & _PyGC_BITS_UNREACHABLE) != 0;
 }
 
+// Try to mark object as reachable by clearing UNREACHABLE bit.
+// Returns 1 if we were the first to mark it (and should traverse).
+// Uses check-first optimization: fast relaxed load before atomic RMW.
+static inline int
+_PyGC_TryMarkReachable(PyObject *op)
+{
+    // Fast path: check if already reachable (relaxed load - very cheap)
+    if (!(_Py_atomic_load_uint8_relaxed(&op->ob_gc_bits) & _PyGC_BITS_UNREACHABLE)) {
+        return 0;  // Already reachable, skip atomic RMW
+    }
+    // Slow path: still unreachable (or race), do atomic clear
+    return _PyGC_TryClearBit(op, _PyGC_BITS_UNREACHABLE);
+}
+
 //-----------------------------------------------------------------------------
 // Persistent Thread Pool for Parallel GC
 //-----------------------------------------------------------------------------
@@ -223,6 +238,11 @@ typedef struct _PyGCWorkerState {
     _PyWSDeque deque;        // Work-stealing deque for this worker
     _PyGCLocalBuffer local;  // Fast local buffer (no fences needed)
     int worker_id;           // Worker identifier (0..num_workers-1)
+
+    // Thread-local memory pool for deque backing storage
+    // Pre-allocated once at gc.enable_parallel() time to avoid malloc during hot path
+    void *local_pool;        // Pre-allocated buffer for deque (2MB)
+    size_t local_pool_size;  // Size of local_pool in entries
 
     // Statistics (updated atomically)
     size_t objects_marked;   // Objects marked by this worker
@@ -368,6 +388,103 @@ PyAPI_FUNC(int) _PyGC_ParallelPropagateAliveWithPool(
     PyObject **initial_roots,
     size_t num_roots,
     int num_workers);
+
+//-----------------------------------------------------------------------------
+// Atomic gc_refs operations for parallel deduce_unreachable
+//-----------------------------------------------------------------------------
+// These are used when multiple workers may be modifying gc_refs concurrently.
+// gc_refs is stored in ob_tid during GC (when world is stopped).
+
+// Atomically decrement gc_refs (used by visit_decref in parallel mode)
+static inline void
+gc_decref_atomic(PyObject *op)
+{
+    // ob_tid is uintptr_t but we treat it as signed for gc_refs
+    // Decrement by 1 using atomic add of (uintptr_t)-1
+    _Py_atomic_add_uintptr(&op->ob_tid, (uintptr_t)-1);
+}
+
+// Atomically add to gc_refs (used by update_refs in parallel mode)
+static inline void
+gc_add_refs_atomic(PyObject *op, Py_ssize_t refs)
+{
+    _Py_atomic_add_uintptr(&op->ob_tid, (uintptr_t)refs);
+}
+
+// Atomically initialize gc_refs if not already unreachable
+// Returns 1 if we initialized (set unreachable bit), 0 if already set
+static inline int
+gc_maybe_init_refs_atomic(PyObject *op)
+{
+    // Use atomic try-set for unreachable bit
+    if (_PyGC_TrySetBit(op, _PyGC_BITS_UNREACHABLE)) {
+        // We set the bit, so we're responsible for zeroing ob_tid
+        // Use release semantics so other threads see the zero
+        _Py_atomic_store_uintptr_release(&op->ob_tid, 0);
+        return 1;
+    }
+    return 0;  // Already unreachable
+}
+
+// Wait until ob_tid has been initialized for gc_refs tracking.
+// Thread IDs are typically large values (> 1M on 64-bit systems).
+// gc_refs are small values (refcount - internal refs, typically < 100k).
+// We spin-wait until ob_tid looks like a valid gc_refs value.
+static inline void
+gc_wait_for_refs_init(PyObject *op)
+{
+    // Threshold to distinguish thread ID from gc_refs
+    // Thread IDs are usually large (process_id << 32 | thread_number)
+    // gc_refs are small (object refcount - internal refs)
+    const uintptr_t THREAD_ID_THRESHOLD = 0x100000;  // 1M
+
+    int spins = 0;
+    while (1) {
+        uintptr_t val = _Py_atomic_load_uintptr_acquire(&op->ob_tid);
+        if (val < THREAD_ID_THRESHOLD) {
+            // Looks like a valid gc_refs value
+            break;
+        }
+        // Still looks like a thread ID, spin-wait
+        if (++spins > 1000) {
+            // Yield after many spins to avoid burning CPU
+            sched_yield();
+            spins = 0;
+        }
+    }
+}
+
+// Atomically get gc_refs (relaxed load for checking)
+static inline Py_ssize_t
+gc_get_refs_atomic(PyObject *op)
+{
+    return (Py_ssize_t)_Py_atomic_load_uintptr_relaxed(&op->ob_tid);
+}
+
+//-----------------------------------------------------------------------------
+// Parallel update_refs for deduce_unreachable_heap
+//-----------------------------------------------------------------------------
+
+// Run parallel update_refs phase.
+// This is the first phase of deduce_unreachable_heap.
+// Returns the total candidate count across all workers, or -1 on error.
+PyAPI_FUNC(Py_ssize_t) _PyGC_ParallelUpdateRefs(
+    PyInterpreterState *interp,
+    _PyGCFTParState *state);
+
+//-----------------------------------------------------------------------------
+// Parallel mark_heap_visitor for deduce_unreachable_heap
+//-----------------------------------------------------------------------------
+
+// Run parallel mark_heap_visitor phase.
+// Finds objects with gc_refs > 0 (external references) and transitively
+// clears the UNREACHABLE bit on all reachable objects.
+// This is the second phase of deduce_unreachable_heap (after update_refs).
+// Returns 0 on success, -1 on error.
+PyAPI_FUNC(int) _PyGC_ParallelMarkHeap(
+    PyInterpreterState *interp,
+    _PyGCFTParState *state,
+    int skip_deferred_objects);
 
 // Default threshold for parallel GC (minimum roots before using parallel)
 #define _PyGC_PARALLEL_THRESHOLD_DEFAULT 10000

@@ -17,6 +17,7 @@
 #include "pycore_pystate.h"
 #include "pycore_tstate.h"
 #include "pycore_object_alloc.h"
+#include "pycore_object_deferred.h"  // _PyObject_HasDeferredRefcount
 
 // For mimalloc heap access - includes mimalloc/types.h for mi_page_t, mi_heap_t
 #include "pycore_mimalloc.h"
@@ -1604,13 +1605,31 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
         return -1;
     }
 
-    // Initialize worker states and deques
+    // Initialize worker states and deques with thread-local memory pools
+    // Each worker gets a pre-allocated 2MB buffer to avoid malloc during hot path
+    size_t pool_entries = _Py_WSDEQUE_LARGE_ARRAY_SIZE;  // 262144 entries = 2MB on 64-bit
+    size_t pool_bytes = sizeof(_PyWSArray) + sizeof(uintptr_t) * pool_entries;
+
     for (int i = 0; i < num_workers; i++) {
-        pool->workers[i].worker_id = i;
-        pool->workers[i].objects_marked = 0;
-        pool->workers[i].objects_stolen = 0;
-        pool->workers[i].steals_attempted = 0;
-        _PyWSDeque_Init(&pool->workers[i].deque);
+        _PyGCWorkerState *worker = &pool->workers[i];
+        worker->worker_id = i;
+        worker->objects_marked = 0;
+        worker->objects_stolen = 0;
+        worker->steals_attempted = 0;
+
+        // Allocate thread-local pool (done once at enable time, not per-collection)
+        worker->local_pool = PyMem_RawCalloc(1, pool_bytes);
+        worker->local_pool_size = pool_entries;
+
+        if (worker->local_pool != NULL) {
+            // Initialize deque with pre-allocated buffer
+            _PyWSDeque_InitWithBuffer(&worker->deque, worker->local_pool,
+                                       pool_bytes, pool_entries);
+        } else {
+            // Fallback to regular init if pool allocation failed
+            worker->local_pool_size = 0;
+            _PyWSDeque_Init(&worker->deque);
+        }
     }
 
     // Create worker threads (they will wait at mark_barrier immediately)
@@ -1631,7 +1650,14 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
                 pthread_join(pool->threads[j], NULL);
             }
             for (int j = 0; j < num_workers; j++) {
-                _PyWSDeque_Fini(&pool->workers[j].deque);
+                // Use FiniExternal if using pre-allocated pool to avoid double-free
+                if (pool->workers[j].local_pool != NULL) {
+                    _PyWSDeque_FiniExternal(&pool->workers[j].deque,
+                                            pool->workers[j].local_pool);
+                    PyMem_RawFree(pool->workers[j].local_pool);
+                } else {
+                    _PyWSDeque_Fini(&pool->workers[j].deque);
+                }
             }
             PyMem_RawFree(pool->workers);
             PyMem_RawFree(pool->threads);
@@ -1671,7 +1697,14 @@ _PyGC_ThreadPoolFini(PyInterpreterState *interp)
     // Clean up worker states and deques
     if (pool->workers != NULL) {
         for (int i = 0; i < pool->num_workers; i++) {
-            _PyWSDeque_Fini(&pool->workers[i].deque);
+            // Use FiniExternal if using pre-allocated pool to avoid double-free
+            if (pool->workers[i].local_pool != NULL) {
+                _PyWSDeque_FiniExternal(&pool->workers[i].deque,
+                                        pool->workers[i].local_pool);
+                PyMem_RawFree(pool->workers[i].local_pool);
+            } else {
+                _PyWSDeque_Fini(&pool->workers[i].deque);
+            }
         }
         PyMem_RawFree(pool->workers);
     }
@@ -1764,6 +1797,757 @@ _PyGC_ParallelPropagateAliveWithPool(PyInterpreterState *interp,
     pool->collections_completed++;
 
     return 0;
+}
+
+
+//=============================================================================
+// Parallel Update Refs for deduce_unreachable_heap
+//=============================================================================
+//
+// This parallelizes the update_refs phase of deduce_unreachable_heap by:
+// 1. Phase 1: init_refs - each worker sets unreachable bit + zeros ob_tid
+// 2. [barrier]
+// 3. Phase 2: compute_refs - each worker adds refcount + calls visit_decref_atomic
+//
+// The barrier ensures all objects are initialized before any worker tries to
+// decrement gc_refs on cross-page references.
+
+// Per-worker state for parallel update_refs
+typedef struct {
+    _PyGCFTParState *par_state;
+    _PyGCFTBarrier *phase_barrier;  // Barrier between init_refs and compute_refs
+    Py_ssize_t candidates;          // Per-worker candidate count
+    int skip_deferred;              // Whether to skip deferred objects
+    int error;
+} _PyGCUpdateRefsWorkerArgs;
+
+// Atomic gc_refs operations are now inline in pycore_gc_ft_parallel.h:
+// - gc_decref_atomic()
+// - gc_add_refs_atomic()
+// - gc_maybe_init_refs_atomic()
+
+// Check if object is frozen (from gc_free_threading.c)
+static inline int
+par_gc_is_frozen(PyObject *op)
+{
+    return (op->ob_gc_bits & _PyGC_BITS_FROZEN) != 0;
+}
+
+// Check if object is alive (marked in mark_alive phase)
+static inline int
+par_gc_is_alive(PyObject *op)
+{
+    return (op->ob_gc_bits & _PyGC_BITS_ALIVE) != 0;
+}
+
+// Atomic version of visit_decref for parallel update_refs.
+// Assumes all objects have been pre-initialized (unreachable bit set, ob_tid = 0).
+static int
+par_visit_decref_atomic(PyObject *op, void *arg)
+{
+    (void)arg;  // unused
+    if (_PyObject_GC_IS_TRACKED(op)
+        && !_Py_IsImmortal(op)
+        && !par_gc_is_frozen(op)
+        && !par_gc_is_alive(op))
+    {
+        gc_decref_atomic(op);
+    }
+    return 0;
+}
+
+// Arguments for update_refs visitor callbacks
+typedef struct {
+    Py_ssize_t offset;
+    Py_ssize_t *candidates;  // Pointer to accumulator
+} _PyGCUpdateRefsInitArgs;
+
+typedef struct {
+    Py_ssize_t offset;
+} _PyGCUpdateRefsComputeArgs;
+
+// Visitor callback for Phase 1: Initialize gc_refs
+// Sets unreachable bit and zeros ob_tid
+static bool
+update_refs_init_visitor(const mi_heap_t *heap, const mi_heap_area_t *area,
+                         void *block, size_t block_size, void *arg)
+{
+    (void)heap;
+    (void)area;
+    (void)block_size;
+
+    _PyGCUpdateRefsInitArgs *args = (_PyGCUpdateRefsInitArgs *)arg;
+    PyObject *op = block_to_object(block, args->offset);
+    if (op == NULL) {
+        return true;  // Skip untracked/frozen
+    }
+
+    // Skip immortal objects
+    if (_Py_IsImmortal(op)) {
+        op->ob_tid = 0;
+        _PyObject_GC_UNTRACK(op);
+        _PyGC_AtomicClearBit(op, _PyGC_BITS_UNREACHABLE);
+        return true;
+    }
+
+    // Count as candidate
+    (*args->candidates)++;
+
+    // Skip already-alive objects
+    if (par_gc_is_alive(op)) {
+        return true;
+    }
+
+    // Initialize gc_refs atomically
+    gc_maybe_init_refs_atomic(op);
+
+    return true;
+}
+
+// Visitor callback for Phase 2: Compute gc_refs
+// Adds refcount and calls tp_traverse with visit_decref_atomic
+static bool
+update_refs_compute_visitor(const mi_heap_t *heap, const mi_heap_area_t *area,
+                            void *block, size_t block_size, void *arg)
+{
+    (void)heap;
+    (void)area;
+    (void)block_size;
+
+    _PyGCUpdateRefsComputeArgs *args = (_PyGCUpdateRefsComputeArgs *)arg;
+    PyObject *op = block_to_object(block, args->offset);
+    if (op == NULL) {
+        return true;  // Skip untracked/frozen
+    }
+
+    // Skip immortal objects (already handled in init phase)
+    if (_Py_IsImmortal(op)) {
+        return true;
+    }
+
+    // Skip already-alive objects
+    if (par_gc_is_alive(op)) {
+        return true;
+    }
+
+    // Get refcount (adjust for deferred references)
+    Py_ssize_t refcount = Py_REFCNT(op);
+    if (_PyObject_HasDeferredRefcount(op)) {
+        refcount -= _Py_REF_DEFERRED;
+    }
+
+    // Add refcount to gc_refs atomically
+    gc_add_refs_atomic(op, refcount);
+
+    // Subtract internal references by calling tp_traverse
+    traverseproc traverse = Py_TYPE(op)->tp_traverse;
+    if (traverse != NULL) {
+        traverse(op, par_visit_decref_atomic, NULL);
+    }
+
+    return true;
+}
+
+// Phase 1: Initialize gc_refs for each object in a page
+// Sets unreachable bit and zeros ob_tid
+static int
+update_refs_init_page(mi_page_t *page, _PyGCUpdateRefsWorkerArgs *args)
+{
+    assert(page != NULL);
+
+    mi_heap_area_t area;
+    _mi_heap_area_init(&area, page);
+
+    // Determine offset based on page tag
+    bool is_gc_pre = (page->tag == _Py_MIMALLOC_HEAP_GC_PRE);
+
+    _PyGCUpdateRefsInitArgs visitor_args = {
+        .offset = get_block_offset(is_gc_pre),
+        .candidates = &args->candidates
+    };
+
+    _mi_heap_area_visit_blocks(&area, page, update_refs_init_visitor, &visitor_args);
+
+    return 0;
+}
+
+// Phase 2: Compute gc_refs for each object in a page
+// Adds refcount and calls tp_traverse with visit_decref_atomic
+static int
+update_refs_compute_page(mi_page_t *page, _PyGCUpdateRefsWorkerArgs *args)
+{
+    (void)args;  // Not used in this phase
+    assert(page != NULL);
+
+    mi_heap_area_t area;
+    _mi_heap_area_init(&area, page);
+
+    // Determine offset based on page tag
+    bool is_gc_pre = (page->tag == _Py_MIMALLOC_HEAP_GC_PRE);
+
+    _PyGCUpdateRefsComputeArgs visitor_args = {
+        .offset = get_block_offset(is_gc_pre)
+    };
+
+    _mi_heap_area_visit_blocks(&area, page, update_refs_compute_visitor, &visitor_args);
+
+    return 0;
+}
+
+// Worker function for parallel update_refs
+static int
+update_refs_worker(_PyGCFTParState *state, int worker_id,
+                   _PyGCFTBarrier *phase_barrier,
+                   Py_ssize_t *out_candidates)
+{
+    assert(state != NULL);
+    assert(state->buckets != NULL);
+    assert(worker_id >= 0 && worker_id < state->num_workers);
+
+    _PyGCPageBucket *bucket = &state->buckets[worker_id];
+
+    _PyGCUpdateRefsWorkerArgs args = {
+        .par_state = state,
+        .phase_barrier = phase_barrier,
+        .candidates = 0,
+        .skip_deferred = 0,
+        .error = 0
+    };
+
+    // Phase 1: Initialize all objects in our pages
+    for (size_t i = 0; i < bucket->num_pages; i++) {
+        mi_page_t *page = bucket->pages[i];
+        if (update_refs_init_page(page, &args) < 0) {
+            return -1;
+        }
+    }
+
+    // Wait for all workers to finish init phase before compute phase
+    _PyGCFTBarrier_Wait(phase_barrier);
+
+    // Phase 2: Compute gc_refs for all objects in our pages
+    for (size_t i = 0; i < bucket->num_pages; i++) {
+        mi_page_t *page = bucket->pages[i];
+        if (update_refs_compute_page(page, &args) < 0) {
+            return -1;
+        }
+    }
+
+    *out_candidates = args.candidates;
+    return 0;
+}
+
+// Thread entry point for parallel update_refs worker
+typedef struct {
+    _PyGCFTParState *state;
+    _PyGCFTBarrier *phase_barrier;
+    int worker_id;
+    Py_ssize_t candidates;
+    int result;
+} _PyGCUpdateRefsThreadArgs;
+
+static void *
+update_refs_thread(void *arg)
+{
+    _PyGCUpdateRefsThreadArgs *targs = (_PyGCUpdateRefsThreadArgs *)arg;
+    targs->result = update_refs_worker(targs->state, targs->worker_id,
+                                       targs->phase_barrier,
+                                       &targs->candidates);
+    return NULL;
+}
+
+// Main entry point for parallel update_refs
+// Returns sum of candidates across all workers
+Py_ssize_t
+_PyGC_ParallelUpdateRefs(PyInterpreterState *interp,
+                         _PyGCFTParState *state)
+{
+    assert(interp != NULL);
+    assert(state != NULL);
+    assert(interp->stoptheworld.world_stopped);
+    assert(state->num_workers > 0);
+    assert(state->buckets != NULL);
+
+    // Initialize barrier for phase synchronization (all workers + main thread)
+    _PyGCFTBarrier phase_barrier;
+    _PyGCFTBarrier_Init(&phase_barrier, state->num_workers);
+
+    Py_ssize_t total_candidates = 0;
+
+    // For single worker, just run directly
+    if (state->num_workers == 1) {
+        Py_ssize_t candidates = 0;
+        if (update_refs_worker(state, 0, &phase_barrier, &candidates) < 0) {
+            _PyGCFTBarrier_Fini(&phase_barrier);
+            return -1;
+        }
+        _PyGCFTBarrier_Fini(&phase_barrier);
+        return candidates;
+    }
+
+    // Allocate thread handles for workers 1..N-1
+    pthread_t *threads = PyMem_RawCalloc(state->num_workers - 1, sizeof(pthread_t));
+    if (threads == NULL) {
+        _PyGCFTBarrier_Fini(&phase_barrier);
+        return -1;
+    }
+
+    // Allocate thread arguments
+    _PyGCUpdateRefsThreadArgs *thread_args = PyMem_RawCalloc(
+        state->num_workers, sizeof(_PyGCUpdateRefsThreadArgs));
+    if (thread_args == NULL) {
+        PyMem_RawFree(threads);
+        _PyGCFTBarrier_Fini(&phase_barrier);
+        return -1;
+    }
+
+    // Initialize thread args
+    for (int i = 0; i < state->num_workers; i++) {
+        thread_args[i].state = state;
+        thread_args[i].phase_barrier = &phase_barrier;
+        thread_args[i].worker_id = i;
+        thread_args[i].candidates = 0;
+        thread_args[i].result = 0;
+    }
+
+    // Spawn worker threads 1..N-1
+    int threads_created = 0;
+    for (int i = 1; i < state->num_workers; i++) {
+        int err = pthread_create(&threads[i - 1], NULL,
+                                 update_refs_thread, &thread_args[i]);
+        if (err != 0) {
+            // Failed to create thread - we'll run with fewer workers
+            break;
+        }
+        threads_created++;
+    }
+
+    // Worker 0 runs on main thread
+    Py_ssize_t w0_candidates = 0;
+    int result = update_refs_worker(state, 0, &phase_barrier, &w0_candidates);
+    thread_args[0].candidates = w0_candidates;
+    thread_args[0].result = result;
+
+    // Wait for spawned threads
+    for (int i = 0; i < threads_created; i++) {
+        pthread_join(threads[i], NULL);
+    }
+
+    // Sum up candidates and check for errors
+    int error = thread_args[0].result;
+    total_candidates = thread_args[0].candidates;
+
+    for (int i = 1; i <= threads_created; i++) {
+        if (thread_args[i].result < 0) {
+            error = -1;
+        }
+        total_candidates += thread_args[i].candidates;
+    }
+
+    // Cleanup
+    PyMem_RawFree(thread_args);
+    PyMem_RawFree(threads);
+    _PyGCFTBarrier_Fini(&phase_barrier);
+
+    return error < 0 ? -1 : total_candidates;
+}
+
+//=============================================================================
+// Parallel Mark Heap Visitor (find roots and transitively mark reachable)
+//=============================================================================
+//
+// This parallelizes the mark_heap_visitor phase of deduce_unreachable_heap.
+// mark_heap_visitor finds objects with gc_refs > 0 (external references) and
+// transitively clears the UNREACHABLE bit on all reachable objects.
+//
+// Parallel strategy:
+// 1. Phase 1: Workers scan their pages for roots (gc_refs > 0, still unreachable)
+//    - Uses _PyGC_TryMarkReachable to atomically clear UNREACHABLE bit
+//    - Pushes newly-reachable objects to local deque for transitive marking
+// 2. Phase 2: Work-stealing propagation
+//    - Workers traverse objects, marking children reachable
+//    - Work-stealing ensures load balancing across graph structure
+
+// Visitproc for parallel mark_reachable - marks children and pushes to deque
+static int
+par_mark_visitproc(PyObject *child, void *arg)
+{
+    _PyGCWorkerState *worker = (_PyGCWorkerState *)arg;
+
+    if (child == NULL) {
+        return 0;
+    }
+
+    // Skip untracked/frozen objects
+    if (!_PyObject_GC_IS_TRACKED(child)) {
+        return 0;
+    }
+    if (child->ob_gc_bits & _PyGC_BITS_FROZEN) {
+        return 0;
+    }
+
+    // Try to mark child as reachable (atomic clear of UNREACHABLE bit)
+    if (_PyGC_TryMarkReachable(child)) {
+        // We were first to mark it - push to our deque for traversal
+        _PyWSDeque_Push(&worker->deque, child);
+        worker->objects_marked++;
+    }
+    return 0;
+}
+
+// Traverse an object's children for parallel mark
+static int
+par_mark_traverse_object(PyObject *op, _PyGCWorkerState *worker)
+{
+    assert(op != NULL);
+    traverseproc traverse = Py_TYPE(op)->tp_traverse;
+    if (traverse == NULL) {
+        return 0;
+    }
+    return traverse(op, par_mark_visitproc, worker);
+}
+
+// Visitor callback to find roots in a page
+// A root is an object with gc_refs > 0 (or deferred + skip_deferred) that is still unreachable
+// NOTE: This is defined but currently unused - we use mark_heap_roots_visitor instead
+// Keeping for reference.
+#if 0
+static bool
+mark_heap_parallel_visitor(const mi_heap_t *heap, const mi_heap_area_t *area,
+                           void *block, size_t block_size, void *arg)
+{
+    (void)heap;
+    (void)area;
+    (void)block_size;
+
+    _PyGCMarkWorkerContext *ctx = (_PyGCMarkWorkerContext *)arg;
+    PyObject *op = block_to_object(block, ctx->par_state->buckets->pages ? 0 : 0);
+
+    if (op == NULL) {
+        return true;
+    }
+
+    // Skip if not tracked
+    if (!_PyObject_GC_IS_TRACKED(op)) {
+        return true;
+    }
+
+    // Skip frozen
+    if (op->ob_gc_bits & _PyGC_BITS_FROZEN) {
+        return true;
+    }
+
+    // Skip if already marked alive (by previous gc_mark_alive phase)
+    if (op->ob_gc_bits & _PyGC_BITS_ALIVE) {
+        return true;
+    }
+
+    // Check if already reachable (not unreachable bit set)
+    if (!_PyGC_IsUnreachable(op)) {
+        return true;
+    }
+
+    // Get gc_refs (stored in ob_tid during GC)
+    Py_ssize_t gc_refs = gc_get_refs_atomic(op);
+
+    // GH-129236: If skipping deferred objects, keep them alive
+    int keep_alive = (ctx->skip_deferred && _PyObject_HasDeferredRefcount(op));
+
+    if (gc_refs > 0 || keep_alive) {
+        // This object is a root - try to mark it reachable
+        if (_PyGC_TryMarkReachable(op)) {
+            // We were first to mark it - push to deque for transitive marking
+            _PyWSDeque_Push(&ctx->worker->deque, op);
+            ctx->worker->objects_marked++;
+            ctx->roots_found++;
+        }
+    }
+
+    return true;
+}
+#endif
+
+// Arguments for mark_heap roots visitor
+typedef struct {
+    Py_ssize_t offset;
+    _PyGCWorkerState *worker;
+    int skip_deferred;
+    size_t roots_found;
+} _PyGCMarkRootsVisitorArgs;
+
+// Visitor callback to find roots for parallel mark
+static bool
+mark_heap_roots_visitor(const mi_heap_t *heap, const mi_heap_area_t *area,
+                        void *block, size_t block_size, void *arg)
+{
+    (void)heap;
+    (void)area;
+    (void)block_size;
+
+    _PyGCMarkRootsVisitorArgs *ctx = (_PyGCMarkRootsVisitorArgs *)arg;
+    PyObject *op = block_to_object(block, ctx->offset);
+
+    if (op == NULL) {
+        return true;
+    }
+
+    // Skip if already marked alive (by previous gc_mark_alive phase)
+    if (op->ob_gc_bits & _PyGC_BITS_ALIVE) {
+        return true;
+    }
+
+    // Check if already reachable (not unreachable bit set)
+    if (!_PyGC_IsUnreachable(op)) {
+        return true;
+    }
+
+    // Get gc_refs (stored in ob_tid during GC)
+    Py_ssize_t gc_refs = gc_get_refs_atomic(op);
+
+    // GH-129236: If skipping deferred objects, keep them alive
+    int keep_alive = (ctx->skip_deferred && _PyObject_HasDeferredRefcount(op));
+
+    if (gc_refs > 0 || keep_alive) {
+        // This object is a root - try to mark it reachable
+        if (_PyGC_TryMarkReachable(op)) {
+            // We were first to mark it - push to deque for transitive marking
+            _PyWSDeque_Push(&ctx->worker->deque, op);
+            ctx->worker->objects_marked++;
+            ctx->roots_found++;
+        }
+    }
+
+    return true;
+}
+
+// Process a page to find roots for parallel marking
+static int
+mark_heap_find_roots_page(mi_page_t *page, _PyGCWorkerState *worker,
+                          Py_ssize_t offset, int skip_deferred, size_t *roots_found)
+{
+    assert(page != NULL);
+
+    mi_heap_area_t area;
+    _mi_heap_area_init(&area, page);
+
+    _PyGCMarkRootsVisitorArgs visitor_args = {
+        .offset = offset,
+        .worker = worker,
+        .skip_deferred = skip_deferred,
+        .roots_found = 0
+    };
+
+    _mi_heap_area_visit_blocks(&area, page, mark_heap_roots_visitor, &visitor_args);
+
+    *roots_found += visitor_args.roots_found;
+    return 0;
+}
+
+// Try to steal work from other workers during mark phase
+static PyObject *
+mark_try_steal_work(_PyGCFTParState *state, int my_id, _PyGCWorkerState *workers)
+{
+    int num_workers = state->num_workers;
+
+    for (int i = 1; i < num_workers; i++) {
+        int victim = (my_id + i) % num_workers;
+        PyObject *stolen = (PyObject *)_PyWSDeque_Steal(&workers[victim].deque);
+        if (stolen != NULL) {
+            return stolen;
+        }
+    }
+
+    return NULL;
+}
+
+// Worker function for parallel mark
+static int
+mark_heap_worker(_PyGCFTParState *state, int worker_id,
+                 _PyGCWorkerState *workers, int skip_deferred)
+{
+    assert(state != NULL);
+    assert(state->buckets != NULL);
+    assert(worker_id >= 0 && worker_id < state->num_workers);
+
+    _PyGCWorkerState *worker = &workers[worker_id];
+    _PyGCPageBucket *bucket = &state->buckets[worker_id];
+
+    // Determine offset for block-to-object conversion
+    Py_ssize_t offset_base = 0;
+    if (_PyMem_DebugEnabled()) {
+        offset_base += 2 * sizeof(size_t);
+    }
+    Py_ssize_t offset_pre = offset_base + 2 * sizeof(PyObject*);
+
+    size_t roots_found = 0;
+
+    // Phase 1: Find roots in our assigned pages
+    for (size_t i = 0; i < bucket->num_pages; i++) {
+        mi_page_t *page = bucket->pages[i];
+
+        // Determine offset based on page tag
+        Py_ssize_t offset = (page->tag == _Py_MIMALLOC_HEAP_GC_PRE)
+                            ? offset_pre : offset_base;
+
+        if (mark_heap_find_roots_page(page, worker, offset, skip_deferred,
+                                       &roots_found) < 0) {
+            return -1;
+        }
+    }
+
+    // Phase 2: Transitive marking with work-stealing
+    bool made_progress = true;
+    while (made_progress) {
+        made_progress = false;
+
+        // Process our local deque (Take from bottom - LIFO for cache locality)
+        PyObject *op;
+        while ((op = (PyObject *)_PyWSDeque_Take(&worker->deque)) != NULL) {
+            made_progress = true;
+            if (par_mark_traverse_object(op, worker) < 0) {
+                return -1;
+            }
+        }
+
+        // Try to steal work from other workers
+        op = mark_try_steal_work(state, worker_id, workers);
+        if (op != NULL) {
+            made_progress = true;
+            if (par_mark_traverse_object(op, worker) < 0) {
+                return -1;
+            }
+        }
+    }
+
+    return 0;
+}
+
+// Thread entry point for parallel mark worker
+typedef struct {
+    _PyGCFTParState *state;
+    _PyGCWorkerState *workers;
+    int worker_id;
+    int skip_deferred;
+    int result;
+} _PyGCMarkThreadArgs;
+
+static void *
+mark_heap_thread(void *arg)
+{
+    _PyGCMarkThreadArgs *targs = (_PyGCMarkThreadArgs *)arg;
+    targs->result = mark_heap_worker(targs->state, targs->worker_id,
+                                     targs->workers, targs->skip_deferred);
+    return NULL;
+}
+
+// Main entry point for parallel mark_heap_visitor
+// Returns 0 on success, -1 on error
+int
+_PyGC_ParallelMarkHeap(PyInterpreterState *interp,
+                       _PyGCFTParState *state,
+                       int skip_deferred_objects)
+{
+    assert(interp != NULL);
+    assert(state != NULL);
+    assert(interp->stoptheworld.world_stopped);
+    assert(state->num_workers > 0);
+    assert(state->buckets != NULL);
+
+    // Allocate worker states
+    _PyGCWorkerState *workers = PyMem_RawCalloc(state->num_workers,
+                                                 sizeof(_PyGCWorkerState));
+    if (workers == NULL) {
+        return -1;
+    }
+
+    // Initialize worker states and deques
+    for (int i = 0; i < state->num_workers; i++) {
+        workers[i].worker_id = i;
+        workers[i].objects_marked = 0;
+        workers[i].objects_stolen = 0;
+        workers[i].steals_attempted = 0;
+        _PyWSDeque_Init(&workers[i].deque);
+    }
+
+    int result = 0;
+
+    // For single worker, just run directly
+    if (state->num_workers == 1) {
+        result = mark_heap_worker(state, 0, workers, skip_deferred_objects);
+        goto cleanup;
+    }
+
+    // Allocate thread handles for workers 1..N-1
+    pthread_t *threads = PyMem_RawCalloc(state->num_workers - 1, sizeof(pthread_t));
+    if (threads == NULL) {
+        result = -1;
+        goto cleanup;
+    }
+
+    // Allocate thread arguments
+    _PyGCMarkThreadArgs *thread_args = PyMem_RawCalloc(
+        state->num_workers, sizeof(_PyGCMarkThreadArgs));
+    if (thread_args == NULL) {
+        PyMem_RawFree(threads);
+        result = -1;
+        goto cleanup;
+    }
+
+    // Initialize thread args
+    for (int i = 0; i < state->num_workers; i++) {
+        thread_args[i].state = state;
+        thread_args[i].workers = workers;
+        thread_args[i].worker_id = i;
+        thread_args[i].skip_deferred = skip_deferred_objects;
+        thread_args[i].result = 0;
+    }
+
+    // Spawn worker threads 1..N-1
+    int threads_created = 0;
+    for (int i = 1; i < state->num_workers; i++) {
+        int err = pthread_create(&threads[i - 1], NULL,
+                                 mark_heap_thread, &thread_args[i]);
+        if (err != 0) {
+            break;
+        }
+        threads_created++;
+    }
+
+    // Worker 0 runs on main thread
+    thread_args[0].result = mark_heap_worker(state, 0, workers,
+                                              skip_deferred_objects);
+
+    // Wait for spawned threads
+    for (int i = 0; i < threads_created; i++) {
+        pthread_join(threads[i], NULL);
+    }
+
+    // Check for errors
+    for (int i = 0; i <= threads_created; i++) {
+        if (thread_args[i].result < 0) {
+            result = -1;
+            break;
+        }
+    }
+
+    // Collect statistics
+    state->total_objects = 0;
+    for (int i = 0; i < state->num_workers; i++) {
+        state->total_objects += workers[i].objects_marked;
+    }
+
+    // Cleanup thread resources
+    PyMem_RawFree(thread_args);
+    PyMem_RawFree(threads);
+
+cleanup:
+    // Free worker deques
+    for (int i = 0; i < state->num_workers; i++) {
+        _PyWSDeque_Fini(&workers[i].deque);
+    }
+    PyMem_RawFree(workers);
+
+    return result;
 }
 
 #endif  // Py_GIL_DISABLED

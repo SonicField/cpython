@@ -74,6 +74,23 @@ After implementing the following optimizations:
 - Skips expensive atomic RMW for already-marked objects (type objects, builtins, etc.)
 - Significant win for workloads with many references to shared objects
 
+### 4. Thread-Local Memory Pools (2MB per worker)
+- Each worker gets a pre-allocated 2MB buffer for deque backing storage
+- Eliminates malloc/calloc calls during GC hot path
+- Reduces contention on global allocator
+- Same approach as GIL-based parallel GC
+- Fixed bug in `_PyWSDeque_FiniExternal` that caused double-free when deque grew
+
+**Latest results with all optimizations:**
+
+| Configuration | Serial (ms) | Parallel (ms) | Speedup |
+|--------------|-------------|---------------|---------|
+| wide_tree_1000k_s80_w8 | 537 | 411 | **1.31x** |
+| wide_tree_500k_s80_w4 | 259 | 199 | **1.30x** |
+| wide_tree_1000k_s80_w4 | 534 | 415 | **1.29x** |
+| independent_1000k_s80_w4 | 656 | 579 | **1.13x** |
+| independent_1000k_s80_w8 | 656 | 582 | **1.13x** |
+
 ## Recommendations
 
 ### For GIL-based Builds
@@ -89,8 +106,9 @@ After implementing the following optimizations:
 
 ## Files Modified
 
-- `Include/internal/pycore_gc_ft_parallel.h` - Local buffer, check-first optimization
-- `Python/gc_free_threading_parallel.c` - Batched work loop
+- `Include/internal/pycore_gc_ft_parallel.h` - Local buffer, check-first optimization, thread-local pools
+- `Include/internal/pycore_ws_deque.h` - Fixed `_PyWSDeque_FiniExternal` for grown deques with external buffer
+- `Python/gc_free_threading_parallel.c` - Batched work loop, thread-local pool allocation
 - `Lib/test/gc_benchmark.py` - Unified benchmark suite
 
 ## Future Work
@@ -106,3 +124,169 @@ After implementing the following optimizations:
 3. **NUMA awareness**
    - Allocate objects and workers on same NUMA node
    - Reduce cross-socket memory traffic
+
+## Build Configuration and Testing Methodology
+
+### CRITICAL: Debug vs Optimized Builds
+
+**Always use the correct build for the correct purpose:**
+
+| Purpose | Build Type | Configure Command | How to Verify |
+|---------|------------|-------------------|---------------|
+| **Correctness Testing** | Debug | `./configure --disable-gil --with-pydebug` | `hasattr(sys, 'gettotalrefcount')` returns `True` |
+| **Benchmarking** | Optimized | `./configure --disable-gil CFLAGS="-O3"` | `hasattr(sys, 'gettotalrefcount')` returns `False` |
+
+### Debug Build Characteristics
+
+```bash
+# Configure debug build
+./configure --disable-gil --with-pydebug
+make -j16
+```
+
+- **Py_DEBUG** is defined → enables `GC_DEBUG` in gc_free_threading.c
+- **GC_DEBUG** enables `validate_gc_objects()` assertions after update_refs
+- CFLAGS include `-g -Og` (debug symbols, optimize for debugging)
+- `sys.gettotalrefcount()` function is available
+- Assertions are active - will catch correctness bugs like missing unreachable bits
+
+**Use for:** Finding bugs, verifying correctness of parallel GC phases
+
+### Optimized Build Characteristics
+
+```bash
+# Configure optimized build (simple -O3)
+./configure --disable-gil CFLAGS="-O3"
+make -j16
+```
+
+- **NDEBUG** is defined → assertions disabled
+- CFLAGS include `-O3` (full optimization)
+- `sys.gettotalrefcount()` function is NOT available
+- No GC_DEBUG assertions - faster but won't catch bugs
+
+**Use for:** Performance benchmarking, production
+
+### PGO Build (Profile-Guided Optimization)
+
+```bash
+# Configure with PGO (runs test suite for profiling)
+./configure --disable-gil --enable-optimizations
+make -j16
+```
+
+**WARNING:** PGO build may fail if any test fails during profiling phase. As of Dec 2024, `test_sqlite3` can fail on some systems, causing the entire build to fail:
+
+```
+test test_sqlite3 failed
+make: *** [Makefile:1026: profile-run-stamp] Error 2
+```
+
+**Workaround:** Use simple `-O3` optimization instead of full PGO when PGO fails.
+
+### Quick Verification Script
+
+```python
+import sys
+import sysconfig
+
+print("=== Build Type Verification ===")
+debug = hasattr(sys, 'gettotalrefcount')
+print(f"Debug build: {debug}")
+print(f"CFLAGS: {sysconfig.get_config_var('CFLAGS')[:80]}...")
+
+if debug:
+    print("⚠️  This is a DEBUG build - use for correctness testing only")
+    print("   GC_DEBUG assertions are ACTIVE")
+else:
+    print("✓  This is an OPTIMIZED build - suitable for benchmarking")
+    print("   GC_DEBUG assertions are DISABLED")
+```
+
+### Workflow
+
+1. **Develop and test on debug build:**
+   ```bash
+   ./configure --disable-gil --with-pydebug && make -j16
+   ./python -m test test_gc  # Run correctness tests
+   ```
+
+2. **Switch to optimized for benchmarking:**
+   ```bash
+   make distclean  # Full clean required when switching debug ↔ optimized
+   ./configure --disable-gil CFLAGS="-O3" && make -j16
+   ./python Lib/test/gc_benchmark.py --workers 1,4,8 ...
+   ```
+
+3. **Never benchmark on debug builds** - results are not representative
+4. **Never rely on optimized builds for correctness** - assertions are disabled
+
+## Parallel update_refs Results (Optimized Build, Dec 2024)
+
+After implementing parallel update_refs phase:
+
+| Configuration | Serial (ms) | Parallel (ms) | Speedup |
+|--------------|-------------|---------------|---------|
+| wide_tree_500k_s80_w8 | 277 | 151 | **1.84x** |
+| independent_1M_s80_w8 | 686 | 400 | **1.71x** |
+| wide_tree_1M_s80_w4 | 471 | 287 | **1.64x** |
+| independent_1M_s80_w4 | 692 | 411 | **1.68x** |
+| wide_tree_1M_s80_w8 | 473 | 281 | **1.68x** |
+| independent_500k_s80_w8 | 314 | 195 | **1.61x** |
+
+**Summary:**
+- Mean speedup: **1.40x**
+- Max speedup: **1.84x**
+- 10/12 configurations show significant improvement
+
+## Parallel mark_heap_visitor Results (Optimized Build, Dec 2024)
+
+After implementing parallel mark_heap_visitor phase in addition to parallel update_refs:
+
+### Baseline: Parallel update_refs only (for comparison)
+
+| Configuration | Serial (ms) | Parallel (ms) | Speedup |
+|--------------|-------------|---------------|---------|
+| wide_tree_500k_s80_w4 | 129 | 88 | **1.47x** |
+| wide_tree_1M_s80_w4 | 469 | 250 | **1.88x** |
+| wide_tree_1M_s80_w8 | 479 | 240 | **2.00x** |
+| independent_500k_s80_w4 | 236 | 172 | **1.38x** |
+| independent_1M_s80_w4 | 513 | 337 | **1.52x** |
+| independent_1M_s80_w8 | 505 | 394 | **1.28x** |
+
+**Baseline Summary:**
+- Mean speedup: **1.34x**
+- Max speedup: **2.00x**
+
+### With Parallel update_refs + mark_heap
+
+| Configuration | Serial (ms) | Parallel (ms) | Speedup | vs Baseline |
+|--------------|-------------|---------------|---------|-------------|
+| independent_500k_s80_w4 | 137 | 89 | **1.53x** | +0.15x ✓ |
+| independent_500k_s80_w8 | 137 | 144 | 0.95x | - |
+| independent_1M_s80_w4 | 509 | 293 | **1.74x** | +0.22x ✓ |
+| independent_1M_s80_w8 | 508 | 300 | **1.69x** | +0.41x ✓✓ |
+| wide_tree_500k_s80_w4 | 218 | 149 | **1.46x** | -0.01x |
+| wide_tree_500k_s80_w8 | 223 | 108 | **2.07x** | new config! |
+| wide_tree_1M_s80_w4 | 473 | 263 | **1.80x** | -0.08x |
+| wide_tree_1M_s80_w8 | 483 | 269 | **1.80x** | -0.20x |
+
+**Combined Summary:**
+- Mean speedup: **1.42x** (vs 1.34x baseline, +0.08x improvement)
+- Max speedup: **2.07x** (wide_tree_500k_s80_w8)
+- Significant: 9/12 configurations
+
+**Key Findings:**
+1. **Independent graphs benefit significantly** from parallel mark_heap:
+   - independent_1M_w8: 1.28x → 1.69x (+0.41x improvement)
+   - independent_1M_w4: 1.52x → 1.74x (+0.22x improvement)
+   - More root objects → more parallelism in mark_heap phase
+
+2. **Wide_tree shows mixed results**:
+   - Best overall speedup: 2.07x (wide_tree_500k_w8 - new configuration)
+   - Some configs slightly worse due to run-to-run variance
+   - Fewer roots (most objects reachable from single root) → less benefit from parallel mark_heap
+
+3. **Overall improvement**: Mean speedup increased from 1.34x → 1.42x
+
+**Conclusion**: Parallel mark_heap_visitor provides measurable benefit, especially for workloads with many root objects (independent graphs). Combined with parallel update_refs, achieves up to 2.07x speedup on large heaps.

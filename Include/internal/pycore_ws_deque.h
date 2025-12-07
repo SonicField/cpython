@@ -205,21 +205,28 @@ _PyWSDeque_InitWithBuffer(_PyWSDeque *deque, void *buffer, size_t buffer_bytes, 
 }
 
 // Finalize deque - but skip freeing if using external buffer
+// When the deque grows, the chain looks like: newest_arr -> older_arr -> ... -> external_buffer
+// We need to free all arrays in the chain EXCEPT the external buffer
 static inline void
 _PyWSDeque_FiniExternal(_PyWSDeque *deque, void *external_buffer)
 {
     _PyWSArray *arr = (_PyWSArray *)_Py_atomic_load_ptr(&deque->arr);
 
-    // If the current array is the external buffer, don't free it
-    // But we still need to free any grown arrays linked from arr->next
-    if ((void *)arr == external_buffer) {
+    // Walk the chain and free all arrays except the external buffer
+    while (arr != NULL && (void *)arr != external_buffer) {
+        _PyWSArray *next = arr->next;
+        arr->next = NULL;  // Prevent recursive free
+        free(arr);
+        arr = next;
+    }
+
+    // If we stopped at the external buffer, clear its next pointer
+    // (in case there were older grown arrays before the buffer was installed)
+    if (arr != NULL && (void *)arr == external_buffer) {
         if (arr->next != NULL) {
             _PyWSArray_Destroy(arr->next);
             arr->next = NULL;
         }
-    } else {
-        // Array was replaced by growth, free the whole chain
-        _PyWSArray_Destroy(arr);
     }
 }
 
