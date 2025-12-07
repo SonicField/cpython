@@ -18,6 +18,9 @@
 #include "pycore_tstate.h"
 #include "pycore_object_alloc.h"
 #include "pycore_object_deferred.h"  // _PyObject_HasDeferredRefcount
+#include "pycore_frame.h"            // _PyInterpreterFrame, FRAME_CLEARED
+#include "pycore_stackref.h"         // PyStackRef_* functions
+#include "frameobject.h"             // PyFrameObject
 
 // For mimalloc heap access - includes mimalloc/types.h for mi_page_t, mi_heap_t
 #include "pycore_mimalloc.h"
@@ -2548,6 +2551,382 @@ cleanup:
     PyMem_RawFree(workers);
 
     return result;
+}
+
+//=============================================================================
+// Parallel scan_heap_visitor Implementation
+//=============================================================================
+
+// Thread-local worklist push (uses ob_tid for linking, which is 0 for unreachable)
+static inline void
+scan_worklist_push(struct _PyGCScanWorklist *wl, PyObject *op)
+{
+    assert(op->ob_tid == 0);
+    op->ob_tid = wl->head;
+    wl->head = (uintptr_t)op;
+    wl->count++;
+}
+
+// Merge thread-local worklist into main worklist
+static void
+scan_worklist_merge(struct _PyGCScanWorklist *local, uintptr_t *main_head)
+{
+    if (local->head == 0) {
+        return;
+    }
+
+    // Find tail of local list
+    PyObject *tail = (PyObject *)local->head;
+    while (tail->ob_tid != 0) {
+        tail = (PyObject *)tail->ob_tid;
+    }
+
+    // Link tail to current head of main list
+    tail->ob_tid = *main_head;
+    *main_head = local->head;
+}
+
+// Check for legacy finalizer (tp_del)
+static inline int
+par_has_legacy_finalizer(PyObject *op)
+{
+    return Py_TYPE(op)->tp_del != NULL;
+}
+
+// Clear unreachable bit
+static inline void
+par_gc_clear_unreachable(PyObject *op)
+{
+    op->ob_gc_bits &= ~_PyGC_BITS_UNREACHABLE;
+}
+
+// Clear alive bit
+static inline void
+par_gc_clear_alive(PyObject *op)
+{
+    op->ob_gc_bits &= ~_PyGC_BITS_ALIVE;
+}
+
+// Merge reference count
+static Py_ssize_t
+par_merge_refcount(PyObject *op, Py_ssize_t extra)
+{
+    Py_ssize_t refcount = Py_REFCNT(op);
+    refcount += extra;
+
+#ifdef Py_REF_DEBUG
+    _Py_AddRefTotal(_PyThreadState_GET(), extra);
+#endif
+
+    op->ob_tid = 0;
+    op->ob_ref_local = 0;
+    op->ob_ref_shared = _Py_REF_SHARED(refcount, _Py_REF_MERGED);
+    return refcount;
+}
+
+// Disable deferred refcounting
+static void
+par_disable_deferred_refcounting(PyObject *op)
+{
+    if (_PyObject_HasDeferredRefcount(op)) {
+        op->ob_gc_bits &= ~_PyGC_BITS_DEFERRED;
+        op->ob_ref_shared -= _Py_REF_SHARED(_Py_REF_DEFERRED, 0);
+        par_merge_refcount(op, 0);
+        _PyObject_DisablePerThreadRefcounting(op);
+    }
+
+    // Handle generator/frame objects
+    if (PyGen_CheckExact(op) || PyCoro_CheckExact(op) || PyAsyncGen_CheckExact(op)) {
+        PyGenObject *gen = (PyGenObject *)op;
+        _PyInterpreterFrame *frame = &gen->gi_iframe;
+        if (frame->stackpointer != NULL &&
+            gen->gi_frame_state != FRAME_CLEARED) {
+            frame->f_executable = PyStackRef_AsStrongReference(frame->f_executable);
+            frame->f_funcobj = PyStackRef_AsStrongReference(frame->f_funcobj);
+            for (_PyStackRef *ref = frame->localsplus; ref < frame->stackpointer; ref++) {
+                if (!PyStackRef_IsNullOrInt(*ref) && PyStackRef_IsDeferred(*ref)) {
+                    *ref = PyStackRef_AsStrongReference(*ref);
+                }
+            }
+        }
+    }
+    else if (PyFrame_Check(op)) {
+        _PyInterpreterFrame *frame = ((PyFrameObject *)op)->f_frame;
+        if (frame != NULL && frame->stackpointer != NULL) {
+            frame->f_executable = PyStackRef_AsStrongReference(frame->f_executable);
+            frame->f_funcobj = PyStackRef_AsStrongReference(frame->f_funcobj);
+            for (_PyStackRef *ref = frame->localsplus; ref < frame->stackpointer; ref++) {
+                if (!PyStackRef_IsNullOrInt(*ref) && PyStackRef_IsDeferred(*ref)) {
+                    *ref = PyStackRef_AsStrongReference(*ref);
+                }
+            }
+        }
+    }
+}
+
+// Restore thread ID for reachable objects
+static void
+par_gc_restore_tid(PyObject *op)
+{
+    mi_segment_t *segment = _mi_ptr_segment(op);
+    if (_Py_REF_IS_MERGED(op->ob_ref_shared)) {
+        op->ob_tid = 0;
+    }
+    else {
+        op->ob_tid = segment->thread_id;
+        if (op->ob_tid == 0) {
+            par_merge_refcount(op, 0);
+        }
+    }
+}
+
+// Per-worker scan arguments
+struct scan_page_visitor_args {
+    struct _PyGCScanWorkerState *worker;
+    Py_ssize_t offset;
+    int gc_reason;
+};
+
+// Visitor callback for scan_heap blocks
+static bool
+scan_heap_block_visitor(const mi_heap_t *heap, const mi_heap_area_t *area,
+                        void *block, size_t block_size, void *arg)
+{
+    (void)heap;
+    (void)area;
+    (void)block_size;
+
+    struct scan_page_visitor_args *args = (struct scan_page_visitor_args *)arg;
+    PyObject *op = (PyObject *)((char *)block + args->offset);
+
+    if (!_PyObject_GC_IS_TRACKED(op)) {
+        return true;
+    }
+
+    if (_PyGC_IsUnreachable(op)) {
+        // Unreachable object
+        // NOTE: disable_deferred_refcounting is NOT called here because it uses
+        // internal locks that aren't safe for parallel access. It will be called
+        // serially after the parallel phase completes.
+        par_merge_refcount(op, 1);
+
+        if (par_has_legacy_finalizer(op)) {
+            par_gc_clear_unreachable(op);
+            scan_worklist_push(&args->worker->legacy_finalizers, op);
+        }
+        else {
+            scan_worklist_push(&args->worker->unreachable, op);
+        }
+    }
+    else {
+        // Reachable object
+        // NOTE: For shutdown, disable_deferred_refcounting is called serially later
+        // because it uses internal locks that aren't safe for parallel access.
+        par_gc_restore_tid(op);
+        par_gc_clear_alive(op);
+        args->worker->long_lived_total++;
+    }
+
+    return true;
+}
+
+// Process a single page in scan_heap using visitor pattern
+static void
+scan_heap_process_page(mi_page_t *page, struct _PyGCScanWorkerState *worker,
+                       int gc_reason)
+{
+    if (page == NULL || page->used == 0) {
+        return;
+    }
+
+    mi_heap_area_t area;
+    _mi_heap_area_init(&area, page);
+
+    bool is_gc_pre = (page->tag == _Py_MIMALLOC_HEAP_GC_PRE);
+
+    struct scan_page_visitor_args args = {
+        .worker = worker,
+        .offset = get_block_offset(is_gc_pre),
+        .gc_reason = gc_reason
+    };
+
+    _mi_heap_area_visit_blocks(&area, page, scan_heap_block_visitor, &args);
+}
+
+// Per-worker thread arguments
+struct scan_worker_thread_args {
+    struct _PyGCScanWorkerState *workers;
+    atomic_int *page_counter;
+    mi_page_t **page_array;
+    size_t total_pages;
+    int worker_id;
+    int gc_reason;
+};
+
+// Worker thread function
+static void *
+scan_heap_thread(void *arg)
+{
+    struct scan_worker_thread_args *args = (struct scan_worker_thread_args *)arg;
+
+    while (1) {
+        int page_idx = atomic_fetch_add(args->page_counter, 1);
+        if (page_idx >= (int)args->total_pages) {
+            break;
+        }
+
+        scan_heap_process_page(args->page_array[page_idx],
+                               &args->workers[args->worker_id],
+                               args->gc_reason);
+    }
+
+    return NULL;
+}
+
+// Check if heap is GC heap (tag indicates GC or GC_PRE)
+static inline bool
+is_gc_heap(mi_heap_t *heap)
+{
+    // Check first page queue for tag info
+    for (size_t q = 0; q <= MI_BIN_FULL; q++) {
+        mi_page_queue_t *pq = &heap->pages[q];
+        if (pq->first != NULL) {
+            int tag = pq->first->tag;
+            return (tag == _Py_MIMALLOC_HEAP_GC ||
+                    tag == _Py_MIMALLOC_HEAP_GC_PRE);
+        }
+    }
+    // Check heap tag directly
+    return (heap->tag == _Py_MIMALLOC_HEAP_GC ||
+            heap->tag == _Py_MIMALLOC_HEAP_GC_PRE);
+}
+
+// Main entry point
+int
+_PyGC_ParallelScanHeap(
+    PyInterpreterState *interp,
+    _PyGCFTParState *state,
+    struct _PyGCScanHeapResult *result)
+{
+    int ret = 0;
+
+    // Allocate per-worker state
+    struct _PyGCScanWorkerState *workers = PyMem_RawCalloc(
+        state->num_workers, sizeof(struct _PyGCScanWorkerState));
+    if (workers == NULL) {
+        return -1;
+    }
+
+    // Collect pages
+    size_t page_capacity = 1024;
+    size_t total_pages = 0;
+    mi_page_t **page_array = PyMem_RawMalloc(page_capacity * sizeof(mi_page_t *));
+    if (page_array == NULL) {
+        PyMem_RawFree(workers);
+        return -1;
+    }
+
+    HEAD_LOCK(&_PyRuntime);
+    _Py_FOR_EACH_TSTATE_UNLOCKED(interp, t) {
+        struct _mimalloc_thread_state *m = &((_PyThreadStateImpl *)t)->mimalloc;
+        if (!_Py_atomic_load_int(&m->initialized)) {
+            continue;
+        }
+
+        for (int i = 0; i < _Py_MIMALLOC_HEAP_COUNT; i++) {
+            mi_heap_t *heap = &m->heaps[i];
+            if (!is_gc_heap(heap)) {
+                continue;
+            }
+
+            for (size_t q = 0; q <= MI_BIN_FULL; q++) {
+                mi_page_queue_t *pq = &heap->pages[q];
+                for (mi_page_t *page = pq->first; page != NULL; page = page->next) {
+                    if (page->used == 0) continue;
+
+                    if (total_pages >= page_capacity) {
+                        page_capacity *= 2;
+                        mi_page_t **new_arr = PyMem_RawRealloc(
+                            page_array, page_capacity * sizeof(mi_page_t *));
+                        if (new_arr == NULL) {
+                            HEAD_UNLOCK(&_PyRuntime);
+                            PyMem_RawFree(page_array);
+                            PyMem_RawFree(workers);
+                            return -1;
+                        }
+                        page_array = new_arr;
+                    }
+                    page_array[total_pages++] = page;
+                }
+            }
+        }
+    }
+    HEAD_UNLOCK(&_PyRuntime);
+
+    if (total_pages == 0) {
+        PyMem_RawFree(page_array);
+        PyMem_RawFree(workers);
+        return 0;
+    }
+
+    // Atomic counter for work distribution
+    atomic_int page_counter = 0;
+
+    // Allocate thread resources
+    pthread_t *threads = PyMem_RawMalloc((state->num_workers - 1) * sizeof(pthread_t));
+    struct scan_worker_thread_args *thread_args = PyMem_RawMalloc(
+        state->num_workers * sizeof(struct scan_worker_thread_args));
+
+    if (threads == NULL || thread_args == NULL) {
+        PyMem_RawFree(threads);
+        PyMem_RawFree(thread_args);
+        PyMem_RawFree(page_array);
+        PyMem_RawFree(workers);
+        return -1;
+    }
+
+    // Initialize args
+    for (int i = 0; i < state->num_workers; i++) {
+        thread_args[i].workers = workers;
+        thread_args[i].page_counter = &page_counter;
+        thread_args[i].page_array = page_array;
+        thread_args[i].total_pages = total_pages;
+        thread_args[i].worker_id = i;
+        thread_args[i].gc_reason = result->gc_reason;
+    }
+
+    // Spawn workers 1..N-1
+    int threads_created = 0;
+    for (int i = 1; i < state->num_workers; i++) {
+        if (pthread_create(&threads[i - 1], NULL, scan_heap_thread,
+                           &thread_args[i]) == 0) {
+            threads_created++;
+        }
+    }
+
+    // Worker 0 on main thread
+    scan_heap_thread(&thread_args[0]);
+
+    // Join workers
+    for (int i = 0; i < threads_created; i++) {
+        pthread_join(threads[i], NULL);
+    }
+
+    // Merge results
+    for (int i = 0; i < state->num_workers; i++) {
+        scan_worklist_merge(&workers[i].unreachable, result->unreachable_head);
+        scan_worklist_merge(&workers[i].legacy_finalizers,
+                            result->legacy_finalizers_head);
+        *result->long_lived_total += workers[i].long_lived_total;
+    }
+
+    // Cleanup
+    PyMem_RawFree(thread_args);
+    PyMem_RawFree(threads);
+    PyMem_RawFree(page_array);
+    PyMem_RawFree(workers);
+
+    return ret;
 }
 
 #endif  // Py_GIL_DISABLED

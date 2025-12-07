@@ -1608,7 +1608,57 @@ deduce_unreachable_heap(PyInterpreterState *interp,
 
     // Identify remaining unreachable objects and push them onto a stack.
     // Restores ob_tid for reachable objects.
-    gc_visit_heaps(interp, &scan_heap_visitor, &state->base);
+    // Note: For shutdown, we use serial path because disable_deferred_refcounting
+    // must be called on ALL objects (not just unreachable), and that function
+    // uses internal locks that aren't safe for parallel access.
+    if (using_parallel && state->reason != _Py_GC_REASON_SHUTDOWN) {
+        // Parallel path for scan_heap_visitor
+        struct _PyGCScanHeapResult scan_result = {
+            .unreachable_head = &state->unreachable.head,
+            .legacy_finalizers_head = &state->legacy_finalizers.head,
+            .long_lived_total = &state->long_lived_total,
+            .gc_reason = state->reason
+        };
+        int scan_ret = _PyGC_ParallelScanHeap(interp, &par_state, &scan_result);
+        if (scan_ret < 0) {
+            return -1;
+        }
+
+        // Disable deferred refcounting serially for unreachable objects
+        // (this uses internal locks that aren't safe for parallel access)
+        PyObject *op = (PyObject *)state->unreachable.head;
+        while (op != NULL) {
+            PyObject *next = (PyObject *)op->ob_tid;
+            disable_deferred_refcounting(op);
+            op = next;
+        }
+        // Also for objects with legacy finalizers
+        op = (PyObject *)state->legacy_finalizers.head;
+        while (op != NULL) {
+            PyObject *next = (PyObject *)op->ob_tid;
+            disable_deferred_refcounting(op);
+            op = next;
+        }
+
+        // Also scan the abandoned pool (serial, since it's typically small)
+        Py_ssize_t offset_base = 0;
+        if (_PyMem_DebugEnabled()) {
+            offset_base += 2 * sizeof(size_t);
+        }
+        Py_ssize_t offset_pre = offset_base + 2 * sizeof(PyObject*);
+
+        HEAD_LOCK(&_PyRuntime);
+        mi_abandoned_pool_t *pool = &interp->mimalloc.abandoned_pool;
+        state->base.offset = offset_base;
+        _mi_abandoned_pool_visit_blocks(pool, _Py_MIMALLOC_HEAP_GC, true,
+                                        scan_heap_visitor, state);
+        state->base.offset = offset_pre;
+        _mi_abandoned_pool_visit_blocks(pool, _Py_MIMALLOC_HEAP_GC_PRE, true,
+                                        scan_heap_visitor, state);
+        HEAD_UNLOCK(&_PyRuntime);
+    } else {
+        gc_visit_heaps(interp, &scan_heap_visitor, &state->base);
+    }
 
     if (state->legacy_finalizers.head) {
         // There may be objects reachable from legacy finalizers that are in

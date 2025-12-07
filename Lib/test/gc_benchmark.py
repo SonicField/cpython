@@ -187,23 +187,33 @@ def create_graph(n: int, edge_prob: float = 0.3) -> List[Node]:
 
 def create_layered(layers: int, nodes_per_layer: int) -> List[Node]:
     """
-    Create a neural network-like structure with fully connected layers.
+    Create a neural network-like structure with sparse connections between layers.
+
+    Each node connects to cbrt(nodes_per_layer) random nodes in the previous layer.
+    This models a dense interconnected system while scaling as O(n^(4/3)) instead
+    of O(n²) for fully-connected layers.
 
     Parallelizability: MEDIUM
     - Layer boundaries provide some parallelism
     - But connections between layers create dependencies
     """
+    random.seed(42)  # Reproducible
+
     all_nodes = []
     prev_layer = None
+
+    # Each node connects to cbrt(layer_size) nodes in previous layer
+    # Cube root keeps it dense but scales as O(n^(4/3)) instead of O(n^(3/2))
+    connections_per_node = max(1, int(nodes_per_layer ** (1/3)))
 
     for _ in range(layers):
         layer = [Node() for _ in range(nodes_per_layer)]
         all_nodes.extend(layer)
 
         if prev_layer:
-            # Fully connected to previous layer
+            # Use random.choices for batch sampling (faster than per-element)
             for node in layer:
-                node.refs.extend(prev_layer)
+                node.refs = random.choices(prev_layer, k=connections_per_node)
 
         prev_layer = layer
 

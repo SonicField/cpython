@@ -486,6 +486,43 @@ PyAPI_FUNC(int) _PyGC_ParallelMarkHeap(
     _PyGCFTParState *state,
     int skip_deferred_objects);
 
+//-----------------------------------------------------------------------------
+// Parallel scan_heap_visitor for deduce_unreachable_heap
+//-----------------------------------------------------------------------------
+
+// Thread-local worklist for parallel scan_heap
+// Uses the same ob_tid linking as the serial worklist
+struct _PyGCScanWorklist {
+    uintptr_t head;  // Head of linked list (via ob_tid)
+    size_t count;    // Number of items in list
+};
+
+// Per-worker scan state
+struct _PyGCScanWorkerState {
+    struct _PyGCScanWorklist unreachable;       // Thread-local unreachable list
+    struct _PyGCScanWorklist legacy_finalizers; // Thread-local legacy finalizers
+    size_t long_lived_total;                    // Count of reachable objects
+    int reason;                                 // GC reason (for shutdown check)
+};
+
+// Parallel scan_heap output - passed to _PyGC_ParallelScanHeap
+struct _PyGCScanHeapResult {
+    uintptr_t *unreachable_head;     // Pointer to worklist head
+    uintptr_t *legacy_finalizers_head;
+    Py_ssize_t *long_lived_total;    // Pointer to counter
+    int gc_reason;                   // GC reason for shutdown check
+};
+
+// Run parallel scan_heap_visitor phase.
+// Scans all objects, pushing unreachable ones to worklists and restoring
+// ob_tid for reachable ones.
+// This is the third phase of deduce_unreachable_heap (after mark_heap).
+// Returns 0 on success, -1 on error.
+PyAPI_FUNC(int) _PyGC_ParallelScanHeap(
+    PyInterpreterState *interp,
+    _PyGCFTParState *state,
+    struct _PyGCScanHeapResult *result);
+
 // Default threshold for parallel GC (minimum roots before using parallel)
 #define _PyGC_PARALLEL_THRESHOLD_DEFAULT 10000
 
