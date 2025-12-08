@@ -83,8 +83,8 @@ def set_parallel_threshold(threshold: int):
     """Set the parallel GC threshold (minimum roots to use parallel)."""
     try:
         gc.set_parallel_threshold(threshold)
-    except AttributeError:
-        pass  # Not available
+    except (AttributeError, NotImplementedError):
+        pass  # Not available or not supported in this build
 
 # =============================================================================
 # Node Class for Object Graphs

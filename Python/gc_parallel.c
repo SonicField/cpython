@@ -43,8 +43,11 @@ gc_get_refs(PyGC_Head *g)
 // 2. During marking: Workers atomically clear COLLECTING to mark as reachable
 // 3. After marking: Objects still with COLLECTING=1 are unreachable
 //
-// We use compare-and-swap (CAS) to atomically mark objects, ensuring each
-// object is only processed once even with concurrent workers.
+// We use Fetch-And (atomic AND) to atomically clear the COLLECTING bit.
+// This is faster than CAS (compare-and-swap) because:
+// - Fetch-And always succeeds in one operation (no retry loop needed)
+// - The old value returned tells us if we were the one who cleared the bit
+// - Combined with a check-first relaxed load, this minimizes contention
 
 // Check if object has COLLECTING flag set (is in collection set and not yet marked)
 static inline int
@@ -57,29 +60,36 @@ gc_is_collecting_atomic(PyGC_Head *gc)
 // Atomically try to mark object as reachable by clearing COLLECTING flag.
 // Returns 1 if we successfully marked it (we should process it).
 // Returns 0 if already marked by another worker (skip it).
+//
+// OPTIMIZATION: Uses Fetch-And instead of CAS for better performance.
+// - CAS can fail under contention and needs retry loops
+// - Fetch-And always succeeds in one atomic operation
+// - The old value tells us if we were the one who cleared the bit
+//
+// Additional optimization: Check-first with relaxed load.
+// - Relaxed load is ~10x cheaper than atomic RMW
+// - Significant win for shared objects (types, builtins, modules)
+// - Common case: object already marked by another worker
 static inline int
 gc_try_mark_reachable_atomic(PyGC_Head *gc)
 {
-    // Read current value
+    // Fast path: check if already marked reachable (relaxed load - very cheap)
     uintptr_t prev = _Py_atomic_load_uintptr_relaxed(&gc->_gc_prev);
-
-    // Check if COLLECTING flag is set
     if (!(prev & _PyGC_PREV_MASK_COLLECTING)) {
-        // Already marked reachable by another worker
+        // Already marked reachable, skip expensive atomic RMW
         return 0;
     }
 
-    // Try to clear COLLECTING flag atomically
-    uintptr_t new_prev = prev & ~_PyGC_PREV_MASK_COLLECTING;
-
-    // CAS: Only succeed if value hasn't changed
-    int success = _Py_atomic_compare_exchange_uintptr(
+    // Slow path: still has COLLECTING (or race), do atomic clear
+    // Fetch-And atomically clears the bit and returns the OLD value
+    uintptr_t old_prev = _Py_atomic_and_uintptr(
         &gc->_gc_prev,
-        &prev,
-        new_prev
+        ~_PyGC_PREV_MASK_COLLECTING
     );
 
-    return success;
+    // If old value had COLLECTING set, we successfully claimed this object
+    // If old value didn't have COLLECTING, another worker beat us (race case)
+    return (old_prev & _PyGC_PREV_MASK_COLLECTING) != 0;
 }
 
 // =============================================================================
@@ -131,11 +141,14 @@ _PyGCBarrier_Wait(_PyGCBarrier *barrier)
 // Visit function called by tp_traverse() to discover child objects
 // This is called for each object reference during traversal
 //
-// IMPORTANT: We use atomic CAS to mark objects as reachable. The algorithm:
+// IMPORTANT: We use Fetch-And to atomically mark objects as reachable:
 // 1. Check if object is in collection set (has COLLECTING flag)
-// 2. Atomically try to clear COLLECTING flag (marks as reachable)
-// 3. If CAS succeeds, we claimed this object - enqueue for traversal
-// 4. If CAS fails, another worker already claimed it - skip
+// 2. Atomically clear COLLECTING flag (marks as reachable)
+// 3. If we cleared the flag (old value had it set), enqueue for traversal
+// 4. If flag was already clear, another worker already claimed it - skip
+//
+// OPTIMIZATION: Uses local buffer to avoid expensive deque operations.
+// Push to local buffer first (zero fences), only flush to deque when full.
 static int
 _parallel_gc_visit_and_enqueue(PyObject *op, void *arg)
 {
@@ -158,11 +171,74 @@ _parallel_gc_visit_and_enqueue(PyObject *op, void *arg)
     }
 
     // We successfully marked this object as reachable
-    // Add to work queue for traversal of its children
     worker->objects_discovered++;
-    _PyWSDeque_Push(&worker->deque, op);
+
+    // RE-ENABLED: Local buffer with chunked striping
+    // Push to local buffer first (zero fences, just array indexing)
+    if (_PyGCLocalBuffer_IsFull(&worker->local_buffer)) {
+        // Buffer full - flush half to deque for work-stealing
+        size_t flush_count = _PyGC_LOCAL_BUFFER_SIZE / 2;
+        for (size_t i = 0; i < flush_count; i++) {
+            PyObject *item = _PyGCLocalBuffer_Pop(&worker->local_buffer);
+            _PyWSDeque_Push(&worker->deque, item);
+        }
+    }
+    _PyGCLocalBuffer_Push(&worker->local_buffer, op);
 
     return 0;  // Continue traversal
+}
+
+// =============================================================================
+// Batch Operations (ported from FTP gc_free_threading_parallel.c)
+// =============================================================================
+
+// Batch refill local buffer from own deque
+// Amortizes deque take overhead by pulling up to half buffer at once
+static void
+refill_local_buffer_from_deque(_PyParallelGCWorker *worker)
+{
+    _PyGCLocalBuffer *local = &worker->local_buffer;
+    // Pull up to half the buffer size to leave room for discovered children
+    const size_t max_pull = _PyGC_LOCAL_BUFFER_SIZE / 2;
+    size_t pulled = 0;
+
+    while (pulled < max_pull && !_PyGCLocalBuffer_IsFull(local)) {
+        PyObject *obj = _PyWSDeque_Take(&worker->deque);
+        if (obj == NULL) {
+            break;  // Deque is empty
+        }
+        _PyGCLocalBuffer_Push(local, obj);
+        pulled++;
+    }
+}
+
+// Batch steal from another worker's deque
+// Amortizes stealing overhead by stealing up to half buffer at once
+// Returns number of objects stolen
+static size_t
+steal_batch_from_worker(_PyParallelGCWorker *thief, _PyParallelGCWorker *victim)
+{
+    // OPTIMIZATION: Lazy size check before expensive steal attempts
+    // Relaxed loads are much cheaper than the seq_cst fence in Steal()
+    // During termination, most deques are empty - this avoids contention
+    if (_PyWSDeque_Size(&victim->deque) == 0) {
+        return 0;  // Skip empty deque
+    }
+
+    _PyGCLocalBuffer *local = &thief->local_buffer;
+    // Steal up to half buffer size
+    const size_t max_steal = _PyGC_LOCAL_BUFFER_SIZE / 2;
+    size_t stolen = 0;
+
+    while (stolen < max_steal && !_PyGCLocalBuffer_IsFull(local)) {
+        PyObject *obj = (PyObject *)_PyWSDeque_Steal(&victim->deque);
+        if (obj == NULL) {
+            break;  // Victim's deque is empty
+        }
+        _PyGCLocalBuffer_Push(local, obj);
+        stolen++;
+    }
+    return stolen;
 }
 
 // Worker thread entry point
@@ -189,75 +265,65 @@ _parallel_gc_worker_thread(void *arg)
         }
 
         // =======================================================================
-        // STEP 3: Main marking loop
+        // STEP 3: Main marking loop (FTP-style three-phase approach)
         // =======================================================================
-        // Process objects from local deque until empty
-        // NOTE: For Step 3, we just count objects without actual traversal
-        // Actual object traversal requires GIL handling (Step 3b)
+        // Phase 1: Process local buffer (fast path - no fences)
+        // Phase 2: Refill from own deque (batch pull)
+        // Phase 3: Batch steal from other workers
+        int steal_attempts_since_work = 0;
+        const int MAX_STEAL_ATTEMPTS = (int)par_gc->num_workers * 2;
+
         while (1) {
-            // Try to pop work from local deque (LIFO - good for cache locality)
-            PyObject *obj = _PyWSDeque_Take(&worker->deque);
+            // ================================================================
+            // PHASE 1: Process local buffer (FAST PATH - zero fences!)
+            // ================================================================
+            while (!_PyGCLocalBuffer_IsEmpty(&worker->local_buffer)) {
+                steal_attempts_since_work = 0;  // Got work, reset counter
+                PyObject *obj = _PyGCLocalBuffer_Pop(&worker->local_buffer);
 
-            if (obj == NULL) {
-                // Local deque empty
-                // =============================================================
-                // STEP 4: Try work-stealing from other workers
-                // =============================================================
-                int steal_attempts_made = 0;
-                const int MAX_STEAL_ATTEMPTS = (int)par_gc->num_workers * 2;
+                worker->objects_marked++;
 
-                while (steal_attempts_made < MAX_STEAL_ATTEMPTS) {
-                    // Pick a random victim worker to steal from
-                    // Use simple linear congruential generator for random selection
-                    worker->steal_seed = worker->steal_seed * 1103515245 + 12345;
-                    size_t victim_id = (worker->steal_seed / 65536) % par_gc->num_workers;
-
-                    // Don't steal from ourselves
-                    if (victim_id == worker->thread_id) {
-                        victim_id = (victim_id + 1) % par_gc->num_workers;
-                    }
-
-                    _PyParallelGCWorker *victim = &par_gc->workers[victim_id];
-
-                    // Try to steal from victim's deque (FIFO - from top)
-                    worker->steal_attempts++;
-                    steal_attempts_made++;
-
-                    obj = (PyObject *)_PyWSDeque_Steal(&victim->deque);
-                    if (obj != NULL) {
-                        // Steal successful!
-                        worker->steal_successes++;
-                        break;  // Got work, process it
-                    }
-
-                    // Steal failed, try another victim
-                }
-
-                // If still no work after all steal attempts, we're done
-                if (obj == NULL) {
-                    break;
+                // Call tp_traverse to discover children
+                traverseproc traverse = Py_TYPE(obj)->tp_traverse;
+                if (traverse != NULL) {
+                    traverse(obj, (visitproc)_parallel_gc_visit_and_enqueue, worker);
+                    worker->traversals_performed++;
                 }
             }
 
-            // Mark this object (increment counter for statistics)
-            worker->objects_marked++;
+            // ================================================================
+            // PHASE 2: Refill from own deque (batch pull ~512 items)
+            // ================================================================
+            refill_local_buffer_from_deque(worker);
+            if (!_PyGCLocalBuffer_IsEmpty(&worker->local_buffer)) {
+                continue;  // Got work from deque, continue Phase 1
+            }
 
             // ================================================================
-            // STEP 3b: Object traversal via tp_traverse()
+            // PHASE 3: Batch steal from other workers (~512 items)
             // ================================================================
-            // Call tp_traverse to discover children and add them to work queue
-            // This is SAFE because:
-            // 1. Main thread holds GIL (in gc.collect())
-            // 2. All Python threads are blocked (waiting for GIL)
-            // 3. Object graph is frozen (no mutations)
-            // 4. tp_traverse() only reads object fields
-            traverseproc traverse = Py_TYPE(obj)->tp_traverse;
-            if (traverse != NULL) {
-                // Call tp_traverse with our visit callback
-                // The callback will add discovered children to our work queue
-                traverse(obj, (visitproc)_parallel_gc_visit_and_enqueue, worker);
-                worker->traversals_performed++;
+            if (steal_attempts_since_work >= MAX_STEAL_ATTEMPTS) {
+                break;  // No work left, exit
             }
+
+            // Pick a random victim
+            worker->steal_seed = worker->steal_seed * 1103515245 + 12345;
+            size_t victim_id = (worker->steal_seed / 65536) % par_gc->num_workers;
+            if (victim_id == worker->thread_id) {
+                victim_id = (victim_id + 1) % par_gc->num_workers;
+            }
+
+            _PyParallelGCWorker *victim = &par_gc->workers[victim_id];
+            worker->steal_attempts++;
+            steal_attempts_since_work++;
+
+            size_t batch_stolen = steal_batch_from_worker(worker, victim);
+            if (batch_stolen > 0) {
+                worker->steal_successes += batch_stolen;
+                steal_attempts_since_work = 0;  // Got work!
+                // Continue to Phase 1 with stolen work
+            }
+            // If steal failed, loop will try another victim
         }
 
         // =======================================================================
@@ -345,6 +411,7 @@ _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
         worker->roots_in_slice = 0;          // NEW: Static slicing
         worker->slice_start = NULL;          // NEW: Static slicing
         worker->slice_end = NULL;            // NEW: Static slicing
+        _PyGCLocalBuffer_Reset(&worker->local_buffer);  // Initialize local buffer
         worker->steal_seed = (unsigned int)(i + 1);
         worker->par_gc = par_gc;
         worker->thread_id = i;
@@ -869,44 +936,32 @@ _PyGC_ParallelMoveUnreachable(
     // Where N = total_objects, W = num_workers, i = worker index
     //
     // Benefits over round-robin:
-    // - Objects allocated together stay on the same worker
-    // - Reduces work-stealing overhead (related objects are local)
-    // - Better CPU cache utilization (contiguous memory access)
-
-    size_t objs_per_slice = total_objects / par_gc->num_workers;
-    size_t remainder = total_objects % par_gc->num_workers;
+    // CHUNKED STRIPING: Balance locality with distribution
+    // - Objects in same 1024-chunk go to same worker (cache locality)
+    // - Chunks distributed across workers (breaks anti-patterns)
+    // - For layered heaps: each layer spans all workers
+    (void)total_objects;  // Unused with chunked striping
     size_t seen = 0;
     size_t distributed = 0;
 
-    // Reset worker slice tracking
+    // Reset worker slice tracking and local buffers
     for (size_t i = 0; i < par_gc->num_workers; i++) {
         _PyParallelGCWorker *worker = &par_gc->workers[i];
         worker->slice_start = NULL;
         worker->slice_end = NULL;
         worker->roots_in_slice = 0;
+        // Reset local buffer for new collection (no fences, just zero count)
+        _PyGCLocalBuffer_Reset(&worker->local_buffer);
     }
 
     gc = _PyGCHead_NEXT(young);
     while (gc != young) {
-        // Calculate which worker owns this object based on its position
-        // Workers 0 to (remainder-1) get one extra object to handle remainder
-        size_t worker_idx;
-        if (remainder > 0) {
-            // First 'remainder' workers get (objs_per_slice + 1) objects each
-            size_t expanded_portion = remainder * (objs_per_slice + 1);
-            if (seen < expanded_portion) {
-                worker_idx = seen / (objs_per_slice + 1);
-            } else {
-                worker_idx = remainder + (seen - expanded_portion) / objs_per_slice;
-            }
-        } else {
-            worker_idx = seen / objs_per_slice;
-        }
-
-        // Clamp to last worker (handles edge cases)
-        if (worker_idx >= par_gc->num_workers) {
-            worker_idx = par_gc->num_workers - 1;
-        }
+        // CHUNKED STRIPING: Assign objects in chunks of 1024 to workers
+        // This balances locality (1024 objects together) with distribution
+        // (each layer spans all workers, breaking anti-patterns in layered heaps)
+        #define CHUNK_SIZE 1024
+        size_t chunk_id = seen / CHUNK_SIZE;
+        size_t worker_idx = chunk_id % par_gc->num_workers;
 
         _PyParallelGCWorker *worker = &par_gc->workers[worker_idx];
 
