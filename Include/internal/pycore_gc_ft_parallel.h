@@ -174,10 +174,7 @@ _PyGC_TryMarkReachable(PyObject *op)
 //-----------------------------------------------------------------------------
 // Persistent Thread Pool for Parallel GC
 //-----------------------------------------------------------------------------
-
-// Local work buffer size - chosen to amortize deque fence overhead
-// while maintaining good cache locality. 1024 objects = 8KB on 64-bit.
-#define _PyGC_LOCAL_BUFFER_SIZE 1024
+// Note: _PyGCLocalBuffer is defined in pycore_ws_deque.h (shared with GIL build)
 
 // Work types for the thread pool
 typedef enum {
@@ -190,48 +187,6 @@ typedef enum {
 // Forward declarations
 struct _PyGCThreadPool;
 struct _PyGCPageBucket;
-
-// Local work buffer for fast-path push/pop without deque fences.
-// Used as a stack (LIFO) for cache locality.
-typedef struct {
-    PyObject *items[_PyGC_LOCAL_BUFFER_SIZE];
-    size_t count;  // Number of items in buffer (0..1024)
-} _PyGCLocalBuffer;
-
-// Initialize local buffer
-static inline void
-_PyGCLocalBuffer_Init(_PyGCLocalBuffer *buf)
-{
-    buf->count = 0;
-}
-
-// Check if buffer is empty
-static inline int
-_PyGCLocalBuffer_IsEmpty(_PyGCLocalBuffer *buf)
-{
-    return buf->count == 0;
-}
-
-// Check if buffer is full
-static inline int
-_PyGCLocalBuffer_IsFull(_PyGCLocalBuffer *buf)
-{
-    return buf->count >= _PyGC_LOCAL_BUFFER_SIZE;
-}
-
-// Push to local buffer (caller must ensure not full)
-static inline void
-_PyGCLocalBuffer_Push(_PyGCLocalBuffer *buf, PyObject *obj)
-{
-    buf->items[buf->count++] = obj;
-}
-
-// Pop from local buffer (caller must ensure not empty)
-static inline PyObject *
-_PyGCLocalBuffer_Pop(_PyGCLocalBuffer *buf)
-{
-    return buf->items[--buf->count];
-}
 
 // Per-worker state for parallel GC (define early so _PyGCWorkDescriptor can use it)
 typedef struct _PyGCWorkerState {

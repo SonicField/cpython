@@ -365,6 +365,66 @@ _PyWSDeque_Size(_PyWSDeque *deque)
     return bot < top ? 0 : bot - top;
 }
 
+// =============================================================================
+// Local Work Buffer (used with work-stealing deque for GC)
+// =============================================================================
+//
+// Fast thread-local buffer that avoids expensive deque operations.
+// - Push/pop with zero memory fences (just array indexing)
+// - Only touches the work-stealing deque when buffer overflows/underflows
+// - Amortizes the cost of seq_cst fences over 1024 objects
+// - LIFO order for cache locality
+//
+// Typical usage pattern in parallel GC:
+//   1. Pop from local buffer (fast path, zero fences)
+//   2. When empty, batch-refill from own deque
+//   3. When deque empty, batch-steal from other workers
+
+#define _PyGC_LOCAL_BUFFER_SIZE 1024
+
+typedef struct {
+    PyObject *items[_PyGC_LOCAL_BUFFER_SIZE];
+    size_t count;
+} _PyGCLocalBuffer;
+
+// Check if buffer is empty
+static inline int
+_PyGCLocalBuffer_IsEmpty(_PyGCLocalBuffer *buf)
+{
+    return buf->count == 0;
+}
+
+// Check if buffer is full
+static inline int
+_PyGCLocalBuffer_IsFull(_PyGCLocalBuffer *buf)
+{
+    return buf->count >= _PyGC_LOCAL_BUFFER_SIZE;
+}
+
+// Push to local buffer (caller must ensure not full)
+static inline void
+_PyGCLocalBuffer_Push(_PyGCLocalBuffer *buf, PyObject *obj)
+{
+    buf->items[buf->count++] = obj;
+}
+
+// Pop from local buffer (caller must ensure not empty)
+static inline PyObject *
+_PyGCLocalBuffer_Pop(_PyGCLocalBuffer *buf)
+{
+    return buf->items[--buf->count];
+}
+
+// Reset/initialize buffer (for new collection cycle)
+static inline void
+_PyGCLocalBuffer_Reset(_PyGCLocalBuffer *buf)
+{
+    buf->count = 0;
+}
+
+// Alias for Init (same as Reset, for code clarity)
+#define _PyGCLocalBuffer_Init _PyGCLocalBuffer_Reset
+
 #ifdef __cplusplus
 }
 #endif

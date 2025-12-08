@@ -54,60 +54,9 @@ void _PyGCBarrier_Fini(_PyGCBarrier *barrier);
 void _PyGCBarrier_Wait(_PyGCBarrier *barrier);
 
 // =============================================================================
-// Local Work Buffer (Optimization)
-// =============================================================================
-//
-// Fast thread-local buffer that avoids expensive deque operations.
-// - Push/pop with zero memory fences (just array indexing)
-// - Only touches the work-stealing deque when buffer overflows/underflows
-// - Amortizes the cost of seq_cst fences over 1024 objects
-// - LIFO order for cache locality
-
-#define _PyGC_LOCAL_BUFFER_SIZE 1024
-
-typedef struct {
-    PyObject *items[_PyGC_LOCAL_BUFFER_SIZE];
-    size_t count;
-} _PyGCLocalBuffer;
-
-// Check if buffer is empty
-static inline int
-_PyGCLocalBuffer_IsEmpty(_PyGCLocalBuffer *buf)
-{
-    return buf->count == 0;
-}
-
-// Check if buffer is full
-static inline int
-_PyGCLocalBuffer_IsFull(_PyGCLocalBuffer *buf)
-{
-    return buf->count >= _PyGC_LOCAL_BUFFER_SIZE;
-}
-
-// Push to local buffer (caller must ensure not full)
-static inline void
-_PyGCLocalBuffer_Push(_PyGCLocalBuffer *buf, PyObject *obj)
-{
-    buf->items[buf->count++] = obj;
-}
-
-// Pop from local buffer (caller must ensure not empty)
-static inline PyObject *
-_PyGCLocalBuffer_Pop(_PyGCLocalBuffer *buf)
-{
-    return buf->items[--buf->count];
-}
-
-// Reset buffer for new collection
-static inline void
-_PyGCLocalBuffer_Reset(_PyGCLocalBuffer *buf)
-{
-    buf->count = 0;
-}
-
-// =============================================================================
 // Worker Thread State
 // =============================================================================
+// Note: _PyGCLocalBuffer is defined in pycore_ws_deque.h (shared with FTP)
 
 // Forward declaration
 typedef struct _PyParallelGCState _PyParallelGCState;
