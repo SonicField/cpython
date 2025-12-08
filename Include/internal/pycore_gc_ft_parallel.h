@@ -14,72 +14,16 @@ extern "C" {
 
 #ifdef Py_GIL_DISABLED
 
-#include "pycore_gc.h"       // _PyGC_BITS_*
-#include "pycore_ws_deque.h" // Chase-Lev work-stealing deque
+#include "pycore_gc.h"           // _PyGC_BITS_*
+#include "pycore_ws_deque.h"     // Chase-Lev work-stealing deque, _PyGCLocalBuffer
+#include "pycore_gc_barrier.h"   // _PyGCBarrier (shared with GIL build)
 
-// For barrier implementation we need pthread primitives
+// For pthread_create/pthread_join (no CPython wrapper exists)
 #ifdef _POSIX_THREADS
 #include <pthread.h>
 #include <unistd.h>  // sysconf for CPU count
 #include <sched.h>   // sched_yield for spin-wait
 #endif
-
-//-----------------------------------------------------------------------------
-// Barrier Synchronization for FTP Parallel GC
-//-----------------------------------------------------------------------------
-
-// A barrier for synchronizing N worker threads.
-// All N threads must reach the barrier before any can proceed.
-typedef struct {
-    unsigned int num_left;   // Threads remaining before barrier lifts
-    unsigned int capacity;   // Total number of threads
-    unsigned int epoch;      // Disambiguates spurious wakeups
-    pthread_mutex_t lock;
-    pthread_cond_t cond;
-} _PyGCFTBarrier;
-
-// Initialize barrier for capacity threads
-static inline void
-_PyGCFTBarrier_Init(_PyGCFTBarrier *barrier, int capacity)
-{
-    barrier->capacity = capacity;
-    barrier->num_left = capacity;
-    barrier->epoch = 0;
-    pthread_mutex_init(&barrier->lock, NULL);
-    pthread_cond_init(&barrier->cond, NULL);
-}
-
-// Finalize barrier resources
-static inline void
-_PyGCFTBarrier_Fini(_PyGCFTBarrier *barrier)
-{
-    pthread_cond_destroy(&barrier->cond);
-    pthread_mutex_destroy(&barrier->lock);
-}
-
-// Wait at barrier - blocks until all threads arrive
-static inline void
-_PyGCFTBarrier_Wait(_PyGCFTBarrier *barrier)
-{
-    pthread_mutex_lock(&barrier->lock);
-
-    unsigned int current_epoch = barrier->epoch;
-    barrier->num_left--;
-
-    if (barrier->num_left == 0) {
-        // Last thread to arrive - lift the barrier
-        barrier->epoch++;
-        barrier->num_left = barrier->capacity;
-        pthread_cond_broadcast(&barrier->cond);
-    } else {
-        // Wait until the barrier is lifted
-        while (barrier->epoch == current_epoch) {
-            pthread_cond_wait(&barrier->cond, &barrier->lock);
-        }
-    }
-
-    pthread_mutex_unlock(&barrier->lock);
-}
 
 //-----------------------------------------------------------------------------
 // Atomic GC bit operations for parallel marking
@@ -243,8 +187,8 @@ typedef struct _PyGCThreadPool {
     _PyGCWorkerState *workers;  // Per-worker state including deques
 
     // Barrier synchronization (like GIL-based parallel GC)
-    _PyGCFTBarrier mark_barrier;     // Workers wait here for work
-    _PyGCFTBarrier done_barrier;     // All workers wait here when done
+    _PyGCBarrier mark_barrier;     // Workers wait here for work
+    _PyGCBarrier done_barrier;     // All workers wait here when done
 
     // Worker control
     volatile int shutdown;           // 1 = pool is shutting down
@@ -282,8 +226,8 @@ typedef struct {
     pthread_t *threads;           // Thread handles (workers 1..N-1)
 
     // Barriers for phase synchronization
-    _PyGCFTBarrier phase_barrier;  // Sync between GC phases
-    _PyGCFTBarrier done_barrier;   // Sync at end of parallel work
+    _PyGCBarrier phase_barrier;  // Sync between GC phases
+    _PyGCBarrier done_barrier;   // Sync at end of parallel work
 
     // Flags
     volatile int error_flag;       // Set if any worker encounters an error
@@ -478,9 +422,6 @@ PyAPI_FUNC(int) _PyGC_ParallelScanHeap(
     _PyGCFTParState *state,
     struct _PyGCScanHeapResult *result);
 
-// Default threshold for parallel GC (minimum roots before using parallel)
-#define _PyGC_PARALLEL_THRESHOLD_DEFAULT 10000
-
 // Get number of parallel GC workers based on configuration.
 // Returns 0 if parallel GC is disabled, otherwise the worker count.
 static inline int
@@ -503,23 +444,14 @@ _PyGC_GetParallelWorkers(PyInterpreterState *interp)
     return workers;
 }
 
-// Check if parallel GC should be used for given number of roots.
+// Check if parallel GC should be used.
 // Returns worker count if parallel should be used, 0 otherwise.
 static inline int
-_PyGC_ShouldUseParallel(PyInterpreterState *interp, size_t num_roots)
+_PyGC_ShouldUseParallel(PyInterpreterState *interp)
 {
     int workers = _PyGC_GetParallelWorkers(interp);
     if (workers <= 1) {
         return 0;
-    }
-    // Check threshold
-    struct _gc_runtime_state *gc = &interp->gc;
-    size_t threshold = gc->parallel_gc_threshold;
-    if (threshold == 0) {
-        threshold = _PyGC_PARALLEL_THRESHOLD_DEFAULT;
-    }
-    if (num_roots < threshold) {
-        return 0;  // Too few roots, overhead not worth it
     }
     return workers;
 }

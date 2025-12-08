@@ -1528,7 +1528,7 @@ thread_pool_worker(void *arg)
 
     while (1) {
         // Wait at mark_barrier for work (main thread signals by arriving here too)
-        _PyGCFTBarrier_Wait(&pool->mark_barrier);
+        _PyGCBarrier_Wait(&pool->mark_barrier);
 
         // Check for shutdown after waking
         if (pool->shutdown) {
@@ -1539,7 +1539,7 @@ thread_pool_worker(void *arg)
         thread_pool_do_work(pool, worker_id);
 
         // Signal completion by arriving at done_barrier
-        _PyGCFTBarrier_Wait(&pool->done_barrier);
+        _PyGCBarrier_Wait(&pool->done_barrier);
     }
 
     return NULL;
@@ -1586,14 +1586,14 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
 
     // Initialize barriers for synchronization
     // Both barriers include all workers (main thread as worker 0)
-    _PyGCFTBarrier_Init(&pool->mark_barrier, num_workers);
-    _PyGCFTBarrier_Init(&pool->done_barrier, num_workers);
+    _PyGCBarrier_Init(&pool->mark_barrier, num_workers);
+    _PyGCBarrier_Init(&pool->done_barrier, num_workers);
 
     // Allocate thread handles (for workers 1..N-1, worker 0 is main thread)
     pool->threads = PyMem_RawCalloc(num_workers - 1, sizeof(pthread_t));
     if (pool->threads == NULL) {
-        _PyGCFTBarrier_Fini(&pool->done_barrier);
-        _PyGCFTBarrier_Fini(&pool->mark_barrier);
+        _PyGCBarrier_Fini(&pool->done_barrier);
+        _PyGCBarrier_Fini(&pool->mark_barrier);
         PyMem_RawFree(pool);
         return -1;
     }
@@ -1602,8 +1602,8 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
     pool->workers = PyMem_RawCalloc(num_workers, sizeof(_PyGCWorkerState));
     if (pool->workers == NULL) {
         PyMem_RawFree(pool->threads);
-        _PyGCFTBarrier_Fini(&pool->done_barrier);
-        _PyGCFTBarrier_Fini(&pool->mark_barrier);
+        _PyGCBarrier_Fini(&pool->done_barrier);
+        _PyGCBarrier_Fini(&pool->mark_barrier);
         PyMem_RawFree(pool);
         return -1;
     }
@@ -1664,8 +1664,8 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
             }
             PyMem_RawFree(pool->workers);
             PyMem_RawFree(pool->threads);
-            _PyGCFTBarrier_Fini(&pool->done_barrier);
-            _PyGCFTBarrier_Fini(&pool->mark_barrier);
+            _PyGCBarrier_Fini(&pool->done_barrier);
+            _PyGCBarrier_Fini(&pool->mark_barrier);
             PyMem_RawFree(pool);
             return -1;
         }
@@ -1690,7 +1690,7 @@ _PyGC_ThreadPoolFini(PyInterpreterState *interp)
 
     // Release workers from mark_barrier so they can see shutdown flag
     // Main thread participates in barrier to release all workers
-    _PyGCFTBarrier_Wait(&pool->mark_barrier);
+    _PyGCBarrier_Wait(&pool->mark_barrier);
 
     // Wait for all workers to finish (they exit after seeing shutdown)
     for (int i = 0; i < pool->num_workers - 1; i++) {
@@ -1714,8 +1714,8 @@ _PyGC_ThreadPoolFini(PyInterpreterState *interp)
 
     // Clean up
     PyMem_RawFree(pool->threads);
-    _PyGCFTBarrier_Fini(&pool->done_barrier);
-    _PyGCFTBarrier_Fini(&pool->mark_barrier);
+    _PyGCBarrier_Fini(&pool->done_barrier);
+    _PyGCBarrier_Fini(&pool->mark_barrier);
     PyMem_RawFree(pool);
 
     interp->gc.thread_pool = NULL;
@@ -1787,14 +1787,14 @@ _PyGC_ParallelPropagateAliveWithPool(PyInterpreterState *interp,
 
     // Signal workers to start by arriving at mark_barrier
     // Workers are waiting at mark_barrier; when we arrive, all are released
-    _PyGCFTBarrier_Wait(&pool->mark_barrier);
+    _PyGCBarrier_Wait(&pool->mark_barrier);
 
     // Worker 0 (main thread) does its share
     thread_pool_do_work(pool, 0);
 
     // Signal completion by arriving at done_barrier
     // This blocks until all workers finish, guaranteeing correct termination
-    _PyGCFTBarrier_Wait(&pool->done_barrier);
+    _PyGCBarrier_Wait(&pool->done_barrier);
 
     // All work is complete
     pool->collections_completed++;
@@ -1818,7 +1818,7 @@ _PyGC_ParallelPropagateAliveWithPool(PyInterpreterState *interp,
 // Per-worker state for parallel update_refs
 typedef struct {
     _PyGCFTParState *par_state;
-    _PyGCFTBarrier *phase_barrier;  // Barrier between init_refs and compute_refs
+    _PyGCBarrier *phase_barrier;  // Barrier between init_refs and compute_refs
     Py_ssize_t candidates;          // Per-worker candidate count
     int skip_deferred;              // Whether to skip deferred objects
     int error;
@@ -2000,7 +2000,7 @@ update_refs_compute_page(mi_page_t *page, _PyGCUpdateRefsWorkerArgs *args)
 // Worker function for parallel update_refs
 static int
 update_refs_worker(_PyGCFTParState *state, int worker_id,
-                   _PyGCFTBarrier *phase_barrier,
+                   _PyGCBarrier *phase_barrier,
                    Py_ssize_t *out_candidates)
 {
     assert(state != NULL);
@@ -2026,7 +2026,7 @@ update_refs_worker(_PyGCFTParState *state, int worker_id,
     }
 
     // Wait for all workers to finish init phase before compute phase
-    _PyGCFTBarrier_Wait(phase_barrier);
+    _PyGCBarrier_Wait(phase_barrier);
 
     // Phase 2: Compute gc_refs for all objects in our pages
     for (size_t i = 0; i < bucket->num_pages; i++) {
@@ -2043,7 +2043,7 @@ update_refs_worker(_PyGCFTParState *state, int worker_id,
 // Thread entry point for parallel update_refs worker
 typedef struct {
     _PyGCFTParState *state;
-    _PyGCFTBarrier *phase_barrier;
+    _PyGCBarrier *phase_barrier;
     int worker_id;
     Py_ssize_t candidates;
     int result;
@@ -2072,8 +2072,8 @@ _PyGC_ParallelUpdateRefs(PyInterpreterState *interp,
     assert(state->buckets != NULL);
 
     // Initialize barrier for phase synchronization (all workers + main thread)
-    _PyGCFTBarrier phase_barrier;
-    _PyGCFTBarrier_Init(&phase_barrier, state->num_workers);
+    _PyGCBarrier phase_barrier;
+    _PyGCBarrier_Init(&phase_barrier, state->num_workers);
 
     Py_ssize_t total_candidates = 0;
 
@@ -2081,17 +2081,17 @@ _PyGC_ParallelUpdateRefs(PyInterpreterState *interp,
     if (state->num_workers == 1) {
         Py_ssize_t candidates = 0;
         if (update_refs_worker(state, 0, &phase_barrier, &candidates) < 0) {
-            _PyGCFTBarrier_Fini(&phase_barrier);
+            _PyGCBarrier_Fini(&phase_barrier);
             return -1;
         }
-        _PyGCFTBarrier_Fini(&phase_barrier);
+        _PyGCBarrier_Fini(&phase_barrier);
         return candidates;
     }
 
     // Allocate thread handles for workers 1..N-1
     pthread_t *threads = PyMem_RawCalloc(state->num_workers - 1, sizeof(pthread_t));
     if (threads == NULL) {
-        _PyGCFTBarrier_Fini(&phase_barrier);
+        _PyGCBarrier_Fini(&phase_barrier);
         return -1;
     }
 
@@ -2100,7 +2100,7 @@ _PyGC_ParallelUpdateRefs(PyInterpreterState *interp,
         state->num_workers, sizeof(_PyGCUpdateRefsThreadArgs));
     if (thread_args == NULL) {
         PyMem_RawFree(threads);
-        _PyGCFTBarrier_Fini(&phase_barrier);
+        _PyGCBarrier_Fini(&phase_barrier);
         return -1;
     }
 
@@ -2150,7 +2150,7 @@ _PyGC_ParallelUpdateRefs(PyInterpreterState *interp,
     // Cleanup
     PyMem_RawFree(thread_args);
     PyMem_RawFree(threads);
-    _PyGCFTBarrier_Fini(&phase_barrier);
+    _PyGCBarrier_Fini(&phase_barrier);
 
     return error < 0 ? -1 : total_candidates;
 }

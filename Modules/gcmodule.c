@@ -719,19 +719,6 @@ gc_get_parallel_config_impl(PyObject *module)
     }
     Py_DECREF(workers);
 
-    // Add threshold
-    size_t threshold = interp->gc.parallel_gc_threshold;
-    if (threshold == 0) {
-        threshold = _PyGC_PARALLEL_THRESHOLD_DEFAULT;
-    }
-    PyObject *threshold_obj = PyLong_FromSize_t(threshold);
-    if (threshold_obj == NULL || PyDict_SetItemString(result, "threshold", threshold_obj) < 0) {
-        Py_XDECREF(threshold_obj);
-        Py_DECREF(result);
-        return NULL;
-    }
-    Py_DECREF(threshold_obj);
-
     return result;
 
 #elif defined(Py_PARALLEL_GC)
@@ -829,39 +816,6 @@ gc_get_parallel_stats_impl(PyObject *module)
         return NULL;
     }
     return result;
-#endif
-}
-
-
-/*[clinic input]
-gc.set_parallel_threshold
-
-    threshold: Py_ssize_t
-
-Set the minimum number of roots before parallel GC is used.
-
-Only affects free-threading (GIL-disabled) builds.
-If threshold is 0, parallel GC is always used (when enabled).
-Default threshold is 10000.
-[clinic start generated code]*/
-
-static PyObject *
-gc_set_parallel_threshold_impl(PyObject *module, Py_ssize_t threshold)
-/*[clinic end generated code: output=7e8123a38d3bec0a input=3241e310f9fb3c3f]*/
-{
-#ifdef Py_GIL_DISABLED
-    if (threshold < 0) {
-        PyErr_SetString(PyExc_ValueError, "threshold must be >= 0");
-        return NULL;
-    }
-    PyInterpreterState *interp = _PyInterpreterState_GET();
-    interp->gc.parallel_gc_threshold = (size_t)threshold;
-    Py_RETURN_NONE;
-#else
-    (void)threshold;  // Suppress unused warning
-    PyErr_SetString(PyExc_NotImplementedError,
-                   "Parallel GC threshold only available in free-threading builds");
-    return NULL;
 #endif
 }
 
@@ -1147,7 +1101,6 @@ static PyMethodDef GcMethods[] = {
     GC_DISABLE_PARALLEL_METHODDEF
     GC_GET_PARALLEL_CONFIG_METHODDEF
     GC_GET_PARALLEL_STATS_METHODDEF
-    GC_SET_PARALLEL_THRESHOLD_METHODDEF
     // FTP parallel GC test APIs (debug builds only)
     GC_COUNT_GC_PAGES_METHODDEF
     GC_TEST_PAGE_ASSIGNMENT_METHODDEF

@@ -1435,8 +1435,8 @@ gc_mark_alive_from_roots(PyInterpreterState *interp,
         chunk = chunk->prev;
     }
 
-    // Check if parallel GC should be used (considers both enabled and threshold)
-    int num_workers = _PyGC_ShouldUseParallel(interp, num_roots);
+    // Check if parallel GC should be used
+    int num_workers = _PyGC_ShouldUseParallel(interp);
 
     if (num_workers > 1 && num_roots > 0) {
         // Parallel propagation: drain stack into array and use parallel workers
@@ -1503,7 +1503,7 @@ deduce_unreachable_heap(PyInterpreterState *interp,
     // incoming references.
 
     // Check if we should use parallel update_refs
-    int num_workers = _PyGC_ShouldUseParallel(interp, interp->gc.long_lived_total);
+    int num_workers = _PyGC_ShouldUseParallel(interp);
     int using_parallel = 0;
     _PyGCFTParState par_state = {0};
 

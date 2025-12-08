@@ -263,7 +263,6 @@ struct _gc_runtime_state {
     /* Parallel GC configuration for FTP */
     int parallel_gc_enabled;    /* 1 = enabled, 0 = disabled (default) */
     int parallel_gc_num_workers; /* Number of workers, 0 = auto (based on CPU count) */
-    size_t parallel_gc_threshold; /* Minimum roots before using parallel GC (default: 10000) */
     struct _PyGCThreadPool *thread_pool;  /* Persistent thread pool for parallel GC */
 #endif
 

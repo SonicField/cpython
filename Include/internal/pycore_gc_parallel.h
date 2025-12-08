@@ -14,44 +14,16 @@ extern "C" {
 
 #include "Python.h"
 #include "pycore_pystate.h"        // _PyInterpreterState
-#include "pycore_ws_deque.h"       // _PyWSDeque
+#include "pycore_ws_deque.h"       // _PyWSDeque, _PyGCLocalBuffer
 #include "pycore_condvar.h"        // PyMUTEX_T, PyCOND_T
 #include "pycore_gc.h"             // PyGC_Head
+#include "pycore_gc_barrier.h"     // _PyGCBarrier (shared with FTP)
 
 // Parallel GC Configuration
 // Only enabled when built with --with-parallel-gc
 // Mutual exclusion with --disable-gil (free-threading uses different GC)
 
 #ifdef Py_PARALLEL_GC
-
-// =============================================================================
-// Barrier Synchronization
-// =============================================================================
-
-// A barrier for synchronizing N threads.
-//
-// All N threads must reach the barrier before it is lifted, unblocking all
-// threads.
-typedef struct {
-    // Number of threads left to reach the barrier before it can be lifted
-    unsigned int num_left;
-
-    // Total number of threads managed by the barrier
-    unsigned int capacity;
-
-    // The epoch advances once all threads reach the barrier; it
-    // disambiguates spurious wakeups from true wakeups that happen once all
-    // threads have reached the barrier.
-    unsigned int epoch;
-
-    PyMUTEX_T lock;
-    PyCOND_T cond;
-} _PyGCBarrier;
-
-// Barrier functions (implemented in Python/gc_parallel.c)
-void _PyGCBarrier_Init(_PyGCBarrier *barrier, int capacity);
-void _PyGCBarrier_Fini(_PyGCBarrier *barrier);
-void _PyGCBarrier_Wait(_PyGCBarrier *barrier);
 
 // =============================================================================
 // Worker Thread State
@@ -122,10 +94,6 @@ typedef struct {
 struct _PyParallelGCState {
     // Number of worker threads
     size_t num_workers;
-
-    // Minimum generation to use parallel GC for
-    // (generations < min_gen use serial GC)
-    int min_gen;
 
     // Synchronizes all workers before marking reachable objects
     _PyGCBarrier mark_barrier;

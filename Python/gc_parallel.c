@@ -95,44 +95,8 @@ gc_try_mark_reachable_atomic(PyGC_Head *gc)
 // =============================================================================
 // Barrier Synchronization
 // =============================================================================
-
-void
-_PyGCBarrier_Init(_PyGCBarrier *barrier, int capacity)
-{
-    barrier->capacity = capacity;
-    barrier->num_left = capacity;
-    barrier->epoch = 0;
-    PyMUTEX_INIT(&barrier->lock);
-    PyCOND_INIT(&barrier->cond);
-}
-
-void
-_PyGCBarrier_Fini(_PyGCBarrier *barrier)
-{
-    PyMUTEX_FINI(&barrier->lock);
-    PyCOND_FINI(&barrier->cond);
-}
-
-void
-_PyGCBarrier_Wait(_PyGCBarrier *barrier)
-{
-    PyMUTEX_LOCK(&barrier->lock);
-    barrier->num_left--;
-    if (barrier->num_left == 0) {
-        // We were the last one to get to the barrier; reset it and unblock
-        // everyone else.
-        barrier->num_left = barrier->capacity;
-        barrier->epoch++;
-        PyCOND_BROADCAST(&barrier->cond);
-    }
-    else {
-        unsigned int epoch = barrier->epoch;
-        while (epoch == barrier->epoch) {
-            PyCOND_WAIT(&barrier->cond, &barrier->lock);
-        }
-    }
-    PyMUTEX_UNLOCK(&barrier->lock);
-}
+// Note: _PyGCBarrier_Init, _PyGCBarrier_Fini, _PyGCBarrier_Wait are now
+// inline functions defined in pycore_gc_barrier.h (shared with FTP build)
 
 // =============================================================================
 // Worker Thread Function
@@ -359,7 +323,6 @@ _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
     }
 
     par_gc->num_workers = num_workers;
-    par_gc->min_gen = 0;  // Use parallel GC for all generations
     par_gc->enabled = 1;
     par_gc->num_workers_active = 0;
 
