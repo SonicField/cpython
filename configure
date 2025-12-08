@@ -1097,6 +1097,7 @@ enable_profiling
 enable_gil
 with_pydebug
 with_trace_refs
+with_parallel_gc
 enable_pystats
 with_assertions
 enable_optimizations
@@ -1831,6 +1832,8 @@ Optional Features:
                           no)
   --disable-gil           enable support for running without the GIL (default
                           is no)
+  --with-parallel-gc      enable parallel garbage collection (GIL builds only,
+                          default is no)
   --enable-pystats        enable internal statistics gathering (default is no)
   --enable-optimizations  enable expensive, stable optimizations (PGO, etc.)
                           (default is no)
@@ -8341,6 +8344,31 @@ fi
 if test "$disable_gil" = "yes" -a "$with_trace_refs" = "yes";
 then
   as_fn_error $? "--disable-gil cannot be used with --with-trace-refs" "$LINENO" 5
+fi
+
+# Check for --with-parallel-gc
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for --with-parallel-gc" >&5
+printf %s "checking for --with-parallel-gc... " >&6; }
+# Check whether --with-parallel-gc was given.
+if test ${with_parallel_gc+y}
+then :
+  withval=$with_parallel_gc;
+else case e in #(
+  e) with_parallel_gc=no ;;
+esac
+fi
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $with_parallel_gc" >&5
+printf "%s\n" "$with_parallel_gc" >&6; }
+
+if test "$with_parallel_gc" = "yes"
+then
+  if test "$disable_gil" = "yes"
+  then
+    as_fn_error $? "--with-parallel-gc requires GIL-based build (do not use --disable-gil)" "$LINENO" 5
+  fi
+
+printf "%s\n" "#define Py_PARALLEL_GC 1" >>confdefs.h
+
 fi
 
 # Check for --enable-pystats
