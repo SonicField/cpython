@@ -35,6 +35,9 @@
 #include "pycore_uniqueid.h"      // _PyObject_FinalizeUniqueIdPool()
 #include "pycore_warnings.h"      // _PyWarnings_InitState()
 #include "pycore_weakref.h"       // _PyWeakref_GET_REF()
+#ifdef Py_PARALLEL_GC
+#include "pycore_gc_parallel.h"   // _PyGC_ParallelFini()
+#endif
 
 #include "opcode.h"
 
@@ -2202,6 +2205,16 @@ _Py_Finalize(_PyRuntimeState *runtime)
     runtime->core_initialized = 0;
 
     // XXX Call something like _PyImport_Disable() here?
+
+#ifdef Py_PARALLEL_GC
+    /* Stop parallel GC workers before removing thread states.
+       Workers have their own Python thread states which must be cleaned up
+       by the workers themselves BEFORE _PyThreadState_RemoveExcept() removes
+       them from the list and _PyThreadState_DeleteList() clears them.
+       If we don't do this, the workers will find their tstates already cleared
+       when they try to clean up, causing assertion failures. */
+    _PyGC_ParallelFini(tstate->interp);
+#endif
 
     /* Remove the state of all threads of the interpreter, except for the
        current thread. In practice, only daemon threads should still be alive,

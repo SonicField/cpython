@@ -212,11 +212,27 @@ _parallel_gc_worker_thread(void *arg)
     _PyParallelGCWorker *worker = (_PyParallelGCWorker *)arg;
     _PyParallelGCState *par_gc = worker->par_gc;
 
+    // Create a Python thread state for this worker thread.
+    // This is required for Py_REF_DEBUG (debug builds) where Py_INCREF/Py_DECREF
+    // call _Py_INCREF_IncRefTotal() which needs _PyThreadState_GET() to return
+    // a valid thread state. Without this, tp_traverse callbacks that call
+    // Py_INCREF (like ctypes) would crash.
+    PyThreadState *tstate = _PyThreadState_New(par_gc->interp, _PyThreadState_WHENCE_UNKNOWN);
+    if (tstate != NULL) {
+        _PyThreadState_Bind(tstate);
+        // Set thread-local storage so _PyThreadState_GET() returns our tstate
+        _Py_tss_tstate = tstate;
+        _Py_tss_interp = par_gc->interp;
+        worker->tstate = tstate;
+    }
+    // If tstate creation failed, continue anyway - will crash on Py_INCREF
+    // in debug builds, but that's better than failing silently
+
     // Signal that we're ready - this synchronizes with ParallelStart()
     // to ensure all workers are initialized before Start() returns
     _PyGCBarrier_Wait(&par_gc->startup_barrier);
 
-    while (!worker->should_exit) {
+    while (!_Py_atomic_load_int(&worker->should_exit)) {
         // =======================================================================
         // STEP 6: Wait for start signal from main thread
         // =======================================================================
@@ -224,7 +240,7 @@ _parallel_gc_worker_thread(void *arg)
         _PyGCBarrier_Wait(&par_gc->mark_barrier);
 
         // Check if we should exit (signaled during shutdown)
-        if (worker->should_exit) {
+        if (_Py_atomic_load_int(&worker->should_exit)) {
             break;
         }
 
@@ -297,6 +313,23 @@ _parallel_gc_worker_thread(void *arg)
         _PyGCBarrier_Wait(&par_gc->done_barrier);
     }
 
+    // Clean up Python thread state
+    // The order here is critical:
+    // 1. PyThreadState_Clear() requires current_fast_get()->interp == tstate->interp
+    //    so we MUST still be the current thread (TLS set)
+    // 2. PyThreadState_Delete() calls tstate_verify_not_active() which requires
+    //    the tstate is NOT the current thread (TLS cleared)
+    if (worker->tstate != NULL) {
+        // First clear while we're still the current thread
+        PyThreadState_Clear(worker->tstate);
+        // Now clear TLS so we're no longer "current"
+        _Py_tss_tstate = NULL;
+        _Py_tss_interp = NULL;
+        // Now delete (requires that we're NOT the current thread)
+        PyThreadState_Delete(worker->tstate);
+        worker->tstate = NULL;
+    }
+
     return NULL;
 }
 
@@ -322,6 +355,7 @@ _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
         return -1;
     }
 
+    par_gc->interp = interp;
     par_gc->num_workers = num_workers;
     par_gc->enabled = 1;
     par_gc->num_workers_active = 0;
@@ -341,7 +375,7 @@ _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
     // Initialize workers with thread-local memory pools
     // Each worker gets a 2MB pre-allocated buffer for their deque
     // This eliminates malloc/calloc calls during the hot path of collections
-    size_t pool_entries = _Py_WSDEQUE_LARGE_ARRAY_SIZE;  // 262144 entries
+    size_t pool_entries = _Py_WSDEQUE_PARALLEL_GC_SIZE;  // 256K entries = 2MB
     size_t pool_bytes = sizeof(_PyWSArray) + sizeof(uintptr_t) * pool_entries;
 
     for (size_t i = 0; i < num_workers; i++) {
@@ -378,7 +412,8 @@ _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
         worker->steal_seed = (unsigned int)(i + 1);
         worker->par_gc = par_gc;
         worker->thread_id = i;
-        worker->should_exit = 0;
+        worker->tstate = NULL;  // Will be created when worker thread starts
+        _Py_atomic_store_int(&worker->should_exit, 0);
     }
 
     // Store in interpreter state
@@ -495,7 +530,7 @@ _PyGC_ParallelStop(PyInterpreterState *interp)
 
     // Signal workers to exit
     for (size_t i = 0; i < par_gc->num_workers; i++) {
-        par_gc->workers[i].should_exit = 1;
+        _Py_atomic_store_int(&par_gc->workers[i].should_exit, 1);
     }
 
     // Wake up workers from mark_barrier so they can check should_exit and exit
@@ -515,7 +550,7 @@ _PyGC_ParallelStop(PyInterpreterState *interp)
 #endif
 
         // Reset should_exit for potential restart
-        worker->should_exit = 0;
+        _Py_atomic_store_int(&worker->should_exit, 0);
     }
 
     par_gc->num_workers_active = 0;

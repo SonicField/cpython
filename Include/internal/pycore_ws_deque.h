@@ -105,11 +105,20 @@ _PyWSArray_Grow(_PyWSArray *arr, size_t top, size_t bot)
     return new_arr;
 }
 
-// Initial size for work-stealing deque arrays
+// Initial size for work-stealing deque arrays (general use)
 static const size_t _Py_WSDEQUE_INITIAL_ARRAY_SIZE = 1 << 12;  // 4096 elements
 
-// Large initial size for parallel GC (avoids runtime growth in most cases)
-static const size_t _Py_WSDEQUE_LARGE_ARRAY_SIZE = 1 << 18;  // 262144 elements = 2MB
+// Buffer size for parallel GC work-stealing deques.
+// 256K elements = 2MB per deque on 64-bit systems.
+//
+// Rationale:
+// - Power of 2 required for Chase-Lev bitmask indexing
+// - 2MB reasonable per-worker memory overhead
+// - Avoids resize during typical GC cycles (<256K objects in young gen)
+//
+// TODO: Needs tuning based on production workload profiling.
+//       Consider making configurable for benchmarking.
+#define _Py_WSDEQUE_PARALLEL_GC_SIZE (1 << 18)  // 262144 elements
 
 // Create a WSArray using a pre-allocated buffer (no malloc during hot path)
 // The buffer must be at least sizeof(_PyWSArray) + sizeof(uintptr_t) * size bytes
@@ -295,14 +304,12 @@ _PyWSDeque_Push(_PyWSDeque *deque, void *obj)
         //     resize(q);
         //     a = load_explicit(&q->array, relaxed);
         //
-        // however, no implementation is provided for `resize`. Using a relaxed
-        // store here should be correct: all other threads will (eventually)
-        // see the update atomically and we don't have to worry about another
-        // thread growing the array concurrently as only the thread that owns
-        // the deque is allowed to do so.
+        // The array pointer must use release semantics so that all writes to
+        // the new array (copying elements in _PyWSArray_Grow) are visible
+        // before any thief can see the new pointer via acquire load in Steal.
         _PyWSArray *new_arr = _PyWSArray_Grow(arr, top, bot);
         // TODO: Handle allocation failure
-        _Py_atomic_store_ptr_relaxed(&deque->arr, new_arr);
+        _Py_atomic_store_ptr_release(&deque->arr, new_arr);
         arr = (_PyWSArray *)_Py_atomic_load_ptr(&deque->arr);
         _Py_atomic_add_int(&deque->num_resizes, 1);
     }

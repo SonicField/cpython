@@ -736,6 +736,18 @@ interpreter_clear(PyInterpreterState *interp, PyThreadState *tstate)
         _PyErr_Clear(tstate);
     }
 
+#ifdef Py_PARALLEL_GC
+    /* Shutdown parallel GC workers before clearing thread states.
+       Workers have their own Python thread states, which must be cleaned up
+       by the worker threads themselves (correct order for Clear/Delete).
+       If we try to clear them here, the assertions in PyThreadState_Clear()
+       will fail because:
+       1. Workers may still be running (tstate still "current")
+       2. Workers may have already cleaned up their own tstate
+       This MUST happen before the _Py_FOR_EACH_TSTATE_BEGIN loop below. */
+    _PyGC_ParallelFini(interp);
+#endif
+
     // Clear the current/main thread state last.
     _Py_FOR_EACH_TSTATE_BEGIN(interp, p) {
         // See https://github.com/python/cpython/issues/102126
@@ -811,11 +823,6 @@ interpreter_clear(PyInterpreterState *interp, PyThreadState *tstate)
     // All Python types must be destroyed before the last GC collection. Python
     // types create a reference cycle to themselves in their in their
     // PyTypeObject.tp_mro member (the tuple contains the type).
-
-#ifdef Py_PARALLEL_GC
-    /* Shutdown parallel GC workers before final collection */
-    _PyGC_ParallelFini(interp);
-#endif
 
     /* Last garbage collection on this interpreter */
     _PyGC_CollectNoFail(tstate);

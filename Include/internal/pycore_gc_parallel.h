@@ -81,8 +81,11 @@ typedef struct {
     HANDLE thread;
 #endif
 
-    // Worker should exit when this is set
+    // Worker should exit when this is set (accessed atomically for thread safety)
     int should_exit;
+
+    // Python thread state for this worker (created at startup, needed for Py_REF_DEBUG)
+    PyThreadState *tstate;
 
 } _PyParallelGCWorker;
 
@@ -92,6 +95,9 @@ typedef struct {
 
 // Global state for parallel garbage collection
 struct _PyParallelGCState {
+    // Interpreter state - needed to create Python thread states for workers
+    PyInterpreterState *interp;
+
     // Number of worker threads
     size_t num_workers;
 

@@ -1610,7 +1610,7 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
 
     // Initialize worker states and deques with thread-local memory pools
     // Each worker gets a pre-allocated 2MB buffer to avoid malloc during hot path
-    size_t pool_entries = _Py_WSDEQUE_LARGE_ARRAY_SIZE;  // 262144 entries = 2MB on 64-bit
+    size_t pool_entries = _Py_WSDEQUE_PARALLEL_GC_SIZE;  // 256K entries = 2MB
     size_t pool_bytes = sizeof(_PyWSArray) + sizeof(uintptr_t) * pool_entries;
 
     for (int i = 0; i < num_workers; i++) {
@@ -2463,13 +2463,32 @@ _PyGC_ParallelMarkHeap(PyInterpreterState *interp,
         return -1;
     }
 
-    // Initialize worker states and deques
+    // Allocate deque buffers for workers (256K entries = 2MB each)
+    // This avoids runtime growth and associated race conditions
+    size_t pool_entries = _Py_WSDEQUE_PARALLEL_GC_SIZE;
+    size_t pool_bytes = sizeof(_PyWSArray) + sizeof(uintptr_t) * pool_entries;
+    void **deque_buffers = PyMem_RawCalloc(state->num_workers, sizeof(void *));
+    if (deque_buffers == NULL) {
+        PyMem_RawFree(workers);
+        return -1;
+    }
+
+    // Initialize worker states and deques with pre-allocated buffers
     for (int i = 0; i < state->num_workers; i++) {
         workers[i].worker_id = i;
         workers[i].objects_marked = 0;
         workers[i].objects_stolen = 0;
         workers[i].steals_attempted = 0;
-        _PyWSDeque_Init(&workers[i].deque);
+
+        // Allocate and initialize deque with large buffer
+        deque_buffers[i] = PyMem_RawMalloc(pool_bytes);
+        if (deque_buffers[i] != NULL) {
+            _PyWSDeque_InitWithBuffer(&workers[i].deque, deque_buffers[i],
+                                       pool_bytes, pool_entries);
+        } else {
+            // Fallback to dynamic allocation (will trigger runtime growth)
+            _PyWSDeque_Init(&workers[i].deque);
+        }
     }
 
     int result = 0;
@@ -2544,10 +2563,17 @@ _PyGC_ParallelMarkHeap(PyInterpreterState *interp,
     PyMem_RawFree(threads);
 
 cleanup:
-    // Free worker deques
+    // Free worker deques and their pre-allocated buffers
     for (int i = 0; i < state->num_workers; i++) {
-        _PyWSDeque_Fini(&workers[i].deque);
+        if (deque_buffers[i] != NULL) {
+            // Use FiniExternal when we allocated an external buffer to avoid double-free
+            _PyWSDeque_FiniExternal(&workers[i].deque, deque_buffers[i]);
+            PyMem_RawFree(deque_buffers[i]);
+        } else {
+            _PyWSDeque_Fini(&workers[i].deque);
+        }
     }
+    PyMem_RawFree(deque_buffers);
     PyMem_RawFree(workers);
 
     return result;
