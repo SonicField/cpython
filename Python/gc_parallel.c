@@ -140,14 +140,8 @@ _parallel_gc_visit_and_enqueue(PyObject *op, void *arg)
     // RE-ENABLED: Local buffer with chunked striping
     // Push to local buffer first (zero fences, just array indexing)
     if (_PyGCLocalBuffer_IsFull(&worker->local_buffer)) {
-        // Buffer full - flush half to deque for work-stealing
-        // (Benchmarked: half-flush is 11% faster than full-flush overall,
-        // and avoids 44% regression on wide_tree structures)
-        size_t flush_count = _PyGC_LOCAL_BUFFER_SIZE / 2;
-        for (size_t i = 0; i < flush_count; i++) {
-            PyObject *obj = _PyGCLocalBuffer_Pop(&worker->local_buffer);
-            _PyWSDeque_Push(&worker->deque, obj);
-        }
+        // Local buffer full - use compile-time selected flush strategy
+        _PyGC_OverflowFlush(&worker->local_buffer, &worker->deque);
     }
     _PyGCLocalBuffer_Push(&worker->local_buffer, op);
 

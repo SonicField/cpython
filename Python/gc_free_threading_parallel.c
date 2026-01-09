@@ -1525,9 +1525,8 @@ propagate_pool_visitproc(PyObject *obj, void *arg)
     if (_PyGC_TryMarkAlive(obj)) {
         _PyGCLocalBuffer *local = &worker->local;
         if (_PyGCLocalBuffer_IsFull(local)) {
-            // Local buffer full - flush all to deque for work-stealing
-            // (Benchmarked: full-flush is better for FTP, unlike GIL which prefers half-flush)
-            flush_local_buffer_to_deque(worker);
+            // Local buffer full - use compile-time selected flush strategy
+            _PyGC_OverflowFlush(local, &worker->deque);
         }
         _PyGCLocalBuffer_Push(local, obj);
     }
