@@ -1387,59 +1387,25 @@ cleanup:
 // Forward declaration
 static int propagate_pool_visitproc(PyObject *obj, void *arg);
 
-// Flush local buffer to deque (when buffer is full or before stealing)
-// This is the only place where we pay deque push overhead.
-static void
+// Wrapper: flush local buffer to deque (uses shared implementation)
+static inline void
 flush_local_buffer_to_deque(_PyGCWorkerState *worker)
 {
-    _PyGCLocalBuffer *local = &worker->local;
-    // Transfer items from local buffer to deque
-    // We flush in reverse order to maintain LIFO semantics when popping from deque
-    while (!_PyGCLocalBuffer_IsEmpty(local)) {
-        PyObject *obj = _PyGCLocalBuffer_Pop(local);
-        _PyWSDeque_Push(&worker->deque, obj);
-    }
+    _PyGC_FlushLocalToDeque(&worker->local, &worker->deque);
 }
 
-// Refill local buffer from deque (when buffer is empty)
-// Pull a batch to amortize deque take overhead.
-static void
+// Wrapper: refill local buffer from deque (uses shared implementation)
+static inline void
 refill_local_buffer_from_deque(_PyGCWorkerState *worker)
 {
-    _PyGCLocalBuffer *local = &worker->local;
-    // Pull up to half the buffer size to leave room for discovered children
-    const size_t max_pull = _PyGC_LOCAL_BUFFER_SIZE / 2;
-    size_t pulled = 0;
-
-    while (pulled < max_pull) {
-        PyObject *obj = _PyWSDeque_Take(&worker->deque);
-        if (obj == NULL) {
-            break;  // Deque is empty
-        }
-        _PyGCLocalBuffer_Push(local, obj);
-        pulled++;
-    }
+    _PyGC_RefillLocalFromDeque(&worker->local, &worker->deque);
 }
 
-// Steal a batch from another worker's deque
-// Returns number of objects stolen
-static size_t
+// Wrapper: batch steal from another worker's deque (uses shared implementation)
+static inline size_t
 steal_batch_from_worker(_PyGCWorkerState *thief, _PyGCWorkerState *victim)
 {
-    _PyGCLocalBuffer *local = &thief->local;
-    // Steal up to half buffer size
-    const size_t max_steal = _PyGC_LOCAL_BUFFER_SIZE / 2;
-    size_t stolen = 0;
-
-    while (stolen < max_steal && !_PyGCLocalBuffer_IsFull(local)) {
-        PyObject *obj = _PyWSDeque_Steal(&victim->deque);
-        if (obj == NULL) {
-            break;  // Victim's deque is empty
-        }
-        _PyGCLocalBuffer_Push(local, obj);
-        stolen++;
-    }
-    return stolen;
+    return _PyGC_BatchSteal(&thief->local, &victim->deque);
 }
 
 // Work-stealing loop for a single worker

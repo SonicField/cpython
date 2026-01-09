@@ -153,56 +153,21 @@ _parallel_gc_visit_and_enqueue(PyObject *op, void *arg)
 }
 
 // =============================================================================
-// Batch Operations (ported from FTP gc_free_threading_parallel.c)
+// Batch Operations (use shared implementations from pycore_ws_deque.h)
 // =============================================================================
 
-// Batch refill local buffer from own deque
-// Amortizes deque take overhead by pulling up to half buffer at once
-static void
+// Wrapper: refill local buffer from own deque
+static inline void
 refill_local_buffer_from_deque(_PyParallelGCWorker *worker)
 {
-    _PyGCLocalBuffer *local = &worker->local_buffer;
-    // Pull up to half the buffer size to leave room for discovered children
-    const size_t max_pull = _PyGC_LOCAL_BUFFER_SIZE / 2;
-    size_t pulled = 0;
-
-    while (pulled < max_pull && !_PyGCLocalBuffer_IsFull(local)) {
-        PyObject *obj = _PyWSDeque_Take(&worker->deque);
-        if (obj == NULL) {
-            break;  // Deque is empty
-        }
-        _PyGCLocalBuffer_Push(local, obj);
-        pulled++;
-    }
+    _PyGC_RefillLocalFromDeque(&worker->local_buffer, &worker->deque);
 }
 
-// Batch steal from another worker's deque
-// Amortizes stealing overhead by stealing up to half buffer at once
-// Returns number of objects stolen
-static size_t
+// Wrapper: batch steal from another worker's deque
+static inline size_t
 steal_batch_from_worker(_PyParallelGCWorker *thief, _PyParallelGCWorker *victim)
 {
-    // OPTIMIZATION: Lazy size check before expensive steal attempts
-    // Relaxed loads are much cheaper than the seq_cst fence in Steal()
-    // During termination, most deques are empty - this avoids contention
-    if (_PyWSDeque_Size(&victim->deque) == 0) {
-        return 0;  // Skip empty deque
-    }
-
-    _PyGCLocalBuffer *local = &thief->local_buffer;
-    // Steal up to half buffer size
-    const size_t max_steal = _PyGC_LOCAL_BUFFER_SIZE / 2;
-    size_t stolen = 0;
-
-    while (stolen < max_steal && !_PyGCLocalBuffer_IsFull(local)) {
-        PyObject *obj = (PyObject *)_PyWSDeque_Steal(&victim->deque);
-        if (obj == NULL) {
-            break;  // Victim's deque is empty
-        }
-        _PyGCLocalBuffer_Push(local, obj);
-        stolen++;
-    }
-    return stolen;
+    return _PyGC_BatchSteal(&thief->local_buffer, &victim->deque);
 }
 
 // Worker thread entry point

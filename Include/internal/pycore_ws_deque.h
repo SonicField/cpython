@@ -432,6 +432,69 @@ _PyGCLocalBuffer_Reset(_PyGCLocalBuffer *buf)
 // Alias for Init (same as Reset, for code clarity)
 #define _PyGCLocalBuffer_Init _PyGCLocalBuffer_Reset
 
+// =============================================================================
+// Shared Batch Operations for Parallel GC
+// =============================================================================
+//
+// These functions work with any worker type that has deque and local fields.
+// They're shared between GIL and FTP parallel GC implementations.
+
+// Batch refill local buffer from own deque.
+// Amortises deque take overhead by pulling up to half buffer at once.
+// Returns number of objects pulled.
+static inline size_t
+_PyGC_RefillLocalFromDeque(_PyGCLocalBuffer *local, _PyWSDeque *deque)
+{
+    const size_t max_pull = _PyGC_LOCAL_BUFFER_SIZE / 2;
+    size_t pulled = 0;
+
+    while (pulled < max_pull && !_PyGCLocalBuffer_IsFull(local)) {
+        PyObject *obj = _PyWSDeque_Take(deque);
+        if (obj == NULL) {
+            break;  // Deque is empty
+        }
+        _PyGCLocalBuffer_Push(local, obj);
+        pulled++;
+    }
+    return pulled;
+}
+
+// Batch steal from victim's deque into thief's local buffer.
+// Amortises stealing overhead by stealing up to half buffer at once.
+// Returns number of objects stolen.
+static inline size_t
+_PyGC_BatchSteal(_PyGCLocalBuffer *thief_local, _PyWSDeque *victim_deque)
+{
+    // Lazy size check: relaxed loads are much cheaper than seq_cst fence in Steal()
+    if (_PyWSDeque_Size(victim_deque) == 0) {
+        return 0;
+    }
+
+    const size_t max_steal = _PyGC_LOCAL_BUFFER_SIZE / 2;
+    size_t stolen = 0;
+
+    while (stolen < max_steal && !_PyGCLocalBuffer_IsFull(thief_local)) {
+        PyObject *obj = _PyWSDeque_Steal(victim_deque);
+        if (obj == NULL) {
+            break;  // Victim's deque is empty
+        }
+        _PyGCLocalBuffer_Push(thief_local, obj);
+        stolen++;
+    }
+    return stolen;
+}
+
+// Flush local buffer to deque (when buffer is full or before stealing).
+// Transfers items in reverse order to maintain LIFO semantics.
+static inline void
+_PyGC_FlushLocalToDeque(_PyGCLocalBuffer *local, _PyWSDeque *deque)
+{
+    while (!_PyGCLocalBuffer_IsEmpty(local)) {
+        PyObject *obj = _PyGCLocalBuffer_Pop(local);
+        _PyWSDeque_Push(deque, obj);
+    }
+}
+
 #ifdef __cplusplus
 }
 #endif
