@@ -1408,10 +1408,10 @@ steal_batch_from_worker(_PyGCWorkerState *thief, _PyGCWorkerState *victim)
     return _PyGC_BatchSteal(&thief->local, &victim->deque);
 }
 
-// Work-stealing loop for a single worker
+// Work-stealing loop for PROPAGATE work
 // Called by both background workers and main thread (worker 0)
 static void
-thread_pool_do_work(_PyGCThreadPool *pool, int worker_id)
+propagate_pool_work(_PyGCThreadPool *pool, int worker_id)
 {
     _PyGCWorkerState *worker = &pool->workers[worker_id];
     _PyGCLocalBuffer *local = &worker->local;
@@ -1475,6 +1475,205 @@ thread_pool_do_work(_PyGCThreadPool *pool, int worker_id)
     flush_local_buffer_to_deque(worker);
 }
 
+// Forward declarations for pool work functions
+// (These types and functions are defined later in the file)
+typedef struct {
+    void *par_state;              // _PyGCFTParState* (not used in pool version)
+    void *phase_barrier;          // _PyGCBarrier* (not used in pool version)
+    Py_ssize_t candidates;        // Per-worker candidate count
+    int skip_deferred;            // Whether to skip deferred objects
+    int error;                    // Error flag
+} _PyGCPoolUpdateRefsArgs;
+
+static int pool_update_refs_init_page(mi_page_t *page, _PyGCPoolUpdateRefsArgs *args);
+static int pool_update_refs_compute_page(mi_page_t *page, _PyGCPoolUpdateRefsArgs *args);
+static int pool_mark_heap_find_roots_page(mi_page_t *page, _PyGCWorkerState *worker,
+                                          Py_ssize_t offset, int skip_deferred,
+                                          size_t *roots_found);
+static int pool_mark_traverse_object(PyObject *op, _PyGCWorkerState *worker);
+static void pool_scan_heap_process_page(mi_page_t *page,
+                                        struct _PyGCScanWorkerState *worker,
+                                        int gc_reason);
+
+// UPDATE_REFS pool work function
+// Processes page buckets in two phases: init and compute
+static void
+update_refs_pool_work(_PyGCThreadPool *pool, int worker_id)
+{
+    _PyGCWorkDescriptor *work = pool->current_work;
+    assert(work != NULL);
+    assert(work->buckets != NULL);
+
+    _PyGCPageBucket *bucket = &work->buckets[worker_id];
+
+    _PyGCPoolUpdateRefsArgs args = {
+        .par_state = NULL,
+        .phase_barrier = NULL,
+        .candidates = 0,
+        .skip_deferred = 0,
+        .error = 0
+    };
+
+    // Phase 1: Initialize all objects in our pages
+    for (size_t i = 0; i < bucket->num_pages; i++) {
+        mi_page_t *page = bucket->pages[i];
+        if (pool_update_refs_init_page(page, &args) < 0) {
+            work->error_flag = 1;
+            break;
+        }
+    }
+
+    // Wait for all workers to finish init phase
+    _PyGCBarrier_Wait(&pool->phase_barrier);
+
+    // Check for errors from other workers
+    if (work->error_flag) {
+        return;
+    }
+
+    // Phase 2: Compute gc_refs for all objects in our pages
+    for (size_t i = 0; i < bucket->num_pages; i++) {
+        mi_page_t *page = bucket->pages[i];
+        if (pool_update_refs_compute_page(page, &args) < 0) {
+            work->error_flag = 1;
+            break;
+        }
+    }
+
+    // Store per-worker candidate count if requested
+    if (work->per_worker_refs != NULL) {
+        work->per_worker_refs[worker_id] = args.candidates;
+    }
+}
+
+// MARK_HEAP pool work function
+// Finds roots in pages, then does work-stealing propagation
+static void
+mark_heap_pool_work(_PyGCThreadPool *pool, int worker_id)
+{
+    _PyGCWorkDescriptor *work = pool->current_work;
+    assert(work != NULL);
+    assert(work->buckets != NULL);
+
+    _PyGCWorkerState *worker = &pool->workers[worker_id];
+    _PyGCPageBucket *bucket = &work->buckets[worker_id];
+
+    // Determine offset for block-to-object conversion
+    Py_ssize_t offset_base = 0;
+    if (_PyMem_DebugEnabled()) {
+        offset_base += 2 * sizeof(size_t);
+    }
+    Py_ssize_t offset_pre = offset_base + 2 * sizeof(PyObject*);
+
+    size_t roots_found = 0;
+
+    // Phase 1: Find roots in our assigned pages
+    for (size_t i = 0; i < bucket->num_pages; i++) {
+        mi_page_t *page = bucket->pages[i];
+        Py_ssize_t offset = (page->tag == _Py_MIMALLOC_HEAP_GC_PRE)
+                            ? offset_pre : offset_base;
+        if (pool_mark_heap_find_roots_page(page, worker, offset, work->skip_deferred,
+                                           &roots_found) < 0) {
+            work->error_flag = 1;
+            return;
+        }
+    }
+
+    // Phase 2: Transitive marking with work-stealing
+    // Use multiple retry rounds to handle the termination race condition:
+    // A worker might exit thinking there's no work, while another worker
+    // is still generating new work. We retry a few times before giving up.
+    int idle_rounds = 0;
+    const int MAX_IDLE_ROUNDS = 3;  // Retry a few times before exiting
+
+    while (idle_rounds < MAX_IDLE_ROUNDS) {
+        bool made_progress = false;
+
+        // Process our local deque
+        PyObject *op;
+        while ((op = (PyObject *)_PyWSDeque_Take(&worker->deque)) != NULL) {
+            made_progress = true;
+            idle_rounds = 0;  // Reset idle counter on progress
+            if (pool_mark_traverse_object(op, worker) < 0) {
+                work->error_flag = 1;
+                return;
+            }
+        }
+
+        // Try to steal from other workers
+        for (int i = 1; i < pool->num_workers; i++) {
+            int victim = (worker_id + i) % pool->num_workers;
+            op = (PyObject *)_PyWSDeque_Steal(&pool->workers[victim].deque);
+            if (op != NULL) {
+                made_progress = true;
+                idle_rounds = 0;  // Reset idle counter on progress
+                if (pool_mark_traverse_object(op, worker) < 0) {
+                    work->error_flag = 1;
+                    return;
+                }
+                break;
+            }
+        }
+
+        if (!made_progress) {
+            idle_rounds++;
+        }
+    }
+}
+
+// SCAN_HEAP pool work function
+// Uses atomic counter for dynamic page distribution
+static void
+scan_heap_pool_work(_PyGCThreadPool *pool, int worker_id)
+{
+    _PyGCWorkDescriptor *work = pool->current_work;
+    assert(work != NULL);
+    assert(work->page_array != NULL);
+    assert(work->scan_workers != NULL);
+    assert(work->scan_result != NULL);
+
+    struct _PyGCScanWorkerState *scan_worker = &work->scan_workers[worker_id];
+    int gc_reason = work->scan_result->gc_reason;
+
+    // Dynamic work distribution using atomic counter
+    while (1) {
+        int page_idx = atomic_fetch_add(&work->page_counter, 1);
+        if (page_idx >= (int)work->total_pages) {
+            break;
+        }
+
+        pool_scan_heap_process_page(work->page_array[page_idx], scan_worker, gc_reason);
+    }
+}
+
+// Dispatcher for pool work based on work type
+static void
+thread_pool_do_work(_PyGCThreadPool *pool, int worker_id)
+{
+    _PyGCWorkDescriptor *work = pool->current_work;
+    if (work == NULL) {
+        return;  // No work to do
+    }
+
+    switch (work->type) {
+        case _PyGC_WORK_PROPAGATE:
+            propagate_pool_work(pool, worker_id);
+            break;
+        case _PyGC_WORK_UPDATE_REFS:
+            update_refs_pool_work(pool, worker_id);
+            break;
+        case _PyGC_WORK_MARK_HEAP:
+            mark_heap_pool_work(pool, worker_id);
+            break;
+        case _PyGC_WORK_SCAN_HEAP:
+            scan_heap_pool_work(pool, worker_id);
+            break;
+        default:
+            // Unknown work type - do nothing
+            break;
+    }
+}
+
 // Background worker thread entry point
 static void *
 thread_pool_worker(void *arg)
@@ -1492,6 +1691,19 @@ thread_pool_worker(void *arg)
     }
     assert(worker_id > 0 && worker_id < pool->num_workers);
 
+    // Create a Python thread state for this worker thread.
+    // This is required for Py_REF_DEBUG (debug builds) where Py_INCREF/Py_DECREF
+    // call _Py_INCREF_IncRefTotal() which needs _PyThreadState_GET() to return
+    // a valid thread state.
+    _PyGCWorkerState *worker = &pool->workers[worker_id];
+    PyThreadState *tstate = _PyThreadState_New(pool->interp, _PyThreadState_WHENCE_UNKNOWN);
+    if (tstate != NULL) {
+        _PyThreadState_Bind(tstate);
+        _Py_tss_tstate = tstate;
+        _Py_tss_interp = pool->interp;
+        worker->tstate = tstate;
+    }
+
     while (1) {
         // Wait at mark_barrier for work (main thread signals by arriving here too)
         _PyGCBarrier_Wait(&pool->mark_barrier);
@@ -1506,6 +1718,15 @@ thread_pool_worker(void *arg)
 
         // Signal completion by arriving at done_barrier
         _PyGCBarrier_Wait(&pool->done_barrier);
+    }
+
+    // Clean up Python thread state
+    if (worker->tstate != NULL) {
+        PyThreadState_Clear(worker->tstate);
+        _Py_tss_tstate = NULL;
+        _Py_tss_interp = NULL;
+        PyThreadState_Delete(worker->tstate);
+        worker->tstate = NULL;
     }
 
     return NULL;
@@ -1537,27 +1758,36 @@ propagate_pool_visitproc(PyObject *obj, void *arg)
 int
 _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
 {
-    assert(num_workers >= 2);  // Need at least 2 workers for parallelism
-    assert(interp->gc.thread_pool == NULL);  // Should not be initialized yet
+    // Require at least 1 worker (main thread only is valid, though not parallel)
+    if (num_workers < 1) {
+        return -1;
+    }
+    if (interp->gc.thread_pool != NULL) {
+        // Already initialized
+        return -1;
+    }
 
     _PyGCThreadPool *pool = PyMem_RawCalloc(1, sizeof(_PyGCThreadPool));
     if (pool == NULL) {
         return -1;
     }
 
+    pool->interp = interp;
     pool->num_workers = num_workers;
     pool->shutdown = 0;
     pool->threads_created = 0;
     pool->collections_completed = 0;
 
     // Initialize barriers for synchronization
-    // Both barriers include all workers (main thread as worker 0)
+    // All barriers include all workers (main thread as worker 0)
     _PyGCBarrier_Init(&pool->mark_barrier, num_workers);
     _PyGCBarrier_Init(&pool->done_barrier, num_workers);
+    _PyGCBarrier_Init(&pool->phase_barrier, num_workers);
 
     // Allocate thread handles (for workers 1..N-1, worker 0 is main thread)
     pool->threads = PyMem_RawCalloc(num_workers - 1, sizeof(pthread_t));
     if (pool->threads == NULL) {
+        _PyGCBarrier_Fini(&pool->phase_barrier);
         _PyGCBarrier_Fini(&pool->done_barrier);
         _PyGCBarrier_Fini(&pool->mark_barrier);
         PyMem_RawFree(pool);
@@ -1568,6 +1798,7 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
     pool->workers = PyMem_RawCalloc(num_workers, sizeof(_PyGCWorkerState));
     if (pool->workers == NULL) {
         PyMem_RawFree(pool->threads);
+        _PyGCBarrier_Fini(&pool->phase_barrier);
         _PyGCBarrier_Fini(&pool->done_barrier);
         _PyGCBarrier_Fini(&pool->mark_barrier);
         PyMem_RawFree(pool);
@@ -1630,6 +1861,7 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
             }
             PyMem_RawFree(pool->workers);
             PyMem_RawFree(pool->threads);
+            _PyGCBarrier_Fini(&pool->phase_barrier);
             _PyGCBarrier_Fini(&pool->done_barrier);
             _PyGCBarrier_Fini(&pool->mark_barrier);
             PyMem_RawFree(pool);
@@ -1680,6 +1912,7 @@ _PyGC_ThreadPoolFini(PyInterpreterState *interp)
 
     // Clean up
     PyMem_RawFree(pool->threads);
+    _PyGCBarrier_Fini(&pool->phase_barrier);
     _PyGCBarrier_Fini(&pool->done_barrier);
     _PyGCBarrier_Fini(&pool->mark_barrier);
     PyMem_RawFree(pool);
@@ -1738,6 +1971,16 @@ _PyGC_ParallelPropagateAliveWithPool(PyInterpreterState *interp,
         // Note: deques should be empty from last collection
     }
 
+    // Set up work descriptor for PROPAGATE work
+    _PyGCWorkDescriptor work = {
+        .type = _PyGC_WORK_PROPAGATE,
+        .roots = initial_roots,
+        .num_roots = num_roots,
+        .workers = pool->workers,
+        .error_flag = 0,
+    };
+    pool->current_work = &work;
+
     // Distribute roots round-robin to worker deques
     // Do this BEFORE signaling workers to start
     for (size_t i = 0; i < num_roots; i++) {
@@ -1761,6 +2004,9 @@ _PyGC_ParallelPropagateAliveWithPool(PyInterpreterState *interp,
     // Signal completion by arriving at done_barrier
     // This blocks until all workers finish, guaranteeing correct termination
     _PyGCBarrier_Wait(&pool->done_barrier);
+
+    // Clear work descriptor
+    pool->current_work = NULL;
 
     // All work is complete
     pool->collections_completed++;
@@ -1811,10 +2057,12 @@ par_gc_is_alive(PyObject *op)
 
 // Atomic version of visit_decref for parallel update_refs.
 // Assumes all objects have been pre-initialized (unreachable bit set, ob_tid = 0).
+
 static int
 par_visit_decref_atomic(PyObject *op, void *arg)
 {
     (void)arg;  // unused
+
     if (_PyObject_GC_IS_TRACKED(op)
         && !_Py_IsImmortal(op)
         && !par_gc_is_frozen(op)
@@ -2261,7 +2509,9 @@ mark_heap_roots_visitor(const mi_heap_t *heap, const mi_heap_area_t *area,
     }
 
     // Skip if already marked alive (by previous gc_mark_alive phase)
+    // But ensure UNREACHABLE bit is cleared for consistency with scan_heap
     if (op->ob_gc_bits & _PyGC_BITS_ALIVE) {
+        _PyGC_TryClearBit(op, _PyGC_BITS_UNREACHABLE);
         return true;
     }
 
@@ -2607,7 +2857,12 @@ par_merge_refcount(PyObject *op, Py_ssize_t extra)
     refcount += extra;
 
 #ifdef Py_REF_DEBUG
-    _Py_AddRefTotal(_PyThreadState_GET(), extra);
+    // Only update ref debug counter if we have a valid thread state.
+    // Worker threads in parallel GC don't have thread states, so skip.
+    PyThreadState *tstate = _Py_tss_tstate;
+    if (tstate != NULL) {
+        _Py_AddRefTotal(tstate, extra);
+    }
 #endif
 
     op->ob_tid = 0;
@@ -2919,6 +3174,296 @@ _PyGC_ParallelScanHeap(
     PyMem_RawFree(workers);
 
     return ret;
+}
+
+//=============================================================================
+// Pool-based entry points for parallel GC phases
+// These use the persistent thread pool instead of spawning ad-hoc threads.
+// They require the thread pool to be initialized.
+//=============================================================================
+
+// Pool-based parallel update_refs
+// Returns sum of candidates across all workers, or -1 on error
+Py_ssize_t
+_PyGC_ParallelUpdateRefsWithPool(PyInterpreterState *interp,
+                                  _PyGCFTParState *state)
+{
+    _PyGCThreadPool *pool = interp->gc.thread_pool;
+    assert(pool != NULL);
+    assert(pool->num_workers == state->num_workers);
+    assert(state->buckets != NULL);
+
+    // Allocate per-worker candidate counts
+    Py_ssize_t *per_worker_refs = PyMem_RawCalloc(pool->num_workers, sizeof(Py_ssize_t));
+    if (per_worker_refs == NULL) {
+        return -1;
+    }
+
+    // Set up work descriptor
+    _PyGCWorkDescriptor work = {
+        .type = _PyGC_WORK_UPDATE_REFS,
+        .buckets = state->buckets,
+        .workers = pool->workers,
+        .per_worker_refs = per_worker_refs,
+        .error_flag = 0,
+    };
+    pool->current_work = &work;
+
+    // Signal workers to start
+    _PyGCBarrier_Wait(&pool->mark_barrier);
+
+    // Worker 0 (main thread) does its share
+    thread_pool_do_work(pool, 0);
+
+    // Wait for all workers to complete
+    _PyGCBarrier_Wait(&pool->done_barrier);
+
+    // Clear work descriptor
+    pool->current_work = NULL;
+
+    // Sum up candidates
+    Py_ssize_t total_candidates = 0;
+    if (!work.error_flag) {
+        for (int i = 0; i < pool->num_workers; i++) {
+            total_candidates += per_worker_refs[i];
+        }
+    }
+
+    PyMem_RawFree(per_worker_refs);
+
+    return work.error_flag ? -1 : total_candidates;
+}
+
+// Pool-based parallel mark_heap
+// Returns 0 on success, -1 on error
+int
+_PyGC_ParallelMarkHeapWithPool(PyInterpreterState *interp,
+                                _PyGCFTParState *state,
+                                int skip_deferred_objects)
+{
+    _PyGCThreadPool *pool = interp->gc.thread_pool;
+    assert(pool != NULL);
+    assert(pool->num_workers == state->num_workers);
+    assert(state->buckets != NULL);
+
+    // Reset worker states
+    for (int i = 0; i < pool->num_workers; i++) {
+        pool->workers[i].objects_marked = 0;
+        pool->workers[i].objects_stolen = 0;
+        pool->workers[i].steals_attempted = 0;
+    }
+
+    // Set up work descriptor
+    _PyGCWorkDescriptor work = {
+        .type = _PyGC_WORK_MARK_HEAP,
+        .buckets = state->buckets,
+        .skip_deferred = skip_deferred_objects,
+        .workers = pool->workers,
+        .error_flag = 0,
+    };
+    pool->current_work = &work;
+
+    // Signal workers to start
+    _PyGCBarrier_Wait(&pool->mark_barrier);
+
+    // Worker 0 (main thread) does its share
+    thread_pool_do_work(pool, 0);
+
+    // Wait for all workers to complete
+    _PyGCBarrier_Wait(&pool->done_barrier);
+
+    // Clear work descriptor
+    pool->current_work = NULL;
+
+    return work.error_flag ? -1 : 0;
+}
+
+// Pool-based parallel scan_heap
+// Returns 0 on success, -1 on error
+int
+_PyGC_ParallelScanHeapWithPool(PyInterpreterState *interp,
+                                _PyGCFTParState *state,
+                                struct _PyGCScanHeapResult *result)
+{
+    _PyGCThreadPool *pool = interp->gc.thread_pool;
+    assert(pool != NULL);
+    assert(pool->num_workers == state->num_workers);
+
+    // Allocate per-worker scan state
+    struct _PyGCScanWorkerState *scan_workers = PyMem_RawCalloc(
+        pool->num_workers, sizeof(struct _PyGCScanWorkerState));
+    if (scan_workers == NULL) {
+        return -1;
+    }
+
+    // Initialize scan workers with gc_reason
+    for (int i = 0; i < pool->num_workers; i++) {
+        scan_workers[i].reason = result->gc_reason;
+    }
+
+    // Collect pages using atomic counter approach
+    // First, collect all pages into an array
+    size_t page_capacity = 1024;
+    size_t total_pages = 0;
+    mi_page_t **page_array = PyMem_RawMalloc(page_capacity * sizeof(mi_page_t *));
+    if (page_array == NULL) {
+        PyMem_RawFree(scan_workers);
+        return -1;
+    }
+
+    HEAD_LOCK(&_PyRuntime);
+    _Py_FOR_EACH_TSTATE_UNLOCKED(interp, t) {
+        struct _mimalloc_thread_state *m = &((_PyThreadStateImpl *)t)->mimalloc;
+        if (!_Py_atomic_load_int(&m->initialized)) {
+            continue;
+        }
+
+        for (int i = 0; i < _Py_MIMALLOC_HEAP_COUNT; i++) {
+            mi_heap_t *heap = &m->heaps[i];
+            if (!is_gc_heap(heap)) {
+                continue;
+            }
+
+            for (size_t q = 0; q <= MI_BIN_FULL; q++) {
+                mi_page_queue_t *pq = &heap->pages[q];
+                for (mi_page_t *page = pq->first; page != NULL; page = page->next) {
+                    if (page->used == 0) continue;
+
+                    if (total_pages >= page_capacity) {
+                        page_capacity *= 2;
+                        mi_page_t **new_arr = PyMem_RawRealloc(
+                            page_array, page_capacity * sizeof(mi_page_t *));
+                        if (new_arr == NULL) {
+                            HEAD_UNLOCK(&_PyRuntime);
+                            PyMem_RawFree(page_array);
+                            PyMem_RawFree(scan_workers);
+                            return -1;
+                        }
+                        page_array = new_arr;
+                    }
+                    page_array[total_pages++] = page;
+                }
+            }
+        }
+    }
+    HEAD_UNLOCK(&_PyRuntime);
+
+    if (total_pages == 0) {
+        PyMem_RawFree(page_array);
+        PyMem_RawFree(scan_workers);
+        return 0;
+    }
+
+    // Set up work descriptor
+    _PyGCWorkDescriptor work = {
+        .type = _PyGC_WORK_SCAN_HEAP,
+        .scan_result = result,
+        .scan_workers = scan_workers,
+        .page_array = page_array,
+        .total_pages = total_pages,
+        .page_counter = 0,
+        .workers = pool->workers,
+        .error_flag = 0,
+    };
+    pool->current_work = &work;
+
+    // Signal workers to start
+    _PyGCBarrier_Wait(&pool->mark_barrier);
+
+    // Worker 0 (main thread) does its share
+    thread_pool_do_work(pool, 0);
+
+    // Wait for all workers to complete
+    _PyGCBarrier_Wait(&pool->done_barrier);
+
+    // Clear work descriptor
+    pool->current_work = NULL;
+
+    // Merge results from all workers
+    for (int i = 0; i < pool->num_workers; i++) {
+        scan_worklist_merge(&scan_workers[i].unreachable, result->unreachable_head);
+        scan_worklist_merge(&scan_workers[i].legacy_finalizers,
+                            result->legacy_finalizers_head);
+        *result->long_lived_total += scan_workers[i].long_lived_total;
+    }
+
+    // Cleanup
+    PyMem_RawFree(page_array);
+    PyMem_RawFree(scan_workers);
+
+    return work.error_flag ? -1 : 0;
+}
+
+//-----------------------------------------------------------------------------
+// Pool-based work function wrappers
+// These wrap the existing functions to work with the persistent thread pool
+//-----------------------------------------------------------------------------
+
+// Pool version of update_refs_init_page
+// Wraps the existing function with pool-compatible args struct
+static int
+pool_update_refs_init_page(mi_page_t *page, _PyGCPoolUpdateRefsArgs *args)
+{
+    assert(page != NULL);
+
+    mi_heap_area_t area;
+    _mi_heap_area_init(&area, page);
+
+    bool is_gc_pre = (page->tag == _Py_MIMALLOC_HEAP_GC_PRE);
+
+    _PyGCUpdateRefsInitArgs visitor_args = {
+        .offset = get_block_offset(is_gc_pre),
+        .candidates = &args->candidates
+    };
+
+    _mi_heap_area_visit_blocks(&area, page, update_refs_init_visitor, &visitor_args);
+
+    return 0;
+}
+
+// Pool version of update_refs_compute_page
+static int
+pool_update_refs_compute_page(mi_page_t *page, _PyGCPoolUpdateRefsArgs *args)
+{
+    (void)args;
+    assert(page != NULL);
+
+    mi_heap_area_t area;
+    _mi_heap_area_init(&area, page);
+
+    bool is_gc_pre = (page->tag == _Py_MIMALLOC_HEAP_GC_PRE);
+
+    _PyGCUpdateRefsComputeArgs visitor_args = {
+        .offset = get_block_offset(is_gc_pre)
+    };
+
+    _mi_heap_area_visit_blocks(&area, page, update_refs_compute_visitor, &visitor_args);
+
+    return 0;
+}
+
+// Pool version of mark_heap_find_roots_page - thin wrapper
+static int
+pool_mark_heap_find_roots_page(mi_page_t *page, _PyGCWorkerState *worker,
+                               Py_ssize_t offset, int skip_deferred,
+                               size_t *roots_found)
+{
+    return mark_heap_find_roots_page(page, worker, offset, skip_deferred, roots_found);
+}
+
+// Pool version of par_mark_traverse_object - thin wrapper
+static int
+pool_mark_traverse_object(PyObject *op, _PyGCWorkerState *worker)
+{
+    return par_mark_traverse_object(op, worker);
+}
+
+// Pool version of scan_heap_process_page - thin wrapper
+static void
+pool_scan_heap_process_page(mi_page_t *page, struct _PyGCScanWorkerState *worker,
+                            int gc_reason)
+{
+    scan_heap_process_page(page, worker, gc_reason);
 }
 
 #endif  // Py_GIL_DISABLED

@@ -210,6 +210,9 @@ static inline void
 gc_set_alive(PyObject *op)
 {
     gc_set_bit(op, _PyGC_BITS_ALIVE);
+    // Also clear UNREACHABLE to prevent mishandling if it was left set
+    // from a previous GC cycle
+    gc_clear_bit(op, _PyGC_BITS_UNREACHABLE);
 }
 #endif
 
@@ -313,6 +316,38 @@ disable_deferred_refcounting(PyObject *op)
         op->ob_gc_bits &= ~_PyGC_BITS_DEFERRED;
         op->ob_ref_shared -= _Py_REF_SHARED(_Py_REF_DEFERRED, 0);
         merge_refcount(op, 0);
+
+        // Heap types and code objects also use per-thread refcounting, which
+        // should also be disabled when we turn off deferred refcounting.
+        _PyObject_DisablePerThreadRefcounting(op);
+    }
+
+    // Generators and frame objects may contain deferred references to other
+    // objects. If the pointed-to objects are part of cyclic trash, we may
+    // have disabled deferred refcounting on them and need to ensure that we
+    // use strong references, in case the generator or frame object is
+    // resurrected by a finalizer.
+    if (PyGen_CheckExact(op) || PyCoro_CheckExact(op) || PyAsyncGen_CheckExact(op)) {
+        frame_disable_deferred_refcounting(&((PyGenObject *)op)->gi_iframe);
+    }
+    else if (PyFrame_Check(op)) {
+        frame_disable_deferred_refcounting(((PyFrameObject *)op)->f_frame);
+    }
+}
+
+// Version of disable_deferred_refcounting for objects already on worklists.
+// These objects have already been merged by par_merge_refcount, and their
+// ob_tid is used as the worklist next pointer. We must NOT clear ob_tid.
+static void
+disable_deferred_refcounting_on_worklist(PyObject *op)
+{
+    if (_PyObject_HasDeferredRefcount(op)) {
+        op->ob_gc_bits &= ~_PyGC_BITS_DEFERRED;
+        op->ob_ref_shared -= _Py_REF_SHARED(_Py_REF_DEFERRED, 0);
+        // NOTE: Do NOT call merge_refcount here! The object is already merged
+        // (by par_merge_refcount in parallel scan_heap), and ob_tid is used
+        // as the worklist next pointer. Calling merge_refcount would set
+        // ob_tid = 0, corrupting the worklist.
 
         // Heap types and code objects also use per-thread refcounting, which
         // should also be disabled when we turn off deferred refcounting.
@@ -1202,6 +1237,7 @@ scan_heap_visitor(const mi_heap_t *heap, const mi_heap_area_t *area,
     }
 
     struct collection_state *state = (struct collection_state *)args;
+
     if (gc_is_unreachable(op)) {
         // Disable deferred refcounting for unreachable objects so that they
         // are collected immediately after finalization.
@@ -1460,14 +1496,10 @@ gc_mark_alive_from_roots(PyInterpreterState *interp,
         }
         assert(idx == num_roots);
 
-        // Run parallel propagation using thread pool if available
+        // Run parallel propagation using persistent thread pool
         // Thread pool uses barrier synchronization for correct termination.
-        int err;
-        if (_PyGC_ThreadPoolIsActive(interp)) {
-            err = _PyGC_ParallelPropagateAliveWithPool(interp, roots, num_roots, num_workers);
-        } else {
-            err = _PyGC_ParallelPropagateAlive(interp, roots, num_roots, num_workers);
-        }
+        assert(_PyGC_ThreadPoolIsActive(interp));
+        int err = _PyGC_ParallelPropagateAliveWithPool(interp, roots, num_roots, num_workers);
         PyMem_RawFree(roots);
 
         if (err < 0) {
@@ -1625,18 +1657,19 @@ deduce_unreachable_heap(PyInterpreterState *interp,
         }
 
         // Disable deferred refcounting serially for unreachable objects
-        // (this uses internal locks that aren't safe for parallel access)
+        // (this uses internal locks that aren't safe for parallel access).
+        // Use the worklist-safe version that preserves ob_tid (worklist link).
         PyObject *op = (PyObject *)state->unreachable.head;
         while (op != NULL) {
             PyObject *next = (PyObject *)op->ob_tid;
-            disable_deferred_refcounting(op);
+            disable_deferred_refcounting_on_worklist(op);
             op = next;
         }
         // Also for objects with legacy finalizers
         op = (PyObject *)state->legacy_finalizers.head;
         while (op != NULL) {
             PyObject *next = (PyObject *)op->ob_tid;
-            disable_deferred_refcounting(op);
+            disable_deferred_refcounting_on_worklist(op);
             op = next;
         }
 

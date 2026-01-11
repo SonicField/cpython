@@ -360,7 +360,7 @@ class GCBenchmark:
 
         # Configure GC
         gc.disable()
-        if parallel and num_workers > 1:
+        if parallel:
             enable_parallel_gc(num_workers)
             set_parallel_threshold(100)  # Low threshold for benchmarking
         else:

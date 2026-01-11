@@ -72,10 +72,12 @@ _PyGC_AtomicClearBit(PyObject *op, uint8_t bit)
 
 // Convenience functions for common operations
 
-// Try to mark object as ALIVE. Returns 1 if we were first to mark it.
+// Try to mark object as ALIVE and clear UNREACHABLE. Returns 1 if we were first to mark it.
 // Uses check-first optimization: fast relaxed load before atomic RMW.
 // This is a significant win for objects visited multiple times (type objects,
 // builtins, shared containers) - we skip the expensive atomic RMW entirely.
+// Clearing UNREACHABLE when marking ALIVE ensures objects with leftover
+// UNREACHABLE from a previous GC cycle are handled correctly.
 static inline int
 _PyGC_TryMarkAlive(PyObject *op)
 {
@@ -83,8 +85,14 @@ _PyGC_TryMarkAlive(PyObject *op)
     if (_Py_atomic_load_uint8_relaxed(&op->ob_gc_bits) & _PyGC_BITS_ALIVE) {
         return 0;  // Already marked, skip atomic RMW
     }
-    // Slow path: not marked yet (or race), do atomic set
-    return _PyGC_TrySetBit(op, _PyGC_BITS_ALIVE);
+    // Slow path: not marked yet (or race), do atomic set of ALIVE
+    // and clear UNREACHABLE (which may have been leftover from previous cycle)
+    int marked = _PyGC_TrySetBit(op, _PyGC_BITS_ALIVE);
+    if (marked) {
+        // Also clear UNREACHABLE to prevent mishandling if it was left set
+        _PyGC_AtomicClearBit(op, _PyGC_BITS_UNREACHABLE);
+    }
+    return marked;
 }
 
 // Check if object is marked ALIVE (atomic read).
@@ -123,14 +131,18 @@ _PyGC_TryMarkReachable(PyObject *op)
 // Work types for the thread pool
 typedef enum {
     _PyGC_WORK_NONE = 0,        // No work pending
-    _PyGC_WORK_PROPAGATE,       // Propagate alive from roots
-    _PyGC_WORK_MARK_PAGES,      // Mark alive from page buckets
+    _PyGC_WORK_PROPAGATE,       // Propagate alive from roots (mark_alive)
+    _PyGC_WORK_UPDATE_REFS,     // Initialize gc_refs on heap (deduce_unreachable phase 1)
+    _PyGC_WORK_MARK_HEAP,       // Find roots and mark reachable (deduce_unreachable phase 2)
+    _PyGC_WORK_SCAN_HEAP,       // Collect unreachable objects (deduce_unreachable phase 3)
     _PyGC_WORK_SHUTDOWN         // Shutdown workers
 } _PyGCWorkType;
 
 // Forward declarations
 struct _PyGCThreadPool;
 struct _PyGCPageBucket;
+struct mi_page_s;  // mi_page_t from mimalloc
+typedef struct mi_page_s mi_page_t;
 
 // Per-worker state for parallel GC (define early so _PyGCWorkDescriptor can use it)
 typedef struct _PyGCWorkerState {
@@ -142,6 +154,10 @@ typedef struct _PyGCWorkerState {
     // Pre-allocated once at gc.enable_parallel() time to avoid malloc during hot path
     void *local_pool;        // Pre-allocated buffer for deque (2MB)
     size_t local_pool_size;  // Size of local_pool in entries
+
+    // Python thread state for this worker (for Py_REF_DEBUG in debug builds)
+    // Created at pool init, destroyed at pool fini
+    PyThreadState *tstate;
 
     // Statistics (updated atomically)
     size_t objects_marked;   // Objects marked by this worker
@@ -157,8 +173,16 @@ typedef struct {
     PyObject **roots;           // Array of root objects (not owned)
     size_t num_roots;           // Number of roots
 
-    // For MARK_PAGES work
+    // For UPDATE_REFS / MARK_HEAP work
     struct _PyGCPageBucket *buckets;  // Page buckets (not owned)
+    int skip_deferred;                // For MARK_HEAP: skip deferred objects
+
+    // For SCAN_HEAP work - uses dynamic page distribution
+    struct _PyGCScanHeapResult *scan_result;    // Output pointers (not owned)
+    struct _PyGCScanWorkerState *scan_workers;  // Per-worker scan state (not owned)
+    mi_page_t **page_array;                     // Array of pages to scan
+    size_t total_pages;                         // Number of pages
+    _Atomic(int) page_counter;                  // Atomic counter for work distribution
 
     // Shared worker state (deques, etc.)
     _PyGCWorkerState *workers;        // Now uses the full typedef
@@ -168,6 +192,7 @@ typedef struct {
 
     // Statistics
     size_t *per_worker_marked;  // Per-worker objects marked (caller allocates)
+    Py_ssize_t *per_worker_refs; // Per-worker candidate count (for UPDATE_REFS)
 } _PyGCWorkDescriptor;
 
 // Persistent thread pool for parallel GC
@@ -176,19 +201,27 @@ typedef struct {
 // Uses barrier synchronization like the GIL-based parallel GC:
 // - mark_barrier: Workers wait here until main signals work ready
 // - done_barrier: All workers (including main as worker 0) wait here when done
+// - phase_barrier: For multi-phase operations (e.g., UPDATE_REFS init/compute)
 //
 // This guarantees correct termination: barriers only release when ALL
 // participants arrive, ensuring no work is in flight.
 typedef struct _PyGCThreadPool {
+    // Interpreter state - needed to create Python thread states for workers
+    PyInterpreterState *interp;
+
     int num_workers;            // Number of workers (including main thread as worker 0)
     pthread_t *threads;         // Thread handles for workers 1..N-1
 
     // Persistent worker states (allocated once, reused across collections)
     _PyGCWorkerState *workers;  // Per-worker state including deques
 
+    // Current work descriptor - set by main thread before signalling workers
+    _PyGCWorkDescriptor *current_work;
+
     // Barrier synchronization (like GIL-based parallel GC)
     _PyGCBarrier mark_barrier;     // Workers wait here for work
     _PyGCBarrier done_barrier;     // All workers wait here when done
+    _PyGCBarrier phase_barrier;    // For multi-phase operations
 
     // Worker control
     volatile int shutdown;           // 1 = pool is shutting down
@@ -268,25 +301,56 @@ PyAPI_FUNC(int) _PyGC_ParallelMarkAlive(
     PyInterpreterState *interp,
     _PyGCFTParState *state);
 
-// Parallel propagation from roots.
-// Takes initial roots (already marked alive) and transitively marks
-// all reachable objects as alive using parallel workers.
-// This is the integration point for gc_mark_alive_from_roots().
-PyAPI_FUNC(int) _PyGC_ParallelPropagateAlive(
-    PyInterpreterState *interp,
-    PyObject **initial_roots,
-    size_t num_roots,
-    int num_workers);
-
 // Parallel propagation using persistent thread pool.
-// Same as _PyGC_ParallelPropagateAlive but uses the thread pool
-// instead of spawning new threads per collection.
+// This is the only supported parallel propagation function.
 // Requires thread pool to be initialized first.
 PyAPI_FUNC(int) _PyGC_ParallelPropagateAliveWithPool(
     PyInterpreterState *interp,
     PyObject **initial_roots,
     size_t num_roots,
     int num_workers);
+
+//-----------------------------------------------------------------------------
+// Pool-based parallel GC phases (require thread pool to be initialized)
+//-----------------------------------------------------------------------------
+
+// Pool-based parallel update_refs
+PyAPI_FUNC(Py_ssize_t) _PyGC_ParallelUpdateRefsWithPool(
+    PyInterpreterState *interp,
+    _PyGCFTParState *state);
+
+// Pool-based parallel mark_heap
+PyAPI_FUNC(int) _PyGC_ParallelMarkHeapWithPool(
+    PyInterpreterState *interp,
+    _PyGCFTParState *state,
+    int skip_deferred_objects);
+
+// Pool-based parallel scan_heap
+PyAPI_FUNC(int) _PyGC_ParallelScanHeapWithPool(
+    PyInterpreterState *interp,
+    _PyGCFTParState *state,
+    struct _PyGCScanHeapResult *result);
+
+//-----------------------------------------------------------------------------
+// Ad-hoc thread versions (TEMPORARY - for testing if bug is pre-existing)
+//-----------------------------------------------------------------------------
+
+// Ad-hoc parallel update_refs (spawns its own threads)
+PyAPI_FUNC(Py_ssize_t) _PyGC_ParallelUpdateRefs(
+    PyInterpreterState *interp,
+    _PyGCFTParState *state);
+
+// Ad-hoc parallel mark_heap (spawns its own threads)
+PyAPI_FUNC(int) _PyGC_ParallelMarkHeap(
+    PyInterpreterState *interp,
+    _PyGCFTParState *state,
+    int skip_deferred_objects);
+
+// Ad-hoc parallel scan_heap (spawns its own threads)
+PyAPI_FUNC(int) _PyGC_ParallelScanHeap(
+    PyInterpreterState *interp,
+    _PyGCFTParState *state,
+    struct _PyGCScanHeapResult *result);
 
 //-----------------------------------------------------------------------------
 // Atomic gc_refs operations for parallel deduce_unreachable
@@ -361,32 +425,7 @@ gc_get_refs_atomic(PyObject *op)
 }
 
 //-----------------------------------------------------------------------------
-// Parallel update_refs for deduce_unreachable_heap
-//-----------------------------------------------------------------------------
-
-// Run parallel update_refs phase.
-// This is the first phase of deduce_unreachable_heap.
-// Returns the total candidate count across all workers, or -1 on error.
-PyAPI_FUNC(Py_ssize_t) _PyGC_ParallelUpdateRefs(
-    PyInterpreterState *interp,
-    _PyGCFTParState *state);
-
-//-----------------------------------------------------------------------------
-// Parallel mark_heap_visitor for deduce_unreachable_heap
-//-----------------------------------------------------------------------------
-
-// Run parallel mark_heap_visitor phase.
-// Finds objects with gc_refs > 0 (external references) and transitively
-// clears the UNREACHABLE bit on all reachable objects.
-// This is the second phase of deduce_unreachable_heap (after update_refs).
-// Returns 0 on success, -1 on error.
-PyAPI_FUNC(int) _PyGC_ParallelMarkHeap(
-    PyInterpreterState *interp,
-    _PyGCFTParState *state,
-    int skip_deferred_objects);
-
-//-----------------------------------------------------------------------------
-// Parallel scan_heap_visitor for deduce_unreachable_heap
+// Parallel scan_heap_visitor structs for deduce_unreachable_heap
 //-----------------------------------------------------------------------------
 
 // Thread-local worklist for parallel scan_heap
@@ -404,23 +443,13 @@ struct _PyGCScanWorkerState {
     int reason;                                 // GC reason (for shutdown check)
 };
 
-// Parallel scan_heap output - passed to _PyGC_ParallelScanHeap
+// Parallel scan_heap output - passed to _PyGC_ParallelScanHeapWithPool
 struct _PyGCScanHeapResult {
     uintptr_t *unreachable_head;     // Pointer to worklist head
     uintptr_t *legacy_finalizers_head;
     Py_ssize_t *long_lived_total;    // Pointer to counter
     int gc_reason;                   // GC reason for shutdown check
 };
-
-// Run parallel scan_heap_visitor phase.
-// Scans all objects, pushing unreachable ones to worklists and restoring
-// ob_tid for reachable ones.
-// This is the third phase of deduce_unreachable_heap (after mark_heap).
-// Returns 0 on success, -1 on error.
-PyAPI_FUNC(int) _PyGC_ParallelScanHeap(
-    PyInterpreterState *interp,
-    _PyGCFTParState *state,
-    struct _PyGCScanHeapResult *result);
 
 // Get number of parallel GC workers based on configuration.
 // Returns 0 if parallel GC is disabled, otherwise the worker count.
