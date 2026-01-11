@@ -1026,4 +1026,165 @@ _PyGC_ParallelMoveUnreachable(
     return 1;
 }
 
+// =============================================================================
+// Bidirectional Scan for Parallel update_refs/subtract_refs
+// =============================================================================
+//
+// These functions implement bidirectional traversal of the GC linked list.
+// Two threads walk from opposite ends, meeting in the middle. This halves
+// the counting time and records split points for subsequent parallel phases.
+//
+// Meeting detection uses sparse marking: every _PyGC_BIDIR_MARK_INTERVAL
+// objects, a thread atomically sets _PyGC_PREV_MASK_BIDIR_VISITED. When
+// a thread encounters a marked object, it knows the other thread was there.
+
+// Forward scan: walk from head towards tail, marking and counting
+// Records split points at regular intervals for work distribution
+// Returns number of objects scanned
+static size_t
+_bidir_scan_forward(PyGC_Head *head,
+                    _PyGCBidirScanState *state,
+                    size_t num_workers)
+{
+    PyGC_Head *gc = _PyGCHead_NEXT(head);
+    size_t count = 0;
+    size_t split_idx = 1;  // split_points[0] = first object (set by caller)
+
+    // Calculate approximate objects per split
+    // We don't know total count yet, so estimate based on scan progress
+    // Split points will be refined as we go
+    size_t next_split_at = 0;  // Will be set after first estimate
+    size_t estimated_total = 0;
+
+    state->split_points[0] = gc;  // First split starts at first object
+
+    while (gc != head) {
+        // Prefetch next node to hide memory latency
+        // This is critical for linked list performance
+        PyGC_Head *next = _PyGCHead_NEXT(gc);
+        __builtin_prefetch(next, 0, 3);  // Read, high temporal locality
+
+        // Check if backward thread already visited this object
+        if (_PyGC_IsBidirVisited(gc)) {
+            // Other thread marked this - we've met
+            _Py_atomic_store_int_relaxed(&state->met, 1);
+            break;
+        }
+
+        count++;
+
+        // Mark every MARK_INTERVAL objects for meeting detection
+        if ((count & (_PyGC_BIDIR_MARK_INTERVAL - 1)) == 0) {
+            _PyGC_MarkBidirVisited(gc);
+
+            // After first interval, estimate total and set split points
+            if (estimated_total == 0 && count >= _PyGC_BIDIR_MARK_INTERVAL * 4) {
+                // Very rough estimate: double current count (we're ~halfway)
+                // This is refined by actual meeting point
+                estimated_total = count * 4;  // Assume we're 1/4 through
+                next_split_at = estimated_total / num_workers;
+                if (next_split_at < _PyGC_BIDIR_MARK_INTERVAL) {
+                    next_split_at = _PyGC_BIDIR_MARK_INTERVAL;
+                }
+            }
+        }
+
+        // Record split points at regular intervals
+        if (next_split_at > 0 && count >= next_split_at * split_idx &&
+            split_idx < num_workers) {
+            state->split_points[split_idx] = gc;
+            split_idx++;
+        }
+
+        gc = next;
+    }
+
+    // Record how many splits we actually made
+    state->num_splits = split_idx;
+
+    return count;
+}
+
+// Backward scan: walk from tail towards head, marking and counting
+// Does not record split points (forward thread does that)
+// Returns number of objects scanned
+static size_t
+_bidir_scan_backward(PyGC_Head *head, _PyGCBidirScanState *state)
+{
+    // Get tail: head->_gc_prev points to last element
+    PyGC_Head *gc = _PyGCHead_PREV(head);
+    size_t count = 0;
+
+    while (gc != head && !_Py_atomic_load_int_relaxed(&state->met)) {
+        // Prefetch previous node to hide memory latency
+        PyGC_Head *prev = _PyGCHead_PREV(gc);
+        __builtin_prefetch(prev, 0, 3);  // Read, high temporal locality
+
+        // Check if forward thread already visited this object
+        if (_PyGC_IsBidirVisited(gc)) {
+            // Other thread marked this - we've met
+            _Py_atomic_store_int_relaxed(&state->met, 1);
+            break;
+        }
+
+        count++;
+
+        // Mark every MARK_INTERVAL objects for meeting detection
+        if ((count & (_PyGC_BIDIR_MARK_INTERVAL - 1)) == 0) {
+            _PyGC_MarkBidirVisited(gc);
+        }
+
+        gc = prev;
+    }
+
+    return count;
+}
+
+// Clear bidirectional marks from the entire list
+// Called after bidirectional scan completes
+static void
+_bidir_clear_marks(PyGC_Head *head)
+{
+    PyGC_Head *gc = _PyGCHead_NEXT(head);
+    while (gc != head) {
+        PyGC_Head *next = _PyGCHead_NEXT(gc);
+        __builtin_prefetch(next, 1, 3);  // Write, high temporal locality
+        _PyGC_ClearBidirVisited(gc);
+        gc = next;
+    }
+}
+
+// Serial bidirectional scan for testing
+// Runs both directions sequentially (for correctness testing)
+// Returns total object count
+size_t
+_PyGC_BidirScanSerial(PyGC_Head *head,
+                      _PyGCBidirScanState *state,
+                      size_t num_workers)
+{
+    // Initialize state
+    state->met = 0;
+    state->forward_count = 0;
+    state->backward_count = 0;
+    state->total_count = 0;
+    state->num_splits = 0;
+
+    // Run forward scan
+    state->forward_count = _bidir_scan_forward(head, state, num_workers);
+
+    // Run backward scan (will stop when it hits forward marks)
+    state->backward_count = _bidir_scan_backward(head, state);
+
+    // Total is sum of both directions
+    state->total_count = state->forward_count + state->backward_count;
+
+    // Finalize split points: ensure last split point wraps to head
+    state->split_points[state->num_splits] = head;
+
+    // Clear marks for next phase
+    _bidir_clear_marks(head);
+
+    return state->total_count;
+}
+
 #endif // Py_PARALLEL_GC
