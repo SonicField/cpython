@@ -25,8 +25,95 @@ extern "C" {
 
 #ifdef Py_PARALLEL_GC
 
+// =============================================================================
+// Platform Requirements
+// =============================================================================
+//
+// Parallel GC requires 64-bit pointers for two reasons:
+// 1. Multi-gigabyte heaps that benefit from parallel GC are only possible on 64-bit
+// 2. We need bit 2 of _gc_prev for bidirectional scan marking (8-byte alignment)
+//
+#if SIZEOF_VOID_P < 8
+#  error "Parallel GC requires 64-bit platform (SIZEOF_VOID_P >= 8)"
+#endif
+
 // Maximum number of worker threads for parallel GC
 #define _PyGC_MAX_WORKERS 1024
+
+// =============================================================================
+// Bidirectional Scan Marking
+// =============================================================================
+//
+// During bidirectional counting, two threads walk the GC list from opposite
+// ends. They need to detect when they meet. We use bit 2 of _gc_prev for this.
+//
+// On 64-bit systems, PyGC_Head is 8-byte aligned (due to containing uintptr_t),
+// so bits 0-2 of pointers stored in _gc_prev are always zero.
+//
+// Bit layout of _gc_prev during bidirectional scan:
+//   Bit 0: _PyGC_PREV_MASK_FINALIZED (preserved)
+//   Bit 1: _PyGC_PREV_MASK_COLLECTING (not yet set during scan)
+//   Bit 2: _PyGC_PREV_MASK_BIDIR_VISITED (set during bidirectional scan)
+//   Bits 3+: Previous pointer (aligned to 8 bytes on 64-bit)
+//
+#define _PyGC_PREV_MASK_BIDIR_VISITED  ((uintptr_t)4)
+
+// Interval for marking during bidirectional scan
+// Every Nth object is marked; threads detect crossing when they hit a mark
+#define _PyGC_BIDIR_MARK_INTERVAL 8
+
+// Minimum objects to use parallel phases (below this, serial is faster)
+#define _PyGC_PARALLEL_MIN_OBJECTS 10000
+
+// =============================================================================
+// Bidirectional Scan State
+// =============================================================================
+
+typedef struct {
+    // Split points for distributing work to parallel workers
+    // split_points[0] = list head, split_points[num_splits] = list head (circular)
+    PyGC_Head *split_points[_PyGC_MAX_WORKERS + 1];
+    size_t num_splits;
+
+    // Counts from each direction
+    size_t forward_count;
+    size_t backward_count;
+
+    // Meeting detection
+    int met;
+
+    // Total objects (forward_count + backward_count after completion)
+    size_t total_count;
+} _PyGCBidirScanState;
+
+// =============================================================================
+// Bidirectional Marking Helpers
+// =============================================================================
+
+// Check if object has bidirectional visited mark (relaxed load - cheap)
+static inline int
+_PyGC_IsBidirVisited(PyGC_Head *gc)
+{
+    uintptr_t prev = _Py_atomic_load_uintptr_relaxed(&gc->_gc_prev);
+    return (prev & _PyGC_PREV_MASK_BIDIR_VISITED) != 0;
+}
+
+// Set bidirectional visited mark and return 1 if we were first (atomic OR)
+// Returns 0 if already marked (another thread got there first)
+static inline int
+_PyGC_MarkBidirVisited(PyGC_Head *gc)
+{
+    uintptr_t old = _Py_atomic_or_uintptr(&gc->_gc_prev,
+                                           _PyGC_PREV_MASK_BIDIR_VISITED);
+    return (old & _PyGC_PREV_MASK_BIDIR_VISITED) == 0;
+}
+
+// Clear bidirectional visited mark (non-atomic - called after scan completes)
+static inline void
+_PyGC_ClearBidirVisited(PyGC_Head *gc)
+{
+    gc->_gc_prev &= ~_PyGC_PREV_MASK_BIDIR_VISITED;
+}
 
 // =============================================================================
 // Worker Thread State
