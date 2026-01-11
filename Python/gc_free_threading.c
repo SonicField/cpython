@@ -1558,8 +1558,8 @@ deduce_unreachable_heap(PyInterpreterState *interp,
         } else {
             using_parallel = 1;
 
-            // Run parallel update_refs on thread pages
-            Py_ssize_t candidates = _PyGC_ParallelUpdateRefs(interp, &par_state);
+            // Run parallel update_refs on thread pages using thread pool
+            Py_ssize_t candidates = _PyGC_ParallelUpdateRefsWithPool(interp, &par_state);
 
             if (candidates < 0) {
                 // Error - free buckets and fail
@@ -1606,7 +1606,7 @@ deduce_unreachable_heap(PyInterpreterState *interp,
     int mark_result;
     if (using_parallel) {
         // Parallel path for mark_heap_visitor
-        mark_result = _PyGC_ParallelMarkHeap(interp, &par_state,
+        mark_result = _PyGC_ParallelMarkHeapWithPool(interp, &par_state,
                                               state->skip_deferred_objects);
 
         // Also mark the abandoned pool (serial, since it's typically small)
@@ -1651,7 +1651,7 @@ deduce_unreachable_heap(PyInterpreterState *interp,
             .long_lived_total = &state->long_lived_total,
             .gc_reason = state->reason
         };
-        int scan_ret = _PyGC_ParallelScanHeap(interp, &par_state, &scan_result);
+        int scan_ret = _PyGC_ParallelScanHeapWithPool(interp, &par_state, &scan_result);
         if (scan_ret < 0) {
             return -1;
         }
