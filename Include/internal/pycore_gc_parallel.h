@@ -62,9 +62,6 @@ extern "C" {
 // Every Nth object is marked; threads detect crossing when they hit a mark
 #define _PyGC_BIDIR_MARK_INTERVAL 8
 
-// Minimum objects to use parallel phases (below this, serial is faster)
-#define _PyGC_PARALLEL_MIN_OBJECTS 10000
-
 // =============================================================================
 // Bidirectional Scan State
 // =============================================================================
@@ -114,6 +111,19 @@ _PyGC_ClearBidirVisited(PyGC_Head *gc)
 {
     gc->_gc_prev &= ~_PyGC_PREV_MASK_BIDIR_VISITED;
 }
+
+// =============================================================================
+// Worker Thread Phases
+// =============================================================================
+// Workers wait on mark_barrier, then dispatch based on current phase.
+// The main GC thread sets the phase before signalling the barrier.
+
+typedef enum {
+    _PyGC_PHASE_IDLE,           // Waiting for work
+    _PyGC_PHASE_UPDATE_REFS,    // Set gc_refs = refcount for each object
+    _PyGC_PHASE_SUBTRACT_REFS,  // Decrement gc_refs for internal references
+    _PyGC_PHASE_MARK,           // Work-stealing parallel marking
+} _PyGCPhase;
 
 // =============================================================================
 // Worker Thread State
@@ -176,6 +186,9 @@ typedef struct {
 
     // Python thread state for this worker (created at startup, needed for Py_REF_DEBUG)
     PyThreadState *tstate;
+
+    // Current phase for this worker (set by main thread before barrier)
+    _PyGCPhase phase;
 
 } _PyParallelGCWorker;
 
@@ -260,6 +273,44 @@ PyAPI_FUNC(int) _PyGC_ParallelMoveUnreachable(
     PyInterpreterState *interp,
     PyGC_Head *young,
     PyGC_Head *unreachable
+);
+
+// Parallel update_refs: set gc_refs = refcount for each object in segment
+// Uses split_points from bidirectional scan to distribute work to workers
+// Returns 1 on success, 0 if should fall back to serial
+PyAPI_FUNC(int) _PyGC_ParallelUpdateRefs(
+    PyInterpreterState *interp,
+    PyGC_Head *base,
+    PyGC_Head **split_points,
+    size_t num_splits
+);
+
+// Parallel subtract_refs: decrement gc_refs for internal references
+// Uses atomic decrement since references can cross segment boundaries
+// Returns 1 on success, 0 if should fall back to serial
+PyAPI_FUNC(int) _PyGC_ParallelSubtractRefs(
+    PyInterpreterState *interp,
+    PyGC_Head *base,
+    PyGC_Head **split_points,
+    size_t num_splits
+);
+
+// Bidirectional scan: two threads walk from opposite ends of the list
+// Records split points for distributing work to parallel phases
+// Returns total object count
+
+// Serial version (for testing)
+PyAPI_FUNC(size_t) _PyGC_BidirScanSerial(
+    PyGC_Head *head,
+    _PyGCBidirScanState *state,
+    size_t num_workers
+);
+
+// Parallel version (main thread + helper thread)
+PyAPI_FUNC(size_t) _PyGC_BidirScanParallel(
+    PyGC_Head *head,
+    _PyGCBidirScanState *state,
+    size_t num_workers
 );
 
 #endif // Py_PARALLEL_GC

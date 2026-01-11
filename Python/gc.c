@@ -1254,8 +1254,45 @@ deduce_unreachable(PyGC_Head *base, PyGC_Head *unreachable) {
      * refcount greater than 0 when all the references within the
      * set are taken into account).
      */
+
+#ifdef Py_PARALLEL_GC
+    // Use parallel update_refs and subtract_refs when parallel GC is enabled
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    _PyParallelGCState *par_gc = interp->gc.parallel_gc;
+    Py_ssize_t candidates = 0;
+    int used_parallel_phases = 0;
+
+    if (par_gc != NULL && par_gc->enabled && par_gc->num_workers_active > 0) {
+        // Bidirectional scan: 2 threads walk from opposite ends, meeting in middle
+        // This gives us split points for distributing work and a total count
+        _PyGCBidirScanState scan_state;
+        size_t total = _PyGC_BidirScanParallel(base, &scan_state, par_gc->num_workers);
+
+        // Need at least 2 splits to distribute work (start and end)
+        if (scan_state.num_splits >= 2) {
+            // Parallel update_refs: set gc_refs = refcount for each object
+            _PyGC_ParallelUpdateRefs(interp, base, scan_state.split_points,
+                                     scan_state.num_splits + 1);
+
+            // Parallel subtract_refs: decrement gc_refs for internal references
+            // Uses atomic decrement since references can cross segment boundaries
+            _PyGC_ParallelSubtractRefs(interp, base, scan_state.split_points,
+                                       scan_state.num_splits + 1);
+
+            used_parallel_phases = 1;
+            candidates = (Py_ssize_t)total;
+        }
+    }
+
+    // Fall back to serial if parallel phases weren't used
+    if (!used_parallel_phases) {
+        candidates = update_refs(base);  // gc_prev is used for gc_refs
+        subtract_refs(base);
+    }
+#else
     Py_ssize_t candidates = update_refs(base);  // gc_prev is used for gc_refs
     subtract_refs(base);
+#endif
 
     /* Leave everything reachable from outside base in base, and move
      * everything else (in base) to unreachable.
@@ -1294,8 +1331,7 @@ deduce_unreachable(PyGC_Head *base, PyGC_Head *unreachable) {
      */
 
 #ifdef Py_PARALLEL_GC
-    // Try parallel marking first
-    PyInterpreterState *interp = _PyInterpreterState_GET();
+    // Try parallel marking first (interp already declared above)
     if (!_PyGC_ParallelMoveUnreachable(interp, base, unreachable)) {
         // Parallel marking not available or chose not to run, use serial
         move_unreachable(base, unreachable);
