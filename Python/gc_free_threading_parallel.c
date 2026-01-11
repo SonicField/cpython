@@ -27,6 +27,9 @@
 
 #include <stdatomic.h>
 
+// Minimum capacity for page buckets (must be power of 2)
+#define _PyGC_BUCKET_MIN_CAPACITY 16
+
 //=============================================================================
 // Page Counting - O(heaps), not O(objects)
 //=============================================================================
@@ -123,7 +126,7 @@ assign_page_to_bucket(mi_page_t *page, struct page_enum_context *ctx)
     // Add page to bucket (grow if needed)
     if (bucket->num_pages >= bucket->capacity) {
         size_t new_capacity = bucket->capacity * 2;
-        if (new_capacity < 16) new_capacity = 16;
+        if (new_capacity < _PyGC_BUCKET_MIN_CAPACITY) new_capacity = _PyGC_BUCKET_MIN_CAPACITY;
 
         mi_page_t **new_pages = PyMem_RawRealloc(
             bucket->pages, new_capacity * sizeof(mi_page_t *));
@@ -335,7 +338,7 @@ _PyGC_AssignPagesToBuckets(PyInterpreterState *interp,
         return -1;
     }
 
-    size_t initial_capacity = (state->total_pages / state->num_workers) + 16;
+    size_t initial_capacity = (state->total_pages / state->num_workers) + _PyGC_BUCKET_MIN_CAPACITY;
     for (int i = 0; i < state->num_workers; i++) {
         if (bucket_init(&state->buckets[i], initial_capacity) < 0) {
             // Cleanup on error

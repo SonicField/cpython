@@ -301,9 +301,9 @@ _parallel_gc_worker_thread(void *arg)
 int
 _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
 {
-    if (num_workers == 0 || num_workers > 1024) {
+    if (num_workers == 0 || num_workers > _PyGC_MAX_WORKERS) {
         PyErr_SetString(PyExc_ValueError,
-                       "num_workers must be between 1 and 1024");
+                       "num_workers must be between 1 and _PyGC_MAX_WORKERS");
         return -1;
     }
 

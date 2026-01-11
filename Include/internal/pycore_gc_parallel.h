@@ -25,6 +25,9 @@ extern "C" {
 
 #ifdef Py_PARALLEL_GC
 
+// Maximum number of worker threads for parallel GC
+#define _PyGC_MAX_WORKERS 1024
+
 // =============================================================================
 // Worker Thread State
 // =============================================================================

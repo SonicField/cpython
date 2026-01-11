@@ -577,9 +577,9 @@ gc_enable_parallel_impl(PyObject *module, int num_workers)
         return NULL;
     }
 
-    if (num_workers > 1024) {
+    if (num_workers > _PyGC_MAX_WORKERS) {
         PyErr_SetString(PyExc_ValueError,
-                        "num_workers must be <= 1024");
+                        "num_workers must be <= _PyGC_MAX_WORKERS");
         return NULL;
     }
 
