@@ -244,6 +244,13 @@ _parallel_gc_worker_thread(void *arg)
                         steal_attempts_since_work = 0;  // Got work, reset counter
                         PyObject *obj = _PyGCLocalBuffer_Pop(&worker->local_buffer);
 
+                        // Prefetch next object's type to hide memory latency
+                        if (!_PyGCLocalBuffer_IsEmpty(&worker->local_buffer)) {
+                            PyObject *next_obj = worker->local_buffer.items[
+                                worker->local_buffer.count - 1];
+                            __builtin_prefetch(Py_TYPE(next_obj), 0, 1);
+                        }
+
                         worker->objects_marked++;
 
                         // Call tp_traverse to discover children
