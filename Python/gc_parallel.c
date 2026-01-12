@@ -170,12 +170,6 @@ steal_batch_from_worker(_PyParallelGCWorker *thief, _PyParallelGCWorker *victim)
 // Forward Declarations
 // =============================================================================
 
-// Worker function for parallel update_refs (defined later)
-static void
-_parallel_update_refs_worker(_PyParallelGCWorker *worker,
-                             PyGC_Head *start,
-                             PyGC_Head *end);
-
 // Worker function for parallel subtract_refs (defined later)
 static void
 _parallel_subtract_refs_worker(_PyParallelGCWorker *worker,
@@ -225,11 +219,6 @@ _parallel_gc_worker_thread(void *arg)
         // Dispatch based on current phase
         // =======================================================================
         switch (worker->phase) {
-        case _PyGC_PHASE_UPDATE_REFS:
-            // Process assigned segment: set gc_refs = refcount
-            _parallel_update_refs_worker(worker, worker->slice_start, worker->slice_end);
-            break;
-
         case _PyGC_PHASE_SUBTRACT_REFS:
             // Process assigned segment: call tp_traverse with atomic decref
             _parallel_subtract_refs_worker(worker, worker->slice_start, worker->slice_end);
@@ -361,6 +350,13 @@ _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
     par_gc->enabled = 1;
     par_gc->num_workers_active = 0;
 
+    // Initialize split vector for work distribution
+    if (_PyGCSplitVector_Init(&par_gc->split_vector) < 0) {
+        PyMem_Free(par_gc);
+        PyErr_NoMemory();
+        return -1;
+    }
+
     // Initialize barriers
     // mark_barrier: all workers + main thread (to signal start)
     // done_barrier: all workers + main thread (to signal completion)
@@ -459,6 +455,9 @@ _PyGC_ParallelFini(PyInterpreterState *interp)
     _PyGCBarrier_Fini(&par_gc->mark_barrier);
     _PyGCBarrier_Fini(&par_gc->done_barrier);
     _PyGCBarrier_Fini(&par_gc->startup_barrier);
+
+    // Clean up split vector
+    _PyGCSplitVector_Fini(&par_gc->split_vector);
 
     // Clean up locks
     PyMUTEX_FINI(&par_gc->active_lock);
@@ -853,6 +852,64 @@ _PyGC_ParallelGetStats(PyInterpreterState *interp)
 
 
 // =============================================================================
+// Split Vector Operations
+// =============================================================================
+//
+// The split vector records pointers into the GC list at regular intervals
+// during the serial update_refs phase. This allows parallel subtract_refs
+// to quickly find evenly-spaced start/end positions for each worker.
+
+int
+_PyGCSplitVector_Init(_PyGCSplitVector *vec)
+{
+    vec->entries = (PyGC_Head **)PyMem_RawCalloc(
+        _PyGC_SPLIT_VECTOR_INITIAL_CAPACITY, sizeof(PyGC_Head *));
+    if (vec->entries == NULL) {
+        return -1;
+    }
+    vec->count = 0;
+    vec->capacity = _PyGC_SPLIT_VECTOR_INITIAL_CAPACITY;
+    vec->interval = _PyGC_SPLIT_INTERVAL;
+    return 0;
+}
+
+void
+_PyGCSplitVector_Fini(_PyGCSplitVector *vec)
+{
+    if (vec->entries != NULL) {
+        PyMem_RawFree(vec->entries);
+        vec->entries = NULL;
+    }
+    vec->count = 0;
+    vec->capacity = 0;
+}
+
+void
+_PyGCSplitVector_Clear(_PyGCSplitVector *vec)
+{
+    vec->count = 0;
+}
+
+int
+_PyGCSplitVector_Push(_PyGCSplitVector *vec, PyGC_Head *gc)
+{
+    // Grow if needed
+    if (vec->count >= vec->capacity) {
+        size_t new_capacity = vec->capacity * 2;
+        PyGC_Head **new_entries = (PyGC_Head **)PyMem_RawRealloc(
+            vec->entries, new_capacity * sizeof(PyGC_Head *));
+        if (new_entries == NULL) {
+            return -1;
+        }
+        vec->entries = new_entries;
+        vec->capacity = new_capacity;
+    }
+    vec->entries[vec->count++] = gc;
+    return 0;
+}
+
+
+// =============================================================================
 // Parallel Marking
 // =============================================================================
 
@@ -1073,259 +1130,6 @@ _PyGC_ParallelMoveUnreachable(
 }
 
 // =============================================================================
-// Bidirectional Scan for Parallel update_refs/subtract_refs
-// =============================================================================
-//
-// These functions implement bidirectional traversal of the GC linked list.
-// Two threads walk from opposite ends, meeting in the middle. This halves
-// the counting time and records split points for subsequent parallel phases.
-//
-// Meeting detection uses sparse marking: every _PyGC_BIDIR_MARK_INTERVAL
-// objects, a thread atomically sets _PyGC_PREV_MASK_BIDIR_VISITED. When
-// a thread encounters a marked object, it knows the other thread was there.
-
-// Forward scan: walk from head towards tail, marking and counting
-// Records split points at regular intervals for work distribution
-// Returns number of objects scanned
-static size_t
-_bidir_scan_forward(PyGC_Head *head,
-                    _PyGCBidirScanState *state,
-                    size_t num_workers)
-{
-    PyGC_Head *gc = _PyGCHead_NEXT(head);
-    size_t count = 0;
-    size_t split_idx = 1;  // split_points[0] = first object (set by caller)
-
-    // Calculate approximate objects per split
-    // We don't know total count yet, so estimate based on scan progress
-    // Split points will be refined as we go
-    size_t next_split_at = 0;  // Will be set after first estimate
-    size_t estimated_total = 0;
-
-    state->split_points[0] = gc;  // First split starts at first object
-
-    while (gc != head) {
-        // Prefetch next node to hide memory latency
-        // This is critical for linked list performance
-        PyGC_Head *next = _PyGCHead_NEXT(gc);
-        __builtin_prefetch(next, 0, 3);  // Read, high temporal locality
-
-        // Check if backward thread already visited this object
-        if (_PyGC_IsBidirVisited(gc)) {
-            // Other thread marked this - we've met
-            _Py_atomic_store_int_relaxed(&state->met, 1);
-            break;
-        }
-
-        count++;
-
-        // Mark every MARK_INTERVAL objects for meeting detection
-        if ((count & (_PyGC_BIDIR_MARK_INTERVAL - 1)) == 0) {
-            _PyGC_MarkBidirVisited(gc);
-
-            // After first interval, estimate total and set split points
-            if (estimated_total == 0 && count >= _PyGC_BIDIR_MARK_INTERVAL * 4) {
-                // Very rough estimate: double current count (we're ~halfway)
-                // This is refined by actual meeting point
-                estimated_total = count * 4;  // Assume we're 1/4 through
-                next_split_at = estimated_total / num_workers;
-                if (next_split_at < _PyGC_BIDIR_MARK_INTERVAL) {
-                    next_split_at = _PyGC_BIDIR_MARK_INTERVAL;
-                }
-            }
-        }
-
-        // Record split points at regular intervals
-        if (next_split_at > 0 && count >= next_split_at * split_idx &&
-            split_idx < num_workers) {
-            state->split_points[split_idx] = gc;
-            split_idx++;
-        }
-
-        gc = next;
-    }
-
-    // Record how many splits we actually made
-    state->num_splits = split_idx;
-
-    return count;
-}
-
-// Backward scan: walk from tail towards head, marking and counting
-// Does not record split points (forward thread does that)
-// Returns number of objects scanned
-static size_t
-_bidir_scan_backward(PyGC_Head *head, _PyGCBidirScanState *state)
-{
-    // Get tail: head->_gc_prev points to last element
-    PyGC_Head *gc = _PyGCHead_PREV(head);
-    size_t count = 0;
-
-    while (gc != head && !_Py_atomic_load_int_relaxed(&state->met)) {
-        // Prefetch previous node to hide memory latency
-        PyGC_Head *prev = _PyGCHead_PREV(gc);
-        __builtin_prefetch(prev, 0, 3);  // Read, high temporal locality
-
-        // Check if forward thread already visited this object
-        if (_PyGC_IsBidirVisited(gc)) {
-            // Other thread marked this - we've met
-            _Py_atomic_store_int_relaxed(&state->met, 1);
-            break;
-        }
-
-        count++;
-
-        // Mark every MARK_INTERVAL objects for meeting detection
-        if ((count & (_PyGC_BIDIR_MARK_INTERVAL - 1)) == 0) {
-            _PyGC_MarkBidirVisited(gc);
-        }
-
-        gc = prev;
-    }
-
-    return count;
-}
-
-// Clear bidirectional marks from the entire list
-// Called after bidirectional scan completes
-static void
-_bidir_clear_marks(PyGC_Head *head)
-{
-    PyGC_Head *gc = _PyGCHead_NEXT(head);
-    while (gc != head) {
-        PyGC_Head *next = _PyGCHead_NEXT(gc);
-        __builtin_prefetch(next, 1, 3);  // Write, high temporal locality
-        _PyGC_ClearBidirVisited(gc);
-        gc = next;
-    }
-}
-
-// Serial bidirectional scan for testing
-// Runs both directions sequentially (for correctness testing)
-// Returns total object count
-size_t
-_PyGC_BidirScanSerial(PyGC_Head *head,
-                      _PyGCBidirScanState *state,
-                      size_t num_workers)
-{
-    // Initialize state
-    state->met = 0;
-    state->forward_count = 0;
-    state->backward_count = 0;
-    state->total_count = 0;
-    state->num_splits = 0;
-
-    // Run forward scan
-    state->forward_count = _bidir_scan_forward(head, state, num_workers);
-
-    // Run backward scan (will stop when it hits forward marks)
-    state->backward_count = _bidir_scan_backward(head, state);
-
-    // Total is sum of both directions
-    state->total_count = state->forward_count + state->backward_count;
-
-    // Finalize split points: ensure last split point wraps to head
-    state->split_points[state->num_splits] = head;
-
-    // Clear marks for next phase
-    _bidir_clear_marks(head);
-
-    return state->total_count;
-}
-
-// =============================================================================
-// Parallel Bidirectional Scan
-// =============================================================================
-// Uses main thread for forward scan and a helper thread for backward scan.
-// This is simpler than modifying the worker pool for a 2-thread operation.
-
-typedef struct {
-    PyGC_Head *head;
-    _PyGCBidirScanState *state;
-} _BiDirBackwardArgs;
-
-static void *
-_bidir_backward_thread(void *arg)
-{
-    _BiDirBackwardArgs *args = (_BiDirBackwardArgs *)arg;
-    args->state->backward_count = _bidir_scan_backward(args->head, args->state);
-    return NULL;
-}
-
-// Parallel bidirectional scan entry point
-// Main thread does forward scan, helper thread does backward scan
-// Returns total object count, or 0 on error
-size_t
-_PyGC_BidirScanParallel(PyGC_Head *head,
-                        _PyGCBidirScanState *state,
-                        size_t num_workers)
-{
-    // Initialize state
-    state->met = 0;
-    state->forward_count = 0;
-    state->backward_count = 0;
-    state->total_count = 0;
-    state->num_splits = 0;
-
-    // Prepare arguments for backward thread
-    _BiDirBackwardArgs backward_args = {
-        .head = head,
-        .state = state
-    };
-
-    // Start backward thread
-#ifdef _POSIX_THREADS
-    pthread_t backward_thread;
-    int err = pthread_create(&backward_thread, NULL,
-                             _bidir_backward_thread, &backward_args);
-    if (err != 0) {
-        // Fall back to serial scan
-        return _PyGC_BidirScanSerial(head, state, num_workers);
-    }
-#else
-    // On non-POSIX systems, fall back to serial
-    return _PyGC_BidirScanSerial(head, state, num_workers);
-#endif
-
-    // Main thread does forward scan
-    state->forward_count = _bidir_scan_forward(head, state, num_workers);
-
-#ifdef _POSIX_THREADS
-    // Wait for backward thread to complete
-    pthread_join(backward_thread, NULL);
-#endif
-
-    // Total is sum of both directions
-    state->total_count = state->forward_count + state->backward_count;
-
-    // Finalize split points: ensure last split point wraps to head
-    state->split_points[state->num_splits] = head;
-
-    // Clear marks for next phase
-    _bidir_clear_marks(head);
-
-    return state->total_count;
-}
-
-// =============================================================================
-// Parallel update_refs
-// =============================================================================
-//
-// Parallel version of update_refs(). Each worker processes a segment of the
-// GC list, setting gc_refs = refcount for each object. No atomic operations
-// needed since each worker writes to different objects (non-overlapping segments).
-
-// Helper: set gc_refs = refcount and mark as COLLECTING
-// Same as serial gc_reset_refs since no contention between workers
-static inline void
-gc_reset_refs_parallel(PyGC_Head *gc, Py_ssize_t refs)
-{
-    gc->_gc_prev = (gc->_gc_prev & _PyGC_PREV_MASK_FINALIZED)
-        | _PyGC_PREV_MASK_COLLECTING
-        | ((uintptr_t)(refs) << _PyGC_PREV_SHIFT);
-}
-
-// =============================================================================
 // Atomic gc_refs Decrement for Parallel subtract_refs
 // =============================================================================
 //
@@ -1372,88 +1176,6 @@ visit_decref_atomic(PyObject *op, void *parent)
     return 0;  // Continue traversal
 }
 
-// Worker function: process segment [start, end)
-static void
-_parallel_update_refs_worker(_PyParallelGCWorker *worker,
-                             PyGC_Head *start,
-                             PyGC_Head *end)
-{
-    PyGC_Head *gc = start;
-    unsigned long count = 0;
-
-    while (gc != end) {
-        // Prefetch next node
-        PyGC_Head *next = _PyGCHead_NEXT(gc);
-        __builtin_prefetch(next, 1, 3);  // Write, high temporal locality
-
-        PyObject *op = _Py_FROM_GC(gc);
-
-        // Skip immortal objects (untrack them)
-        if (_Py_IsImmortal(op)) {
-            // Note: In parallel, we need to be careful about unlinking.
-            // For now, just skip immortals - the serial path will handle them.
-            // TODO: Safe parallel untracking (requires list lock or deferred)
-            gc = next;
-            continue;
-        }
-
-        // Set gc_refs = refcount, set COLLECTING flag
-        gc_reset_refs_parallel(gc, Py_REFCNT(op));
-        count++;
-
-        gc = next;
-    }
-
-    worker->objects_marked += count;
-}
-
-// Entry point: distribute segments to workers and wait for completion
-int
-_PyGC_ParallelUpdateRefs(PyInterpreterState *interp,
-                         PyGC_Head *base,
-                         PyGC_Head **split_points,
-                         size_t num_splits)
-{
-    _PyParallelGCState *par_gc = interp->gc.parallel_gc;
-
-    if (par_gc == NULL || !par_gc->enabled || par_gc->num_workers_active == 0) {
-        return 0;  // Fall back to serial
-    }
-
-    // Need at least 2 splits (start and end)
-    if (num_splits < 2) {
-        return 0;
-    }
-
-    // Assign segments to workers
-    // Each worker gets segment [split_points[i], split_points[i+1])
-    size_t num_segments = num_splits - 1;
-    size_t workers_to_use = par_gc->num_workers;
-    if (workers_to_use > num_segments) {
-        workers_to_use = num_segments;
-    }
-
-    for (size_t i = 0; i < workers_to_use; i++) {
-        _PyParallelGCWorker *worker = &par_gc->workers[i];
-        worker->slice_start = split_points[i];
-        worker->slice_end = split_points[i + 1];
-        worker->phase = _PyGC_PHASE_UPDATE_REFS;
-    }
-
-    // Idle remaining workers
-    for (size_t i = workers_to_use; i < par_gc->num_workers; i++) {
-        par_gc->workers[i].phase = _PyGC_PHASE_IDLE;
-    }
-
-    // Signal workers to start
-    _PyGCBarrier_Wait(&par_gc->mark_barrier);
-
-    // Wait for completion
-    _PyGCBarrier_Wait(&par_gc->done_barrier);
-
-    return 1;
-}
-
 // =============================================================================
 // Parallel subtract_refs
 // =============================================================================
@@ -1462,11 +1184,9 @@ _PyGC_ParallelUpdateRefs(PyInterpreterState *interp,
 // GC list, calling tp_traverse on each object. The visitor callback
 // atomically decrements gc_refs for each referenced object.
 //
-// Unlike update_refs, this REQUIRES atomic operations because:
-// - Object A in worker 0's segment may reference object B in worker 1's segment
-// - Both workers may simultaneously decrement B's gc_refs
-//
-// We use gc_decref_atomic() which does: _Py_atomic_add_uintptr(&gc->_gc_prev, -(1 << SHIFT))
+// Work distribution uses the split vector populated during update_refs_with_splits.
+// The vector contains pointers at 8K intervals; we divide these among workers
+// to get evenly-spaced start/end positions.
 
 // Worker function: process segment [start, end)
 static void
@@ -1497,12 +1217,9 @@ _parallel_subtract_refs_worker(_PyParallelGCWorker *worker,
     worker->traversals_performed += count;
 }
 
-// Entry point: distribute segments to workers and wait for completion
+// Entry point: use split vector to distribute work to workers
 int
-_PyGC_ParallelSubtractRefs(PyInterpreterState *interp,
-                           PyGC_Head *base,
-                           PyGC_Head **split_points,
-                           size_t num_splits)
+_PyGC_ParallelSubtractRefs(PyInterpreterState *interp, PyGC_Head *base)
 {
     _PyParallelGCState *par_gc = interp->gc.parallel_gc;
 
@@ -1510,29 +1227,48 @@ _PyGC_ParallelSubtractRefs(PyInterpreterState *interp,
         return 0;  // Fall back to serial
     }
 
-    // Need at least 2 splits (start and end)
-    if (num_splits < 2) {
-        return 0;
+    _PyGCSplitVector *splits = &par_gc->split_vector;
+
+    // Need at least 2 split points (start and end)
+    if (splits->count < 2) {
+        return 0;  // Not enough split points, fall back to serial
     }
 
-    // Assign segments to workers
-    // Each worker gets segment [split_points[i], split_points[i+1])
-    size_t num_segments = num_splits - 1;
-    size_t workers_to_use = par_gc->num_workers;
-    if (workers_to_use > num_segments) {
-        workers_to_use = num_segments;
+    // Divide split vector entries among workers
+    // Each worker processes a range of split vector entries
+    size_t entries_per_worker = splits->count / par_gc->num_workers;
+    if (entries_per_worker < 1) {
+        entries_per_worker = 1;
     }
 
-    for (size_t i = 0; i < workers_to_use; i++) {
-        _PyParallelGCWorker *worker = &par_gc->workers[i];
-        worker->slice_start = split_points[i];
-        worker->slice_end = split_points[i + 1];
-        worker->phase = _PyGC_PHASE_SUBTRACT_REFS;
+    size_t workers_to_use = 0;
+    for (size_t i = 0; i < par_gc->num_workers; i++) {
+        size_t start_idx = i * entries_per_worker;
+        size_t end_idx;
+
+        if (i == par_gc->num_workers - 1) {
+            // Last worker gets everything remaining
+            end_idx = splits->count - 1;
+        } else {
+            end_idx = (i + 1) * entries_per_worker;
+            if (end_idx >= splits->count) {
+                end_idx = splits->count - 1;
+            }
+        }
+
+        if (start_idx >= splits->count - 1) {
+            // No work for this worker
+            par_gc->workers[i].phase = _PyGC_PHASE_IDLE;
+        } else {
+            par_gc->workers[i].slice_start = splits->entries[start_idx];
+            par_gc->workers[i].slice_end = splits->entries[end_idx];
+            par_gc->workers[i].phase = _PyGC_PHASE_SUBTRACT_REFS;
+            workers_to_use++;
+        }
     }
 
-    // Idle remaining workers
-    for (size_t i = workers_to_use; i < par_gc->num_workers; i++) {
-        par_gc->workers[i].phase = _PyGC_PHASE_IDLE;
+    if (workers_to_use == 0) {
+        return 0;  // No workers assigned, fall back to serial
     }
 
     // Signal workers to start

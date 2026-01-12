@@ -29,9 +29,8 @@ extern "C" {
 // Platform Requirements
 // =============================================================================
 //
-// Parallel GC requires 64-bit pointers for two reasons:
-// 1. Multi-gigabyte heaps that benefit from parallel GC are only possible on 64-bit
-// 2. We need bit 2 of _gc_prev for bidirectional scan marking (8-byte alignment)
+// Parallel GC requires 64-bit pointers because multi-gigabyte heaps that
+// benefit from parallel GC are only possible on 64-bit systems.
 //
 #if SIZEOF_VOID_P < 8
 #  error "Parallel GC requires 64-bit platform (SIZEOF_VOID_P >= 8)"
@@ -41,76 +40,34 @@ extern "C" {
 #define _PyGC_MAX_WORKERS 1024
 
 // =============================================================================
-// Bidirectional Scan Marking
+// Split Vector for Parallel Work Distribution
 // =============================================================================
 //
-// During bidirectional counting, two threads walk the GC list from opposite
-// ends. They need to detect when they meet. We use bit 2 of _gc_prev for this.
+// During the serial update_refs phase (which already walks the entire list),
+// we record pointers into a growable vector at fixed intervals. This allows
+// parallel subtract_refs to quickly find evenly-spaced start/end positions.
 //
-// On 64-bit systems, PyGC_Head is 8-byte aligned (due to containing uintptr_t),
-// so bits 0-2 of pointers stored in _gc_prev are always zero.
+// Benefits over bidirectional scan:
+// - No atomics for partitioning
+// - No extra list traversal (piggybacks on update_refs)
+// - No thread creation (uses existing worker pool)
+// - Fine-grained load balancing (8K resolution)
+// - Good cache locality (sequential access during recording)
 //
-// Bit layout of _gc_prev during bidirectional scan:
-//   Bit 0: _PyGC_PREV_MASK_FINALIZED (preserved)
-//   Bit 1: _PyGC_PREV_MASK_COLLECTING (not yet set during scan)
-//   Bit 2: _PyGC_PREV_MASK_BIDIR_VISITED (set during bidirectional scan)
-//   Bits 3+: Previous pointer (aligned to 8 bytes on 64-bit)
-//
-#define _PyGC_PREV_MASK_BIDIR_VISITED  ((uintptr_t)4)
 
-// Interval for marking during bidirectional scan
-// Every Nth object is marked; threads detect crossing when they hit a mark
-#define _PyGC_BIDIR_MARK_INTERVAL 8
+// Objects between split points (tunable)
+#define _PyGC_SPLIT_INTERVAL 8192
 
-// =============================================================================
-// Bidirectional Scan State
-// =============================================================================
+// Initial capacity for split vector (entries, not bytes)
+#define _PyGC_SPLIT_VECTOR_INITIAL_CAPACITY 128
 
+// Split vector: growable array of pointers into the GC list
 typedef struct {
-    // Split points for distributing work to parallel workers
-    // split_points[0] = list head, split_points[num_splits] = list head (circular)
-    PyGC_Head *split_points[_PyGC_MAX_WORKERS + 1];
-    size_t num_splits;
-
-    // Counts from each direction
-    size_t forward_count;
-    size_t backward_count;
-
-    // Meeting detection
-    int met;
-
-    // Total objects (forward_count + backward_count after completion)
-    size_t total_count;
-} _PyGCBidirScanState;
-
-// =============================================================================
-// Bidirectional Marking Helpers
-// =============================================================================
-
-// Check if object has bidirectional visited mark (relaxed load - cheap)
-static inline int
-_PyGC_IsBidirVisited(PyGC_Head *gc)
-{
-    uintptr_t prev = _Py_atomic_load_uintptr_relaxed(&gc->_gc_prev);
-    return (prev & _PyGC_PREV_MASK_BIDIR_VISITED) != 0;
-}
-
-// Set bidirectional visited mark and return 1 if we were first (atomic OR)
-// Returns 0 if already marked (another thread got there first)
-static inline int
-_PyGC_MarkBidirVisited(PyGC_Head *gc)
-{
-    uintptr_t old = _Py_atomic_or_uintptr(&gc->_gc_prev,
-                                           _PyGC_PREV_MASK_BIDIR_VISITED);
-    return (old & _PyGC_PREV_MASK_BIDIR_VISITED) == 0;
-}
-
-// Clear bidirectional visited mark (non-atomic - called after scan completes)
-static inline void
-_PyGC_ClearBidirVisited(PyGC_Head *gc)
-{
-    gc->_gc_prev &= ~_PyGC_PREV_MASK_BIDIR_VISITED;
-}
+    PyGC_Head **entries;    // Array of pointers into the GC list
+    size_t count;           // Number of entries recorded
+    size_t capacity;        // Current capacity
+    size_t interval;        // Objects between split points
+} _PyGCSplitVector;
 
 // =============================================================================
 // Worker Thread Phases
@@ -120,7 +77,6 @@ _PyGC_ClearBidirVisited(PyGC_Head *gc)
 
 typedef enum {
     _PyGC_PHASE_IDLE,           // Waiting for work
-    _PyGC_PHASE_UPDATE_REFS,    // Set gc_refs = refcount for each object
     _PyGC_PHASE_SUBTRACT_REFS,  // Decrement gc_refs for internal references
     _PyGC_PHASE_MARK,           // Work-stealing parallel marking
 } _PyGCPhase;
@@ -204,6 +160,10 @@ struct _PyParallelGCState {
     // Number of worker threads
     size_t num_workers;
 
+    // Split vector for work distribution
+    // Populated during serial update_refs, used by parallel subtract_refs
+    _PyGCSplitVector split_vector;
+
     // Synchronizes all workers before marking reachable objects
     _PyGCBarrier mark_barrier;
 
@@ -275,43 +235,32 @@ PyAPI_FUNC(int) _PyGC_ParallelMoveUnreachable(
     PyGC_Head *unreachable
 );
 
-// Parallel update_refs: set gc_refs = refcount for each object in segment
-// Uses split_points from bidirectional scan to distribute work to workers
-// Returns 1 on success, 0 if should fall back to serial
-PyAPI_FUNC(int) _PyGC_ParallelUpdateRefs(
-    PyInterpreterState *interp,
-    PyGC_Head *base,
-    PyGC_Head **split_points,
-    size_t num_splits
-);
-
 // Parallel subtract_refs: decrement gc_refs for internal references
+// Uses split vector from par_gc state (populated by update_refs_with_splits)
 // Uses atomic decrement since references can cross segment boundaries
 // Returns 1 on success, 0 if should fall back to serial
 PyAPI_FUNC(int) _PyGC_ParallelSubtractRefs(
     PyInterpreterState *interp,
-    PyGC_Head *base,
-    PyGC_Head **split_points,
-    size_t num_splits
+    PyGC_Head *base
 );
 
-// Bidirectional scan: two threads walk from opposite ends of the list
-// Records split points for distributing work to parallel phases
-// Returns total object count
+// =============================================================================
+// Split Vector Operations
+// =============================================================================
 
-// Serial version (for testing)
-PyAPI_FUNC(size_t) _PyGC_BidirScanSerial(
-    PyGC_Head *head,
-    _PyGCBidirScanState *state,
-    size_t num_workers
-);
+// Initialise split vector with default capacity and interval
+// Returns 0 on success, -1 on allocation failure
+PyAPI_FUNC(int) _PyGCSplitVector_Init(_PyGCSplitVector *vec);
 
-// Parallel version (main thread + helper thread)
-PyAPI_FUNC(size_t) _PyGC_BidirScanParallel(
-    PyGC_Head *head,
-    _PyGCBidirScanState *state,
-    size_t num_workers
-);
+// Free split vector resources
+PyAPI_FUNC(void) _PyGCSplitVector_Fini(_PyGCSplitVector *vec);
+
+// Clear split vector (reset count to 0, keep capacity)
+PyAPI_FUNC(void) _PyGCSplitVector_Clear(_PyGCSplitVector *vec);
+
+// Push a split point onto the vector (grows if needed)
+// Returns 0 on success, -1 on allocation failure
+PyAPI_FUNC(int) _PyGCSplitVector_Push(_PyGCSplitVector *vec, PyGC_Head *gc);
 
 #endif // Py_PARALLEL_GC
 

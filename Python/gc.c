@@ -528,6 +528,60 @@ update_refs(PyGC_Head *containers)
     return candidates;
 }
 
+#ifdef Py_PARALLEL_GC
+/* update_refs with split point recording for parallel subtract_refs.
+ * Records pointers into the GC list at regular intervals during the walk.
+ * These split points are used to distribute work evenly among workers.
+ *
+ * The split vector is stored in par_gc->split_vector and used by
+ * _PyGC_ParallelSubtractRefs() to assign work to workers.
+ */
+static Py_ssize_t
+update_refs_with_splits(PyGC_Head *containers, _PyGCSplitVector *splits)
+{
+    PyGC_Head *next;
+    PyGC_Head *gc = GC_NEXT(containers);
+    Py_ssize_t candidates = 0;
+
+    // Clear the split vector for this collection
+    _PyGCSplitVector_Clear(splits);
+
+    // Record first split point
+    if (gc != containers) {
+        _PyGCSplitVector_Push(splits, gc);
+    }
+
+    while (gc != containers) {
+        next = GC_NEXT(gc);
+        PyObject *op = FROM_GC(gc);
+
+        if (_Py_IsImmortal(op)) {
+            assert(!_Py_IsStaticImmortal(op));
+            _PyObject_GC_UNTRACK(op);
+            gc = next;
+            continue;
+        }
+
+        gc_reset_refs(gc, Py_REFCNT(op));
+        _PyObject_ASSERT(op, gc_get_refs(gc) != 0);
+
+        candidates++;
+
+        // Record split point every SPLIT_INTERVAL objects
+        if (candidates % _PyGC_SPLIT_INTERVAL == 0 && next != containers) {
+            _PyGCSplitVector_Push(splits, next);
+        }
+
+        gc = next;
+    }
+
+    // Record end marker (the list head - used as the exclusive end)
+    _PyGCSplitVector_Push(splits, containers);
+
+    return candidates;
+}
+#endif /* Py_PARALLEL_GC */
+
 /* A traversal callback for subtract_refs. */
 static int
 visit_decref(PyObject *op, void *parent)
@@ -1256,37 +1310,28 @@ deduce_unreachable(PyGC_Head *base, PyGC_Head *unreachable) {
      */
 
 #ifdef Py_PARALLEL_GC
-    // Use parallel update_refs and subtract_refs when parallel GC is enabled
+    // Use parallel subtract_refs when parallel GC is enabled
+    // update_refs is always serial but records split points for parallel subtract_refs
     PyInterpreterState *interp = _PyInterpreterState_GET();
     _PyParallelGCState *par_gc = interp->gc.parallel_gc;
     Py_ssize_t candidates = 0;
-    int used_parallel_phases = 0;
 
     if (par_gc != NULL && par_gc->enabled && par_gc->num_workers_active > 0) {
-        // Bidirectional scan: 2 threads walk from opposite ends, meeting in middle
-        // This gives us split points for distributing work and a total count
-        _PyGCBidirScanState scan_state;
-        size_t total = _PyGC_BidirScanParallel(base, &scan_state, par_gc->num_workers);
+        // Serial update_refs that also records split points into the split vector
+        // This piggybacks on the existing list traversal - essentially free
+        candidates = update_refs_with_splits(base, &par_gc->split_vector);
 
-        // Need at least 2 splits to distribute work (start and end)
-        if (scan_state.num_splits >= 2) {
-            // Parallel update_refs: set gc_refs = refcount for each object
-            _PyGC_ParallelUpdateRefs(interp, base, scan_state.split_points,
-                                     scan_state.num_splits + 1);
-
-            // Parallel subtract_refs: decrement gc_refs for internal references
-            // Uses atomic decrement since references can cross segment boundaries
-            _PyGC_ParallelSubtractRefs(interp, base, scan_state.split_points,
-                                       scan_state.num_splits + 1);
-
-            used_parallel_phases = 1;
-            candidates = (Py_ssize_t)total;
+        // Parallel subtract_refs using the split vector for work distribution
+        // Uses atomic decrement since references can cross segment boundaries
+        if (_PyGC_ParallelSubtractRefs(interp, base)) {
+            // Successfully used parallel subtract_refs
+        } else {
+            // Fall back to serial subtract_refs
+            subtract_refs(base);
         }
-    }
-
-    // Fall back to serial if parallel phases weren't used
-    if (!used_parallel_phases) {
-        candidates = update_refs(base);  // gc_prev is used for gc_refs
+    } else {
+        // No parallel GC available, use fully serial path
+        candidates = update_refs(base);
         subtract_refs(base);
     }
 #else
