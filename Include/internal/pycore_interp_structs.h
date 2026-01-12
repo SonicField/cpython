@@ -264,6 +264,11 @@ struct _gc_runtime_state {
     int parallel_gc_enabled;    /* 1 = enabled, 0 = disabled (default) */
     int parallel_gc_num_workers; /* Number of workers, 0 = auto (based on CPU count) */
     struct _PyGCThreadPool *thread_pool;  /* Persistent thread pool for parallel GC */
+
+    /* Phase timing for benchmarking (nanoseconds) */
+    int64_t phase_start_ns;           /* Start of parallel GC */
+    int64_t update_refs_end_ns;       /* End of update_refs phase */
+    int64_t mark_heap_end_ns;         /* End of mark_heap phase */
 #endif
 
 #ifdef Py_PARALLEL_GC

@@ -775,7 +775,7 @@ gc_get_parallel_stats_impl(PyObject *module)
 /*[clinic end generated code: output=bdc0714efc1df08c input=10079e4be8230ed3]*/
 {
 #ifdef Py_GIL_DISABLED
-    // FTP (free-threading) parallel GC - return basic stats
+    // FTP (free-threading) parallel GC - return stats with phase timing
     PyInterpreterState *interp = _PyInterpreterState_GET();
 
     PyObject *result = PyDict_New();
@@ -798,6 +798,65 @@ gc_get_parallel_stats_impl(PyObject *module)
         return NULL;
     }
     Py_DECREF(workers);
+
+    // Add phase timing (nanoseconds)
+    PyObject *phase_timing = PyDict_New();
+    if (phase_timing == NULL) {
+        Py_DECREF(result);
+        return NULL;
+    }
+
+    // Calculate phase durations from recorded timestamps
+    int64_t update_refs_ns = 0;
+    int64_t mark_heap_ns = 0;
+    int64_t total_ns = 0;
+
+    if (interp->gc.phase_start_ns > 0 && interp->gc.update_refs_end_ns > 0) {
+        update_refs_ns = interp->gc.update_refs_end_ns - interp->gc.phase_start_ns;
+    }
+    if (interp->gc.update_refs_end_ns > 0 && interp->gc.mark_heap_end_ns > 0) {
+        mark_heap_ns = interp->gc.mark_heap_end_ns - interp->gc.update_refs_end_ns;
+    }
+    if (interp->gc.phase_start_ns > 0 && interp->gc.mark_heap_end_ns > 0) {
+        total_ns = interp->gc.mark_heap_end_ns - interp->gc.phase_start_ns;
+    }
+
+    PyObject *update_refs_obj = PyLong_FromLongLong(update_refs_ns);
+    if (update_refs_obj == NULL ||
+        PyDict_SetItemString(phase_timing, "update_refs_ns", update_refs_obj) < 0) {
+        Py_XDECREF(update_refs_obj);
+        Py_DECREF(phase_timing);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(update_refs_obj);
+
+    PyObject *mark_heap_obj = PyLong_FromLongLong(mark_heap_ns);
+    if (mark_heap_obj == NULL ||
+        PyDict_SetItemString(phase_timing, "mark_heap_ns", mark_heap_obj) < 0) {
+        Py_XDECREF(mark_heap_obj);
+        Py_DECREF(phase_timing);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(mark_heap_obj);
+
+    PyObject *total_obj = PyLong_FromLongLong(total_ns);
+    if (total_obj == NULL ||
+        PyDict_SetItemString(phase_timing, "total_ns", total_obj) < 0) {
+        Py_XDECREF(total_obj);
+        Py_DECREF(phase_timing);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(total_obj);
+
+    if (PyDict_SetItemString(result, "phase_timing", phase_timing) < 0) {
+        Py_DECREF(phase_timing);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(phase_timing);
 
     return result;
 

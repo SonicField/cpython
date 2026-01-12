@@ -16,6 +16,7 @@
 #include "pycore_interp.h"
 #include "pycore_pystate.h"
 #include "pycore_tstate.h"
+#include "pycore_time.h"  // For PyTime_PerfCounterRaw
 #include "pycore_object_alloc.h"
 #include "pycore_object_deferred.h"  // _PyObject_HasDeferredRefcount
 #include "pycore_frame.h"            // _PyInterpreterFrame, FRAME_CLEARED
@@ -3191,6 +3192,11 @@ Py_ssize_t
 _PyGC_ParallelUpdateRefsWithPool(PyInterpreterState *interp,
                                   _PyGCFTParState *state)
 {
+    // Record start time for phase timing
+    PyTime_t start_time;
+    (void)PyTime_PerfCounterRaw(&start_time);
+    interp->gc.phase_start_ns = start_time;
+
     _PyGCThreadPool *pool = interp->gc.thread_pool;
     assert(pool != NULL);
     assert(pool->num_workers == state->num_workers);
@@ -3220,6 +3226,11 @@ _PyGC_ParallelUpdateRefsWithPool(PyInterpreterState *interp,
 
     // Wait for all workers to complete
     _PyGCBarrier_Wait(&pool->done_barrier);
+
+    // Record end time for update_refs phase
+    PyTime_t end_time;
+    (void)PyTime_PerfCounterRaw(&end_time);
+    interp->gc.update_refs_end_ns = end_time;
 
     // Clear work descriptor
     pool->current_work = NULL;
@@ -3274,6 +3285,11 @@ _PyGC_ParallelMarkHeapWithPool(PyInterpreterState *interp,
 
     // Wait for all workers to complete
     _PyGCBarrier_Wait(&pool->done_barrier);
+
+    // Record end time for mark_heap phase
+    PyTime_t mark_end;
+    (void)PyTime_PerfCounterRaw(&mark_end);
+    interp->gc.mark_heap_end_ns = mark_end;
 
     // Clear work descriptor
     pool->current_work = NULL;
