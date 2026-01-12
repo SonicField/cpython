@@ -607,5 +607,201 @@ class TestParallelMarkingPhase5(unittest.TestCase):
                 gc.disable()
 
 
+class TestBidirectionalScanPhases(unittest.TestCase):
+    """
+    Tests for bidirectional scan and parallel update_refs/subtract_refs phases.
+
+    These tests verify that the new parallel phases (bidirectional scan,
+    parallel update_refs, parallel subtract_refs) produce correct results.
+    """
+
+    def setUp(self):
+        """Set up test fixtures."""
+        config = gc.get_parallel_config()
+        if not config['available']:
+            self.skipTest("Parallel GC not available in this build")
+
+        # Enable parallel GC if not already enabled
+        if not config.get('enabled', False):
+            gc.enable_parallel(4)
+
+        # Disable automatic GC
+        self.was_enabled = gc.isenabled()
+        gc.disable()
+
+        # Force a full collection to start clean
+        gc.collect()
+
+    def tearDown(self):
+        """Clean up after test."""
+        gc.collect()
+        if self.was_enabled:
+            gc.enable()
+
+    def test_parallel_phases_collect_garbage(self):
+        """Verify that cyclic garbage is collected with parallel phases."""
+        # Create cyclic garbage
+        garbage = []
+        for i in range(1000):
+            a = {'id': i}
+            b = {'ref': a}
+            a['ref'] = b
+            garbage.append(a)
+
+        # Delete references - now it's garbage
+        del garbage
+
+        # Collect and verify garbage was collected
+        collected = gc.collect()
+        self.assertGreater(collected, 0, "Should collect cyclic garbage")
+
+    def test_parallel_phases_preserve_live_objects(self):
+        """Verify that live objects survive collection with parallel phases."""
+        # Create live objects (kept referenced)
+        live_objects = []
+        for i in range(1000):
+            obj = {'id': i, 'data': list(range(10))}
+            live_objects.append(obj)
+
+        # Collect - should not affect live objects
+        gc.collect()
+
+        # Verify all objects still exist with correct data
+        self.assertEqual(len(live_objects), 1000)
+        for i, obj in enumerate(live_objects):
+            self.assertEqual(obj['id'], i)
+            self.assertEqual(obj['data'], list(range(10)))
+
+    def test_parallel_phases_mixed_graph(self):
+        """Test with mixed live and garbage objects in complex graph."""
+        # Create live root objects
+        roots = []
+        for i in range(100):
+            root = {'id': i, 'children': []}
+            for j in range(10):
+                child = {'parent_id': i, 'child_id': j}
+                root['children'].append(child)
+            roots.append(root)
+
+        # Create garbage (cycles not referenced from roots)
+        for _ in range(100):
+            a = []
+            b = []
+            a.append(b)
+            b.append(a)
+            # a and b go out of scope - garbage
+
+        # Collect
+        collected = gc.collect()
+
+        # Verify garbage was collected
+        self.assertGreater(collected, 0, "Should collect garbage cycles")
+
+        # Verify live objects survive
+        self.assertEqual(len(roots), 100)
+        for root in roots:
+            self.assertEqual(len(root['children']), 10)
+
+    def test_parallel_phases_deep_graph(self):
+        """Test with deep object graph (100 levels deep)."""
+        # Create a deep chain
+        depth = 100
+        root = {'level': 0, 'child': None}
+        current = root
+        for i in range(1, depth):
+            child = {'level': i, 'child': None}
+            current['child'] = child
+            current = child
+
+        # Collect - should not break the chain
+        gc.collect()
+
+        # Verify chain is intact
+        current = root
+        for i in range(depth):
+            self.assertEqual(current['level'], i)
+            if i < depth - 1:
+                self.assertIsNotNone(current['child'])
+                current = current['child']
+
+    def test_parallel_phases_wide_graph(self):
+        """Test with wide object graph (10000 children)."""
+        # Create a wide tree
+        root = {'children': []}
+        for i in range(10000):
+            child = {'id': i, 'parent': root}
+            root['children'].append(child)
+
+        # Collect
+        gc.collect()
+
+        # Verify all children survive
+        self.assertEqual(len(root['children']), 10000)
+        for i, child in enumerate(root['children']):
+            self.assertEqual(child['id'], i)
+            self.assertIs(child['parent'], root)
+
+    def test_parallel_phases_cross_references(self):
+        """Test with many cross-references between objects."""
+        # Create objects with cross-references
+        # This stresses the atomic decrement in parallel subtract_refs
+        objects = []
+        for i in range(1000):
+            obj = {'id': i, 'refs': []}
+            objects.append(obj)
+
+        # Add cross-references
+        import random
+        random.seed(42)
+        for obj in objects:
+            # Each object references 10 random other objects
+            for _ in range(10):
+                target = random.choice(objects)
+                obj['refs'].append(target)
+
+        # Collect - cross-references should be handled correctly
+        gc.collect()
+
+        # Verify all objects survive (they're all reachable from 'objects')
+        self.assertEqual(len(objects), 1000)
+
+    def test_parallel_phases_stress(self):
+        """Stress test with many objects and collections."""
+        for round_num in range(5):
+            # Create objects
+            live = []
+            for i in range(5000):
+                obj = {'round': round_num, 'id': i}
+                if i > 0:
+                    obj['prev'] = live[i - 1]
+                live.append(obj)
+
+            # Create garbage
+            for _ in range(1000):
+                a = {'garbage': True}
+                b = {'garbage': True, 'ref': a}
+                a['ref'] = b
+
+            # Collect
+            collected = gc.collect()
+            self.assertGreater(collected, 0, f"Round {round_num}: should collect garbage")
+
+            # Verify live objects
+            self.assertEqual(len(live), 5000)
+
+    def test_parallel_phases_empty_collection(self):
+        """Test collection with no garbage (empty collection set)."""
+        # Just collect with nothing to collect
+        gc.collect()
+        gc.collect()  # Second collection should also work
+        # No assertions needed - just verify it doesn't crash
+
+    def test_parallel_phases_single_object(self):
+        """Test with single object."""
+        obj = {'single': True}
+        gc.collect()
+        self.assertEqual(obj['single'], True)
+
+
 if __name__ == '__main__':
     unittest.main()
