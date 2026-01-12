@@ -327,6 +327,10 @@ _PyWSDeque_Push(_PyWSDeque *deque, void *obj)
 static inline void *
 _PyWSDeque_Steal(_PyWSDeque *deque)
 {
+    // Prefetch the deque's array pointer - we're likely to need it
+    // This hides memory latency while we do the atomic loads
+    __builtin_prefetch(&deque->arr, 0, 0);  // Read, no temporal locality
+
     while (1) {
         size_t top = _Py_atomic_load_ssize_acquire((Py_ssize_t *)&deque->top);
 
@@ -340,6 +344,10 @@ _PyWSDeque_Steal(_PyWSDeque *deque)
             // Not empty
             // Note: Using acquire instead of consume (consume not available in pyatomic.h)
             _PyWSArray *arr = (_PyWSArray *)_Py_atomic_load_ptr_acquire(&deque->arr);
+
+            // Prefetch the array slot we're about to read
+            __builtin_prefetch(&arr->buf[top & (arr->size - 1)], 0, 0);
+
             res = _PyWSArray_Get(arr, top);
 
             // Try to increment top
