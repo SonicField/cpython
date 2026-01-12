@@ -803,5 +803,111 @@ class TestBidirectionalScanPhases(unittest.TestCase):
         self.assertEqual(obj['single'], True)
 
 
+class TestParallelGCPhaseTiming(unittest.TestCase):
+    """Test phase timing instrumentation in parallel GC."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        config = gc.get_parallel_config()
+        if not config['available']:
+            self.skipTest("Parallel GC not available in this build")
+        if not config.get('enabled', False):
+            gc.enable_parallel(4)
+
+    def tearDown(self):
+        """Clean up after test."""
+        gc.collect()
+
+    def test_get_parallel_stats_has_phase_timing(self):
+        """Test that get_parallel_stats() returns phase_timing dict."""
+        stats = gc.get_parallel_stats()
+        self.assertIn('phase_timing', stats)
+        self.assertIsInstance(stats['phase_timing'], dict)
+
+    def test_phase_timing_has_required_keys(self):
+        """Test that phase_timing has all required keys."""
+        stats = gc.get_parallel_stats()
+        timing = stats['phase_timing']
+        self.assertIn('subtract_refs_ns', timing)
+        self.assertIn('mark_ns', timing)
+        self.assertIn('total_ns', timing)
+
+    def test_phase_timing_values_are_integers(self):
+        """Test that phase timing values are integers."""
+        stats = gc.get_parallel_stats()
+        timing = stats['phase_timing']
+        self.assertIsInstance(timing['subtract_refs_ns'], int)
+        self.assertIsInstance(timing['mark_ns'], int)
+        self.assertIsInstance(timing['total_ns'], int)
+
+    def test_phase_timing_after_collection(self):
+        """Test that phase timing is populated after a collection."""
+        # Create objects to ensure parallel GC runs
+        class Node:
+            __slots__ = ['refs']
+            def __init__(self):
+                self.refs = []
+
+        nodes = [Node() for _ in range(50000)]
+        for i in range(len(nodes) - 1):
+            nodes[i].refs.append(nodes[i + 1])
+
+        # Clear references and collect
+        del nodes
+        gc.collect()
+
+        # Check timing was recorded
+        stats = gc.get_parallel_stats()
+        timing = stats['phase_timing']
+
+        # At least subtract_refs should have run
+        # (mark may not run if parallel marking wasn't triggered)
+        self.assertGreaterEqual(timing['subtract_refs_ns'], 0)
+
+    def test_phase_timing_subtract_refs_positive(self):
+        """Test that subtract_refs timing is positive after parallel collection."""
+        # Create enough objects to trigger parallel subtract_refs
+        class Node:
+            __slots__ = ['refs']
+            def __init__(self):
+                self.refs = []
+
+        nodes = [Node() for _ in range(100000)]
+        for i in range(len(nodes) - 1):
+            nodes[i].refs.append(nodes[i + 1])
+
+        del nodes
+        gc.collect()
+
+        stats = gc.get_parallel_stats()
+        timing = stats['phase_timing']
+
+        # subtract_refs should have measurable time
+        self.assertGreater(timing['subtract_refs_ns'], 0,
+                          "subtract_refs should have positive timing after parallel collection")
+
+    def test_phase_timing_consistency(self):
+        """Test that total_ns >= subtract_refs_ns when both are recorded."""
+        class Node:
+            __slots__ = ['refs']
+            def __init__(self):
+                self.refs = []
+
+        nodes = [Node() for _ in range(100000)]
+        for i in range(len(nodes) - 1):
+            nodes[i].refs.append(nodes[i + 1])
+
+        del nodes
+        gc.collect()
+
+        stats = gc.get_parallel_stats()
+        timing = stats['phase_timing']
+
+        # If both phases ran, total should be >= subtract_refs
+        if timing['total_ns'] > 0 and timing['subtract_refs_ns'] > 0:
+            self.assertGreaterEqual(timing['total_ns'], timing['subtract_refs_ns'],
+                                   "total_ns should be >= subtract_refs_ns")
+
+
 if __name__ == '__main__':
     unittest.main()

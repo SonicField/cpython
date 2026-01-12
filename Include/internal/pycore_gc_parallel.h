@@ -194,6 +194,12 @@ struct _PyParallelGCState {
     size_t parallel_collections_attempted;   // Times parallel marking was attempted
     size_t parallel_collections_succeeded;   // Times parallel marking was used (vs serial fallback)
 
+    // Phase timing (nanoseconds, for benchmarking)
+    // Set during parallel collection, exposed via gc.get_parallel_stats()
+    int64_t phase_start_ns;           // Start of parallel GC
+    int64_t subtract_refs_end_ns;     // End of subtract_refs phase
+    int64_t mark_end_ns;              // End of mark phase
+
     // Worker threads (flexible array member - allocated based on num_workers)
     _PyParallelGCWorker workers[];
 };

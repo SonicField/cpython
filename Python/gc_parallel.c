@@ -9,6 +9,7 @@
 #include "pycore_pystate.h"
 #include "pycore_interp.h"
 #include "pycore_gc.h"  // For GC internals
+#include "pycore_time.h"  // For PyTime_PerfCounterRaw
 #include "condvar.h"  // PyMUTEX_INIT, PyCOND_INIT, etc.
 
 #include <stdio.h>
@@ -871,6 +872,65 @@ _PyGC_ParallelGetStats(PyInterpreterState *interp)
     }
     Py_DECREF(workers_list);
 
+    // Add phase timing (nanoseconds)
+    PyObject *phase_timing = PyDict_New();
+    if (phase_timing == NULL) {
+        Py_DECREF(result);
+        return NULL;
+    }
+
+    // Calculate phase durations from recorded timestamps
+    int64_t subtract_refs_ns = 0;
+    int64_t mark_ns = 0;
+    int64_t total_ns = 0;
+
+    if (par_gc->phase_start_ns > 0 && par_gc->subtract_refs_end_ns > 0) {
+        subtract_refs_ns = par_gc->subtract_refs_end_ns - par_gc->phase_start_ns;
+    }
+    if (par_gc->subtract_refs_end_ns > 0 && par_gc->mark_end_ns > 0) {
+        mark_ns = par_gc->mark_end_ns - par_gc->subtract_refs_end_ns;
+    }
+    if (par_gc->phase_start_ns > 0 && par_gc->mark_end_ns > 0) {
+        total_ns = par_gc->mark_end_ns - par_gc->phase_start_ns;
+    }
+
+    PyObject *subtract_refs_obj = PyLong_FromLongLong(subtract_refs_ns);
+    if (subtract_refs_obj == NULL ||
+        PyDict_SetItemString(phase_timing, "subtract_refs_ns", subtract_refs_obj) < 0) {
+        Py_XDECREF(subtract_refs_obj);
+        Py_DECREF(phase_timing);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(subtract_refs_obj);
+
+    PyObject *mark_obj = PyLong_FromLongLong(mark_ns);
+    if (mark_obj == NULL ||
+        PyDict_SetItemString(phase_timing, "mark_ns", mark_obj) < 0) {
+        Py_XDECREF(mark_obj);
+        Py_DECREF(phase_timing);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(mark_obj);
+
+    PyObject *total_obj = PyLong_FromLongLong(total_ns);
+    if (total_obj == NULL ||
+        PyDict_SetItemString(phase_timing, "total_ns", total_obj) < 0) {
+        Py_XDECREF(total_obj);
+        Py_DECREF(phase_timing);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(total_obj);
+
+    if (PyDict_SetItemString(result, "phase_timing", phase_timing) < 0) {
+        Py_DECREF(phase_timing);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(phase_timing);
+
     return result;
 }
 
@@ -1093,6 +1153,11 @@ _PyGC_ParallelMoveUnreachable(
     // Wait for workers to finish (they'll signal done_barrier when done)
     _PyGCBarrier_Wait(&par_gc->done_barrier);
 
+    // Record end time for mark phase
+    PyTime_t mark_end;
+    (void)PyTime_PerfCounterRaw(&mark_end);
+    par_gc->mark_end_ns = mark_end;
+
     // ==========================================================================
     // STEP 7: Sweep - move unmarked objects to unreachable list
     // ==========================================================================
@@ -1258,6 +1323,11 @@ _PyGC_ParallelSubtractRefs(PyInterpreterState *interp, PyGC_Head *base)
         return 0;  // Not enough split points, fall back to serial
     }
 
+    // Record start time for phase timing
+    PyTime_t start_time;
+    (void)PyTime_PerfCounterRaw(&start_time);
+    par_gc->phase_start_ns = start_time;
+
     // Divide split vector entries among workers
     // Each worker processes a range of split vector entries
     size_t entries_per_worker = splits->count / par_gc->num_workers;
@@ -1300,6 +1370,11 @@ _PyGC_ParallelSubtractRefs(PyInterpreterState *interp, PyGC_Head *base)
 
     // Wait for completion
     _PyGCBarrier_Wait(&par_gc->done_barrier);
+
+    // Record end time for subtract_refs phase
+    PyTime_t end_time;
+    (void)PyTime_PerfCounterRaw(&end_time);
+    par_gc->subtract_refs_end_ns = end_time;
 
     return 1;
 }

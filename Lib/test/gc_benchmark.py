@@ -79,13 +79,6 @@ def disable_parallel_gc():
     except (RuntimeError, AttributeError):
         pass  # Already disabled or not available
 
-def set_parallel_threshold(threshold: int):
-    """Set the parallel GC threshold (minimum roots to use parallel)."""
-    try:
-        gc.set_parallel_threshold(threshold)
-    except (AttributeError, NotImplementedError):
-        pass  # Not available or not supported in this build
-
 # =============================================================================
 # Node Class for Object Graphs
 # =============================================================================
@@ -362,7 +355,6 @@ class GCBenchmark:
         gc.disable()
         if parallel:
             enable_parallel_gc(num_workers)
-            set_parallel_threshold(100)  # Low threshold for benchmarking
         else:
             disable_parallel_gc()
 
