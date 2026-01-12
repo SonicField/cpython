@@ -9,6 +9,7 @@
 #include "pycore_interp.h"        // PyInterpreterState.gc
 #ifdef Py_PARALLEL_GC
 #include "pycore_gc_parallel.h"   // _PyGC_ParallelMoveUnreachable()
+#include "pycore_time.h"          // PyTime_PerfCounterRaw
 #endif
 #include "pycore_interpframe.h"   // _PyFrame_GetLocalsArray()
 #include "pycore_object_alloc.h"  // _PyObject_MallocWithType()
@@ -1317,9 +1318,25 @@ deduce_unreachable(PyGC_Head *base, PyGC_Head *unreachable) {
     Py_ssize_t candidates = 0;
 
     if (par_gc != NULL && par_gc->enabled && par_gc->num_workers_active > 0) {
+        // Only record timing for first sub-collection in a gc.collect() call
+        // If timing_valid is already set, a previous sub-collection succeeded
+        // and we should preserve its timing
+        if (!par_gc->timing_valid) {
+            PyTime_t gc_start;
+            (void)PyTime_PerfCounterRaw(&gc_start);
+            par_gc->gc_start_ns = gc_start;
+        }
+
         // Serial update_refs that also records split points into the split vector
         // This piggybacks on the existing list traversal - essentially free
         candidates = update_refs_with_splits(base, &par_gc->split_vector);
+
+        // Record update_refs end time (only if timing not already captured)
+        if (!par_gc->timing_valid) {
+            PyTime_t update_refs_end;
+            (void)PyTime_PerfCounterRaw(&update_refs_end);
+            par_gc->update_refs_end_ns = update_refs_end;
+        }
 
         // Parallel subtract_refs using the split vector for work distribution
         // Uses atomic decrement since references can cross segment boundaries
@@ -1930,6 +1947,20 @@ gc_collect_region(PyThreadState *tstate,
     handle_legacy_finalizers(tstate, gcstate, &finalizers, to);
     gc_list_validate_space(to, gcstate->visited_space);
     validate_list(to, collecting_clear_unreachable_clear);
+
+#ifdef Py_PARALLEL_GC
+    // Record cleanup end time (only for the collection that set timing_valid)
+    // Check if cleanup_end_ns is 0 to detect the first successful parallel collection
+    {
+        PyInterpreterState *interp = tstate->interp;
+        _PyParallelGCState *par_gc = interp->gc.parallel_gc;
+        if (par_gc != NULL && par_gc->timing_valid && par_gc->cleanup_end_ns == 0) {
+            PyTime_t cleanup_end;
+            (void)PyTime_PerfCounterRaw(&cleanup_end);
+            par_gc->cleanup_end_ns = cleanup_end;
+        }
+    }
+#endif
 }
 
 /* Invoke progress callbacks to notify clients that garbage collection
@@ -2169,6 +2200,18 @@ _PyGC_Collect(PyThreadState *tstate, int generation, _PyGC_Reason reason)
 {
     GCState *gcstate = &tstate->interp->gc;
     assert(tstate->current_frame == NULL || tstate->current_frame->stackpointer != NULL);
+
+#ifdef Py_PARALLEL_GC
+    // Reset timing at start of each gc.collect() call
+    // This ensures we capture timing from this collection, not a previous one
+    {
+        _PyParallelGCState *par_gc = tstate->interp->gc.parallel_gc;
+        if (par_gc != NULL) {
+            par_gc->timing_valid = 0;
+            par_gc->cleanup_end_ns = 0;
+        }
+    }
+#endif
 
     int expected = 0;
     if (!_Py_atomic_compare_exchange_int(&gcstate->collecting, &expected, 1)) {

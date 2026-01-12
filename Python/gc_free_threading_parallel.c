@@ -3485,4 +3485,94 @@ pool_scan_heap_process_page(mi_page_t *page, struct _PyGCScanWorkerState *worker
     scan_heap_process_page(page, worker, gc_reason);
 }
 
+//=============================================================================
+// Statistics API
+//=============================================================================
+
+PyObject *
+_PyGC_FTParallelGetStats(PyInterpreterState *interp)
+{
+    PyObject *result = PyDict_New();
+    if (result == NULL) {
+        return NULL;
+    }
+
+    PyObject *enabled = interp->gc.parallel_gc_enabled ? Py_True : Py_False;
+    if (PyDict_SetItemString(result, "enabled", enabled) < 0) {
+        Py_DECREF(result);
+        return NULL;
+    }
+
+    int num_workers = interp->gc.parallel_gc_enabled ?
+                      interp->gc.parallel_gc_num_workers : 0;
+    PyObject *workers = PyLong_FromLong(num_workers);
+    if (workers == NULL || PyDict_SetItemString(result, "num_workers", workers) < 0) {
+        Py_XDECREF(workers);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(workers);
+
+    // Add phase timing (nanoseconds)
+    PyObject *phase_timing = PyDict_New();
+    if (phase_timing == NULL) {
+        Py_DECREF(result);
+        return NULL;
+    }
+
+    // Calculate phase durations from recorded timestamps
+    int64_t update_refs_ns = 0;
+    int64_t mark_heap_ns = 0;
+    int64_t total_ns = 0;
+
+    if (interp->gc.phase_start_ns > 0 && interp->gc.update_refs_end_ns > 0) {
+        update_refs_ns = interp->gc.update_refs_end_ns - interp->gc.phase_start_ns;
+    }
+    if (interp->gc.update_refs_end_ns > 0 && interp->gc.mark_heap_end_ns > 0) {
+        mark_heap_ns = interp->gc.mark_heap_end_ns - interp->gc.update_refs_end_ns;
+    }
+    if (interp->gc.phase_start_ns > 0 && interp->gc.mark_heap_end_ns > 0) {
+        total_ns = interp->gc.mark_heap_end_ns - interp->gc.phase_start_ns;
+    }
+
+    PyObject *update_refs_obj = PyLong_FromLongLong(update_refs_ns);
+    if (update_refs_obj == NULL ||
+        PyDict_SetItemString(phase_timing, "update_refs_ns", update_refs_obj) < 0) {
+        Py_XDECREF(update_refs_obj);
+        Py_DECREF(phase_timing);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(update_refs_obj);
+
+    PyObject *mark_heap_obj = PyLong_FromLongLong(mark_heap_ns);
+    if (mark_heap_obj == NULL ||
+        PyDict_SetItemString(phase_timing, "mark_heap_ns", mark_heap_obj) < 0) {
+        Py_XDECREF(mark_heap_obj);
+        Py_DECREF(phase_timing);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(mark_heap_obj);
+
+    PyObject *total_obj = PyLong_FromLongLong(total_ns);
+    if (total_obj == NULL ||
+        PyDict_SetItemString(phase_timing, "total_ns", total_obj) < 0) {
+        Py_XDECREF(total_obj);
+        Py_DECREF(phase_timing);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(total_obj);
+
+    if (PyDict_SetItemString(result, "phase_timing", phase_timing) < 0) {
+        Py_DECREF(phase_timing);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(phase_timing);
+
+    return result;
+}
+
 #endif  // Py_GIL_DISABLED

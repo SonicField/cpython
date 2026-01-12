@@ -486,6 +486,15 @@ _PyGC_ShouldUseParallel(PyInterpreterState *interp)
 }
 
 //-----------------------------------------------------------------------------
+// Statistics API
+//-----------------------------------------------------------------------------
+
+// Get parallel GC statistics as a Python dictionary.
+// Returns a new reference to a dict with 'enabled', 'num_workers', 'phase_timing'.
+// Returns NULL on error.
+PyAPI_FUNC(PyObject *) _PyGC_FTParallelGetStats(PyInterpreterState *interp);
+
+//-----------------------------------------------------------------------------
 // Testing / debugging APIs (exposed for unit tests)
 //-----------------------------------------------------------------------------
 

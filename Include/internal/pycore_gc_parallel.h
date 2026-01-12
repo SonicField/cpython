@@ -196,9 +196,13 @@ struct _PyParallelGCState {
 
     // Phase timing (nanoseconds, for benchmarking)
     // Set during parallel collection, exposed via gc.get_parallel_stats()
-    int64_t phase_start_ns;           // Start of parallel GC
+    int timing_valid;                 // 1 if timing is from a complete parallel collection
+    int64_t gc_start_ns;              // Start of GC (before update_refs)
+    int64_t update_refs_end_ns;       // End of update_refs phase
+    int64_t phase_start_ns;           // Start of parallel GC (= update_refs_end_ns, kept for compatibility)
     int64_t subtract_refs_end_ns;     // End of subtract_refs phase
     int64_t mark_end_ns;              // End of mark phase
+    int64_t cleanup_end_ns;           // End of cleanup phase (finalization, deallocation)
 
     // Worker threads (flexible array member - allocated based on num_workers)
     _PyParallelGCWorker workers[];

@@ -276,6 +276,8 @@ class RunResult:
     """Result of a single benchmark run."""
     time_ms: float
     objects_collected: int
+    # Phase timing from gc.get_parallel_stats() (nanoseconds)
+    phase_timing: Dict[str, int] = field(default_factory=dict)
 
 @dataclass
 class BenchmarkResult:
@@ -301,6 +303,10 @@ class BenchmarkResult:
 
     # Collection statistics
     mean_collected: float
+
+    # Phase timing statistics (nanoseconds) - averaged across runs
+    # Keys depend on build: GIL has subtract_refs_ns/mark_ns, FTP has update_refs_ns/mark_heap_ns
+    mean_phase_timing: Dict[str, float] = field(default_factory=dict)
 
     # Raw data
     runs: List[RunResult] = field(default_factory=list)
@@ -404,9 +410,20 @@ class GCBenchmark:
                 collected = gc.collect()
                 elapsed = time.perf_counter() - start
 
+                # Get phase timing from parallel stats
+                phase_timing = {}
+                if parallel:
+                    try:
+                        stats = gc.get_parallel_stats()
+                        if 'phase_timing' in stats:
+                            phase_timing = stats['phase_timing']
+                    except AttributeError:
+                        pass  # API not available
+
                 runs.append(RunResult(
                     time_ms=elapsed * 1000,
-                    objects_collected=collected
+                    objects_collected=collected,
+                    phase_timing=phase_timing
                 ))
 
                 # Cleanup
@@ -420,6 +437,16 @@ class GCBenchmark:
         times = [r.time_ms for r in runs]
         collected = [r.objects_collected for r in runs]
         sorted_times = sorted(times)
+
+        # Aggregate phase timing (mean across runs)
+        mean_phase_timing = {}
+        if runs and runs[0].phase_timing:
+            # Get keys from first run
+            keys = runs[0].phase_timing.keys()
+            for key in keys:
+                values = [r.phase_timing.get(key, 0) for r in runs if r.phase_timing]
+                if values:
+                    mean_phase_timing[key] = statistics.mean(values)
 
         return BenchmarkResult(
             build_type=BUILD_TYPE,
@@ -436,6 +463,7 @@ class GCBenchmark:
             p50_ms=sorted_times[len(times) // 2],
             p95_ms=sorted_times[int(len(times) * 0.95)] if len(times) >= 20 else max(times),
             mean_collected=statistics.mean(collected),
+            mean_phase_timing=mean_phase_timing,
             runs=runs
         )
 
@@ -573,6 +601,30 @@ def run_benchmark_matrix(
                                   f"{result.parallel_result.mean_ms:>10.2f} | "
                                   f"{speedup_str:>10}")
 
+                            # Per-iteration details
+                            print(f"    Serial runs:   ", end="")
+                            print("  ".join(f"{r.time_ms:.1f}" for r in result.serial_result.runs))
+
+                            print(f"    Parallel runs: ", end="")
+                            par_details = []
+                            for r in result.parallel_result.runs:
+                                pt = r.phase_timing
+                                if pt:
+                                    if BUILD_TYPE == "gil":
+                                        upd = pt.get('update_refs_ns', 0) / 1e6
+                                        sub = pt.get('subtract_refs_ns', 0) / 1e6
+                                        mark = pt.get('mark_ns', 0) / 1e6
+                                        cleanup = pt.get('cleanup_ns', 0) / 1e6
+                                        par_details.append(f"{r.time_ms:.0f}[{upd:.0f}+{sub:.0f}+{mark:.0f}+{cleanup:.0f}]")
+                                    else:
+                                        upd = pt.get('update_refs_ns', 0) / 1e6
+                                        mark = pt.get('mark_heap_ns', 0) / 1e6
+                                        cleanup = pt.get('cleanup_ns', 0) / 1e6
+                                        par_details.append(f"{r.time_ms:.0f}[{upd:.0f}+{mark:.0f}+{cleanup:.0f}]")
+                                else:
+                                    par_details.append(f"{r.time_ms:.1f}")
+                            print("  ".join(par_details))
+
     print("-" * 80)
 
     # Summary
@@ -586,6 +638,36 @@ def run_benchmark_matrix(
         print(f"  Min speedup:  {min(speedups):.2f}x")
         print(f"  Max speedup:  {max(speedups):.2f}x")
         print(f"  Significant:  {len(significant)}/{len(results)}")
+
+        # Phase timing summary (for parallel runs only)
+        parallel_with_timing = [r for r in results if r.parallel_result.mean_phase_timing]
+        if parallel_with_timing:
+            print(f"\nPhase Timing (parallel runs, mean across iterations, in ms):")
+            # Header based on build type
+            if BUILD_TYPE == "gil":
+                print(f"  {'Config':<25} | {'upd_refs':>10} | {'sub_refs':>10} | {'mark':>10} | {'cleanup':>10} | {'total':>10}")
+            else:
+                print(f"  {'Config':<25} | {'upd_refs':>10} | {'mark_heap':>10} | {'cleanup':>10} | {'total':>10}")
+            print(f"  {'-' * 25}-+-{'-' * 10}-+-{'-' * 10}-+-{'-' * 10}-+-{'-' * 10}-+-{'-' * 10}")
+
+            for r in parallel_with_timing:
+                pt = r.parallel_result.mean_phase_timing
+                config_str = f"{r.config['heap_type']}_{r.config['heap_size']//1000}k_w{r.config['num_workers']}"
+
+                # Get phase values (convert ns to ms for readability)
+                if BUILD_TYPE == "gil":
+                    upd = pt.get('update_refs_ns', 0) / 1e6
+                    sub = pt.get('subtract_refs_ns', 0) / 1e6
+                    mark = pt.get('mark_ns', 0) / 1e6
+                    cleanup = pt.get('cleanup_ns', 0) / 1e6
+                    total = pt.get('total_ns', 0) / 1e6
+                    print(f"  {config_str:<25} | {upd:>10.2f} | {sub:>10.2f} | {mark:>10.2f} | {cleanup:>10.2f} | {total:>10.2f}")
+                else:
+                    upd = pt.get('update_refs_ns', 0) / 1e6
+                    mark = pt.get('mark_heap_ns', 0) / 1e6
+                    cleanup = pt.get('cleanup_ns', 0) / 1e6
+                    total = pt.get('total_ns', 0) / 1e6
+                    print(f"  {config_str:<25} | {upd:>10.2f} | {mark:>10.2f} | {cleanup:>10.2f} | {total:>10.2f}")
 
     # Save results
     if output_file:

@@ -880,49 +880,40 @@ _PyGC_ParallelGetStats(PyInterpreterState *interp)
     }
 
     // Calculate phase durations from recorded timestamps
+    // Only populate if timing_valid is set (complete parallel collection ran)
+    int64_t update_refs_ns = 0;
     int64_t subtract_refs_ns = 0;
     int64_t mark_ns = 0;
+    int64_t cleanup_ns = 0;
     int64_t total_ns = 0;
 
-    if (par_gc->phase_start_ns > 0 && par_gc->subtract_refs_end_ns > 0) {
-        subtract_refs_ns = par_gc->subtract_refs_end_ns - par_gc->phase_start_ns;
-    }
-    if (par_gc->subtract_refs_end_ns > 0 && par_gc->mark_end_ns > 0) {
+    if (par_gc->timing_valid) {
+        update_refs_ns = par_gc->update_refs_end_ns - par_gc->gc_start_ns;
+        subtract_refs_ns = par_gc->subtract_refs_end_ns - par_gc->update_refs_end_ns;
         mark_ns = par_gc->mark_end_ns - par_gc->subtract_refs_end_ns;
-    }
-    if (par_gc->phase_start_ns > 0 && par_gc->mark_end_ns > 0) {
-        total_ns = par_gc->mark_end_ns - par_gc->phase_start_ns;
+        cleanup_ns = par_gc->cleanup_end_ns - par_gc->mark_end_ns;
+        total_ns = par_gc->cleanup_end_ns - par_gc->gc_start_ns;
     }
 
-    PyObject *subtract_refs_obj = PyLong_FromLongLong(subtract_refs_ns);
-    if (subtract_refs_obj == NULL ||
-        PyDict_SetItemString(phase_timing, "subtract_refs_ns", subtract_refs_obj) < 0) {
-        Py_XDECREF(subtract_refs_obj);
-        Py_DECREF(phase_timing);
-        Py_DECREF(result);
-        return NULL;
-    }
-    Py_DECREF(subtract_refs_obj);
+    // Helper macro to add int64 to dict
+    #define ADD_TIMING(name, value) do { \
+        PyObject *obj = PyLong_FromLongLong(value); \
+        if (obj == NULL || PyDict_SetItemString(phase_timing, name, obj) < 0) { \
+            Py_XDECREF(obj); \
+            Py_DECREF(phase_timing); \
+            Py_DECREF(result); \
+            return NULL; \
+        } \
+        Py_DECREF(obj); \
+    } while (0)
 
-    PyObject *mark_obj = PyLong_FromLongLong(mark_ns);
-    if (mark_obj == NULL ||
-        PyDict_SetItemString(phase_timing, "mark_ns", mark_obj) < 0) {
-        Py_XDECREF(mark_obj);
-        Py_DECREF(phase_timing);
-        Py_DECREF(result);
-        return NULL;
-    }
-    Py_DECREF(mark_obj);
+    ADD_TIMING("update_refs_ns", update_refs_ns);
+    ADD_TIMING("subtract_refs_ns", subtract_refs_ns);
+    ADD_TIMING("mark_ns", mark_ns);
+    ADD_TIMING("cleanup_ns", cleanup_ns);
+    ADD_TIMING("total_ns", total_ns);
 
-    PyObject *total_obj = PyLong_FromLongLong(total_ns);
-    if (total_obj == NULL ||
-        PyDict_SetItemString(phase_timing, "total_ns", total_obj) < 0) {
-        Py_XDECREF(total_obj);
-        Py_DECREF(phase_timing);
-        Py_DECREF(result);
-        return NULL;
-    }
-    Py_DECREF(total_obj);
+    #undef ADD_TIMING
 
     if (PyDict_SetItemString(result, "phase_timing", phase_timing) < 0) {
         Py_DECREF(phase_timing);
@@ -1153,10 +1144,15 @@ _PyGC_ParallelMoveUnreachable(
     // Wait for workers to finish (they'll signal done_barrier when done)
     _PyGCBarrier_Wait(&par_gc->done_barrier);
 
-    // Record end time for mark phase
-    PyTime_t mark_end;
-    (void)PyTime_PerfCounterRaw(&mark_end);
-    par_gc->mark_end_ns = mark_end;
+    // Record end time for mark phase (only if timing not already captured)
+    if (!par_gc->timing_valid) {
+        PyTime_t mark_end;
+        (void)PyTime_PerfCounterRaw(&mark_end);
+        par_gc->mark_end_ns = mark_end;
+
+        // Mark timing as valid - full parallel collection completed
+        par_gc->timing_valid = 1;
+    }
 
     // ==========================================================================
     // STEP 7: Sweep - move unmarked objects to unreachable list
@@ -1371,10 +1367,12 @@ _PyGC_ParallelSubtractRefs(PyInterpreterState *interp, PyGC_Head *base)
     // Wait for completion
     _PyGCBarrier_Wait(&par_gc->done_barrier);
 
-    // Record end time for subtract_refs phase
-    PyTime_t end_time;
-    (void)PyTime_PerfCounterRaw(&end_time);
-    par_gc->subtract_refs_end_ns = end_time;
+    // Record end time for subtract_refs phase (only if timing not already captured)
+    if (!par_gc->timing_valid) {
+        PyTime_t end_time;
+        (void)PyTime_PerfCounterRaw(&end_time);
+        par_gc->subtract_refs_end_ns = end_time;
+    }
 
     return 1;
 }
