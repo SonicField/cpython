@@ -33,6 +33,13 @@ gc_get_refs(PyGC_Head *g)
     return (Py_ssize_t)(g->_gc_prev >> _PyGC_PREV_SHIFT);
 }
 
+// Check if object has COLLECTING flag set (non-atomic version)
+static inline int
+gc_is_collecting(PyGC_Head *g)
+{
+    return (g->_gc_prev & _PyGC_PREV_MASK_COLLECTING) != 0;
+}
+
 // =============================================================================
 // Atomic Marking Helpers for Parallel GC
 // =============================================================================
@@ -1024,11 +1031,19 @@ _PyGC_ParallelMoveUnreachable(
     size_t total_roots = 0;
 
     // First pass: count total objects and roots
+    // Objects already marked (COLLECTING cleared) by mark_alive_from_roots are treated as roots
+    // (they're already known reachable and don't need parallel processing)
     while (gc != young) {
         total_objects++;
-        Py_ssize_t refs = gc_get_refs(gc);
-        if (refs > 0) {
+        // Objects with COLLECTING cleared are already marked as reachable
+        if (!gc_is_collecting(gc)) {
             total_roots++;
+        }
+        else {
+            Py_ssize_t refs = gc_get_refs(gc);
+            if (refs > 0) {
+                total_roots++;
+            }
         }
         gc = _PyGCHead_NEXT(gc);
     }
@@ -1103,19 +1118,28 @@ _PyGC_ParallelMoveUnreachable(
         }
         worker->slice_end = _PyGCHead_NEXT(gc);
 
-        // Check if this object is a root (has external references)
-        Py_ssize_t refs = gc_get_refs(gc);
-        if (refs > 0) {
-            // This is a root - mark as reachable and push to this worker's deque
-            PyObject *op = _Py_FROM_GC(gc);
-
-            // Mark root as reachable by clearing COLLECTING flag
-            // (This must be done BEFORE workers start, so no CAS needed here)
-            gc->_gc_prev &= ~_PyGC_PREV_MASK_COLLECTING;
-
-            _PyWSDeque_Push(&worker->deque, op);
-            worker->roots_in_slice++;
+        // Check if this object is already marked (COLLECTING cleared by mark_alive_from_roots)
+        if (!gc_is_collecting(gc)) {
+            // Already marked as reachable by mark_alive_from_roots.
+            // All referents are also marked, so no need to push to deque.
+            // COLLECTING is already cleared.
             distributed++;
+        }
+        // Check if this object is a root (has external references)
+        else {
+            Py_ssize_t refs = gc_get_refs(gc);
+            if (refs > 0) {
+                // This is a root - mark as reachable and push to this worker's deque
+                PyObject *op = _Py_FROM_GC(gc);
+
+                // Mark root as reachable by clearing COLLECTING flag
+                // (This must be done BEFORE workers start, so no CAS needed here)
+                gc->_gc_prev &= ~_PyGC_PREV_MASK_COLLECTING;
+
+                _PyWSDeque_Push(&worker->deque, op);
+                worker->roots_in_slice++;
+                distributed++;
+            }
         }
 
         gc = _PyGCHead_NEXT(gc);
@@ -1286,6 +1310,14 @@ _parallel_subtract_refs_worker(_PyParallelGCWorker *worker,
         // Prefetch next node
         PyGC_Head *next = _PyGCHead_NEXT(gc);
         __builtin_prefetch(next, 0, 3);  // Read, high temporal locality
+
+        // Skip objects already marked reachable (COLLECTING cleared by mark_alive_from_roots).
+        // These are known reachable and don't need subtract_refs processing.
+        // All their referents are also marked (mark_alive uses transitive closure).
+        if (!gc_is_collecting(gc)) {
+            gc = next;
+            continue;
+        }
 
         PyObject *op = _Py_FROM_GC(gc);
 
