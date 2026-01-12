@@ -293,6 +293,23 @@ _parallel_gc_worker_thread(void *arg)
                         steal_attempts_since_work = 0;  // Got work!
                         // Continue to Phase 1 with stolen work
                     }
+                    else {
+                        // Exponential backoff on consecutive failed steals
+                        // Reduces contention when many workers compete for same victim
+                        if (steal_attempts_since_work > (int)par_gc->num_workers / 2) {
+                            // Backoff grows exponentially: 1, 2, 4, 8, ... up to 32 iterations
+                            int backoff_exp = steal_attempts_since_work - (int)par_gc->num_workers / 2;
+                            if (backoff_exp > 5) backoff_exp = 5;
+                            int backoff_iters = 1 << backoff_exp;
+                            for (volatile int i = 0; i < backoff_iters; i++) {
+#if defined(__x86_64__) || defined(__i386__)
+                                __asm__ volatile("pause");
+#elif defined(__aarch64__)
+                                __asm__ volatile("yield");
+#endif
+                            }
+                        }
+                    }
                     // If steal failed, loop will try another victim
                 }
             }
