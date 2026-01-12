@@ -269,6 +269,7 @@ struct _gc_runtime_state {
     int64_t phase_start_ns;           /* Start of parallel GC */
     int64_t update_refs_end_ns;       /* End of update_refs phase */
     int64_t mark_heap_end_ns;         /* End of mark_heap phase */
+    int64_t cleanup_end_ns;           /* End of cleanup phase */
 #endif
 
 #ifdef Py_PARALLEL_GC

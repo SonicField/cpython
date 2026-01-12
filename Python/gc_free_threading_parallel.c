@@ -3523,6 +3523,7 @@ _PyGC_FTParallelGetStats(PyInterpreterState *interp)
     // Calculate phase durations from recorded timestamps
     int64_t update_refs_ns = 0;
     int64_t mark_heap_ns = 0;
+    int64_t cleanup_ns = 0;
     int64_t total_ns = 0;
 
     if (interp->gc.phase_start_ns > 0 && interp->gc.update_refs_end_ns > 0) {
@@ -3531,7 +3532,14 @@ _PyGC_FTParallelGetStats(PyInterpreterState *interp)
     if (interp->gc.update_refs_end_ns > 0 && interp->gc.mark_heap_end_ns > 0) {
         mark_heap_ns = interp->gc.mark_heap_end_ns - interp->gc.update_refs_end_ns;
     }
-    if (interp->gc.phase_start_ns > 0 && interp->gc.mark_heap_end_ns > 0) {
+    if (interp->gc.mark_heap_end_ns > 0 && interp->gc.cleanup_end_ns > 0) {
+        cleanup_ns = interp->gc.cleanup_end_ns - interp->gc.mark_heap_end_ns;
+    }
+    if (interp->gc.phase_start_ns > 0 && interp->gc.cleanup_end_ns > 0) {
+        total_ns = interp->gc.cleanup_end_ns - interp->gc.phase_start_ns;
+    }
+    else if (interp->gc.phase_start_ns > 0 && interp->gc.mark_heap_end_ns > 0) {
+        // Fallback to mark_heap_end if cleanup not recorded
         total_ns = interp->gc.mark_heap_end_ns - interp->gc.phase_start_ns;
     }
 
@@ -3554,6 +3562,16 @@ _PyGC_FTParallelGetStats(PyInterpreterState *interp)
         return NULL;
     }
     Py_DECREF(mark_heap_obj);
+
+    PyObject *cleanup_obj = PyLong_FromLongLong(cleanup_ns);
+    if (cleanup_obj == NULL ||
+        PyDict_SetItemString(phase_timing, "cleanup_ns", cleanup_obj) < 0) {
+        Py_XDECREF(cleanup_obj);
+        Py_DECREF(phase_timing);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(cleanup_obj);
 
     PyObject *total_obj = PyLong_FromLongLong(total_ns);
     if (total_obj == NULL ||

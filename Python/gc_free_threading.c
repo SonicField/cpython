@@ -1483,23 +1483,32 @@ gc_mark_alive_from_roots(PyInterpreterState *interp,
             return -1;
         }
 
-        // Extract from buffer first
+        // Extract from buffer first, filtering out untracked objects.
+        // Objects like _Py_InitCleanup are static code objects that get
+        // pushed to the buffer but are not GC-tracked. We must filter them
+        // here to avoid crashes when trying to set GC bits on static memory.
         size_t idx = 0;
         while (!gc_mark_buffer_is_empty(&mark_args)) {
-            roots[idx++] = gc_mark_buffer_pop(&mark_args);
+            PyObject *op = gc_mark_buffer_pop(&mark_args);
+            if (gc_has_bit(op, _PyGC_BITS_TRACKED)) {
+                roots[idx++] = op;
+            }
         }
 
-        // Extract from stack
+        // Extract from stack, also filtering untracked objects
         PyObject *op;
         while ((op = _PyObjectStack_Pop(&mark_args.stack)) != NULL) {
-            roots[idx++] = op;
+            if (gc_has_bit(op, _PyGC_BITS_TRACKED)) {
+                roots[idx++] = op;
+            }
         }
-        assert(idx == num_roots);
+        // idx may be less than num_roots due to filtering
+        size_t actual_roots = idx;
 
         // Run parallel propagation using persistent thread pool
         // Thread pool uses barrier synchronization for correct termination.
         assert(_PyGC_ThreadPoolIsActive(interp));
-        int err = _PyGC_ParallelPropagateAliveWithPool(interp, roots, num_roots, num_workers);
+        int err = _PyGC_ParallelPropagateAliveWithPool(interp, roots, actual_roots, num_workers);
         PyMem_RawFree(roots);
 
         if (err < 0) {
@@ -2626,6 +2635,9 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
 
     PyInterpreterState *interp = tstate->interp;
 
+    // Reset cleanup timing for this collection
+    interp->gc.cleanup_end_ns = 0;
+
     struct collection_state state = {
         .interp = interp,
         .gcstate = gcstate,
@@ -2633,6 +2645,14 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
     };
 
     gc_collect_internal(interp, &state, generation);
+
+    // Record cleanup end time for parallel GC timing
+    // Only record if parallel GC was used (mark_heap_end_ns is set)
+    if (interp->gc.mark_heap_end_ns > 0 && interp->gc.cleanup_end_ns == 0) {
+        PyTime_t cleanup_end;
+        (void)PyTime_PerfCounterRaw(&cleanup_end);
+        interp->gc.cleanup_end_ns = cleanup_end;
+    }
 
     m = state.collected;
     n = state.uncollectable;
