@@ -40,6 +40,57 @@ extern "C" {
 #define _PyGC_MAX_WORKERS 1024
 
 // =============================================================================
+// CPU Primitives for Spin-Wait Loops
+// =============================================================================
+//
+// _Py_cpu_relax(): Hint to CPU during spin-wait loops.
+// Reduces power consumption and avoids pipeline stalls.
+// Much lighter than OS thread yield (sched_yield/SwitchToThread).
+//
+
+#if defined(__x86_64__) || defined(__i386__)
+    #define _Py_cpu_relax() __asm__ volatile("pause")
+#elif defined(__aarch64__)
+    #define _Py_cpu_relax() __asm__ volatile("yield")
+#elif defined(_M_X64) || defined(_M_IX86)
+    // MSVC x86/x64
+    #include <intrin.h>
+    #define _Py_cpu_relax() _mm_pause()
+#elif defined(_M_ARM64)
+    // MSVC ARM64
+    #include <intrin.h>
+    #define _Py_cpu_relax() __yield()
+#else
+    // Fallback: no-op
+    #define _Py_cpu_relax() ((void)0)
+#endif
+
+// =============================================================================
+// Prefetch Primitives
+// =============================================================================
+//
+// Cache prefetch hints for improved memory access patterns.
+// Locality levels: 0=NTA (non-temporal), 1=T2, 2=T1, 3=T0 (highest)
+//
+
+#if defined(__GNUC__) || defined(__clang__)
+    #define _PyGC_PREFETCH(ptr, locality) __builtin_prefetch((ptr), 0, (locality))
+#elif defined(_MSC_VER)
+    #include <intrin.h>
+    // MSVC: _MM_HINT_T0=3, T1=2, T2=1, NTA=0 (matches GCC locality values)
+    #define _PyGC_PREFETCH(ptr, locality) \
+        _mm_prefetch((const char*)(ptr), (locality))
+#else
+    #define _PyGC_PREFETCH(ptr, locality) ((void)(ptr))
+#endif
+
+// Convenience macros matching FTP GC naming
+#define _PyGC_PREFETCH_T0(ptr)  _PyGC_PREFETCH((ptr), 3)  // All cache levels
+#define _PyGC_PREFETCH_T1(ptr)  _PyGC_PREFETCH((ptr), 2)  // L2 and above
+#define _PyGC_PREFETCH_T2(ptr)  _PyGC_PREFETCH((ptr), 1)  // L3 and above
+#define _PyGC_PREFETCH_NTA(ptr) _PyGC_PREFETCH((ptr), 0)  // Non-temporal
+
+// =============================================================================
 // Split Vector for Parallel Work Distribution
 // =============================================================================
 //
@@ -70,15 +121,77 @@ typedef struct {
 } _PyGCSplitVector;
 
 // =============================================================================
+// Work Queue for Pipelined Producer-Consumer mark_alive
+// =============================================================================
+//
+// The pipelined producer-consumer design replaces work-stealing for mark_alive.
+// Main thread expands interpreter roots by one level, pushing level-1 children
+// to a shared queue. Workers claim batches from the queue and traverse subtrees.
+//
+// Why this design?
+// - Work-stealing fails for mark_alive because ~100 interpreter roots form a hub
+// - First worker marks most of the heap before others can steal (99% imbalance)
+// - Level-1 expansion gives thousands of distributed starting points
+// - Pipelined: workers start consuming as producer pushes (no barrier needed)
+//
+// Block-based storage:
+// - Contiguous memory blocks for cache-friendly sequential access
+// - Pre-allocated initial blocks to avoid allocation during GC
+// - Growable when needed for larger heaps
+//
+
+// Objects per block (32KB / 8 bytes = 4096 pointers)
+#define _PyGC_QUEUE_BLOCK_SIZE 4096
+
+// Objects per worker batch claim (balances granularity vs CAS overhead)
+#define _PyGC_QUEUE_BATCH_SIZE 64
+
+// Initial pre-allocated blocks (4096 * 8 = 32K objects without allocation)
+#define _PyGC_QUEUE_INITIAL_BLOCKS 8
+
+// Single block of object pointers
+typedef struct {
+    PyObject *items[_PyGC_QUEUE_BLOCK_SIZE];
+} _PyGCQueueBlock;
+
+// Work queue for producer-consumer parallel mark_alive
+// Producer: main thread pushes level-1 objects
+// Consumers: worker threads claim batches and traverse subtrees
+typedef struct {
+    // Block storage - either points to initial_blocks or heap-allocated array
+    _PyGCQueueBlock *blocks;
+    Py_ssize_t num_blocks;      // Number of blocks in use
+    Py_ssize_t capacity;        // Total block capacity
+
+    // Write index: next position to write (producer only, no contention)
+    // Cache-line padded to avoid false sharing with read_index
+    Py_ssize_t write_index;
+    char _pad1[64 - sizeof(Py_ssize_t)];
+
+    // Read index: next position to read (consumers compete via CAS)
+    // Cache-line padded to avoid false sharing with write_index
+    Py_ssize_t read_index;
+    char _pad2[64 - sizeof(Py_ssize_t)];
+
+    // Producer completion flag (consumers spin until set when queue empty)
+    int producer_done;
+
+    // Pre-allocated initial blocks (avoids heap allocation for typical heaps)
+    _PyGCQueueBlock initial_blocks[_PyGC_QUEUE_INITIAL_BLOCKS];
+} _PyGCWorkQueue;
+
+// =============================================================================
 // Worker Thread Phases
 // =============================================================================
 // Workers wait on mark_barrier, then dispatch based on current phase.
 // The main GC thread sets the phase before signalling the barrier.
 
 typedef enum {
-    _PyGC_PHASE_IDLE,           // Waiting for work
-    _PyGC_PHASE_SUBTRACT_REFS,  // Decrement gc_refs for internal references
-    _PyGC_PHASE_MARK,           // Work-stealing parallel marking
+    _PyGC_PHASE_IDLE,               // Waiting for work
+    _PyGC_PHASE_MARK_ALIVE,         // Pre-mark from interpreter roots (work-stealing)
+    _PyGC_PHASE_MARK_ALIVE_QUEUE,   // Pre-mark from queue (producer-consumer)
+    _PyGC_PHASE_SUBTRACT_REFS,      // Decrement gc_refs for internal references
+    _PyGC_PHASE_MARK,               // Work-stealing parallel marking
 } _PyGCPhase;
 
 // =============================================================================
@@ -168,6 +281,10 @@ struct _PyParallelGCState {
     // Split vector for work distribution
     // Populated during serial update_refs, used by parallel subtract_refs
     _PyGCSplitVector split_vector;
+
+    // Work queue for pipelined producer-consumer mark_alive
+    // Populated during level-1 expansion, consumed by workers
+    _PyGCWorkQueue work_queue;
 
     // Synchronizes all workers before marking reachable objects
     _PyGCBarrier mark_barrier;
@@ -260,6 +377,23 @@ PyAPI_FUNC(int) _PyGC_ParallelSubtractRefs(
     PyGC_Head *base
 );
 
+// Parallel mark_alive: pre-mark reachable objects from interpreter roots
+// Uses work-stealing to traverse from interpreter roots (sysdict, builtins, etc.)
+// Returns 1 if parallel marking was used, 0 if should fall back to serial
+PyAPI_FUNC(int) _PyGC_ParallelMarkAliveFromRoots(
+    PyInterpreterState *interp,
+    PyGC_Head *containers
+);
+
+// Parallel mark_alive with pipelined producer-consumer design
+// Main thread expands interpreter roots by one level, workers consume from queue
+// Better work distribution than work-stealing for hub-structured graphs
+// Returns 1 if parallel marking was used, 0 if should fall back to serial
+PyAPI_FUNC(int) _PyGC_ParallelMarkAliveFromQueue(
+    PyInterpreterState *interp,
+    PyGC_Head *containers
+);
+
 // =============================================================================
 // Split Vector Operations
 // =============================================================================
@@ -277,6 +411,37 @@ PyAPI_FUNC(void) _PyGCSplitVector_Clear(_PyGCSplitVector *vec);
 // Push a split point onto the vector (grows if needed)
 // Returns 0 on success, -1 on allocation failure
 PyAPI_FUNC(int) _PyGCSplitVector_Push(_PyGCSplitVector *vec, PyGC_Head *gc);
+
+// =============================================================================
+// Work Queue Operations
+// =============================================================================
+
+// Initialise work queue with pre-allocated blocks
+// Returns 0 on success, -1 on allocation failure
+PyAPI_FUNC(int) _PyGCWorkQueue_Init(_PyGCWorkQueue *queue);
+
+// Free work queue resources
+PyAPI_FUNC(void) _PyGCWorkQueue_Fini(_PyGCWorkQueue *queue);
+
+// Reset work queue for new collection (keeps capacity)
+PyAPI_FUNC(void) _PyGCWorkQueue_Reset(_PyGCWorkQueue *queue);
+
+// Push an object to the queue (producer only - not thread-safe for multiple producers)
+// Returns 0 on success, -1 on allocation failure
+PyAPI_FUNC(int) _PyGCWorkQueue_Push(_PyGCWorkQueue *queue, PyObject *obj);
+
+// Signal that producer is done (no more items will be pushed)
+PyAPI_FUNC(void) _PyGCWorkQueue_ProducerDone(_PyGCWorkQueue *queue);
+
+// Claim a batch of objects from the queue (thread-safe for multiple consumers)
+// Returns the number of objects claimed (0 if queue empty and producer done)
+// out: array to store claimed objects (must have space for max_batch items)
+// max_batch: maximum number of objects to claim
+PyAPI_FUNC(Py_ssize_t) _PyGCWorkQueue_ClaimBatch(
+    _PyGCWorkQueue *queue,
+    PyObject **out,
+    Py_ssize_t max_batch
+);
 
 #endif // Py_PARALLEL_GC
 

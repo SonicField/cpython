@@ -14,10 +14,22 @@ extern "C" {
 
 #include "pycore_pyatomic_ft_wrappers.h"  // _Py_atomic_*
 #include "pyatomic.h"                      // Atomic operations
+#include "pycore_pymem.h"                  // PyMem_RawCalloc, PyMem_RawFree
 #include <stdint.h>                        // uintptr_t
-#include <stdlib.h>                        // calloc, free
 #include <string.h>                        // memset
 #include <assert.h>                        // assert
+
+// =============================================================================
+// Prefetch Primitives (local definition to avoid circular includes)
+// =============================================================================
+#if defined(__GNUC__) || defined(__clang__)
+    #define _PyWS_PREFETCH(ptr) __builtin_prefetch((ptr), 0, 0)
+#elif defined(_MSC_VER)
+    #include <intrin.h>
+    #define _PyWS_PREFETCH(ptr) _mm_prefetch((const char*)(ptr), 0)
+#else
+    #define _PyWS_PREFETCH(ptr) ((void)(ptr))
+#endif
 
 // This implements the Chase-Lev work stealing deque first described in
 //
@@ -46,7 +58,7 @@ _PyWSArray_New(size_t size)
     // size must be a power of two > 0
     assert(size > 0 && (size & (size - 1)) == 0);
 
-    _PyWSArray *arr = (struct _PyWSArray *)calloc(
+    _PyWSArray *arr = (struct _PyWSArray *)PyMem_RawCalloc(
         1, sizeof(_PyWSArray) + sizeof(uintptr_t) * size);
     if (arr == NULL) {
         return NULL;
@@ -66,7 +78,7 @@ _PyWSArray_Destroy(_PyWSArray *arr)
         _PyWSArray_Destroy(arr->next);
         arr->next = NULL;
     }
-    free(arr);
+    PyMem_RawFree(arr);
 }
 
 static inline void *
@@ -225,7 +237,7 @@ _PyWSDeque_FiniExternal(_PyWSDeque *deque, void *external_buffer)
     while (arr != NULL && (void *)arr != external_buffer) {
         _PyWSArray *next = arr->next;
         arr->next = NULL;  // Prevent recursive free
-        free(arr);
+        PyMem_RawFree(arr);
         arr = next;
     }
 
@@ -329,7 +341,7 @@ _PyWSDeque_Steal(_PyWSDeque *deque)
 {
     // Prefetch the deque's array pointer - we're likely to need it
     // This hides memory latency while we do the atomic loads
-    __builtin_prefetch(&deque->arr, 0, 0);  // Read, no temporal locality
+    _PyWS_PREFETCH(&deque->arr);
 
     while (1) {
         size_t top = _Py_atomic_load_ssize_acquire((Py_ssize_t *)&deque->top);
@@ -346,7 +358,7 @@ _PyWSDeque_Steal(_PyWSDeque *deque)
             _PyWSArray *arr = (_PyWSArray *)_Py_atomic_load_ptr_acquire(&deque->arr);
 
             // Prefetch the array slot we're about to read
-            __builtin_prefetch(&arr->buf[top & (arr->size - 1)], 0, 0);
+            _PyWS_PREFETCH(&arr->buf[top & (arr->size - 1)]);
 
             res = _PyWSArray_Get(arr, top);
 

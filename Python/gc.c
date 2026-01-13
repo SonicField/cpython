@@ -1573,26 +1573,39 @@ deduce_unreachable(PyGC_Head *base, PyGC_Head *unreachable) {
         // Objects marked ALIVE can be skipped in subtract_refs and move_unreachable
         // because we know they are reachable and don't need GC processing.
         // This can skip up to 99% of objects in typical applications.
-        Py_ssize_t alive = gc_mark_alive_from_roots(interp, base);
-        if (alive < 0) {
-            // Memory allocation failed, fall back to non-optimized path
-            // (ALIVE bits are already cleared in error handler)
+        //
+        // Use pipelined producer-consumer design for better work distribution
+        // (level-1 expansion gives thousands of starting points vs ~100 roots)
+        if (!_PyGC_ParallelMarkAliveFromQueue(interp, base)) {
+            // Fall back to serial mark_alive
+            Py_ssize_t alive = gc_mark_alive_from_roots(interp, base);
+            if (alive < 0) {
+                // Memory allocation failed, fall back to non-optimized path
+                // (ALIVE bits are already cleared in error handler)
+            }
+            // Record mark_alive end time for serial path
+            if (!par_gc->timing_valid) {
+                PyTime_t mark_alive_end;
+                (void)PyTime_PerfCounterRaw(&mark_alive_end);
+                par_gc->mark_alive_end_ns = mark_alive_end;
+            }
         }
-
-        // Record mark_alive end time (only if timing not already captured)
-        if (!par_gc->timing_valid) {
-            PyTime_t mark_alive_end;
-            (void)PyTime_PerfCounterRaw(&mark_alive_end);
-            par_gc->mark_alive_end_ns = mark_alive_end;
-        }
+        // Note: parallel path records timing in _PyGC_ParallelMarkAliveFromQueue
 
         // Parallel subtract_refs using the split vector for work distribution
         // Uses atomic decrement since references can cross segment boundaries
         if (_PyGC_ParallelSubtractRefs(interp, base)) {
             // Successfully used parallel subtract_refs
+            // (timing recorded in _PyGC_ParallelSubtractRefs)
         } else {
             // Fall back to serial subtract_refs
             subtract_refs(base);
+            // Record subtract_refs end time for serial path
+            if (!par_gc->timing_valid) {
+                PyTime_t subtract_refs_end;
+                (void)PyTime_PerfCounterRaw(&subtract_refs_end);
+                par_gc->subtract_refs_end_ns = subtract_refs_end;
+            }
         }
     } else {
         // No parallel GC available, use fully serial path
@@ -1645,6 +1658,14 @@ deduce_unreachable(PyGC_Head *base, PyGC_Head *unreachable) {
     if (!_PyGC_ParallelMoveUnreachable(interp, base, unreachable)) {
         // Parallel marking not available or chose not to run, use serial
         move_unreachable(base, unreachable);
+        // Record mark end time for serial path
+        if (par_gc != NULL && !par_gc->timing_valid) {
+            PyTime_t mark_end;
+            (void)PyTime_PerfCounterRaw(&mark_end);
+            par_gc->mark_end_ns = mark_end;
+            // Set timing_valid since this is where parallel path sets it
+            par_gc->timing_valid = 1;
+        }
     }
 #else
     move_unreachable(base, unreachable);  // gc_prev is pointer again

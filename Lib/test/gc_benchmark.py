@@ -80,7 +80,7 @@ def disable_parallel_gc():
         pass  # Already disabled or not available
 
 # =============================================================================
-# Node Class for Object Graphs
+# Node Classes for Object Graphs
 # =============================================================================
 
 class Node:
@@ -90,6 +90,27 @@ class Node:
     def __init__(self):
         self.refs = []
         self.data = None
+
+
+class FinalizerNode:
+    """Node with a finalizer (__del__ method)."""
+    __slots__ = ['refs', 'data', '__weakref__']
+
+    def __init__(self):
+        self.refs = []
+        self.data = None
+
+    def __del__(self):
+        pass  # Presence of __del__ is what matters
+
+
+class ContainerNode:
+    """Node using __dict__ with list and dict children - models real objects."""
+
+    def __init__(self):
+        self.children_list = []
+        self.children_dict = {}
+        self.parent_ref = None  # Will hold weakref for some instances
 
 # =============================================================================
 # Heap Generators
@@ -222,6 +243,76 @@ def create_independent(n: int) -> List[Node]:
     """
     return [Node() for _ in range(n)]
 
+
+def create_ai_workload(n: int) -> list:
+    """
+    Create a realistic AI-workload-like heap structure.
+
+    Models tensor/model objects in ML frameworks:
+    - ContainerNode parents with list and dict children
+    - 10% of children have finalizers (resource cleanup)
+    - 10% have weakrefs back to parents (caching/observers)
+    - Hybrid layered + graph structure with cross-layer connections
+
+    Parallelizability: MEDIUM
+    - Layered structure provides some parallelism
+    - Cross-references and finalizers add complexity
+    """
+    import weakref
+    random.seed(42)  # Reproducible
+
+    all_nodes = []
+
+    # Create in layers (like neural network layers or pipeline stages)
+    num_layers = 8
+    nodes_per_layer = n // num_layers
+
+    prev_layer = []
+
+    for layer_idx in range(num_layers):
+        layer = []
+
+        for i in range(nodes_per_layer):
+            # Parent is a ContainerNode with dict storage
+            parent = ContainerNode()
+            layer.append(parent)
+            all_nodes.append(parent)
+
+            # Each parent has 3-8 children
+            num_children = random.randint(3, 8)
+            for j in range(num_children):
+                # 10% are finalizer nodes
+                if random.random() < 0.1:
+                    child = FinalizerNode()
+                else:
+                    child = Node()
+
+                all_nodes.append(child)
+
+                # Add to parent's list or dict randomly
+                if random.random() < 0.5:
+                    parent.children_list.append(child)
+                else:
+                    parent.children_dict[f"child_{j}"] = child
+
+                # 10% have weakref back to parent
+                if random.random() < 0.1:
+                    try:
+                        child.data = weakref.ref(parent)
+                    except TypeError:
+                        pass  # Some objects don't support weakrefs
+
+            # Cross-layer connections (graph-like)
+            if prev_layer:
+                # Connect to 1-3 random nodes from previous layer
+                num_connections = random.randint(1, min(3, len(prev_layer)))
+                for target in random.sample(prev_layer, num_connections):
+                    parent.children_list.append(target)
+
+        prev_layer = layer
+
+    return all_nodes
+
 # Map heap type names to generator functions
 HEAP_GENERATORS = {
     'chain': lambda n: create_chain(n),
@@ -230,6 +321,7 @@ HEAP_GENERATORS = {
     'graph': lambda n: create_graph(n, edge_prob=0.3),
     'layered': lambda n: create_layered(10, n // 10),  # 10 layers
     'independent': lambda n: create_independent(n),
+    'ai_workload': lambda n: create_ai_workload(n),
 }
 
 # =============================================================================

@@ -10,6 +10,9 @@
 #include "pycore_interp.h"
 #include "pycore_gc.h"  // For GC internals
 #include "pycore_time.h"  // For PyTime_PerfCounterRaw
+#include "pycore_typeobject.h"  // For types_state and _Py_MAX_MANAGED_STATIC_* constants
+#include "pycore_frame.h"  // For _PyInterpreterFrame
+#include "pycore_stackref.h"  // For PyStackRef_*
 #include "condvar.h"  // PyMUTEX_INIT, PyCOND_INIT, etc.
 
 #include <stdio.h>
@@ -232,6 +235,72 @@ _parallel_gc_worker_thread(void *arg)
             _parallel_subtract_refs_worker(worker, worker->slice_start, worker->slice_end);
             break;
 
+        case _PyGC_PHASE_MARK_ALIVE_QUEUE:
+            // =======================================================================
+            // Pipelined producer-consumer mark_alive
+            // =======================================================================
+            // Workers claim batches from the shared work queue (filled by main thread)
+            // and traverse subtrees locally. No work-stealing between workers.
+            {
+                PyObject *batch[_PyGC_QUEUE_BATCH_SIZE];
+                _PyGCWorkQueue *queue = &par_gc->work_queue;
+
+                while (1) {
+                    // Claim a batch from the shared queue
+                    Py_ssize_t count = _PyGCWorkQueue_ClaimBatch(
+                        queue, batch, _PyGC_QUEUE_BATCH_SIZE);
+
+                    if (count == 0) {
+                        break;  // Queue empty and producer done
+                    }
+
+                    // Process each object in the batch
+                    for (Py_ssize_t i = 0; i < count; i++) {
+                        PyObject *obj = batch[i];
+                        worker->objects_marked++;
+
+                        // Call tp_traverse to discover children
+                        // Children are enqueued to our local buffer/deque
+                        traverseproc traverse = Py_TYPE(obj)->tp_traverse;
+                        if (traverse != NULL) {
+                            traverse(obj, (visitproc)_parallel_gc_visit_and_enqueue, worker);
+                            worker->traversals_performed++;
+                        }
+                    }
+
+                    // Process any locally discovered children (depth-first)
+                    // This drains our local buffer/deque before claiming more from queue
+                    while (!_PyGCLocalBuffer_IsEmpty(&worker->local_buffer)) {
+                        PyObject *obj = _PyGCLocalBuffer_Pop(&worker->local_buffer);
+                        worker->objects_marked++;
+
+                        traverseproc traverse = Py_TYPE(obj)->tp_traverse;
+                        if (traverse != NULL) {
+                            traverse(obj, (visitproc)_parallel_gc_visit_and_enqueue, worker);
+                            worker->traversals_performed++;
+                        }
+                    }
+
+                    // Also drain own deque if local buffer was emptied
+                    refill_local_buffer_from_deque(worker);
+                    while (!_PyGCLocalBuffer_IsEmpty(&worker->local_buffer)) {
+                        PyObject *obj = _PyGCLocalBuffer_Pop(&worker->local_buffer);
+                        worker->objects_marked++;
+
+                        traverseproc traverse = Py_TYPE(obj)->tp_traverse;
+                        if (traverse != NULL) {
+                            traverse(obj, (visitproc)_parallel_gc_visit_and_enqueue, worker);
+                            worker->traversals_performed++;
+                        }
+                    }
+                }
+            }
+            break;
+
+        case _PyGC_PHASE_MARK_ALIVE:
+            // Falls through to PHASE_MARK - same work-stealing traversal logic
+            // The only difference is how roots are distributed (interpreter roots
+            // vs objects with gc_refs > 0), but traversal is identical
         case _PyGC_PHASE_MARK:
         default:
             // =======================================================================
@@ -256,7 +325,7 @@ _parallel_gc_worker_thread(void *arg)
                         if (!_PyGCLocalBuffer_IsEmpty(&worker->local_buffer)) {
                             PyObject *next_obj = worker->local_buffer.items[
                                 worker->local_buffer.count - 1];
-                            __builtin_prefetch(Py_TYPE(next_obj), 0, 1);
+                            _PyGC_PREFETCH_T2(Py_TYPE(next_obj));
                         }
 
                         worker->objects_marked++;
@@ -310,11 +379,7 @@ _parallel_gc_worker_thread(void *arg)
                             if (backoff_exp > 5) backoff_exp = 5;
                             int backoff_iters = 1 << backoff_exp;
                             for (volatile int i = 0; i < backoff_iters; i++) {
-#if defined(__x86_64__) || defined(__i386__)
-                                __asm__ volatile("pause");
-#elif defined(__aarch64__)
-                                __asm__ volatile("yield");
-#endif
+                                _Py_cpu_relax();
                             }
                         }
                     }
@@ -384,6 +449,14 @@ _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
 
     // Initialize split vector for work distribution
     if (_PyGCSplitVector_Init(&par_gc->split_vector) < 0) {
+        PyMem_Free(par_gc);
+        PyErr_NoMemory();
+        return -1;
+    }
+
+    // Initialize work queue for pipelined producer-consumer mark_alive
+    if (_PyGCWorkQueue_Init(&par_gc->work_queue) < 0) {
+        _PyGCSplitVector_Fini(&par_gc->split_vector);
         PyMem_Free(par_gc);
         PyErr_NoMemory();
         return -1;
@@ -493,6 +566,9 @@ _PyGC_ParallelFini(PyInterpreterState *interp)
 
     // Clean up split vector
     _PyGCSplitVector_Fini(&par_gc->split_vector);
+
+    // Clean up work queue
+    _PyGCWorkQueue_Fini(&par_gc->work_queue);
 
     // Clean up locks
     PyMUTEX_FINI(&par_gc->active_lock);
@@ -1031,6 +1107,192 @@ _PyGCSplitVector_Push(_PyGCSplitVector *vec, PyGC_Head *gc)
 
 
 // =============================================================================
+// Work Queue Operations
+// =============================================================================
+//
+// Block-based work queue for pipelined producer-consumer mark_alive.
+// See pycore_gc_parallel.h for design rationale.
+//
+// Concurrency model:
+// - Single producer (main thread) pushes level-1 objects
+// - Multiple consumers (workers) claim batches with atomic CAS
+// - Producer signals completion with atomic store
+// - Consumers spin on queue until producer done and queue empty
+//
+// Memory model:
+// - write_index: release store after writing item
+// - read_index: acquire load before reading, CAS to claim batch
+// - producer_done: release store by producer, acquire load by consumers
+
+int
+_PyGCWorkQueue_Init(_PyGCWorkQueue *queue)
+{
+    // Point to pre-allocated initial blocks
+    queue->blocks = queue->initial_blocks;
+    queue->num_blocks = 0;
+    queue->capacity = _PyGC_QUEUE_INITIAL_BLOCKS;
+
+    // Reset indices and completion flag
+    queue->write_index = 0;
+    queue->read_index = 0;
+    queue->producer_done = 0;
+
+    return 0;
+}
+
+void
+_PyGCWorkQueue_Fini(_PyGCWorkQueue *queue)
+{
+    // If using heap-allocated blocks, free them
+    if (queue->blocks != queue->initial_blocks && queue->blocks != NULL) {
+        PyMem_RawFree(queue->blocks);
+    }
+    queue->blocks = NULL;
+    queue->num_blocks = 0;
+    queue->capacity = 0;
+}
+
+void
+_PyGCWorkQueue_Reset(_PyGCWorkQueue *queue)
+{
+    // Reset for new collection, keeping any allocated capacity
+    queue->num_blocks = 0;
+    queue->write_index = 0;
+    queue->read_index = 0;
+    queue->producer_done = 0;
+}
+
+// Grow the block array when capacity is exceeded
+static int
+_PyGCWorkQueue_Grow(_PyGCWorkQueue *queue)
+{
+    Py_ssize_t new_capacity = queue->capacity * 2;
+
+    // Allocate new block array
+    _PyGCQueueBlock *new_blocks = (_PyGCQueueBlock *)PyMem_RawCalloc(
+        new_capacity, sizeof(_PyGCQueueBlock));
+    if (new_blocks == NULL) {
+        return -1;
+    }
+
+    // Copy existing blocks
+    if (queue->num_blocks > 0) {
+        memcpy(new_blocks, queue->blocks,
+               (size_t)queue->num_blocks * sizeof(_PyGCQueueBlock));
+    }
+
+    // Free old heap-allocated blocks (if any)
+    if (queue->blocks != queue->initial_blocks) {
+        PyMem_RawFree(queue->blocks);
+    }
+
+    queue->blocks = new_blocks;
+    queue->capacity = new_capacity;
+
+    return 0;
+}
+
+int
+_PyGCWorkQueue_Push(_PyGCWorkQueue *queue, PyObject *obj)
+{
+    // Calculate block and offset for current write position
+    Py_ssize_t idx = queue->write_index;
+    Py_ssize_t block = idx / _PyGC_QUEUE_BLOCK_SIZE;
+    Py_ssize_t offset = idx % _PyGC_QUEUE_BLOCK_SIZE;
+
+    // Ensure we have enough blocks
+    while (block >= queue->capacity) {
+        if (_PyGCWorkQueue_Grow(queue) < 0) {
+            return -1;
+        }
+    }
+
+    // Track actual blocks in use
+    if (block >= queue->num_blocks) {
+        queue->num_blocks = block + 1;
+    }
+
+    // Write the item
+    queue->blocks[block].items[offset] = obj;
+
+    // Release store: make item visible to consumers before updating index
+    _Py_atomic_store_ssize_release(&queue->write_index, idx + 1);
+
+    return 0;
+}
+
+void
+_PyGCWorkQueue_ProducerDone(_PyGCWorkQueue *queue)
+{
+    // Release store: ensure all pushed items are visible before signalling done
+    _Py_atomic_store_int_release(&queue->producer_done, 1);
+}
+
+Py_ssize_t
+_PyGCWorkQueue_ClaimBatch(_PyGCWorkQueue *queue, PyObject **out, Py_ssize_t max_batch)
+{
+    int spin_count = 0;
+    const int MAX_SPINS = 1024;
+
+    while (1) {
+        // Acquire load: see items written before write_index update
+        Py_ssize_t read = _Py_atomic_load_ssize_acquire(&queue->read_index);
+        Py_ssize_t write = _Py_atomic_load_ssize_acquire(&queue->write_index);
+
+        if (read >= write) {
+            // Queue appears empty - check if producer is done
+            if (_Py_atomic_load_int_acquire(&queue->producer_done)) {
+                // Double-check write_index in case producer pushed more items
+                // between our read of write_index and producer_done
+                write = _Py_atomic_load_ssize_acquire(&queue->write_index);
+                if (read >= write) {
+                    return 0;  // Queue is truly empty and producer is done
+                }
+                // Producer pushed more items, continue to claim them
+            }
+            else {
+                // Spin-wait with exponential backoff
+                if (spin_count < MAX_SPINS) {
+                    // Backoff: 1, 2, 4, 8, ... up to 32 iterations of cpu_relax
+                    int backoff_exp = spin_count / 128;
+                    if (backoff_exp > 5) backoff_exp = 5;
+                    int backoff_iters = 1 << backoff_exp;
+                    for (volatile int i = 0; i < backoff_iters; i++) {
+                        _Py_cpu_relax();
+                    }
+                    spin_count++;
+                    continue;
+                }
+                // Give up after MAX_SPINS, will retry at higher level
+                return 0;
+            }
+        }
+
+        // Reset spin count - we have work available
+        spin_count = 0;
+
+        // Calculate batch size
+        Py_ssize_t available = write - read;
+        Py_ssize_t batch = available < max_batch ? available : max_batch;
+
+        // Try to claim the batch with CAS
+        if (_Py_atomic_compare_exchange_ssize(&queue->read_index, &read, read + batch)) {
+            // Successfully claimed [read, read + batch)
+            // Copy items to output buffer
+            for (Py_ssize_t i = 0; i < batch; i++) {
+                Py_ssize_t item_idx = read + i;
+                Py_ssize_t blk = item_idx / _PyGC_QUEUE_BLOCK_SIZE;
+                Py_ssize_t off = item_idx % _PyGC_QUEUE_BLOCK_SIZE;
+                out[i] = queue->blocks[blk].items[off];
+            }
+            return batch;
+        }
+        // CAS failed - another worker claimed, retry
+    }
+}
+
+
+// =============================================================================
 // Parallel Marking
 // =============================================================================
 
@@ -1360,7 +1622,7 @@ _parallel_subtract_refs_worker(_PyParallelGCWorker *worker,
     while (gc != end) {
         // Prefetch next node
         PyGC_Head *next = _PyGCHead_NEXT(gc);
-        __builtin_prefetch(next, 0, 3);  // Read, high temporal locality
+        _PyGC_PREFETCH_T0(next);  // Read, high temporal locality
 
         segment_size++;
 
@@ -1463,6 +1725,374 @@ _PyGC_ParallelSubtractRefs(PyInterpreterState *interp, PyGC_Head *base)
         PyTime_t end_time;
         (void)PyTime_PerfCounterRaw(&end_time);
         par_gc->subtract_refs_end_ns = end_time;
+    }
+
+    return 1;
+}
+
+// =============================================================================
+// Parallel Mark Alive From Roots
+// =============================================================================
+// Pre-marks reachable objects from interpreter roots using parallel traversal.
+// Uses the same work-stealing infrastructure as PHASE_MARK.
+
+// Helper: Collect interpreter roots and distribute to worker deques
+// Returns the number of roots found
+static size_t
+gc_collect_interpreter_roots(_PyParallelGCState *par_gc, PyInterpreterState *interp)
+{
+    size_t roots_found = 0;
+    size_t worker_idx = 0;
+
+    // Macro to enqueue a root object to worker deques (round-robin)
+    #define ENQUEUE_ROOT(op) \
+        do { \
+            if ((op) != NULL && _PyObject_IS_GC((PyObject *)(op)) && \
+                _PyObject_GC_IS_TRACKED((PyObject *)(op))) { \
+                PyGC_Head *gc = _Py_AS_GC((PyObject *)(op)); \
+                if (gc_try_mark_reachable_atomic(gc)) { \
+                    _PyWSDeque_Push(&par_gc->workers[worker_idx].deque, (PyObject *)(op)); \
+                    worker_idx = (worker_idx + 1) % par_gc->num_workers; \
+                    roots_found++; \
+                } \
+            } \
+        } while (0)
+
+    // Interpreter roots
+    ENQUEUE_ROOT(interp->sysdict);
+    ENQUEUE_ROOT(interp->builtins);
+    ENQUEUE_ROOT(interp->dict);
+
+    // Type dicts and subclasses for builtin types
+    struct types_state *types = &interp->types;
+    for (int i = 0; i < _Py_MAX_MANAGED_STATIC_BUILTIN_TYPES; i++) {
+        ENQUEUE_ROOT(types->builtins.initialized[i].tp_dict);
+        ENQUEUE_ROOT(types->builtins.initialized[i].tp_subclasses);
+    }
+    for (int i = 0; i < _Py_MAX_MANAGED_STATIC_EXT_TYPES; i++) {
+        ENQUEUE_ROOT(types->for_extensions.initialized[i].tp_dict);
+        ENQUEUE_ROOT(types->for_extensions.initialized[i].tp_subclasses);
+    }
+
+    // Thread stacks - traverse all threads' frames
+    _Py_FOR_EACH_TSTATE_BEGIN(interp, tstate) {
+        // Current frame and all frames on call stack
+        _PyInterpreterFrame *frame = tstate->current_frame;
+        while (frame != NULL) {
+            // Skip interpreter-owned frames
+            if (frame->owner >= FRAME_OWNED_BY_INTERPRETER) {
+                frame = frame->previous;
+                continue;
+            }
+
+            // Skip frames with NULL stackpointer
+            if (frame->stackpointer == NULL) {
+                frame = frame->previous;
+                continue;
+            }
+
+            // Visit the executable (code object)
+            if (!PyStackRef_IsNullOrInt(frame->f_executable)) {
+                PyObject *exec = PyStackRef_AsPyObjectBorrow(frame->f_executable);
+                ENQUEUE_ROOT(exec);
+            }
+
+            // Visit f_globals
+            ENQUEUE_ROOT(frame->f_globals);
+
+            // Visit f_builtins
+            ENQUEUE_ROOT(frame->f_builtins);
+
+            // Visit f_locals if set
+            ENQUEUE_ROOT(frame->f_locals);
+
+            // Visit all stackrefs from stackpointer down to localsplus
+            _PyStackRef *top = frame->stackpointer;
+            while (top != frame->localsplus) {
+                --top;
+                if (!PyStackRef_IsNullOrInt(*top)) {
+                    PyObject *stackval = PyStackRef_AsPyObjectBorrow(*top);
+                    ENQUEUE_ROOT(stackval);
+                }
+            }
+
+            frame = frame->previous;
+        }
+    }
+    _Py_FOR_EACH_TSTATE_END(interp);
+
+    #undef ENQUEUE_ROOT
+
+    return roots_found;
+}
+
+// =============================================================================
+// Level-1 Expansion for Pipelined Producer-Consumer mark_alive
+// =============================================================================
+//
+// The pipelined producer-consumer design addresses the work distribution problem
+// in parallel mark_alive:
+//
+// Problem: Work-stealing mark_alive fails because ~100 interpreter roots form a hub.
+//          The first worker marks most of the heap before others can steal.
+//
+// Solution: Main thread expands roots by one level (tp_traverse), pushing level-1
+//           children to a shared work queue. This gives thousands of starting points
+//           instead of ~100 concentrated roots.
+//
+// Pipelining: Workers start consuming from the queue while the producer is still
+//             pushing items. No barrier needed between producer and consumers.
+
+// Context passed to level-1 visitor callback
+typedef struct {
+    _PyGCWorkQueue *queue;
+    size_t items_pushed;
+    size_t roots_expanded;  // Count of roots successfully expanded
+} _PyGCLevel1VisitorContext;
+
+// Visitor callback for level-1 expansion
+// Called by tp_traverse for each child of an interpreter root
+static int
+push_level1_child(PyObject *obj, void *arg)
+{
+    _PyGCLevel1VisitorContext *ctx = (_PyGCLevel1VisitorContext *)arg;
+
+    // Skip NULL and non-GC objects
+    if (obj == NULL || !_PyObject_IS_GC(obj)) {
+        return 0;
+    }
+
+    // Skip untracked objects
+    if (!_PyObject_GC_IS_TRACKED(obj)) {
+        return 0;
+    }
+
+    PyGC_Head *gc = _Py_AS_GC(obj);
+
+    // Only process objects in the collection set (have COLLECTING flag)
+    // Try to atomically mark as reachable - if successful, push to queue
+    if (gc_try_mark_reachable_atomic(gc)) {
+        // We claimed this object - push to work queue
+        if (_PyGCWorkQueue_Push(ctx->queue, obj) == 0) {
+            ctx->items_pushed++;
+        }
+        // If push fails (OOM), we still marked the object as reachable
+        // so it won't be collected - safe but suboptimal
+    }
+
+    return 0;  // Continue traversal
+}
+
+// Expand interpreter roots by one level into the work queue
+// Returns the number of level-1 objects pushed to the queue
+// Also stores the number of roots expanded in *roots_expanded_out if not NULL
+static size_t
+gc_expand_roots_to_queue(_PyParallelGCState *par_gc, PyInterpreterState *interp,
+                         size_t *roots_expanded_out)
+{
+    _PyGCWorkQueue *queue = &par_gc->work_queue;
+    _PyGCLevel1VisitorContext ctx = { .queue = queue, .items_pushed = 0, .roots_expanded = 0 };
+
+    // Reset queue for this collection
+    _PyGCWorkQueue_Reset(queue);
+
+    // Macro to expand a root object (traverse one level)
+    #define EXPAND_ROOT(op) \
+        do { \
+            if ((op) != NULL && _PyObject_IS_GC((PyObject *)(op)) && \
+                _PyObject_GC_IS_TRACKED((PyObject *)(op))) { \
+                PyGC_Head *gc = _Py_AS_GC((PyObject *)(op)); \
+                /* Mark the root itself as reachable */ \
+                if (gc_try_mark_reachable_atomic(gc)) { \
+                    ctx.roots_expanded++; \
+                    /* Traverse to get level-1 children */ \
+                    traverseproc traverse = Py_TYPE((PyObject *)(op))->tp_traverse; \
+                    if (traverse != NULL) { \
+                        traverse((PyObject *)(op), push_level1_child, &ctx); \
+                    } \
+                } \
+            } \
+        } while (0)
+
+    // Expand interpreter roots
+    EXPAND_ROOT(interp->sysdict);
+    EXPAND_ROOT(interp->builtins);
+    EXPAND_ROOT(interp->dict);
+
+    // Expand type dicts and subclasses for builtin types
+    struct types_state *types = &interp->types;
+    for (int i = 0; i < _Py_MAX_MANAGED_STATIC_BUILTIN_TYPES; i++) {
+        EXPAND_ROOT(types->builtins.initialized[i].tp_dict);
+        EXPAND_ROOT(types->builtins.initialized[i].tp_subclasses);
+    }
+    for (int i = 0; i < _Py_MAX_MANAGED_STATIC_EXT_TYPES; i++) {
+        EXPAND_ROOT(types->for_extensions.initialized[i].tp_dict);
+        EXPAND_ROOT(types->for_extensions.initialized[i].tp_subclasses);
+    }
+
+    // Expand thread stacks - traverse all threads' frames
+    _Py_FOR_EACH_TSTATE_BEGIN(interp, tstate) {
+        _PyInterpreterFrame *frame = tstate->current_frame;
+        while (frame != NULL) {
+            // Skip interpreter-owned frames
+            if (frame->owner >= FRAME_OWNED_BY_INTERPRETER) {
+                frame = frame->previous;
+                continue;
+            }
+
+            // Skip frames with NULL stackpointer
+            if (frame->stackpointer == NULL) {
+                frame = frame->previous;
+                continue;
+            }
+
+            // Expand the executable (code object)
+            if (!PyStackRef_IsNullOrInt(frame->f_executable)) {
+                PyObject *exec = PyStackRef_AsPyObjectBorrow(frame->f_executable);
+                EXPAND_ROOT(exec);
+            }
+
+            // Expand f_globals, f_builtins, f_locals
+            EXPAND_ROOT(frame->f_globals);
+            EXPAND_ROOT(frame->f_builtins);
+            EXPAND_ROOT(frame->f_locals);
+
+            // Expand all stackrefs from stackpointer down to localsplus
+            _PyStackRef *top = frame->stackpointer;
+            while (top != frame->localsplus) {
+                --top;
+                if (!PyStackRef_IsNullOrInt(*top)) {
+                    PyObject *stackval = PyStackRef_AsPyObjectBorrow(*top);
+                    EXPAND_ROOT(stackval);
+                }
+            }
+
+            frame = frame->previous;
+        }
+    }
+    _Py_FOR_EACH_TSTATE_END(interp);
+
+    #undef EXPAND_ROOT
+
+    // Signal that producer is done
+    _PyGCWorkQueue_ProducerDone(queue);
+
+    // Return roots expanded count if requested
+    if (roots_expanded_out != NULL) {
+        *roots_expanded_out = ctx.roots_expanded;
+    }
+
+    return ctx.items_pushed;
+}
+
+int
+_PyGC_ParallelMarkAliveFromRoots(PyInterpreterState *interp, PyGC_Head *containers)
+{
+    _PyParallelGCState *par_gc = interp->gc.parallel_gc;
+
+    if (par_gc == NULL || !par_gc->enabled || par_gc->num_workers_active == 0) {
+        return 0;  // Fall back to serial
+    }
+
+    // Collect interpreter roots and distribute to worker deques
+    size_t roots_found = gc_collect_interpreter_roots(par_gc, interp);
+
+    // Only update stats if we found roots (don't overwrite previous values)
+    if (roots_found > 0) {
+        par_gc->roots_found = roots_found;
+        par_gc->roots_distributed = roots_found;
+    }
+
+    if (roots_found == 0) {
+        // No roots to process - still "successful" parallel execution
+        // Record timing for empty mark_alive phase
+        if (!par_gc->timing_valid) {
+            PyTime_t end_time;
+            (void)PyTime_PerfCounterRaw(&end_time);
+            par_gc->mark_alive_end_ns = end_time;
+        }
+        return 1;
+    }
+
+    // Set phase for all workers
+    for (size_t i = 0; i < par_gc->num_workers; i++) {
+        par_gc->workers[i].phase = _PyGC_PHASE_MARK_ALIVE;
+    }
+
+    // Signal workers to start
+    _PyGCBarrier_Wait(&par_gc->mark_barrier);
+
+    // Wait for completion
+    _PyGCBarrier_Wait(&par_gc->done_barrier);
+
+    // Record end time for mark_alive phase
+    if (!par_gc->timing_valid) {
+        PyTime_t end_time;
+        (void)PyTime_PerfCounterRaw(&end_time);
+        par_gc->mark_alive_end_ns = end_time;
+    }
+
+    return 1;
+}
+
+// =============================================================================
+// Pipelined Producer-Consumer mark_alive
+// =============================================================================
+//
+// Alternative to work-stealing mark_alive that uses a shared queue fed by
+// level-1 expansion from interpreter roots. This provides better work
+// distribution for hub-structured object graphs.
+
+int
+_PyGC_ParallelMarkAliveFromQueue(PyInterpreterState *interp, PyGC_Head *containers)
+{
+    _PyParallelGCState *par_gc = interp->gc.parallel_gc;
+
+    if (par_gc == NULL || !par_gc->enabled || par_gc->num_workers_active == 0) {
+        return 0;  // Fall back to serial
+    }
+
+    // Expand interpreter roots by one level into the work queue
+    // This also marks the roots themselves as reachable
+    size_t roots_expanded = 0;
+    size_t level1_count = gc_expand_roots_to_queue(par_gc, interp, &roots_expanded);
+
+    // Update stats - roots_found is the number of roots we expanded,
+    // roots_distributed is the number of level-1 children pushed to queue
+    if (roots_expanded > 0) {
+        par_gc->roots_found = roots_expanded;
+        par_gc->roots_distributed = level1_count;
+    }
+
+    if (roots_expanded == 0) {
+        // No roots found to expand - still "successful" parallel execution
+        // Record timing for empty mark_alive phase
+        if (!par_gc->timing_valid) {
+            PyTime_t end_time;
+            (void)PyTime_PerfCounterRaw(&end_time);
+            par_gc->mark_alive_end_ns = end_time;
+        }
+        return 1;
+    }
+
+    // Set phase for all workers to use queue-based processing
+    for (size_t i = 0; i < par_gc->num_workers; i++) {
+        par_gc->workers[i].phase = _PyGC_PHASE_MARK_ALIVE_QUEUE;
+    }
+
+    // Signal workers to start
+    // Note: This is pipelined - workers will start consuming while
+    // the work queue still has items (producer is already done)
+    _PyGCBarrier_Wait(&par_gc->mark_barrier);
+
+    // Wait for completion
+    _PyGCBarrier_Wait(&par_gc->done_barrier);
+
+    // Record end time for mark_alive phase
+    if (!par_gc->timing_valid) {
+        PyTime_t end_time;
+        (void)PyTime_PerfCounterRaw(&end_time);
+        par_gc->mark_alive_end_ns = end_time;
     }
 
     return 1;
