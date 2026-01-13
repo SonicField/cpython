@@ -121,6 +121,11 @@ typedef struct {
     unsigned long roots_in_slice;         // Roots found in this worker's slice
     unsigned long pool_overflows;         // Times we exceeded local pool and fell back to malloc
 
+    // Per-worker timing for profiling (nanoseconds)
+    int64_t work_start_ns;                // When worker started processing
+    int64_t work_end_ns;                  // When worker finished processing
+    unsigned long objects_in_segment;     // Objects in assigned segment (for subtract_refs)
+
     // Random seed for steal victim selection
     unsigned int steal_seed;
 
@@ -199,6 +204,7 @@ struct _PyParallelGCState {
     int timing_valid;                 // 1 if timing is from a complete parallel collection
     int64_t gc_start_ns;              // Start of GC (before update_refs)
     int64_t update_refs_end_ns;       // End of update_refs phase
+    int64_t mark_alive_end_ns;        // End of mark_alive_from_roots phase
     int64_t phase_start_ns;           // Start of parallel GC (= update_refs_end_ns, kept for compatibility)
     int64_t subtract_refs_end_ns;     // End of subtract_refs phase
     int64_t mark_end_ns;              // End of mark phase

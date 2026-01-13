@@ -1579,6 +1579,13 @@ deduce_unreachable(PyGC_Head *base, PyGC_Head *unreachable) {
             // (ALIVE bits are already cleared in error handler)
         }
 
+        // Record mark_alive end time (only if timing not already captured)
+        if (!par_gc->timing_valid) {
+            PyTime_t mark_alive_end;
+            (void)PyTime_PerfCounterRaw(&mark_alive_end);
+            par_gc->mark_alive_end_ns = mark_alive_end;
+        }
+
         // Parallel subtract_refs using the split vector for work distribution
         // Uses atomic decrement since references can cross segment boundaries
         if (_PyGC_ParallelSubtractRefs(interp, base)) {

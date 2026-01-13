@@ -437,6 +437,9 @@ _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
         worker->roots_in_slice = 0;          // NEW: Static slicing
         worker->slice_start = NULL;          // NEW: Static slicing
         worker->slice_end = NULL;            // NEW: Static slicing
+        worker->work_start_ns = 0;           // Per-worker profiling
+        worker->work_end_ns = 0;             // Per-worker profiling
+        worker->objects_in_segment = 0;      // Per-worker profiling
         _PyGCLocalBuffer_Reset(&worker->local_buffer);  // Initialize local buffer
         worker->steal_seed = (unsigned int)(i + 1);
         worker->par_gc = par_gc;
@@ -869,6 +872,39 @@ _PyGC_ParallelGetStats(PyInterpreterState *interp)
         }
         Py_DECREF(roots_in_slice_obj);
 
+        // Per-worker profiling: timing and segment info
+        PyObject *work_time_ns_obj = PyLong_FromLongLong(worker->work_end_ns - worker->work_start_ns);
+        if (work_time_ns_obj == NULL) {
+            Py_DECREF(worker_dict);
+            Py_DECREF(workers_list);
+            Py_DECREF(result);
+            return NULL;
+        }
+        if (PyDict_SetItemString(worker_dict, "work_time_ns", work_time_ns_obj) < 0) {
+            Py_DECREF(work_time_ns_obj);
+            Py_DECREF(worker_dict);
+            Py_DECREF(workers_list);
+            Py_DECREF(result);
+            return NULL;
+        }
+        Py_DECREF(work_time_ns_obj);
+
+        PyObject *objects_in_segment_obj = PyLong_FromUnsignedLong(worker->objects_in_segment);
+        if (objects_in_segment_obj == NULL) {
+            Py_DECREF(worker_dict);
+            Py_DECREF(workers_list);
+            Py_DECREF(result);
+            return NULL;
+        }
+        if (PyDict_SetItemString(worker_dict, "objects_in_segment", objects_in_segment_obj) < 0) {
+            Py_DECREF(objects_in_segment_obj);
+            Py_DECREF(worker_dict);
+            Py_DECREF(workers_list);
+            Py_DECREF(result);
+            return NULL;
+        }
+        Py_DECREF(objects_in_segment_obj);
+
         PyList_SET_ITEM(workers_list, i, worker_dict);
     }
 
@@ -889,6 +925,7 @@ _PyGC_ParallelGetStats(PyInterpreterState *interp)
     // Calculate phase durations from recorded timestamps
     // Only populate if timing_valid is set (complete parallel collection ran)
     int64_t update_refs_ns = 0;
+    int64_t mark_alive_ns = 0;
     int64_t subtract_refs_ns = 0;
     int64_t mark_ns = 0;
     int64_t cleanup_ns = 0;
@@ -896,7 +933,8 @@ _PyGC_ParallelGetStats(PyInterpreterState *interp)
 
     if (par_gc->timing_valid) {
         update_refs_ns = par_gc->update_refs_end_ns - par_gc->gc_start_ns;
-        subtract_refs_ns = par_gc->subtract_refs_end_ns - par_gc->update_refs_end_ns;
+        mark_alive_ns = par_gc->mark_alive_end_ns - par_gc->update_refs_end_ns;
+        subtract_refs_ns = par_gc->subtract_refs_end_ns - par_gc->mark_alive_end_ns;
         mark_ns = par_gc->mark_end_ns - par_gc->subtract_refs_end_ns;
         cleanup_ns = par_gc->cleanup_end_ns - par_gc->mark_end_ns;
         total_ns = par_gc->cleanup_end_ns - par_gc->gc_start_ns;
@@ -915,6 +953,7 @@ _PyGC_ParallelGetStats(PyInterpreterState *interp)
     } while (0)
 
     ADD_TIMING("update_refs_ns", update_refs_ns);
+    ADD_TIMING("mark_alive_ns", mark_alive_ns);
     ADD_TIMING("subtract_refs_ns", subtract_refs_ns);
     ADD_TIMING("mark_ns", mark_ns);
     ADD_TIMING("cleanup_ns", cleanup_ns);
@@ -1293,9 +1332,15 @@ visit_decref_atomic(PyObject *op, void *parent)
 // GC list, calling tp_traverse on each object. The visitor callback
 // atomically decrements gc_refs for each referenced object.
 //
-// Work distribution uses the split vector populated during update_refs_with_splits.
-// The vector contains pointers at 8K intervals; we divide these among workers
-// to get evenly-spaced start/end positions.
+// Work distribution strategy:
+// 1. During update_refs, we record "waypoints" (object pointers) at ~8K intervals
+//    into the split_vector. For 1M objects, this gives ~122 waypoints.
+// 2. We divide the waypoints among N workers, giving each worker ~(122/N) waypoints.
+// 3. Each worker processes from their first waypoint to their last waypoint.
+// 4. Result: each worker processes roughly (total_objects / N) objects.
+//
+// The 8K interval is just a granularity choice for the intermediate waypoint
+// vector - it determines how finely we can divide work, not the segment size.
 
 // Worker function: process segment [start, end)
 static void
@@ -1303,13 +1348,21 @@ _parallel_subtract_refs_worker(_PyParallelGCWorker *worker,
                                PyGC_Head *start,
                                PyGC_Head *end)
 {
+    // Record start time for profiling
+    PyTime_t work_start;
+    (void)PyTime_PerfCounterRaw(&work_start);
+    worker->work_start_ns = work_start;
+
     PyGC_Head *gc = start;
     unsigned long count = 0;
+    unsigned long segment_size = 0;
 
     while (gc != end) {
         // Prefetch next node
         PyGC_Head *next = _PyGCHead_NEXT(gc);
         __builtin_prefetch(next, 0, 3);  // Read, high temporal locality
+
+        segment_size++;
 
         // Skip objects already marked reachable (COLLECTING cleared by mark_alive_from_roots).
         // These are known reachable and don't need subtract_refs processing.
@@ -1332,6 +1385,12 @@ _parallel_subtract_refs_worker(_PyParallelGCWorker *worker,
     }
 
     worker->traversals_performed += count;
+    worker->objects_in_segment = segment_size;
+
+    // Record end time for profiling
+    PyTime_t work_end;
+    (void)PyTime_PerfCounterRaw(&work_end);
+    worker->work_end_ns = work_end;
 }
 
 // Entry point: use split vector to distribute work to workers
