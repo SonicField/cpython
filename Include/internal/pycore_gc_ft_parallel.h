@@ -332,7 +332,9 @@ PyAPI_FUNC(int) _PyGC_ParallelScanHeapWithPool(
     struct _PyGCScanHeapResult *result);
 
 //-----------------------------------------------------------------------------
-// Ad-hoc thread versions (TEMPORARY - for testing if bug is pre-existing)
+// Ad-hoc thread versions (spawn threads per-collection instead of using pool)
+// These duplicate the pool-based functions but create threads on each call.
+// Retained for debugging and comparison with pool-based versions.
 //-----------------------------------------------------------------------------
 
 // Ad-hoc parallel update_refs (spawns its own threads)
@@ -390,15 +392,17 @@ gc_maybe_init_refs_atomic(PyObject *op)
 }
 
 // Wait until ob_tid has been initialized for gc_refs tracking.
-// Thread IDs are typically large values (> 1M on 64-bit systems).
-// gc_refs are small values (refcount - internal refs, typically < 100k).
-// We spin-wait until ob_tid looks like a valid gc_refs value.
+// Thread IDs are typically large values (pointers to thread descriptors on Linux,
+// or similar high-address values on other platforms).
+// gc_refs = refcount - internal_refs, typically small but could be large.
+// ASSUMPTION: Objects won't have >1M internal references. If violated, this
+// could cause spin-wait to return prematurely.
 static inline void
 gc_wait_for_refs_init(PyObject *op)
 {
     // Threshold to distinguish thread ID from gc_refs
-    // Thread IDs are usually large (process_id << 32 | thread_number)
-    // gc_refs are small (object refcount - internal refs)
+    // Thread IDs on Linux are pointers to pthread descriptors (high addresses)
+    // gc_refs are typically small, but we use 1M as a conservative threshold
     const uintptr_t THREAD_ID_THRESHOLD = 0x100000;  // 1M
 
     int spins = 0;

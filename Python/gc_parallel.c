@@ -15,8 +15,6 @@
 #include "pycore_stackref.h"  // For PyStackRef_*
 #include "condvar.h"  // PyMUTEX_INIT, PyCOND_INIT, etc.
 
-#include <stdio.h>
-
 #ifdef _POSIX_THREADS
 #include <pthread.h>
 #include <unistd.h>
@@ -148,7 +146,7 @@ _parallel_gc_visit_and_enqueue(PyObject *op, void *arg)
     // We successfully marked this object as reachable
     worker->objects_discovered++;
 
-    // RE-ENABLED: Local buffer with chunked striping
+    // Local buffer with chunked striping
     // Push to local buffer first (zero fences, just array indexing)
     if (_PyGCLocalBuffer_IsFull(&worker->local_buffer)) {
         // Local buffer full - use compile-time selected flush strategy
@@ -186,6 +184,11 @@ static void
 _parallel_subtract_refs_worker(_PyParallelGCWorker *worker,
                                PyGC_Head *start,
                                PyGC_Head *end);
+
+// Coordinator-based termination functions (defined after semaphore implementation)
+static int _PyGCWorker_TakeCoordinator(_PyParallelGCWorker *worker);
+static void _PyGCWorker_DropCoordinator(_PyParallelGCWorker *worker);
+static void _PyGCWorker_CoordinateStealing(_PyParallelGCWorker *worker);
 
 // Worker thread entry point
 static void *
@@ -304,87 +307,107 @@ _parallel_gc_worker_thread(void *arg)
         case _PyGC_PHASE_MARK:
         default:
             // =======================================================================
-            // Main marking loop (FTP-style three-phase approach)
+            // Main marking loop with coordinator-based termination
             // =======================================================================
             // Phase 1: Process local buffer (fast path - no fences)
             // Phase 2: Refill from own deque (batch pull)
             // Phase 3: Batch steal from other workers
+            // Termination: Coordinator detects all workers idle AND no work remains
+            //
+            // This replaces the old fixed-attempt termination (exit after N failed
+            // steals) with accurate termination detection that avoids both:
+            // - False termination (exiting while work remains in other deques)
+            // - Wasted spins (idle workers sleep instead of spinning)
             {
-                int steal_attempts_since_work = 0;
-                const int MAX_STEAL_ATTEMPTS = (int)par_gc->num_workers * 2;
+                int consecutive_failed_steals = 0;
 
-                while (1) {
-                    // ================================================================
-                    // PHASE 1: Process local buffer (FAST PATH - zero fences!)
-                    // ================================================================
-                    while (!_PyGCLocalBuffer_IsEmpty(&worker->local_buffer)) {
-                        steal_attempts_since_work = 0;  // Got work, reset counter
-                        PyObject *obj = _PyGCLocalBuffer_Pop(&worker->local_buffer);
+                do {
+                    // ===========================================================
+                    // Inner work loop: process local buffer, deque, and steal
+                    // ===========================================================
+                    while (1) {
+                        // ================================================================
+                        // PHASE 1: Process local buffer (FAST PATH - zero fences!)
+                        // ================================================================
+                        while (!_PyGCLocalBuffer_IsEmpty(&worker->local_buffer)) {
+                            consecutive_failed_steals = 0;  // Got work, reset counter
+                            PyObject *obj = _PyGCLocalBuffer_Pop(&worker->local_buffer);
 
-                        // Prefetch next object's type to hide memory latency
+                            // Prefetch next object's type to hide memory latency
+                            if (!_PyGCLocalBuffer_IsEmpty(&worker->local_buffer)) {
+                                PyObject *next_obj = worker->local_buffer.items[
+                                    worker->local_buffer.count - 1];
+                                _PyGC_PREFETCH_T2(Py_TYPE(next_obj));
+                            }
+
+                            worker->objects_marked++;
+
+                            // Call tp_traverse to discover children
+                            traverseproc traverse = Py_TYPE(obj)->tp_traverse;
+                            if (traverse != NULL) {
+                                traverse(obj, (visitproc)_parallel_gc_visit_and_enqueue, worker);
+                                worker->traversals_performed++;
+                            }
+                        }
+
+                        // ================================================================
+                        // PHASE 2: Refill from own deque (batch pull ~512 items)
+                        // ================================================================
+                        refill_local_buffer_from_deque(worker);
                         if (!_PyGCLocalBuffer_IsEmpty(&worker->local_buffer)) {
-                            PyObject *next_obj = worker->local_buffer.items[
-                                worker->local_buffer.count - 1];
-                            _PyGC_PREFETCH_T2(Py_TYPE(next_obj));
+                            continue;  // Got work from deque, continue Phase 1
                         }
 
-                        worker->objects_marked++;
-
-                        // Call tp_traverse to discover children
-                        traverseproc traverse = Py_TYPE(obj)->tp_traverse;
-                        if (traverse != NULL) {
-                            traverse(obj, (visitproc)_parallel_gc_visit_and_enqueue, worker);
-                            worker->traversals_performed++;
+                        // ================================================================
+                        // PHASE 3: Batch steal from other workers (~512 items)
+                        // ================================================================
+                        // Try to steal from a random victim
+                        worker->steal_seed = worker->steal_seed * 1103515245 + 12345;
+                        size_t victim_id = (worker->steal_seed / 65536) % par_gc->num_workers;
+                        if (victim_id == worker->thread_id) {
+                            victim_id = (victim_id + 1) % par_gc->num_workers;
                         }
-                    }
 
-                    // ================================================================
-                    // PHASE 2: Refill from own deque (batch pull ~512 items)
-                    // ================================================================
-                    refill_local_buffer_from_deque(worker);
-                    if (!_PyGCLocalBuffer_IsEmpty(&worker->local_buffer)) {
-                        continue;  // Got work from deque, continue Phase 1
-                    }
+                        _PyParallelGCWorker *victim = &par_gc->workers[victim_id];
+                        worker->steal_attempts++;
 
-                    // ================================================================
-                    // PHASE 3: Batch steal from other workers (~512 items)
-                    // ================================================================
-                    if (steal_attempts_since_work >= MAX_STEAL_ATTEMPTS) {
-                        break;  // No work left, exit
-                    }
-
-                    // Pick a random victim
-                    worker->steal_seed = worker->steal_seed * 1103515245 + 12345;
-                    size_t victim_id = (worker->steal_seed / 65536) % par_gc->num_workers;
-                    if (victim_id == worker->thread_id) {
-                        victim_id = (victim_id + 1) % par_gc->num_workers;
-                    }
-
-                    _PyParallelGCWorker *victim = &par_gc->workers[victim_id];
-                    worker->steal_attempts++;
-                    steal_attempts_since_work++;
-
-                    size_t batch_stolen = steal_batch_from_worker(worker, victim);
-                    if (batch_stolen > 0) {
-                        worker->steal_successes += batch_stolen;
-                        steal_attempts_since_work = 0;  // Got work!
-                        // Continue to Phase 1 with stolen work
-                    }
-                    else {
-                        // Exponential backoff on consecutive failed steals
-                        // Reduces contention when many workers compete for same victim
-                        if (steal_attempts_since_work > (int)par_gc->num_workers / 2) {
-                            // Backoff grows exponentially: 1, 2, 4, 8, ... up to 32 iterations
-                            int backoff_exp = steal_attempts_since_work - (int)par_gc->num_workers / 2;
-                            if (backoff_exp > 5) backoff_exp = 5;
-                            int backoff_iters = 1 << backoff_exp;
-                            for (volatile int i = 0; i < backoff_iters; i++) {
+                        size_t batch_stolen = steal_batch_from_worker(worker, victim);
+                        if (batch_stolen > 0) {
+                            worker->steal_successes += batch_stolen;
+                            consecutive_failed_steals = 0;  // Got work!
+                            // Continue to Phase 1 with stolen work
+                        }
+                        else {
+                            consecutive_failed_steals++;
+                            // After trying each worker once, go to coordinator election
+                            if (consecutive_failed_steals >= (int)par_gc->num_workers) {
+                                break;  // Exit inner loop, try coordinator election
+                            }
+                            // Brief backoff before trying next victim
+                            for (int i = 0; i < 4; i++) {
                                 _Py_cpu_relax();
                             }
                         }
                     }
-                    // If steal failed, loop will try another victim
-                }
+
+                    // ===========================================================
+                    // Coordinator election: try to become coordinator or sleep
+                    // ===========================================================
+                    if (_PyGCWorker_TakeCoordinator(worker)) {
+                        // We are the coordinator: poll deques, wake workers or terminate
+                        _PyGCWorker_CoordinateStealing(worker);
+                        _PyGCWorker_DropCoordinator(worker);
+                        consecutive_failed_steals = 0;  // May have woken workers, retry
+                    }
+                    else {
+                        // Another worker is coordinator, sleep until woken
+                        // CRITICAL: decrement BEFORE waiting (coordinator sees accurate count)
+                        _Py_atomic_add_int(&par_gc->num_workers_marking, -1);
+                        _PyGCSemaphore_Wait(&par_gc->steal_sema);
+                        consecutive_failed_steals = 0;  // Woken up, retry stealing
+                    }
+
+                } while (_Py_atomic_load_int_acquire(&par_gc->num_workers_marking) > 0);
             }
             break;
 
@@ -474,6 +497,23 @@ _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
     PyMUTEX_INIT(&par_gc->active_lock);
     PyCOND_INIT(&par_gc->workers_done_cond);
 
+    // Initialize coordinator-based termination state
+    par_gc->num_workers_marking = 0;
+    PyMUTEX_INIT(&par_gc->steal_coord_lock);
+    par_gc->steal_coordinator = NULL;
+    if (_PyGCSemaphore_Init(&par_gc->steal_sema) < 0) {
+        PyCOND_FINI(&par_gc->workers_done_cond);
+        PyMUTEX_FINI(&par_gc->active_lock);
+        _PyGCBarrier_Fini(&par_gc->startup_barrier);
+        _PyGCBarrier_Fini(&par_gc->done_barrier);
+        _PyGCBarrier_Fini(&par_gc->mark_barrier);
+        _PyGCWorkQueue_Fini(&par_gc->work_queue);
+        _PyGCSplitVector_Fini(&par_gc->split_vector);
+        PyMem_Free(par_gc);
+        PyErr_SetString(PyExc_RuntimeError, "Failed to initialize steal semaphore");
+        return -1;
+    }
+
     // Initialize workers with thread-local memory pools
     // Each worker gets a 2MB pre-allocated buffer for their deque
     // This eliminates malloc/calloc calls during the hot path of collections
@@ -505,11 +545,11 @@ _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
         worker->objects_marked = 0;
         worker->steal_attempts = 0;
         worker->steal_successes = 0;
-        worker->objects_discovered = 0;      // NEW: Step 3b
-        worker->traversals_performed = 0;    // NEW: Step 3b
-        worker->roots_in_slice = 0;          // NEW: Static slicing
-        worker->slice_start = NULL;          // NEW: Static slicing
-        worker->slice_end = NULL;            // NEW: Static slicing
+        worker->objects_discovered = 0;
+        worker->traversals_performed = 0;
+        worker->roots_in_slice = 0;
+        worker->slice_start = NULL;
+        worker->slice_end = NULL;
         worker->work_start_ns = 0;           // Per-worker profiling
         worker->work_end_ns = 0;             // Per-worker profiling
         worker->objects_in_segment = 0;      // Per-worker profiling
@@ -570,6 +610,10 @@ _PyGC_ParallelFini(PyInterpreterState *interp)
     // Clean up work queue
     _PyGCWorkQueue_Fini(&par_gc->work_queue);
 
+    // Clean up coordinator-based termination state
+    _PyGCSemaphore_Fini(&par_gc->steal_sema);
+    PyMUTEX_FINI(&par_gc->steal_coord_lock);
+
     // Clean up locks
     PyMUTEX_FINI(&par_gc->active_lock);
     PyCOND_FINI(&par_gc->workers_done_cond);
@@ -604,7 +648,9 @@ _PyGC_ParallelStart(PyInterpreterState *interp)
             PyErr_Format(PyExc_RuntimeError,
                         "Failed to create worker thread %zu: error %d",
                         i, rc);
-            // TODO: Clean up already-created threads
+            // Note: Already-created threads are not cleaned up here.
+            // This is acceptable because thread creation failure during init
+            // is a fatal error - the interpreter cannot function properly.
             return -1;
         }
 #elif defined(NT_THREADS)
@@ -816,7 +862,7 @@ _PyGC_ParallelGetStats(PyInterpreterState *interp)
     }
     Py_DECREF(collections_succeeded_obj);
 
-    // NEW: Step 3b - Calculate total objects traversed (sum of all workers' discoveries)
+    // Calculate total objects traversed (sum of all workers' discoveries)
     unsigned long total_objects_traversed = 0;
     for (size_t i = 0; i < par_gc->num_workers; i++) {
         total_objects_traversed += par_gc->workers[i].objects_discovered;
@@ -898,7 +944,7 @@ _PyGC_ParallelGetStats(PyInterpreterState *interp)
         }
         Py_DECREF(steal_successes_obj);
 
-        // NEW: Step 3b traversal statistics
+        // Traversal statistics
         PyObject *objects_discovered_obj = PyLong_FromUnsignedLong(worker->objects_discovered);
         if (objects_discovered_obj == NULL) {
             Py_DECREF(worker_dict);
@@ -931,7 +977,7 @@ _PyGC_ParallelGetStats(PyInterpreterState *interp)
         }
         Py_DECREF(traversals_performed_obj);
 
-        // NEW: Static slicing statistics
+        // Static slicing statistics
         PyObject *roots_in_slice_obj = PyLong_FromUnsignedLong(worker->roots_in_slice);
         if (roots_in_slice_obj == NULL) {
             Py_DECREF(worker_dict);
@@ -1293,6 +1339,155 @@ _PyGCWorkQueue_ClaimBatch(_PyGCWorkQueue *queue, PyObject **out, Py_ssize_t max_
 
 
 // =============================================================================
+// Counting Semaphore for Coordinator-Based Termination
+// =============================================================================
+
+int
+_PyGCSemaphore_Init(_PyGCSemaphore *sema)
+{
+    sema->tokens = 0;
+    if (PyMUTEX_INIT(&sema->lock) != 0) {
+        return -1;
+    }
+    if (PyCOND_INIT(&sema->cond) != 0) {
+        PyMUTEX_FINI(&sema->lock);
+        return -1;
+    }
+    return 0;
+}
+
+void
+_PyGCSemaphore_Fini(_PyGCSemaphore *sema)
+{
+    PyCOND_FINI(&sema->cond);
+    PyMUTEX_FINI(&sema->lock);
+}
+
+void
+_PyGCSemaphore_Post(_PyGCSemaphore *sema, Py_ssize_t n)
+{
+    PyMUTEX_LOCK(&sema->lock);
+    sema->tokens += n;
+    // Wake up to n waiters
+    for (Py_ssize_t i = 0; i < n; i++) {
+        PyCOND_SIGNAL(&sema->cond);
+    }
+    PyMUTEX_UNLOCK(&sema->lock);
+}
+
+void
+_PyGCSemaphore_Wait(_PyGCSemaphore *sema)
+{
+    PyMUTEX_LOCK(&sema->lock);
+    while (sema->tokens <= 0) {
+        PyCOND_WAIT(&sema->cond, &sema->lock);
+    }
+    sema->tokens--;
+    PyMUTEX_UNLOCK(&sema->lock);
+}
+
+
+// =============================================================================
+// Coordinator-Based Termination for Work-Stealing Mark Phase
+// =============================================================================
+
+// Try to become the coordinator. Returns 1 if successful, 0 if another worker
+// is already coordinator.
+static int
+_PyGCWorker_TakeCoordinator(_PyParallelGCWorker *worker)
+{
+    _PyParallelGCState *par_gc = worker->par_gc;
+    int success = 0;
+
+    PyMUTEX_LOCK(&par_gc->steal_coord_lock);
+    if (par_gc->steal_coordinator == NULL) {
+        par_gc->steal_coordinator = worker;
+        success = 1;
+    }
+    PyMUTEX_UNLOCK(&par_gc->steal_coord_lock);
+
+    return success;
+}
+
+// Give up coordinator role.
+static void
+_PyGCWorker_DropCoordinator(_PyParallelGCWorker *worker)
+{
+    _PyParallelGCState *par_gc = worker->par_gc;
+
+    PyMUTEX_LOCK(&par_gc->steal_coord_lock);
+    if (par_gc->steal_coordinator == worker) {
+        par_gc->steal_coordinator = NULL;
+    }
+    PyMUTEX_UNLOCK(&par_gc->steal_coord_lock);
+}
+
+// Coordinator logic: poll all deques, wake workers if work exists, or terminate.
+// Called when this worker has become the coordinator.
+static void
+_PyGCWorker_CoordinateStealing(_PyParallelGCWorker *worker)
+{
+    _PyParallelGCState *par_gc = worker->par_gc;
+    int backoff = 1;
+
+    while (1) {
+        // Load current count of active workers
+        int num_marking = _Py_atomic_load_int_acquire(&par_gc->num_workers_marking);
+
+        // TERMINATION: coordinator is the only active worker
+        // All others have: emptied their deques, failed steals, decremented counter
+        if (num_marking == 1) {
+            // Decrement our own count (now 0)
+            _Py_atomic_add_int(&par_gc->num_workers_marking, -1);
+            // Wake all waiters so they can exit the loop
+            Py_ssize_t to_wake = (Py_ssize_t)par_gc->num_workers - 1;
+            if (to_wake > 0) {
+                _PyGCSemaphore_Post(&par_gc->steal_sema, to_wake);
+            }
+            return;
+        }
+
+        // Scan all deques for work
+        Py_ssize_t work_available = 0;
+        for (size_t i = 0; i < par_gc->num_workers; i++) {
+            work_available += _PyWSDeque_Size(&par_gc->workers[i].deque);
+        }
+
+        if (work_available > 0) {
+            // Calculate how many workers to wake (at most 1 per 64 items of work)
+            Py_ssize_t workers_to_wake = work_available / 64;
+            if (workers_to_wake < 1) {
+                workers_to_wake = 1;
+            }
+            // Don't wake more than are sleeping
+            Py_ssize_t sleeping = (Py_ssize_t)par_gc->num_workers - num_marking;
+            if (workers_to_wake > sleeping) {
+                workers_to_wake = sleeping;
+            }
+
+            if (workers_to_wake > 0) {
+                // CRITICAL: increment counter BEFORE posting to semaphore
+                // This prevents race where worker wakes but coordinator doesn't see it
+                _Py_atomic_add_int(&par_gc->num_workers_marking, (int)workers_to_wake);
+                _PyGCSemaphore_Post(&par_gc->steal_sema, workers_to_wake);
+            }
+            // Give up coordinator role and re-enter work loop
+            return;
+        }
+
+        // No work found, backoff and retry
+        for (int i = 0; i < backoff; i++) {
+            _Py_cpu_relax();
+        }
+        backoff = backoff * 2;
+        if (backoff > 64) {
+            backoff = 64;
+        }
+    }
+}
+
+
+// =============================================================================
 // Parallel Marking
 // =============================================================================
 
@@ -1451,12 +1646,21 @@ _PyGC_ParallelMoveUnreachable(
     par_gc->roots_distributed = distributed;
 
     // ==========================================================================
-    // STEP 6: Signal workers to start and wait for completion
+    // STEP 3: Signal workers to start and wait for completion
     // ==========================================================================
     //
     // Use barriers to coordinate with worker threads:
     // 1. mark_barrier: Release workers to start marking
     // 2. done_barrier: Wait for all workers to finish
+
+    // Initialize coordinator-based termination state for this collection
+    // All workers start as "marking", coordinator will detect when all are idle
+    _Py_atomic_store_int_release(&par_gc->num_workers_marking, (int)par_gc->num_workers);
+    par_gc->steal_coordinator = NULL;
+    // Reset semaphore tokens (in case any leaked from previous collection)
+    PyMUTEX_LOCK(&par_gc->steal_sema.lock);
+    par_gc->steal_sema.tokens = 0;
+    PyMUTEX_UNLOCK(&par_gc->steal_sema.lock);
 
     // Set phase for all workers before signaling
     for (size_t i = 0; i < par_gc->num_workers; i++) {
@@ -1480,7 +1684,7 @@ _PyGC_ParallelMoveUnreachable(
     }
 
     // ==========================================================================
-    // STEP 7: Sweep - move unmarked objects to unreachable list
+    // STEP 4: Sweep - move unmarked objects to unreachable list
     // ==========================================================================
     //
     // After parallel marking, objects are in two states:
@@ -2014,6 +2218,13 @@ _PyGC_ParallelMarkAliveFromRoots(PyInterpreterState *interp, PyGC_Head *containe
         return 1;
     }
 
+    // Initialize coordinator-based termination state for this collection
+    _Py_atomic_store_int_release(&par_gc->num_workers_marking, (int)par_gc->num_workers);
+    par_gc->steal_coordinator = NULL;
+    PyMUTEX_LOCK(&par_gc->steal_sema.lock);
+    par_gc->steal_sema.tokens = 0;
+    PyMUTEX_UNLOCK(&par_gc->steal_sema.lock);
+
     // Set phase for all workers
     for (size_t i = 0; i < par_gc->num_workers; i++) {
         par_gc->workers[i].phase = _PyGC_PHASE_MARK_ALIVE;
@@ -2081,8 +2292,7 @@ _PyGC_ParallelMarkAliveFromQueue(PyInterpreterState *interp, PyGC_Head *containe
     }
 
     // Signal workers to start
-    // Note: This is pipelined - workers will start consuming while
-    // the work queue still has items (producer is already done)
+    // Producer has already expanded all roots and filled the work queue
     _PyGCBarrier_Wait(&par_gc->mark_barrier);
 
     // Wait for completion

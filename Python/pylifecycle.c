@@ -38,6 +38,9 @@
 #ifdef Py_PARALLEL_GC
 #include "pycore_gc_parallel.h"   // _PyGC_ParallelFini()
 #endif
+#ifdef Py_GIL_DISABLED
+#include "pycore_gc_ft_parallel.h" // _PyGC_ThreadPoolInit()
+#endif
 
 #include "opcode.h"
 
@@ -1253,6 +1256,26 @@ init_interp_main(PyThreadState *tstate)
                 return _PyStatus_ERR("can't start tracemalloc");
             }
         }
+
+#if defined(Py_PARALLEL_GC)
+        if (config->parallel_gc > 0) {
+            if (_PyGC_ParallelInit(tstate->interp, config->parallel_gc) < 0) {
+                return _PyStatus_ERR("can't initialize parallel GC");
+            }
+            if (_PyGC_ParallelStart(tstate->interp) < 0) {
+                _PyGC_ParallelFini(tstate->interp);
+                return _PyStatus_ERR("can't start parallel GC workers");
+            }
+        }
+#elif defined(Py_GIL_DISABLED)
+        if (config->parallel_gc > 0) {
+            if (_PyGC_ThreadPoolInit(tstate->interp, config->parallel_gc) < 0) {
+                return _PyStatus_ERR("can't initialize parallel GC thread pool");
+            }
+            tstate->interp->gc.parallel_gc_enabled = 1;
+            tstate->interp->gc.parallel_gc_num_workers = config->parallel_gc;
+        }
+#endif
 
 #ifdef PY_HAVE_PERF_TRAMPOLINE
         if (config->perf_profiling) {

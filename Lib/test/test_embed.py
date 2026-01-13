@@ -714,6 +714,8 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
         })
     if support.is_apple:
         CONFIG_COMPAT['use_system_logger'] = False
+    if support.Py_PARALLEL_GC or support.Py_GIL_DISABLED:
+        CONFIG_COMPAT['parallel_gc'] = 0
 
     CONFIG_PYTHON = dict(CONFIG_COMPAT,
         _config_init=API_PYTHON,

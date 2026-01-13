@@ -553,24 +553,7 @@ gc_enable_parallel_impl(PyObject *module, int num_workers)
     // Get interpreter state
     PyInterpreterState *interp = _PyInterpreterState_GET();
 
-    // Check if already initialized
-    if (interp->gc.parallel_gc != NULL) {
-        // Already initialized - check if just disabled
-        if (_PyGC_ParallelIsEnabled(interp)) {
-            PyErr_SetString(PyExc_RuntimeError,
-                           "Parallel GC already enabled");
-            return NULL;
-        }
-        // Was disabled - re-enable and restart workers
-        _PyGC_ParallelSetEnabled(interp, 1);
-        if (_PyGC_ParallelStart(interp) < 0) {
-            _PyGC_ParallelSetEnabled(interp, 0);
-            return NULL;
-        }
-        Py_RETURN_NONE;
-    }
-
-    // Validate input
+    // Validate input first (even if already enabled)
     if (num_workers < -1) {
         PyErr_SetString(PyExc_ValueError,
                         "num_workers must be >= -1");
@@ -581,6 +564,22 @@ gc_enable_parallel_impl(PyObject *module, int num_workers)
         PyErr_SetString(PyExc_ValueError,
                         "num_workers must be <= _PyGC_MAX_WORKERS");
         return NULL;
+    }
+
+    // Check if already initialized
+    if (interp->gc.parallel_gc != NULL) {
+        // Already initialized - check if just disabled
+        if (_PyGC_ParallelIsEnabled(interp)) {
+            // Already enabled - this is fine, just return
+            Py_RETURN_NONE;
+        }
+        // Was disabled - re-enable and restart workers
+        _PyGC_ParallelSetEnabled(interp, 1);
+        if (_PyGC_ParallelStart(interp) < 0) {
+            _PyGC_ParallelSetEnabled(interp, 0);
+            return NULL;
+        }
+        Py_RETURN_NONE;
     }
 
     // Use number of CPUs if -1

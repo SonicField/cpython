@@ -4,8 +4,6 @@
 // - Page-based sequential bucket filling for work distribution
 // - Work-stealing for load balancing
 // - Atomic operations for parallel marking
-//
-// See FTP_PARALLEL_GC_DESIGN.md for design details.
 
 #include "Python.h"
 
@@ -72,7 +70,9 @@ _PyGC_CountPages(PyInterpreterState *interp)
         total_pages += count_heap_pages(&m->heaps[_Py_MIMALLOC_HEAP_GC_PRE]);
     }
 
-    // TODO: Count pages in abandoned pool (from dead threads)
+    // Note: Pages in mimalloc's abandoned pool (from dead threads) are not
+    // counted here. This is acceptable because abandoned pages are rare and
+    // this function is primarily used for performance diagnostics.
 
     HEAD_UNLOCK(&_PyRuntime);
 
@@ -503,7 +503,7 @@ parallel_mark_block_visitor(const mi_heap_t *heap, const mi_heap_area_t *area,
         return true;  // Skip untracked/frozen objects
     }
 
-    // Try to mark this object as alive using atomic CAS
+    // Try to mark this object as alive using atomic fetch-or
     // Returns 1 if we were first to mark it
     if (_PyGC_TryMarkAlive(op)) {
         // We marked it - push to our deque for traversal
@@ -880,7 +880,7 @@ propagate_visitproc(PyObject *child, void *arg)
         return 0;
     }
 
-    // Try to mark child alive (atomic CAS)
+    // Try to mark child alive (atomic fetch-or)
     if (_PyGC_TryMarkAlive(child)) {
         // We marked it first - push to our deque for traversal
         _PyWSDeque_Push(&worker->deque, child);
@@ -2427,66 +2427,6 @@ par_mark_traverse_object(PyObject *op, _PyGCWorkerState *worker)
     }
     return traverse(op, par_mark_visitproc, worker);
 }
-
-// Visitor callback to find roots in a page
-// A root is an object with gc_refs > 0 (or deferred + skip_deferred) that is still unreachable
-// NOTE: This is defined but currently unused - we use mark_heap_roots_visitor instead
-// Keeping for reference.
-#if 0
-static bool
-mark_heap_parallel_visitor(const mi_heap_t *heap, const mi_heap_area_t *area,
-                           void *block, size_t block_size, void *arg)
-{
-    (void)heap;
-    (void)area;
-    (void)block_size;
-
-    _PyGCMarkWorkerContext *ctx = (_PyGCMarkWorkerContext *)arg;
-    PyObject *op = block_to_object(block, ctx->par_state->buckets->pages ? 0 : 0);
-
-    if (op == NULL) {
-        return true;
-    }
-
-    // Skip if not tracked
-    if (!_PyObject_GC_IS_TRACKED(op)) {
-        return true;
-    }
-
-    // Skip frozen
-    if (op->ob_gc_bits & _PyGC_BITS_FROZEN) {
-        return true;
-    }
-
-    // Skip if already marked alive (by previous gc_mark_alive phase)
-    if (op->ob_gc_bits & _PyGC_BITS_ALIVE) {
-        return true;
-    }
-
-    // Check if already reachable (not unreachable bit set)
-    if (!_PyGC_IsUnreachable(op)) {
-        return true;
-    }
-
-    // Get gc_refs (stored in ob_tid during GC)
-    Py_ssize_t gc_refs = gc_get_refs_atomic(op);
-
-    // GH-129236: If skipping deferred objects, keep them alive
-    int keep_alive = (ctx->skip_deferred && _PyObject_HasDeferredRefcount(op));
-
-    if (gc_refs > 0 || keep_alive) {
-        // This object is a root - try to mark it reachable
-        if (_PyGC_TryMarkReachable(op)) {
-            // We were first to mark it - push to deque for transitive marking
-            _PyWSDeque_Push(&ctx->worker->deque, op);
-            ctx->worker->objects_marked++;
-            ctx->roots_found++;
-        }
-    }
-
-    return true;
-}
-#endif
 
 // Arguments for mark_heap roots visitor
 typedef struct {

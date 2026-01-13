@@ -179,6 +179,9 @@ typedef struct PyConfig {
     int use_frozen_modules;
     int safe_path;
     int int_max_str_digits;
+#if defined(Py_PARALLEL_GC) || defined(Py_GIL_DISABLED)
+    int parallel_gc;  // 0 = disabled, >0 = number of workers
+#endif
     int thread_inherit_context;
     int context_aware_warnings;
 #ifdef __APPLE__

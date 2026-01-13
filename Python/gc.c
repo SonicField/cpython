@@ -2477,6 +2477,11 @@ _PyGC_Collect(PyThreadState *tstate, int generation, _PyGC_Reason reason)
         _PyParallelGCState *par_gc = tstate->interp->gc.parallel_gc;
         if (par_gc != NULL) {
             par_gc->timing_valid = 0;
+            par_gc->gc_start_ns = 0;
+            par_gc->update_refs_end_ns = 0;
+            par_gc->mark_alive_end_ns = 0;
+            par_gc->subtract_refs_end_ns = 0;
+            par_gc->mark_end_ns = 0;
             par_gc->cleanup_end_ns = 0;
         }
     }

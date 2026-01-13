@@ -31,15 +31,29 @@ def setUpModule():
         raise unittest.SkipTest("Parallel GC not available")
 
 
+def _setup_parallel_gc(test_case):
+    """Enable parallel GC for a test, tracking if we need to disable it later."""
+    stats = gc.get_parallel_stats()
+    test_case._parallel_gc_was_enabled = stats['enabled']
+    if not test_case._parallel_gc_was_enabled:
+        gc.enable_parallel()
+    gc.collect()
+
+
+def _teardown_parallel_gc(test_case):
+    """Disable parallel GC only if we enabled it."""
+    if not getattr(test_case, '_parallel_gc_was_enabled', True):
+        gc.disable_parallel()
+
+
 class TestBasicCycleCollection(unittest.TestCase):
     """Verify basic GC functionality is preserved."""
 
     def setUp(self):
-        gc.enable_parallel()
-        gc.collect()
+        _setup_parallel_gc(self)
 
     def tearDown(self):
-        gc.disable_parallel()
+        _teardown_parallel_gc(self)
 
     def test_simple_cycle_collected(self):
         """Simple reference cycle should be collected."""
@@ -92,11 +106,10 @@ class TestKnownRootsPreserved(unittest.TestCase):
     """Verify objects reachable from known roots are not collected."""
 
     def setUp(self):
-        gc.enable_parallel()
-        gc.collect()
+        _setup_parallel_gc(self)
 
     def tearDown(self):
-        gc.disable_parallel()
+        _teardown_parallel_gc(self)
         # Clean up any test artifacts from sys.modules
         if '_test_mark_alive_module' in sys.modules:
             del sys.modules['_test_mark_alive_module']
@@ -170,11 +183,10 @@ class TestThreadStacksPreserved(unittest.TestCase):
     """Verify objects on thread stacks are not collected."""
 
     def setUp(self):
-        gc.enable_parallel()
-        gc.collect()
+        _setup_parallel_gc(self)
 
     def tearDown(self):
-        gc.disable_parallel()
+        _teardown_parallel_gc(self)
 
     def test_main_thread_locals_preserved(self):
         """Local variables on main thread should not be collected."""
@@ -246,11 +258,10 @@ class TestUnreachableCollected(unittest.TestCase):
     """Verify unreachable objects are still collected."""
 
     def setUp(self):
-        gc.enable_parallel()
-        gc.collect()
+        _setup_parallel_gc(self)
 
     def tearDown(self):
-        gc.disable_parallel()
+        _teardown_parallel_gc(self)
 
     def test_unreachable_cycle_collected(self):
         """Unreachable cycle should be collected even with mark_alive."""
@@ -323,11 +334,10 @@ class TestRaceConditions(unittest.TestCase):
     """Test edge cases around timing and race conditions."""
 
     def setUp(self):
-        gc.enable_parallel()
-        gc.collect()
+        _setup_parallel_gc(self)
 
     def tearDown(self):
-        gc.disable_parallel()
+        _teardown_parallel_gc(self)
 
     def test_weakref_callback_during_collection(self):
         """Weakref callbacks shouldn't interfere with mark_alive."""
@@ -356,11 +366,10 @@ class TestFinalizers(unittest.TestCase):
     """Test interaction with finalizers."""
 
     def setUp(self):
-        gc.enable_parallel()
-        gc.collect()
+        _setup_parallel_gc(self)
 
     def tearDown(self):
-        gc.disable_parallel()
+        _teardown_parallel_gc(self)
 
     def test_finalizer_called_on_unreachable(self):
         """__del__ should be called on unreachable objects."""
@@ -408,11 +417,10 @@ class TestLargeHeaps(unittest.TestCase):
     """Test with large object counts."""
 
     def setUp(self):
-        gc.enable_parallel()
-        gc.collect()
+        _setup_parallel_gc(self)
 
     def tearDown(self):
-        gc.disable_parallel()
+        _teardown_parallel_gc(self)
 
     def test_500k_objects_mixed(self):
         """500k objects with mixed reachable/unreachable."""
@@ -486,11 +494,10 @@ class TestParallelCorrectness(unittest.TestCase):
     """Test parallel marking correctness."""
 
     def setUp(self):
-        gc.enable_parallel()
-        gc.collect()
+        _setup_parallel_gc(self)
 
     def tearDown(self):
-        gc.disable_parallel()
+        _teardown_parallel_gc(self)
 
     def test_shared_objects_marked_once(self):
         """Objects referenced by multiple roots should be marked correctly."""
@@ -559,11 +566,10 @@ class TestTypeObjects(unittest.TestCase):
     """Test handling of type objects."""
 
     def setUp(self):
-        gc.enable_parallel()
-        gc.collect()
+        _setup_parallel_gc(self)
 
     def tearDown(self):
-        gc.disable_parallel()
+        _teardown_parallel_gc(self)
 
     def test_class_with_cycle_in_dict(self):
         """Class with cycle in __dict__ should be handled correctly."""
@@ -603,11 +609,10 @@ class TestExtensionModules(unittest.TestCase):
     """Test handling of extension module objects."""
 
     def setUp(self):
-        gc.enable_parallel()
-        gc.collect()
+        _setup_parallel_gc(self)
 
     def tearDown(self):
-        gc.disable_parallel()
+        _teardown_parallel_gc(self)
 
     def test_datetime_objects(self):
         """datetime objects should be handled correctly."""

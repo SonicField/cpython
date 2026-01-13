@@ -181,6 +181,26 @@ typedef struct {
 } _PyGCWorkQueue;
 
 // =============================================================================
+// Counting Semaphore for Coordinator-Based Termination
+// =============================================================================
+//
+// A counting semaphore implemented using CPython threading primitives.
+// Used to wake idle workers when work becomes available, and to coordinate
+// global termination detection in the work-stealing mark phase.
+//
+// Why a semaphore instead of condition variable?
+// - Semaphore tokens persist: Post() before Wait() still wakes waiter
+// - Counting: Can wake exactly N workers with Post(sema, N)
+// - Simpler correctness: No lost wakeup bugs with proper ordering
+//
+
+typedef struct {
+    Py_ssize_t tokens;      // Available tokens (can be negative if waiters > posts)
+    PyMUTEX_T lock;         // Protects tokens and condition variable
+    PyCOND_T cond;          // Workers wait here when no tokens available
+} _PyGCSemaphore;
+
+// =============================================================================
 // Worker Thread Phases
 // =============================================================================
 // Workers wait on mark_barrier, then dispatch based on current phase.
@@ -306,6 +326,41 @@ struct _PyParallelGCState {
 
     // Condition variable for waiting on workers to finish
     PyCOND_T workers_done_cond;
+
+    // =========================================================================
+    // Coordinator-Based Termination for Work-Stealing Mark Phase
+    // =========================================================================
+    //
+    // The mark phase uses work-stealing with coordinator-based termination:
+    // - Workers process their deques and steal from others
+    // - When a worker's steal fails, it tries to become the coordinator
+    // - The coordinator polls all deques and wakes idle workers when work exists
+    // - Termination: coordinator detects all workers idle AND no work remains
+    //
+    // This avoids:
+    // - False termination (exiting while work remains in other deques)
+    // - Wasted spins (idle workers sleep instead of spinning)
+    // - Fixed-attempt heuristics (accurate termination detection)
+    //
+
+    // Count of workers actively in the marking phase
+    // Termination when this reaches 0 (after coordinator decrements)
+    // Cache-line padded to avoid false sharing
+    int num_workers_marking;
+    char _pad_marking[64 - sizeof(int)];
+
+    // Mutex protecting coordinator election
+    PyMUTEX_T steal_coord_lock;
+
+    // Pointer to current coordinator worker (NULL if none)
+    // Protected by steal_coord_lock
+    _PyParallelGCWorker *steal_coordinator;
+
+    // Semaphore for waking idle workers
+    // Coordinator posts tokens when work is found or termination detected
+    _PyGCSemaphore steal_sema;
+
+    // =========================================================================
 
     // Flag indicating parallel GC is enabled
     int enabled;
@@ -442,6 +497,23 @@ PyAPI_FUNC(Py_ssize_t) _PyGCWorkQueue_ClaimBatch(
     PyObject **out,
     Py_ssize_t max_batch
 );
+
+// =============================================================================
+// Semaphore Operations
+// =============================================================================
+
+// Initialise semaphore with 0 tokens
+// Returns 0 on success, -1 on error
+PyAPI_FUNC(int) _PyGCSemaphore_Init(_PyGCSemaphore *sema);
+
+// Destroy semaphore
+PyAPI_FUNC(void) _PyGCSemaphore_Fini(_PyGCSemaphore *sema);
+
+// Post n tokens to semaphore, waking up to n waiters
+PyAPI_FUNC(void) _PyGCSemaphore_Post(_PyGCSemaphore *sema, Py_ssize_t n);
+
+// Wait for a token (blocks if none available)
+PyAPI_FUNC(void) _PyGCSemaphore_Wait(_PyGCSemaphore *sema);
 
 #endif // Py_PARALLEL_GC
 
