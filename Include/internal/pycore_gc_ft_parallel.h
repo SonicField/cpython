@@ -22,7 +22,6 @@ extern "C" {
 #ifdef _POSIX_THREADS
 #include <pthread.h>
 #include <unistd.h>  // sysconf for CPU count
-#include <sched.h>   // sched_yield for spin-wait
 #endif
 
 //-----------------------------------------------------------------------------
@@ -389,36 +388,6 @@ gc_maybe_init_refs_atomic(PyObject *op)
         return 1;
     }
     return 0;  // Already unreachable
-}
-
-// Wait until ob_tid has been initialized for gc_refs tracking.
-// Thread IDs are typically large values (pointers to thread descriptors on Linux,
-// or similar high-address values on other platforms).
-// gc_refs = refcount - internal_refs, typically small but could be large.
-// ASSUMPTION: Objects won't have >1M internal references. If violated, this
-// could cause spin-wait to return prematurely.
-static inline void
-gc_wait_for_refs_init(PyObject *op)
-{
-    // Threshold to distinguish thread ID from gc_refs
-    // Thread IDs on Linux are pointers to pthread descriptors (high addresses)
-    // gc_refs are typically small, but we use 1M as a conservative threshold
-    const uintptr_t THREAD_ID_THRESHOLD = 0x100000;  // 1M
-
-    int spins = 0;
-    while (1) {
-        uintptr_t val = _Py_atomic_load_uintptr_acquire(&op->ob_tid);
-        if (val < THREAD_ID_THRESHOLD) {
-            // Looks like a valid gc_refs value
-            break;
-        }
-        // Still looks like a thread ID, spin-wait
-        if (++spins > 1000) {
-            // Yield after many spins to avoid burning CPU
-            sched_yield();
-            spins = 0;
-        }
-    }
 }
 
 // Atomically get gc_refs (relaxed load for checking)
