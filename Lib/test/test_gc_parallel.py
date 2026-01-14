@@ -141,7 +141,7 @@ class TestParallelGCBuildConfig(unittest.TestCase):
         config = gc.get_parallel_config()
         if not config['available']:
             with self.assertRaises(RuntimeError) as cm:
-                gc.enable_parallel()
+                gc.enable_parallel(2)
             error_msg = str(cm.exception)
             # Should mention rebuilding
             self.assertTrue(

@@ -18,11 +18,8 @@ extern "C" {
 #include "pycore_ws_deque.h"     // Chase-Lev work-stealing deque, _PyGCLocalBuffer
 #include "pycore_gc_barrier.h"   // _PyGCBarrier (shared with GIL build)
 
-// For pthread_create/pthread_join (no CPython wrapper exists)
-#ifdef _POSIX_THREADS
-#include <pthread.h>
-#include <unistd.h>  // sysconf for CPU count
-#endif
+// For portable thread management (PyThread_handle_t, PyThread_start_joinable_thread, etc.)
+#include "pycore_pythread.h"
 
 //-----------------------------------------------------------------------------
 // Atomic GC bit operations for parallel marking
@@ -209,7 +206,7 @@ typedef struct _PyGCThreadPool {
     PyInterpreterState *interp;
 
     int num_workers;            // Number of workers (including main thread as worker 0)
-    pthread_t *threads;         // Thread handles for workers 1..N-1
+    PyThread_handle_t *threads; // Thread handles for workers 1..N-1
 
     // Persistent worker states (allocated once, reused across collections)
     _PyGCWorkerState *workers;  // Per-worker state including deques
@@ -255,7 +252,7 @@ typedef struct {
     int num_workers;
     _PyGCPageBucket *buckets;     // One bucket per worker
     _PyGCWorkerState *workers;    // Per-worker state (including deques)
-    pthread_t *threads;           // Thread handles (workers 1..N-1)
+    PyThread_handle_t *threads;   // Thread handles (workers 1..N-1)
 
     // Barriers for phase synchronization
     _PyGCBarrier phase_barrier;  // Sync between GC phases
@@ -433,17 +430,8 @@ _PyGC_GetParallelWorkers(PyInterpreterState *interp)
     if (!gc->parallel_gc_enabled) {
         return 0;
     }
-    if (gc->parallel_gc_num_workers > 0) {
-        return gc->parallel_gc_num_workers;
-    }
-    // Auto: use half of available CPUs, minimum 2, maximum 8
-    // Note: os.cpu_count() uses sysconf(_SC_NPROCESSORS_ONLN) on Linux
-    long ncpus = sysconf(_SC_NPROCESSORS_ONLN);
-    if (ncpus < 1) ncpus = 1;
-    int workers = (int)(ncpus / 2);
-    if (workers < 2) workers = 2;
-    if (workers > 8) workers = 8;
-    return workers;
+    // num_workers is required and validated by gc.enable_parallel()
+    return gc->parallel_gc_num_workers;
 }
 
 // Check if parallel GC should be used.

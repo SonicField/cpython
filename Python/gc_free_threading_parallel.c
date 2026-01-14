@@ -683,7 +683,7 @@ typedef struct {
 } _PyGCWorkerArgs;
 
 // Thread entry function for parallel workers
-static void *
+static void
 parallel_worker_thread(void *arg)
 {
     assert(arg != NULL && "NULL arg in parallel_worker_thread");
@@ -704,8 +704,6 @@ parallel_worker_thread(void *arg)
     if (result < 0) {
         _Py_atomic_store_int(&state->error_flag, 1);
     }
-
-    return NULL;
 }
 
 // Initialize worker state
@@ -771,7 +769,7 @@ _PyGC_ParallelMarkAlive(PyInterpreterState *interp,
     }
 
     // Allocate thread handles for workers 1..N-1 (worker 0 runs on main thread)
-    state->threads = PyMem_RawCalloc(state->num_workers - 1, sizeof(pthread_t));
+    state->threads = PyMem_RawCalloc(state->num_workers - 1, sizeof(PyThread_handle_t));
     if (state->threads == NULL) {
         free_workers(state);
         return -1;
@@ -793,11 +791,11 @@ _PyGC_ParallelMarkAlive(PyInterpreterState *interp,
         thread_args[i - 1].state = state;
         thread_args[i - 1].worker_id = i;
 
-        int err = pthread_create(&state->threads[i - 1],
-                                NULL,
-                                parallel_worker_thread,
-                                &thread_args[i - 1]);
-        if (err != 0) {
+        PyThread_ident_t ident;
+        int rc = PyThread_start_joinable_thread(
+            parallel_worker_thread, &thread_args[i - 1],
+            &ident, &state->threads[i - 1]);
+        if (rc != 0) {
             // Failed to create thread - continue with fewer workers
             // but mark error so we know something went wrong
             state->error_flag = 1;
@@ -813,7 +811,7 @@ _PyGC_ParallelMarkAlive(PyInterpreterState *interp,
 
     // Wait for all spawned threads to complete
     for (int i = 0; i < threads_created; i++) {
-        pthread_join(state->threads[i], NULL);
+        PyThread_join_thread(state->threads[i]);
     }
 
     // Clean up thread resources
@@ -851,7 +849,7 @@ collect_stats:
 typedef struct {
     int num_workers;
     _PyGCWorkerState *workers;
-    pthread_t *threads;
+    PyThread_handle_t *threads;
     volatile int error_flag;
     size_t total_marked;
 } _PyGCPropagateState;
@@ -952,7 +950,7 @@ propagate_worker_run(_PyGCPropagateState *state, int worker_id)
 }
 
 // Thread entry for parallel propagation
-static void *
+static void
 propagate_worker_thread(void *arg)
 {
     _PyGCPropagateArgs *args = (_PyGCPropagateArgs *)arg;
@@ -964,8 +962,6 @@ propagate_worker_thread(void *arg)
     if (propagate_worker_run(args->state, args->worker_id) < 0) {
         _Py_atomic_store_int(&args->state->error_flag, 1);
     }
-
-    return NULL;
 }
 
 // Initialize propagation workers
@@ -1048,7 +1044,7 @@ _PyGC_ParallelPropagateAlive(PyInterpreterState *interp,
     }
 
     // Multiple workers: spawn threads
-    state.threads = PyMem_RawCalloc(num_workers - 1, sizeof(pthread_t));
+    state.threads = PyMem_RawCalloc(num_workers - 1, sizeof(PyThread_handle_t));
     if (state.threads == NULL) {
         result = -1;
         goto cleanup;
@@ -1069,11 +1065,11 @@ _PyGC_ParallelPropagateAlive(PyInterpreterState *interp,
         thread_args[i - 1].state = &state;
         thread_args[i - 1].worker_id = i;
 
-        int err = pthread_create(&state.threads[i - 1],
-                                NULL,
-                                propagate_worker_thread,
-                                &thread_args[i - 1]);
-        if (err != 0) {
+        PyThread_ident_t ident;
+        int rc = PyThread_start_joinable_thread(
+            propagate_worker_thread, &thread_args[i - 1],
+            &ident, &state.threads[i - 1]);
+        if (rc != 0) {
             state.error_flag = 1;
             break;
         }
@@ -1087,7 +1083,7 @@ _PyGC_ParallelPropagateAlive(PyInterpreterState *interp,
 
     // Join all threads
     for (int i = 0; i < threads_created; i++) {
-        pthread_join(state.threads[i], NULL);
+        PyThread_join_thread(state.threads[i]);
     }
 
     PyMem_RawFree(thread_args);
@@ -1678,22 +1674,23 @@ thread_pool_do_work(_PyGCThreadPool *pool, int worker_id)
     }
 }
 
+// Thread args for pool workers (passed at creation time)
+// Contains both pool and worker_id for safe passing to new thread
+typedef struct {
+    _PyGCThreadPool *pool;
+    int worker_id;
+} _PyGCPoolWorkerArgs;
+
+// Static array for pool worker args (allocated in ThreadPoolInit, freed in ThreadPoolFini)
+static _PyGCPoolWorkerArgs *_pool_worker_args = NULL;
+
 // Background worker thread entry point
-static void *
+static void
 thread_pool_worker(void *arg)
 {
-    _PyGCThreadPool *pool = (_PyGCThreadPool *)arg;
-
-    // Determine worker ID from thread handle comparison
-    int worker_id = -1;
-    pthread_t self = pthread_self();
-    for (int i = 0; i < pool->num_workers - 1; i++) {
-        if (pthread_equal(pool->threads[i], self)) {
-            worker_id = i + 1;  // Worker 0 is main thread
-            break;
-        }
-    }
-    assert(worker_id > 0 && worker_id < pool->num_workers);
+    _PyGCPoolWorkerArgs *args = (_PyGCPoolWorkerArgs *)arg;
+    _PyGCThreadPool *pool = args->pool;
+    int worker_id = args->worker_id;
 
     // Create a Python thread state for this worker thread.
     // This is required for Py_REF_DEBUG (debug builds) where Py_INCREF/Py_DECREF
@@ -1732,8 +1729,6 @@ thread_pool_worker(void *arg)
         PyThreadState_Delete(worker->tstate);
         worker->tstate = NULL;
     }
-
-    return NULL;
 }
 
 // Visitproc for pool-based propagation
@@ -1789,7 +1784,7 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
     _PyGCBarrier_Init(&pool->phase_barrier, num_workers);
 
     // Allocate thread handles (for workers 1..N-1, worker 0 is main thread)
-    pool->threads = PyMem_RawCalloc(num_workers - 1, sizeof(pthread_t));
+    pool->threads = PyMem_RawCalloc(num_workers - 1, sizeof(PyThread_handle_t));
     if (pool->threads == NULL) {
         _PyGCBarrier_Fini(&pool->phase_barrier);
         _PyGCBarrier_Fini(&pool->done_barrier);
@@ -1836,25 +1831,46 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
         }
     }
 
+    // Allocate thread args (needed to pass pool + worker_id to each thread)
+    // Store in static for cleanup in ThreadPoolFini
+    _pool_worker_args = PyMem_RawCalloc(num_workers - 1,
+                                         sizeof(_PyGCPoolWorkerArgs));
+    if (_pool_worker_args == NULL) {
+        for (int j = 0; j < num_workers; j++) {
+            if (pool->workers[j].local_pool != NULL) {
+                _PyWSDeque_FiniExternal(&pool->workers[j].deque,
+                                        pool->workers[j].local_pool);
+                PyMem_RawFree(pool->workers[j].local_pool);
+            } else {
+                _PyWSDeque_Fini(&pool->workers[j].deque);
+            }
+        }
+        PyMem_RawFree(pool->workers);
+        PyMem_RawFree(pool->threads);
+        _PyGCBarrier_Fini(&pool->phase_barrier);
+        _PyGCBarrier_Fini(&pool->done_barrier);
+        _PyGCBarrier_Fini(&pool->mark_barrier);
+        PyMem_RawFree(pool);
+        return -1;
+    }
+
     // Create worker threads (they will wait at mark_barrier immediately)
     for (int i = 0; i < num_workers - 1; i++) {
-        int err = pthread_create(&pool->threads[i], NULL,
-                                  thread_pool_worker, pool);
-        if (err != 0) {
-            // Failed - shut down already created threads
-            pool->shutdown = 1;
-            // Wake workers so they can exit (need to unblock mark_barrier)
-            // For partially created pool, we need to reach barrier with all threads
-            // Just set shutdown and let them exit on next barrier pass
-            // Actually, since not all threads are created, barrier will block forever
-            // So we need to join the ones we created and cleanup
-            for (int j = 0; j < i; j++) {
-                // Cancel threads that are blocked on barrier
-                pthread_cancel(pool->threads[j]);
-                pthread_join(pool->threads[j], NULL);
-            }
+        _pool_worker_args[i].pool = pool;
+        _pool_worker_args[i].worker_id = i + 1;  // Workers 1..N-1
+
+        PyThread_ident_t ident;
+        int rc = PyThread_start_joinable_thread(
+            thread_pool_worker, &_pool_worker_args[i],
+            &ident, &pool->threads[i]);
+        if (rc != 0) {
+            // Thread creation failure is a fatal error during init.
+            // Already-created threads are not cleaned up here (same as GIL version).
+            // This is acceptable because thread creation failure during init
+            // is rare and indicates system resource exhaustion.
+            PyMem_RawFree(_pool_worker_args);
+            _pool_worker_args = NULL;
             for (int j = 0; j < num_workers; j++) {
-                // Use FiniExternal if using pre-allocated pool to avoid double-free
                 if (pool->workers[j].local_pool != NULL) {
                     _PyWSDeque_FiniExternal(&pool->workers[j].deque,
                                             pool->workers[j].local_pool);
@@ -1896,7 +1912,13 @@ _PyGC_ThreadPoolFini(PyInterpreterState *interp)
 
     // Wait for all workers to finish (they exit after seeing shutdown)
     for (int i = 0; i < pool->num_workers - 1; i++) {
-        pthread_join(pool->threads[i], NULL);
+        PyThread_join_thread(pool->threads[i]);
+    }
+
+    // Free the thread args
+    if (_pool_worker_args != NULL) {
+        PyMem_RawFree(_pool_worker_args);
+        _pool_worker_args = NULL;
     }
 
     // Clean up worker states and deques
@@ -2267,14 +2289,13 @@ typedef struct {
     int result;
 } _PyGCUpdateRefsThreadArgs;
 
-static void *
+static void
 update_refs_thread(void *arg)
 {
     _PyGCUpdateRefsThreadArgs *targs = (_PyGCUpdateRefsThreadArgs *)arg;
     targs->result = update_refs_worker(targs->state, targs->worker_id,
                                        targs->phase_barrier,
                                        &targs->candidates);
-    return NULL;
 }
 
 // Main entry point for parallel update_refs
@@ -2307,7 +2328,8 @@ _PyGC_ParallelUpdateRefs(PyInterpreterState *interp,
     }
 
     // Allocate thread handles for workers 1..N-1
-    pthread_t *threads = PyMem_RawCalloc(state->num_workers - 1, sizeof(pthread_t));
+    PyThread_handle_t *threads = PyMem_RawCalloc(state->num_workers - 1,
+                                                  sizeof(PyThread_handle_t));
     if (threads == NULL) {
         _PyGCBarrier_Fini(&phase_barrier);
         return -1;
@@ -2334,9 +2356,11 @@ _PyGC_ParallelUpdateRefs(PyInterpreterState *interp,
     // Spawn worker threads 1..N-1
     int threads_created = 0;
     for (int i = 1; i < state->num_workers; i++) {
-        int err = pthread_create(&threads[i - 1], NULL,
-                                 update_refs_thread, &thread_args[i]);
-        if (err != 0) {
+        PyThread_ident_t ident;
+        int rc = PyThread_start_joinable_thread(
+            update_refs_thread, &thread_args[i],
+            &ident, &threads[i - 1]);
+        if (rc != 0) {
             // Failed to create thread - we'll run with fewer workers
             break;
         }
@@ -2351,7 +2375,7 @@ _PyGC_ParallelUpdateRefs(PyInterpreterState *interp,
 
     // Wait for spawned threads
     for (int i = 0; i < threads_created; i++) {
-        pthread_join(threads[i], NULL);
+        PyThread_join_thread(threads[i]);
     }
 
     // Sum up candidates and check for errors
@@ -2594,13 +2618,12 @@ typedef struct {
     int result;
 } _PyGCMarkThreadArgs;
 
-static void *
+static void
 mark_heap_thread(void *arg)
 {
     _PyGCMarkThreadArgs *targs = (_PyGCMarkThreadArgs *)arg;
     targs->result = mark_heap_worker(targs->state, targs->worker_id,
                                      targs->workers, targs->skip_deferred);
-    return NULL;
 }
 
 // Main entry point for parallel mark_heap_visitor
@@ -2660,7 +2683,8 @@ _PyGC_ParallelMarkHeap(PyInterpreterState *interp,
     }
 
     // Allocate thread handles for workers 1..N-1
-    pthread_t *threads = PyMem_RawCalloc(state->num_workers - 1, sizeof(pthread_t));
+    PyThread_handle_t *threads = PyMem_RawCalloc(state->num_workers - 1,
+                                                  sizeof(PyThread_handle_t));
     if (threads == NULL) {
         result = -1;
         goto cleanup;
@@ -2687,9 +2711,11 @@ _PyGC_ParallelMarkHeap(PyInterpreterState *interp,
     // Spawn worker threads 1..N-1
     int threads_created = 0;
     for (int i = 1; i < state->num_workers; i++) {
-        int err = pthread_create(&threads[i - 1], NULL,
-                                 mark_heap_thread, &thread_args[i]);
-        if (err != 0) {
+        PyThread_ident_t ident;
+        int rc = PyThread_start_joinable_thread(
+            mark_heap_thread, &thread_args[i],
+            &ident, &threads[i - 1]);
+        if (rc != 0) {
             break;
         }
         threads_created++;
@@ -2701,7 +2727,7 @@ _PyGC_ParallelMarkHeap(PyInterpreterState *interp,
 
     // Wait for spawned threads
     for (int i = 0; i < threads_created; i++) {
-        pthread_join(threads[i], NULL);
+        PyThread_join_thread(threads[i]);
     }
 
     // Check for errors
@@ -2955,7 +2981,7 @@ struct scan_worker_thread_args {
 };
 
 // Worker thread function
-static void *
+static void
 scan_heap_thread(void *arg)
 {
     struct scan_worker_thread_args *args = (struct scan_worker_thread_args *)arg;
@@ -2970,8 +2996,6 @@ scan_heap_thread(void *arg)
                                &args->workers[args->worker_id],
                                args->gc_reason);
     }
-
-    return NULL;
 }
 
 // Check if heap is GC heap (tag indicates GC or GC_PRE)
@@ -3064,7 +3088,8 @@ _PyGC_ParallelScanHeap(
     atomic_int page_counter = 0;
 
     // Allocate thread resources
-    pthread_t *threads = PyMem_RawMalloc((state->num_workers - 1) * sizeof(pthread_t));
+    PyThread_handle_t *threads = PyMem_RawMalloc(
+        (state->num_workers - 1) * sizeof(PyThread_handle_t));
     struct scan_worker_thread_args *thread_args = PyMem_RawMalloc(
         state->num_workers * sizeof(struct scan_worker_thread_args));
 
@@ -3089,8 +3114,11 @@ _PyGC_ParallelScanHeap(
     // Spawn workers 1..N-1
     int threads_created = 0;
     for (int i = 1; i < state->num_workers; i++) {
-        if (pthread_create(&threads[i - 1], NULL, scan_heap_thread,
-                           &thread_args[i]) == 0) {
+        PyThread_ident_t ident;
+        int rc = PyThread_start_joinable_thread(
+            scan_heap_thread, &thread_args[i],
+            &ident, &threads[i - 1]);
+        if (rc == 0) {
             threads_created++;
         }
     }
@@ -3100,7 +3128,7 @@ _PyGC_ParallelScanHeap(
 
     // Join workers
     for (int i = 0; i < threads_created; i++) {
-        pthread_join(threads[i], NULL);
+        PyThread_join_thread(threads[i]);
     }
 
     // Merge results
