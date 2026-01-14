@@ -14,6 +14,7 @@ extern "C" {
 
 #include "Python.h"
 #include "pycore_pystate.h"        // _PyInterpreterState
+#include "pycore_pythread.h"       // PyThread_handle_t, PyThread_start_joinable_thread
 #include "pycore_ws_deque.h"       // _PyWSDeque, _PyGCLocalBuffer
 #include "pycore_condvar.h"        // PyMUTEX_T, PyCOND_T
 #include "pycore_gc.h"             // PyGC_Head
@@ -268,12 +269,8 @@ typedef struct {
     // Thread ID (for debugging)
     unsigned long thread_id;
 
-    // Thread handle (platform-specific)
-#ifdef _POSIX_THREADS
-    pthread_t thread;
-#elif defined(NT_THREADS)
-    HANDLE thread;
-#endif
+    // Thread handle (portable via PyThread API)
+    PyThread_handle_t thread;
 
     // Worker should exit when this is set (accessed atomically for thread safety)
     int should_exit;

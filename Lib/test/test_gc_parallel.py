@@ -70,16 +70,10 @@ class TestParallelGCEnable(unittest.TestCase):
     """Test enabling and disabling parallel GC."""
 
     def test_enable_parallel_no_args(self):
-        """Test calling enable_parallel() with no arguments."""
-        try:
-            result = gc.enable_parallel()
-            # If it succeeds, result should be None
-            self.assertIsNone(result)
-        except RuntimeError as e:
-            # Expected if parallel GC not available or already enabled
-            error_msg = str(e).lower()
-            self.assertTrue("not available" in error_msg or "already enabled" in error_msg,
-                           f"Unexpected error: {e}")
+        """Test that enable_parallel() requires num_workers argument."""
+        # num_workers is now a required parameter
+        with self.assertRaises(TypeError):
+            gc.enable_parallel()
 
     def test_enable_parallel_with_workers(self):
         """Test calling enable_parallel() with specific worker count."""

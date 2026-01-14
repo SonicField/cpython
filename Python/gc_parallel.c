@@ -15,13 +15,6 @@
 #include "pycore_stackref.h"  // For PyStackRef_*
 #include "condvar.h"  // PyMUTEX_INIT, PyCOND_INIT, etc.
 
-#ifdef _POSIX_THREADS
-#include <pthread.h>
-#include <unistd.h>
-#elif defined(NT_THREADS)
-#include <windows.h>
-#endif
-
 // =============================================================================
 // GC Helper Functions
 // =============================================================================
@@ -191,7 +184,7 @@ static void _PyGCWorker_DropCoordinator(_PyParallelGCWorker *worker);
 static void _PyGCWorker_CoordinateStealing(_PyParallelGCWorker *worker);
 
 // Worker thread entry point
-static void *
+static void
 _parallel_gc_worker_thread(void *arg)
 {
     _PyParallelGCWorker *worker = (_PyParallelGCWorker *)arg;
@@ -439,8 +432,6 @@ _parallel_gc_worker_thread(void *arg)
         PyThreadState_Delete(worker->tstate);
         worker->tstate = NULL;
     }
-
-    return NULL;
 }
 
 // =============================================================================
@@ -641,9 +632,9 @@ _PyGC_ParallelStart(PyInterpreterState *interp)
     for (size_t i = 0; i < par_gc->num_workers; i++) {
         _PyParallelGCWorker *worker = &par_gc->workers[i];
 
-#ifdef _POSIX_THREADS
-        int rc = pthread_create(&worker->thread, NULL,
-                               _parallel_gc_worker_thread, worker);
+        PyThread_ident_t ident;
+        int rc = PyThread_start_joinable_thread(
+            _parallel_gc_worker_thread, worker, &ident, &worker->thread);
         if (rc != 0) {
             PyErr_Format(PyExc_RuntimeError,
                         "Failed to create worker thread %zu: error %d",
@@ -653,18 +644,6 @@ _PyGC_ParallelStart(PyInterpreterState *interp)
             // is a fatal error - the interpreter cannot function properly.
             return -1;
         }
-#elif defined(NT_THREADS)
-        worker->thread = CreateThread(NULL, 0,
-                                     (LPTHREAD_START_ROUTINE)_parallel_gc_worker_thread,
-                                     worker, 0, NULL);
-        if (worker->thread == NULL) {
-            PyErr_Format(PyExc_RuntimeError,
-                        "Failed to create worker thread %zu", i);
-            return -1;
-        }
-#else
-#error "Unsupported threading platform"
-#endif
 
         par_gc->num_workers_active++;
     }
@@ -700,12 +679,7 @@ _PyGC_ParallelStop(PyInterpreterState *interp)
     for (size_t i = 0; i < par_gc->num_workers; i++) {
         _PyParallelGCWorker *worker = &par_gc->workers[i];
 
-#ifdef _POSIX_THREADS
-        pthread_join(worker->thread, NULL);
-#elif defined(NT_THREADS)
-        WaitForSingleObject(worker->thread, INFINITE);
-        CloseHandle(worker->thread);
-#endif
+        PyThread_join_thread(worker->thread);
 
         // Reset should_exit for potential restart
         _Py_atomic_store_int(&worker->should_exit, 0);
