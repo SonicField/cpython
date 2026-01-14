@@ -6,7 +6,6 @@ deque implementation (_PyWSDeque), which is used by the parallel GC.
 """
 
 import unittest
-import sys
 from test import support
 
 # Skip if we can't import _testinternalcapi

@@ -13,7 +13,6 @@ import sys
 import unittest
 import weakref
 import threading
-from test import support
 
 
 # Helper class that supports weakrefs (unlike built-in object())
