@@ -585,14 +585,12 @@ exit:
 }
 
 PyDoc_STRVAR(gc_enable_parallel__doc__,
-"enable_parallel($module, /, num_workers=-1)\n"
+"enable_parallel($module, /, num_workers)\n"
 "--\n"
 "\n"
-"Enable parallel garbage collection.\n"
+"Enable parallel garbage collection with the specified number of workers.\n"
 "\n"
-"If num_workers is -1 (default), auto-detect based on CPU count.\n"
-"If num_workers is 0, disable parallel GC.\n"
-"If num_workers > 0, use that many worker threads.\n"
+"num_workers must be >= 2 (one coordinator + workers).\n"
 "\n"
 "Only available in GIL-based builds compiled with --with-parallel-gc.");
 
@@ -634,22 +632,17 @@ gc_enable_parallel(PyObject *module, PyObject *const *args, Py_ssize_t nargs, Py
     };
     #undef KWTUPLE
     PyObject *argsbuf[1];
-    Py_ssize_t noptargs = nargs + (kwnames ? PyTuple_GET_SIZE(kwnames) : 0) - 0;
-    int num_workers = -1;
+    int num_workers;
 
     args = _PyArg_UnpackKeywords(args, nargs, NULL, kwnames, &_parser,
-            /*minpos*/ 0, /*maxpos*/ 1, /*minkw*/ 0, /*varpos*/ 0, argsbuf);
+            /*minpos*/ 1, /*maxpos*/ 1, /*minkw*/ 0, /*varpos*/ 0, argsbuf);
     if (!args) {
         goto exit;
-    }
-    if (!noptargs) {
-        goto skip_optional_pos;
     }
     num_workers = PyLong_AsInt(args[0]);
     if (num_workers == -1 && PyErr_Occurred()) {
         goto exit;
     }
-skip_optional_pos:
     return_value = gc_enable_parallel_impl(module, num_workers);
 
 exit:
@@ -734,4 +727,4 @@ gc_get_parallel_stats(PyObject *module, PyObject *Py_UNUSED(ignored))
 {
     return gc_get_parallel_stats_impl(module);
 }
-/*[clinic end generated code: output=a1472aaf83ad30b8 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=7f9276bc72468ef3 input=a9049054013a1b77]*/

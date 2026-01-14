@@ -476,28 +476,26 @@ gc_get_freeze_count_impl(PyObject *module)
 /*[clinic input]
 gc.enable_parallel
 
-    num_workers: int = -1
+    num_workers: int
 
-Enable parallel garbage collection.
+Enable parallel garbage collection with the specified number of workers.
 
-If num_workers is -1 (default), auto-detect based on CPU count.
-If num_workers is 0, disable parallel GC.
-If num_workers > 0, use that many worker threads.
+num_workers must be >= 2 (one coordinator + workers).
 
 Only available in GIL-based builds compiled with --with-parallel-gc.
 [clinic start generated code]*/
 
 static PyObject *
 gc_enable_parallel_impl(PyObject *module, int num_workers)
-/*[clinic end generated code: output=073661d508bcbcd3 input=37a780bc7a3f4d65]*/
+/*[clinic end generated code: output=073661d508bcbcd3 input=68c108dd877213c9]*/
 {
 #ifdef Py_GIL_DISABLED
     // FTP (free-threading) parallel GC
     PyInterpreterState *interp = _PyInterpreterState_GET();
 
     // Validate input
-    if (num_workers < -1) {
-        PyErr_SetString(PyExc_ValueError, "num_workers must be >= -1");
+    if (num_workers < 2) {
+        PyErr_SetString(PyExc_ValueError, "num_workers must be >= 2");
         return NULL;
     }
     if (num_workers > 64) {
@@ -508,42 +506,22 @@ gc_enable_parallel_impl(PyObject *module, int num_workers)
     // If already enabled with same settings, just return
     if (interp->gc.parallel_gc_enabled && interp->gc.thread_pool != NULL) {
         int current_workers = interp->gc.thread_pool->num_workers;
-        int requested_workers = (num_workers == -1) ?
-                               _PyGC_GetParallelWorkers(interp) : num_workers;
-        if (current_workers == requested_workers) {
+        if (current_workers == num_workers) {
             Py_RETURN_NONE;  // Already enabled with same worker count
         }
         // Different worker count - need to reinitialize
         _PyGC_ThreadPoolFini(interp);
     }
 
-    // Determine actual worker count
-    int actual_workers;
-    if (num_workers == -1 || num_workers == 0) {
-        // Auto-detect
-        long ncpus = sysconf(_SC_NPROCESSORS_ONLN);
-        if (ncpus < 1) ncpus = 1;
-        actual_workers = (int)(ncpus / 2);
-        if (actual_workers < 2) actual_workers = 2;
-        if (actual_workers > 8) actual_workers = 8;
-    } else {
-        actual_workers = num_workers;
-    }
-
-    // Need at least 2 workers for parallelism
-    if (actual_workers < 2) {
-        actual_workers = 2;
-    }
-
     // Initialize thread pool
-    if (_PyGC_ThreadPoolInit(interp, actual_workers) < 0) {
+    if (_PyGC_ThreadPoolInit(interp, num_workers) < 0) {
         PyErr_SetString(PyExc_RuntimeError, "Failed to initialize GC thread pool");
         return NULL;
     }
 
     // Set configuration
     interp->gc.parallel_gc_enabled = 1;
-    interp->gc.parallel_gc_num_workers = actual_workers;
+    interp->gc.parallel_gc_num_workers = num_workers;
 
     Py_RETURN_NONE;
 
@@ -554,9 +532,9 @@ gc_enable_parallel_impl(PyObject *module, int num_workers)
     PyInterpreterState *interp = _PyInterpreterState_GET();
 
     // Validate input first (even if already enabled)
-    if (num_workers < -1) {
+    if (num_workers < 2) {
         PyErr_SetString(PyExc_ValueError,
-                        "num_workers must be >= -1");
+                        "num_workers must be >= 2");
         return NULL;
     }
 
@@ -580,12 +558,6 @@ gc_enable_parallel_impl(PyObject *module, int num_workers)
             return NULL;
         }
         Py_RETURN_NONE;
-    }
-
-    // Use number of CPUs if -1
-    if (num_workers == -1) {
-        // TODO: Get actual CPU count, for now use 4 as default
-        num_workers = 4;
     }
 
     // Initialize parallel GC state
