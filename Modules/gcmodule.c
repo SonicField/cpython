@@ -690,6 +690,12 @@ gc_get_parallel_config_impl(PyObject *module)
     }
     Py_DECREF(workers);
 
+    // Parallel cleanup is available in FTP builds
+    if (PyDict_SetItemString(result, "parallel_cleanup", Py_True) < 0) {
+        Py_DECREF(result);
+        return NULL;
+    }
+
     return result;
 
 #elif defined(Py_PARALLEL_GC)
