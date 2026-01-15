@@ -1562,6 +1562,31 @@ deduce_unreachable(PyGC_Head *base, PyGC_Head *unreachable) {
         // This piggybacks on the existing list traversal - essentially free
         candidates = update_refs_with_splits(base, &par_gc->split_vector);
 
+        // Check if we have enough segments to parallelize
+        // If not, fall through to serial path for remaining phases
+        if (par_gc->split_vector.count < 2) {
+            // Not enough segments - use serial for remaining phases
+            // Record timing for phases we're skipping (parallel versions)
+            if (!par_gc->timing_valid) {
+                PyTime_t now;
+                (void)PyTime_PerfCounterRaw(&now);
+                par_gc->update_refs_end_ns = now;
+                // mark_alive is skipped entirely, so set its end time = start time
+                par_gc->mark_alive_end_ns = now;
+            }
+
+            subtract_refs(base);
+
+            // Record subtract_refs end time for serial path
+            if (!par_gc->timing_valid) {
+                PyTime_t subtract_refs_end;
+                (void)PyTime_PerfCounterRaw(&subtract_refs_end);
+                par_gc->subtract_refs_end_ns = subtract_refs_end;
+            }
+
+            goto move_unreachable;
+        }
+
         // Record update_refs end time (only if timing not already captured)
         if (!par_gc->timing_valid) {
             PyTime_t update_refs_end;
@@ -1653,6 +1678,7 @@ deduce_unreachable(PyGC_Head *base, PyGC_Head *unreachable) {
      * worth complicating the code to speed just a little.
      */
 
+move_unreachable:
 #ifdef Py_PARALLEL_GC
     // Try parallel marking first (interp already declared above)
     if (!_PyGC_ParallelMoveUnreachable(interp, base, unreachable)) {

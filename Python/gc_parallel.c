@@ -300,6 +300,40 @@ _parallel_gc_worker_thread(void *arg)
         case _PyGC_PHASE_MARK:
         default:
             // =======================================================================
+            // Segment scanning: find roots in our segment and push to deque
+            // =======================================================================
+            // Workers scan their assigned segments in parallel, finding roots
+            // (objects with gc_refs > 0 and COLLECTING flag still set).
+            if (worker->slice_start != NULL && worker->slice_end != NULL) {
+                PyGC_Head *gc = worker->slice_start;
+                PyGC_Head *end = worker->slice_end;
+                while (gc != end) {
+                    PyGC_Head *next = _PyGCHead_NEXT(gc);
+
+                    // Skip objects already marked reachable (COLLECTING cleared)
+                    if (!gc_is_collecting(gc)) {
+                        gc = next;
+                        continue;
+                    }
+
+                    // Check if this is a root (has external references)
+                    Py_ssize_t refs = gc_get_refs(gc);
+                    if (refs > 0) {
+                        // Mark as reachable and push to our deque
+                        gc->_gc_prev &= ~_PyGC_PREV_MASK_COLLECTING;
+                        PyObject *op = _Py_FROM_GC(gc);
+                        _PyWSDeque_Push(&worker->deque, op);
+                        worker->roots_in_slice++;
+                    }
+
+                    gc = next;
+                }
+                // Clear slice pointers so we don't re-scan
+                worker->slice_start = NULL;
+                worker->slice_end = NULL;
+            }
+
+            // =======================================================================
             // Main marking loop with coordinator-based termination
             // =======================================================================
             // Phase 1: Process local buffer (fast path - no fences)
@@ -811,6 +845,18 @@ _PyGC_ParallelGetStats(PyInterpreterState *interp)
         return NULL;
     }
     Py_DECREF(roots_distributed_obj);
+
+    PyObject *gc_roots_found_obj = PyLong_FromSize_t(par_gc->gc_roots_found);
+    if (gc_roots_found_obj == NULL) {
+        Py_DECREF(result);
+        return NULL;
+    }
+    if (PyDict_SetItemString(result, "gc_roots_found", gc_roots_found_obj) < 0) {
+        Py_DECREF(gc_roots_found_obj);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(gc_roots_found_obj);
 
     PyObject *collections_attempted_obj = PyLong_FromSize_t(par_gc->parallel_collections_attempted);
     if (collections_attempted_obj == NULL) {
@@ -1483,169 +1529,90 @@ _PyGC_ParallelMoveUnreachable(
     par_gc->parallel_collections_attempted++;
 
     // ==========================================================================
-    // STEP 1: Count total objects and assign static slices to workers
+    // Use split vector for parallel segment assignment
     // ==========================================================================
-    //
-    // Static slicing (like CinderX's Ci_assign_worker_slices) gives each worker
-    // a contiguous portion of the GC list. This preserves temporal locality:
-    // - CPython's GC list is in allocation order (newest at head)
-    // - Objects allocated together tend to reference each other
-    // - Keeping them on the same worker reduces cross-worker cache invalidation
-    // - Work-stealing still handles load imbalance for uneven slices
-    //
-    // This replaces the old round-robin root distribution which scattered
-    // related objects across workers, maximizing cache thrashing.
+    // The split vector was created during update_refs and divides the GC list
+    // into ~8192-object segments. Workers scan their segments in parallel.
+    // Threshold decisions (whether to use parallel) are made in deduce_unreachable
+    // after update_refs_with_splits - if we get here, we proceed with parallel.
+    _PyGCSplitVector *splits = &par_gc->split_vector;
 
-    PyGC_Head *gc = _PyGCHead_NEXT(young);
-    size_t total_objects = 0;
-    size_t total_roots = 0;
-
-    // First pass: count total objects and roots
-    // Objects already marked (COLLECTING cleared) by mark_alive_from_roots are treated as roots
-    // (they're already known reachable and don't need parallel processing)
-    while (gc != young) {
-        total_objects++;
-        // Objects with COLLECTING cleared are already marked as reachable
-        if (!gc_is_collecting(gc)) {
-            total_roots++;
-        }
-        else {
-            Py_ssize_t refs = gc_get_refs(gc);
-            if (refs > 0) {
-                total_roots++;
-            }
-        }
-        gc = _PyGCHead_NEXT(gc);
-    }
-
-    // If no roots or too few objects, fall back to serial.
-    //
-    // Parallel marking has fixed overhead from:
-    // - Atomic CAS operations in work-stealing deque
-    // - Barrier synchronization between workers
-    // - Cache coherency traffic between cores
-    //
-    // This overhead is only amortized for larger heaps. Require:
-    // - Minimum 10,000 total objects (base overhead threshold)
-    // - At least 1,000 objects per worker (work distribution threshold)
-    //
-    // Below these thresholds, serial marking is faster.
-    const size_t MIN_TOTAL_OBJECTS = 10000;
-    const size_t MIN_OBJECTS_PER_WORKER = 1000;
-    size_t min_threshold = par_gc->num_workers * MIN_OBJECTS_PER_WORKER;
-    if (min_threshold < MIN_TOTAL_OBJECTS) {
-        min_threshold = MIN_TOTAL_OBJECTS;
-    }
-
-    if (total_roots == 0 || total_objects < min_threshold) {
-        return 0;  // Not worth parallelizing
-    }
-
-    // Update statistics
-    par_gc->roots_found = total_roots;
-    par_gc->roots_distributed = 0;  // Will be updated as we find roots in slices
-
-    // ==========================================================================
-    // STEP 2: Assign contiguous slices to workers and find roots
-    // ==========================================================================
-    //
-    // Each worker gets a contiguous slice: objects [i*N/W, (i+1)*N/W)
-    // Where N = total_objects, W = num_workers, i = worker index
-    //
-    // Benefits over round-robin:
-    // CHUNKED STRIPING: Balance locality with distribution
-    // - Objects in same 1024-chunk go to same worker (cache locality)
-    // - Chunks distributed across workers (breaks anti-patterns)
-    // - For layered heaps: each layer spans all workers
-    (void)total_objects;  // Unused with chunked striping
-    size_t seen = 0;
-    size_t distributed = 0;
-
-    // Reset worker slice tracking and local buffers
+    // Reset worker state for this collection
     for (size_t i = 0; i < par_gc->num_workers; i++) {
         _PyParallelGCWorker *worker = &par_gc->workers[i];
-        worker->slice_start = NULL;
-        worker->slice_end = NULL;
         worker->roots_in_slice = 0;
-        // Reset local buffer for new collection (no fences, just zero count)
         _PyGCLocalBuffer_Reset(&worker->local_buffer);
     }
 
-    gc = _PyGCHead_NEXT(young);
-    while (gc != young) {
-        // CHUNKED STRIPING: Assign objects in chunks of 1024 to workers
-        // This balances locality (1024 objects together) with distribution
-        // (each layer spans all workers, breaking anti-patterns in layered heaps)
-        #define CHUNK_SIZE 1024
-        size_t chunk_id = seen / CHUNK_SIZE;
-        size_t worker_idx = chunk_id % par_gc->num_workers;
+    // Divide split vector entries among workers (same pattern as subtract_refs)
+    size_t entries_per_worker = splits->count / par_gc->num_workers;
+    if (entries_per_worker < 1) {
+        entries_per_worker = 1;
+    }
 
-        _PyParallelGCWorker *worker = &par_gc->workers[worker_idx];
+    size_t workers_to_use = 0;
+    for (size_t i = 0; i < par_gc->num_workers; i++) {
+        size_t start_idx = i * entries_per_worker;
+        size_t end_idx;
 
-        // Track slice boundaries for debugging/stats
-        if (worker->slice_start == NULL) {
-            worker->slice_start = gc;
-        }
-        worker->slice_end = _PyGCHead_NEXT(gc);
-
-        // Check if this object is already marked (COLLECTING cleared by mark_alive_from_roots)
-        if (!gc_is_collecting(gc)) {
-            // Already marked as reachable by mark_alive_from_roots.
-            // All referents are also marked, so no need to push to deque.
-            // COLLECTING is already cleared.
-            distributed++;
-        }
-        // Check if this object is a root (has external references)
-        else {
-            Py_ssize_t refs = gc_get_refs(gc);
-            if (refs > 0) {
-                // This is a root - mark as reachable and push to this worker's deque
-                PyObject *op = _Py_FROM_GC(gc);
-
-                // Mark root as reachable by clearing COLLECTING flag
-                // (This must be done BEFORE workers start, so no CAS needed here)
-                gc->_gc_prev &= ~_PyGC_PREV_MASK_COLLECTING;
-
-                _PyWSDeque_Push(&worker->deque, op);
-                worker->roots_in_slice++;
-                distributed++;
+        if (i == par_gc->num_workers - 1) {
+            // Last worker gets everything remaining
+            end_idx = splits->count - 1;
+        } else {
+            end_idx = (i + 1) * entries_per_worker;
+            if (end_idx >= splits->count) {
+                end_idx = splits->count - 1;
             }
         }
 
-        gc = _PyGCHead_NEXT(gc);
-        seen++;
+        if (start_idx >= splits->count - 1) {
+            // No work for this worker
+            par_gc->workers[i].slice_start = NULL;
+            par_gc->workers[i].slice_end = NULL;
+            par_gc->workers[i].phase = _PyGC_PHASE_IDLE;
+        } else {
+            par_gc->workers[i].slice_start = splits->entries[start_idx];
+            par_gc->workers[i].slice_end = splits->entries[end_idx];
+            par_gc->workers[i].phase = _PyGC_PHASE_MARK;
+            workers_to_use++;
+        }
     }
 
-    // Update statistics
-    par_gc->roots_distributed = distributed;
+    if (workers_to_use == 0) {
+        // No parallel work done - reset gc_roots_found to be consistent with
+        // roots_in_slice (which is already 0)
+        par_gc->gc_roots_found = 0;
+        return 0;  // No workers assigned, fall back to serial
+    }
 
     // ==========================================================================
-    // STEP 3: Signal workers to start and wait for completion
+    // Signal workers to start and wait for completion
     // ==========================================================================
-    //
-    // Use barriers to coordinate with worker threads:
-    // 1. mark_barrier: Release workers to start marking
-    // 2. done_barrier: Wait for all workers to finish
+    // Workers will:
+    // 1. Scan their segments for roots (gc_refs > 0, COLLECTING set)
+    // 2. Push roots to their own deques
+    // 3. Do work-stealing parallel marking
 
     // Initialize coordinator-based termination state for this collection
-    // All workers start as "marking", coordinator will detect when all are idle
-    _Py_atomic_store_int_release(&par_gc->num_workers_marking, (int)par_gc->num_workers);
+    _Py_atomic_store_int_release(&par_gc->num_workers_marking, (int)workers_to_use);
     par_gc->steal_coordinator = NULL;
-    // Reset semaphore tokens (in case any leaked from previous collection)
     PyMUTEX_LOCK(&par_gc->steal_sema.lock);
     par_gc->steal_sema.tokens = 0;
     PyMUTEX_UNLOCK(&par_gc->steal_sema.lock);
-
-    // Set phase for all workers before signaling
-    for (size_t i = 0; i < par_gc->num_workers; i++) {
-        par_gc->workers[i].phase = _PyGC_PHASE_MARK;
-    }
 
     // Signal workers to start (they're waiting on mark_barrier)
     _PyGCBarrier_Wait(&par_gc->mark_barrier);
 
     // Wait for workers to finish (they'll signal done_barrier when done)
     _PyGCBarrier_Wait(&par_gc->done_barrier);
+
+    // Collect stats from workers - set gc_roots_found for segment scanning roots
+    // (separate from roots_found/roots_distributed set by mark_alive)
+    size_t total_roots = 0;
+    for (size_t i = 0; i < par_gc->num_workers; i++) {
+        total_roots += par_gc->workers[i].roots_in_slice;
+    }
+    par_gc->gc_roots_found = total_roots;
 
     // Record end time for mark phase (only if timing not already captured)
     if (!par_gc->timing_valid) {
@@ -1671,7 +1638,7 @@ _PyGC_ParallelMoveUnreachable(
 
     // Previous element in young list (for restoring _gc_prev pointers)
     PyGC_Head *prev = young;
-    gc = _PyGCHead_NEXT(young);
+    PyGC_Head *gc = _PyGCHead_NEXT(young);
 
     // Flags for unreachable list (preserve old space bit)
     uintptr_t flags = 2 | (gc->_gc_next & _PyGC_NEXT_MASK_OLD_SPACE_1);  // NEXT_MASK_UNREACHABLE = 2
@@ -2173,13 +2140,10 @@ _PyGC_ParallelMarkAliveFromRoots(PyInterpreterState *interp, PyGC_Head *containe
     }
 
     // Collect interpreter roots and distribute to worker deques
+    // Note: We do NOT set roots_found/roots_distributed here.
+    // Those stats are set by segment scanning in move_unreachable,
+    // representing GC roots (objects with gc_refs > 0), not interpreter roots.
     size_t roots_found = gc_collect_interpreter_roots(par_gc, interp);
-
-    // Only update stats if we found roots (don't overwrite previous values)
-    if (roots_found > 0) {
-        par_gc->roots_found = roots_found;
-        par_gc->roots_distributed = roots_found;
-    }
 
     if (roots_found == 0) {
         // No roots to process - still "successful" parallel execution

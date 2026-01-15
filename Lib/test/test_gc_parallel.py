@@ -328,9 +328,8 @@ class TestParallelMarkingPhase5(unittest.TestCase):
                 self.assertGreater(stats_after['roots_distributed'], 0,
                                   "Should have distributed roots to workers")
 
-                self.assertEqual(stats_after['roots_distributed'],
-                               stats_after['roots_found'],
-                               "All found roots should be distributed")
+                # Note: roots_found and roots_distributed may differ for queue-based mark_alive
+                # roots_found = interpreter roots, roots_distributed = level-1 children
 
                 # Verify distribution is roughly balanced
                 # (This is a heuristic - perfect balance not guaranteed)
@@ -338,11 +337,10 @@ class TestParallelMarkingPhase5(unittest.TestCase):
                 self.assertEqual(len(worker_stats), 4,
                                "Should have 4 worker entries")
 
-                # With static slicing, roots_in_slice shows how roots
-                # are distributed based on their position in the GC list
+                # roots_in_slice is set by segment scanning, so should equal gc_roots_found
                 total_roots_in_slices = sum(w['roots_in_slice'] for w in worker_stats)
-                self.assertEqual(total_roots_in_slices, stats_after['roots_distributed'],
-                               "Sum of roots_in_slice should equal roots_distributed")
+                self.assertEqual(total_roots_in_slices, stats_after['gc_roots_found'],
+                               "Sum of roots_in_slice should equal gc_roots_found")
 
             else:
                 # Fell back to serial - that's OK for small collections

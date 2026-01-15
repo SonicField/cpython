@@ -363,8 +363,9 @@ struct _PyParallelGCState {
     int enabled;
 
     // Statistics for TDD/debugging
-    size_t roots_found;                      // Total roots identified in last collection
-    size_t roots_distributed;                // Roots distributed to workers in last collection
+    size_t roots_found;                      // Interpreter roots found by mark_alive
+    size_t roots_distributed;                // Level-1 children distributed to queue by mark_alive
+    size_t gc_roots_found;                   // GC roots found by segment scanning (gc_refs > 0)
     size_t parallel_collections_attempted;   // Times parallel marking was attempted
     size_t parallel_collections_succeeded;   // Times parallel marking was used (vs serial fallback)
 
