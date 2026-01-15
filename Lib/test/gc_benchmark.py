@@ -112,175 +112,240 @@ class ContainerNode:
         self.parent_ref = None  # Will hold weakref for some instances
 
 # =============================================================================
-# Heap Generators
+# Heap Generators - Isolated Cyclic Clusters
 # =============================================================================
+#
+# All heap generators return List[List[Node]] - a list of independent cyclic
+# clusters. This allows survivor_ratio to work correctly by discarding complete
+# clusters, ensuring discarded objects are truly unreachable and can be collected.
+#
+# For FTP (free-threading), GC only collects cyclic garbage - reference counting
+# handles acyclic structures. Creating isolated cycles is essential for meaningful
+# GC benchmarks.
 
-def create_chain(n: int) -> List[Node]:
-    """
-    Create a single linked list chain: A -> B -> C -> ... -> Z
+DEFAULT_CLUSTER_SIZE = 100  # Nodes per cluster
 
-    Parallelizability: VERY LOW
-    - Sequential dependencies mean workers can't split the work
-    - This is the worst case for parallel GC
-    """
-    nodes = [Node() for _ in range(n)]
-    for i in range(n - 1):
-        nodes[i].refs.append(nodes[i + 1])
-    return nodes
 
-def create_tree(n: int, branching: int = 2) -> List[Node]:
+def create_chain(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[List[Node]]:
     """
-    Create a balanced tree with given branching factor.
+    Create isolated circular chains: A -> B -> C -> ... -> Z -> A
+
+    Each cluster is a closed loop, so discarding a cluster creates cyclic garbage.
+
+    Parallelizability: VERY LOW within cluster
+    - Sequential dependencies within each chain
+    - But clusters can be processed independently
+    """
+    clusters = []
+    num_clusters = max(1, n // cluster_size)
+
+    for _ in range(num_clusters):
+        nodes = [Node() for _ in range(cluster_size)]
+        # Make circular
+        for i in range(cluster_size):
+            nodes[i].refs.append(nodes[(i + 1) % cluster_size])
+        clusters.append(nodes)
+
+    return clusters
+
+
+def create_tree(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[List[Node]]:
+    """
+    Create isolated cyclic trees - each tree has back-references to root.
+
+    Each cluster is a tree where leaves reference back to root, creating cycles.
 
     Parallelizability: MEDIUM
-    - Limited by tree depth
-    - Workers can process different subtrees
+    - Tree structure within cluster
+    - Clusters are independent
     """
-    import math
-    # Calculate depth needed for ~n nodes
-    depth = max(1, int(math.log(n * (branching - 1) + 1, branching)))
+    clusters = []
+    num_clusters = max(1, n // cluster_size)
+    branching = 2
 
-    nodes = []
-    level = [Node()]
-    nodes.extend(level)
-
-    for d in range(depth - 1):
-        next_level = []
-        for parent in level:
-            for _ in range(branching):
-                if len(nodes) >= n:
-                    break
-                child = Node()
-                parent.refs.append(child)
-                next_level.append(child)
-                nodes.append(child)
-        level = next_level
-        if len(nodes) >= n:
-            break
-
-    return nodes[:n]
-
-def create_wide_tree(roots: int, children_per_root: int) -> List[Node]:
-    """
-    Create many independent subtrees - best case for parallelism.
-
-    Parallelizability: HIGH
-    - Each root is completely independent
-    - Workers can process different roots in parallel
-    """
-    nodes = []
-    for _ in range(roots):
+    for _ in range(num_clusters):
+        nodes = []
         root = Node()
         nodes.append(root)
-        for _ in range(children_per_root):
+
+        # Build tree
+        level = [root]
+        while len(nodes) < cluster_size:
+            next_level = []
+            for parent in level:
+                for _ in range(branching):
+                    if len(nodes) >= cluster_size:
+                        break
+                    child = Node()
+                    parent.refs.append(child)
+                    # Back-reference to root creates cycle
+                    child.refs.append(root)
+                    next_level.append(child)
+                    nodes.append(child)
+            if not next_level:
+                break
+            level = next_level
+
+        clusters.append(nodes)
+
+    return clusters
+
+
+def create_wide_tree(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[List[Node]]:
+    """
+    Create isolated wide trees with cyclic back-references.
+
+    Each cluster has one root with many children, all children ref back to root.
+
+    Parallelizability: HIGH
+    - Simple structure, easy to traverse
+    - Clusters are independent
+    """
+    clusters = []
+    num_clusters = max(1, n // cluster_size)
+
+    for _ in range(num_clusters):
+        nodes = []
+        root = Node()
+        nodes.append(root)
+
+        for _ in range(cluster_size - 1):
             child = Node()
             root.refs.append(child)
+            child.refs.append(root)  # Back-reference creates cycle
             nodes.append(child)
-    return nodes
 
-def create_graph(n: int, edge_prob: float = 0.3) -> List[Node]:
+        clusters.append(nodes)
+
+    return clusters
+
+
+def create_graph(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[List[Node]]:
     """
-    Create a random graph with cross-references (can have cycles).
+    Create isolated random graphs with internal cycles.
+
+    Each cluster is a fully-connected random graph with many cycles.
 
     Parallelizability: MEDIUM
-    - Some work-stealing opportunities
-    - Cross-references create dependencies
+    - Random structure within cluster
+    - Clusters are independent
     """
-    random.seed(42)  # Reproducible
-    nodes = [Node() for _ in range(n)]
+    clusters = []
+    num_clusters = max(1, n // cluster_size)
 
-    # Add random edges
-    edges_per_node = max(1, int(n * edge_prob / n * 3))  # ~3 edges on average
-    for node in nodes:
-        for _ in range(random.randint(1, edges_per_node)):
-            target = random.choice(nodes)
-            node.refs.append(target)
+    for _ in range(num_clusters):
+        nodes = [Node() for _ in range(cluster_size)]
 
-    return nodes
+        # Add random edges within cluster
+        for node in nodes:
+            for _ in range(random.randint(1, 3)):
+                target = random.choice(nodes)
+                node.refs.append(target)
 
-def create_layered(layers: int, nodes_per_layer: int) -> List[Node]:
+        clusters.append(nodes)
+
+    return clusters
+
+def create_layered(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[List[Node]]:
     """
-    Create a neural network-like structure with sparse connections between layers.
+    Create isolated layered networks with cycles.
 
-    Each node connects to cbrt(nodes_per_layer) random nodes in the previous layer.
-    This models a dense interconnected system while scaling as O(n^(4/3)) instead
-    of O(n²) for fully-connected layers.
+    Each cluster is a mini neural-network-like structure with back-references
+    from the last layer to the first, creating cycles.
 
     Parallelizability: MEDIUM
-    - Layer boundaries provide some parallelism
-    - But connections between layers create dependencies
+    - Layered structure within cluster
+    - Clusters are independent
     """
-    random.seed(42)  # Reproducible
+    clusters = []
+    num_clusters = max(1, n // cluster_size)
+    layers_per_cluster = 4
+    nodes_per_layer = cluster_size // layers_per_cluster
 
-    all_nodes = []
-    prev_layer = None
+    for _ in range(num_clusters):
+        all_nodes = []
+        first_layer = None
+        prev_layer = None
 
-    # Each node connects to cbrt(layer_size) nodes in previous layer
-    # Cube root keeps it dense but scales as O(n^(4/3)) instead of O(n^(3/2))
-    connections_per_node = max(1, int(nodes_per_layer ** (1/3)))
+        for layer_idx in range(layers_per_cluster):
+            layer = [Node() for _ in range(nodes_per_layer)]
+            all_nodes.extend(layer)
 
-    for _ in range(layers):
-        layer = [Node() for _ in range(nodes_per_layer)]
-        all_nodes.extend(layer)
+            if first_layer is None:
+                first_layer = layer
 
-        if prev_layer:
-            # Use random.choices for batch sampling (faster than per-element)
-            for node in layer:
-                node.refs = random.choices(prev_layer, k=connections_per_node)
+            if prev_layer:
+                # Connect to previous layer
+                for node in layer:
+                    node.refs.append(random.choice(prev_layer))
 
-        prev_layer = layer
+            prev_layer = layer
 
-    return all_nodes
+        # Back-reference from last layer to first creates cycles
+        if prev_layer and first_layer:
+            for node in prev_layer:
+                node.refs.append(random.choice(first_layer))
 
-def create_independent(n: int) -> List[Node]:
+        clusters.append(all_nodes)
+
+    return clusters
+
+
+def create_independent(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[List[Node]]:
     """
-    Create many isolated objects with no references.
+    Create isolated self-referencing clusters.
+
+    Each cluster contains nodes that reference each other in a cycle.
+    This is the simplest cyclic structure - each node refs the next.
 
     Parallelizability: HIGHEST
-    - No dependencies at all
-    - Workers can process any object independently
+    - Simple structure, minimal traversal
+    - Clusters are independent
     """
-    return [Node() for _ in range(n)]
+    clusters = []
+    num_clusters = max(1, n // cluster_size)
+
+    for _ in range(num_clusters):
+        nodes = [Node() for _ in range(cluster_size)]
+        # Simple cycle: each node refs the next
+        for i in range(cluster_size):
+            nodes[i].refs.append(nodes[(i + 1) % cluster_size])
+        clusters.append(nodes)
+
+    return clusters
 
 
-def create_ai_workload(n: int) -> list:
+def create_ai_workload(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[List[Node]]:
     """
-    Create a realistic AI-workload-like heap structure.
+    Create isolated AI-workload-like clusters with cycles.
 
-    Models tensor/model objects in ML frameworks:
+    Each cluster models a mini ML computation graph:
     - ContainerNode parents with list and dict children
-    - 10% of children have finalizers (resource cleanup)
-    - 10% have weakrefs back to parents (caching/observers)
-    - Hybrid layered + graph structure with cross-layer connections
+    - 10% of children have finalizers
+    - Cross-references within cluster create cycles
 
     Parallelizability: MEDIUM
-    - Layered structure provides some parallelism
-    - Cross-references and finalizers add complexity
+    - Complex structure within cluster
+    - Clusters are independent
     """
-    import weakref
-    random.seed(42)  # Reproducible
 
-    all_nodes = []
+    clusters = []
+    num_clusters = max(1, n // cluster_size)
 
-    # Create in layers (like neural network layers or pipeline stages)
-    num_layers = 8
-    nodes_per_layer = n // num_layers
+    for _ in range(num_clusters):
+        all_nodes = []
 
-    prev_layer = []
+        # Create parent-child structure with cycles
+        num_parents = cluster_size // 6  # Each parent has ~5 children
 
-    for layer_idx in range(num_layers):
-        layer = []
-
-        for i in range(nodes_per_layer):
-            # Parent is a ContainerNode with dict storage
+        parents = []
+        for _ in range(num_parents):
             parent = ContainerNode()
-            layer.append(parent)
+            parents.append(parent)
             all_nodes.append(parent)
 
-            # Each parent has 3-8 children
-            num_children = random.randint(3, 8)
-            for j in range(num_children):
-                # 10% are finalizer nodes
+            # Add 3-5 children
+            for j in range(random.randint(3, 5)):
                 if random.random() < 0.1:
                     child = FinalizerNode()
                 else:
@@ -288,37 +353,32 @@ def create_ai_workload(n: int) -> list:
 
                 all_nodes.append(child)
 
-                # Add to parent's list or dict randomly
                 if random.random() < 0.5:
                     parent.children_list.append(child)
                 else:
                     parent.children_dict[f"child_{j}"] = child
 
-                # 10% have weakref back to parent
-                if random.random() < 0.1:
-                    try:
-                        child.data = weakref.ref(parent)
-                    except TypeError:
-                        pass  # Some objects don't support weakrefs
+                # Back-reference to parent creates cycle
+                child.refs.append(parent)
 
-            # Cross-layer connections (graph-like)
-            if prev_layer:
-                # Connect to 1-3 random nodes from previous layer
-                num_connections = random.randint(1, min(3, len(prev_layer)))
-                for target in random.sample(prev_layer, num_connections):
-                    parent.children_list.append(target)
+        # Cross-references between parents (more cycles)
+        for parent in parents:
+            if parents:
+                parent.children_list.append(random.choice(parents))
 
-        prev_layer = layer
+        clusters.append(all_nodes)
 
-    return all_nodes
+    return clusters
+
 
 # Map heap type names to generator functions
+# All generators return List[List[Node]] - a list of independent cyclic clusters
 HEAP_GENERATORS = {
     'chain': lambda n: create_chain(n),
-    'tree': lambda n: create_tree(n, branching=2),
-    'wide_tree': lambda n: create_wide_tree(n // 11, 10),  # ~n nodes total
-    'graph': lambda n: create_graph(n, edge_prob=0.3),
-    'layered': lambda n: create_layered(10, n // 10),  # 10 layers
+    'tree': lambda n: create_tree(n),
+    'wide_tree': lambda n: create_wide_tree(n),
+    'graph': lambda n: create_graph(n),
+    'layered': lambda n: create_layered(n),
     'independent': lambda n: create_independent(n),
     'ai_workload': lambda n: create_ai_workload(n),
 }
@@ -328,24 +388,26 @@ HEAP_GENERATORS = {
 # =============================================================================
 
 def create_objects_multithreaded(heap_type: str, total_objects: int,
-                                  num_threads: int) -> List[Node]:
+                                  num_threads: int) -> List[List[Node]]:
     """
     Create objects across multiple threads.
 
     This simulates real-world scenarios where objects are created by
     different threads and may be distributed across per-thread heaps.
+
+    Returns a list of clusters (each cluster is a list of nodes).
     """
     if num_threads <= 1:
         return HEAP_GENERATORS[heap_type](total_objects)
 
     objects_per_thread = total_objects // num_threads
-    all_nodes = []
+    all_clusters = []
     lock = threading.Lock()
 
     def create_worker(thread_id: int):
-        nodes = HEAP_GENERATORS[heap_type](objects_per_thread)
+        clusters = HEAP_GENERATORS[heap_type](objects_per_thread)
         with lock:
-            all_nodes.extend(nodes)
+            all_clusters.extend(clusters)
 
     threads = []
     for i in range(num_threads):
@@ -356,7 +418,7 @@ def create_objects_multithreaded(heap_type: str, total_objects: int,
     for t in threads:
         t.join()
 
-    return all_nodes
+    return all_clusters
 
 # =============================================================================
 # Benchmark Result Data Structures
@@ -460,41 +522,43 @@ class GCBenchmark:
             for _ in range(self.warmup):
                 random.seed(self.seed)
                 if BUILD_TYPE == "ftp" and creation_threads > 1:
-                    objects = create_objects_multithreaded(heap_type, heap_size, creation_threads)
+                    clusters = create_objects_multithreaded(heap_type, heap_size, creation_threads)
                 else:
-                    objects = HEAP_GENERATORS[heap_type](heap_size)
+                    clusters = HEAP_GENERATORS[heap_type](heap_size)
 
-                # Apply survivor ratio
+                # Apply survivor ratio - discard complete clusters
+                # This ensures discarded objects are truly unreachable (cyclic garbage)
                 if survivor_ratio < 1.0:
-                    num_keep = int(len(objects) * survivor_ratio)
+                    num_keep = int(len(clusters) * survivor_ratio)
                     if num_keep > 0:
-                        random.shuffle(objects)
-                        objects = objects[:num_keep]
+                        random.shuffle(clusters)
+                        clusters = clusters[:num_keep]
                     else:
-                        objects = []
+                        clusters = []
 
                 gc.collect()
-                del objects
+                del clusters
                 gc.collect()
 
             # Timed runs
             for _ in range(self.iterations):
                 random.seed(self.seed)
                 if BUILD_TYPE == "ftp" and creation_threads > 1:
-                    objects = create_objects_multithreaded(heap_type, heap_size, creation_threads)
+                    clusters = create_objects_multithreaded(heap_type, heap_size, creation_threads)
                 else:
-                    objects = HEAP_GENERATORS[heap_type](heap_size)
+                    clusters = HEAP_GENERATORS[heap_type](heap_size)
 
-                # Apply survivor ratio
+                # Apply survivor ratio - discard complete clusters
+                # This ensures discarded objects are truly unreachable (cyclic garbage)
                 keep_refs = None
                 if survivor_ratio < 1.0:
-                    num_keep = int(len(objects) * survivor_ratio)
+                    num_keep = int(len(clusters) * survivor_ratio)
                     if num_keep > 0:
-                        random.shuffle(objects)
-                        keep_refs = objects[:num_keep]
-                    objects = None  # Release original list
+                        random.shuffle(clusters)
+                        keep_refs = clusters[:num_keep]
+                    clusters = None  # Release original list
                 else:
-                    keep_refs = objects
+                    keep_refs = clusters
 
                 # Time the GC
                 start = time.perf_counter()

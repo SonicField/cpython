@@ -222,6 +222,34 @@ def create_ai_workload(size: int) -> List:
 
 
 # =============================================================================
+# Heap Creation with Cycles
+# =============================================================================
+
+
+def create_cyclic_heap(size: int, cluster_size: int = 100) -> List:
+    """
+    Create a heap with isolated cyclic clusters.
+
+    Returns a flat list of objects where clusters form internal cycles.
+    This ensures the heap has both live objects and potential for cyclic garbage.
+    """
+    all_objects = []
+    num_clusters = max(1, size // cluster_size)
+
+    for _ in range(num_clusters):
+        # Create cluster of nodes
+        cluster = [Node() for _ in range(cluster_size)]
+
+        # Form cycle: each node refs next, last refs first
+        for i in range(cluster_size):
+            cluster[i].refs.append(cluster[(i + 1) % cluster_size])
+
+        all_objects.extend(cluster)
+
+    return all_objects
+
+
+# =============================================================================
 # Throughput Benchmark
 # =============================================================================
 
@@ -265,9 +293,9 @@ def run_throughput_benchmark(
 
         print(f"Building initial heap ({heap_size} objects)...")
 
-        # Phase 1: Build initial heap
+        # Phase 1: Build initial heap with cyclic clusters
         gc.disable()  # Don't count setup GC
-        heap = create_ai_workload(heap_size)
+        heap = create_cyclic_heap(heap_size)
         gc.collect()  # Clean up any garbage from setup
         gc.enable()
 
@@ -288,16 +316,21 @@ def run_throughput_benchmark(
         end_time = start_time + duration_seconds
 
         while time.perf_counter() < end_time:
-            # Create batch of new objects with references to heap
-            # This creates "garbage" - objects that will become unreachable
+            # Create batch of new objects that form cycles among themselves
+            # This creates CYCLIC garbage that requires GC to collect
             new_objects = []
             for i in range(churn_size):
                 obj = Node()
-                if heap and i % 3 == 0:
-                    obj.refs.append(random.choice(heap))
-                if new_objects and i % 2 == 0:
-                    obj.refs.append(random.choice(new_objects))
                 new_objects.append(obj)
+
+            # Create cycles within the batch: each object refs the next, last refs first
+            for i in range(len(new_objects)):
+                new_objects[i].refs.append(new_objects[(i + 1) % len(new_objects)])
+
+            # Also add some refs to the heap (one-way, doesn't affect cycle)
+            for i, obj in enumerate(new_objects):
+                if heap and i % 5 == 0:
+                    obj.refs.append(random.choice(heap))
 
             # Add to heap temporarily, then remove to create garbage pattern
             heap.extend(new_objects)
