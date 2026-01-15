@@ -151,6 +151,27 @@ _parallel_gc_visit_and_enqueue(PyObject *op, void *arg)
 }
 
 // =============================================================================
+// Shared Helper: Drain Local Buffer
+// =============================================================================
+// Process all objects in local buffer, traversing and discovering children.
+// Used by both PHASE_MARK_ALIVE_QUEUE and PHASE_MARK.
+
+static inline void
+drain_local_buffer(_PyParallelGCWorker *worker)
+{
+    while (!_PyGCLocalBuffer_IsEmpty(&worker->local_buffer)) {
+        PyObject *obj = _PyGCLocalBuffer_Pop(&worker->local_buffer);
+        worker->objects_marked++;
+
+        traverseproc traverse = Py_TYPE(obj)->tp_traverse;
+        if (traverse != NULL) {
+            traverse(obj, (visitproc)_parallel_gc_visit_and_enqueue, worker);
+            worker->traversals_performed++;
+        }
+    }
+}
+
+// =============================================================================
 // Batch Operations (use shared implementations from pycore_ws_deque.h)
 // =============================================================================
 
@@ -264,53 +285,36 @@ _parallel_gc_worker_thread(void *arg)
                         }
                     }
 
-                    // Process any locally discovered children (depth-first)
-                    // This drains our local buffer/deque before claiming more from queue
-                    while (!_PyGCLocalBuffer_IsEmpty(&worker->local_buffer)) {
-                        PyObject *obj = _PyGCLocalBuffer_Pop(&worker->local_buffer);
-                        worker->objects_marked++;
-
-                        traverseproc traverse = Py_TYPE(obj)->tp_traverse;
-                        if (traverse != NULL) {
-                            traverse(obj, (visitproc)_parallel_gc_visit_and_enqueue, worker);
-                            worker->traversals_performed++;
-                        }
-                    }
-
-                    // Also drain own deque if local buffer was emptied
+                    // Drain local buffer and deque before claiming more from queue
+                    drain_local_buffer(worker);
                     refill_local_buffer_from_deque(worker);
-                    while (!_PyGCLocalBuffer_IsEmpty(&worker->local_buffer)) {
-                        PyObject *obj = _PyGCLocalBuffer_Pop(&worker->local_buffer);
-                        worker->objects_marked++;
-
-                        traverseproc traverse = Py_TYPE(obj)->tp_traverse;
-                        if (traverse != NULL) {
-                            traverse(obj, (visitproc)_parallel_gc_visit_and_enqueue, worker);
-                            worker->traversals_performed++;
-                        }
-                    }
+                    drain_local_buffer(worker);
                 }
             }
             break;
 
         case _PyGC_PHASE_MARK_ALIVE:
-            // Falls through to PHASE_MARK - same work-stealing traversal logic
-            // The only difference is how roots are distributed (interpreter roots
-            // vs objects with gc_refs > 0), but traversal is identical
+            // Falls through to PHASE_MARK - uses local-only marking
+            // (PHASE_MARK_ALIVE is no longer used, but kept for compatibility)
         case _PyGC_PHASE_MARK:
         default:
             // =======================================================================
-            // Segment scanning: find roots in our segment and push to deque
+            // Simplified Local-Only Marking (no work-stealing)
             // =======================================================================
-            // Workers scan their assigned segments in parallel, finding roots
-            // (objects with gc_refs > 0 and COLLECTING flag still set).
+            // Workers scan their segment, find roots, mark locally.
+            // No stealing from other workers - just process own buffer and deque.
+            //
+            // This is sufficient because mark_alive already covered interpreter roots,
+            // so gc_roots_found ≈ 0 and any residual work is small.
+
+            // Step 1: Scan segment for roots (gc_refs > 0, still collecting)
             if (worker->slice_start != NULL && worker->slice_end != NULL) {
                 PyGC_Head *gc = worker->slice_start;
                 PyGC_Head *end = worker->slice_end;
                 while (gc != end) {
                     PyGC_Head *next = _PyGCHead_NEXT(gc);
 
-                    // Skip objects already marked reachable (COLLECTING cleared)
+                    // Skip objects already marked reachable
                     if (!gc_is_collecting(gc)) {
                         gc = next;
                         continue;
@@ -319,122 +323,33 @@ _parallel_gc_worker_thread(void *arg)
                     // Check if this is a root (has external references)
                     Py_ssize_t refs = gc_get_refs(gc);
                     if (refs > 0) {
-                        // Mark as reachable and push to our deque
+                        // Mark as reachable and push to local buffer
                         gc->_gc_prev &= ~_PyGC_PREV_MASK_COLLECTING;
                         PyObject *op = _Py_FROM_GC(gc);
-                        _PyWSDeque_Push(&worker->deque, op);
                         worker->roots_in_slice++;
+
+                        // Push to local buffer (use existing visitor's overflow handling)
+                        if (_PyGCLocalBuffer_IsFull(&worker->local_buffer)) {
+                            _PyGC_OverflowFlush(&worker->local_buffer, &worker->deque);
+                        }
+                        _PyGCLocalBuffer_Push(&worker->local_buffer, op);
                     }
 
                     gc = next;
                 }
-                // Clear slice pointers so we don't re-scan
+                // Clear slice pointers
                 worker->slice_start = NULL;
                 worker->slice_end = NULL;
             }
 
-            // =======================================================================
-            // Main marking loop with coordinator-based termination
-            // =======================================================================
-            // Phase 1: Process local buffer (fast path - no fences)
-            // Phase 2: Refill from own deque (batch pull)
-            // Phase 3: Batch steal from other workers
-            // Termination: Coordinator detects all workers idle AND no work remains
-            //
-            // This replaces the old fixed-attempt termination (exit after N failed
-            // steals) with accurate termination detection that avoids both:
-            // - False termination (exiting while work remains in other deques)
-            // - Wasted spins (idle workers sleep instead of spinning)
-            {
-                int consecutive_failed_steals = 0;
-
-                do {
-                    // ===========================================================
-                    // Inner work loop: process local buffer, deque, and steal
-                    // ===========================================================
-                    while (1) {
-                        // ================================================================
-                        // PHASE 1: Process local buffer (FAST PATH - zero fences!)
-                        // ================================================================
-                        while (!_PyGCLocalBuffer_IsEmpty(&worker->local_buffer)) {
-                            consecutive_failed_steals = 0;  // Got work, reset counter
-                            PyObject *obj = _PyGCLocalBuffer_Pop(&worker->local_buffer);
-
-                            // Prefetch next object's type to hide memory latency
-                            if (!_PyGCLocalBuffer_IsEmpty(&worker->local_buffer)) {
-                                PyObject *next_obj = worker->local_buffer.items[
-                                    worker->local_buffer.count - 1];
-                                _PyGC_PREFETCH_T2(Py_TYPE(next_obj));
-                            }
-
-                            worker->objects_marked++;
-
-                            // Call tp_traverse to discover children
-                            traverseproc traverse = Py_TYPE(obj)->tp_traverse;
-                            if (traverse != NULL) {
-                                traverse(obj, (visitproc)_parallel_gc_visit_and_enqueue, worker);
-                                worker->traversals_performed++;
-                            }
-                        }
-
-                        // ================================================================
-                        // PHASE 2: Refill from own deque (batch pull ~512 items)
-                        // ================================================================
-                        refill_local_buffer_from_deque(worker);
-                        if (!_PyGCLocalBuffer_IsEmpty(&worker->local_buffer)) {
-                            continue;  // Got work from deque, continue Phase 1
-                        }
-
-                        // ================================================================
-                        // PHASE 3: Batch steal from other workers (~512 items)
-                        // ================================================================
-                        // Try to steal from a random victim
-                        worker->steal_seed = worker->steal_seed * 1103515245 + 12345;
-                        size_t victim_id = (worker->steal_seed / 65536) % par_gc->num_workers;
-                        if (victim_id == worker->thread_id) {
-                            victim_id = (victim_id + 1) % par_gc->num_workers;
-                        }
-
-                        _PyParallelGCWorker *victim = &par_gc->workers[victim_id];
-                        worker->steal_attempts++;
-
-                        size_t batch_stolen = steal_batch_from_worker(worker, victim);
-                        if (batch_stolen > 0) {
-                            worker->steal_successes += batch_stolen;
-                            consecutive_failed_steals = 0;  // Got work!
-                            // Continue to Phase 1 with stolen work
-                        }
-                        else {
-                            consecutive_failed_steals++;
-                            // After trying each worker once, go to coordinator election
-                            if (consecutive_failed_steals >= (int)par_gc->num_workers) {
-                                break;  // Exit inner loop, try coordinator election
-                            }
-                            // Brief backoff before trying next victim
-                            for (int i = 0; i < 4; i++) {
-                                _Py_cpu_relax();
-                            }
-                        }
-                    }
-
-                    // ===========================================================
-                    // Coordinator election: try to become coordinator or sleep
-                    // ===========================================================
-                    if (_PyGCWorker_TakeCoordinator(worker)) {
-                        // We are the coordinator: poll deques, wake workers or terminate
-                        _PyGCWorker_CoordinateStealing(worker);
-                        _PyGCWorker_DropCoordinator(worker);
-                        consecutive_failed_steals = 0;  // May have woken workers, retry
-                    }
-                    else {
-                        // Another worker is coordinator, sleep until woken
-                        // CRITICAL: decrement BEFORE waiting (coordinator sees accurate count)
-                        _Py_atomic_add_int(&par_gc->num_workers_marking, -1);
-                        _PyGCSemaphore_Wait(&par_gc->steal_sema);
-                        consecutive_failed_steals = 0;  // Woken up, retry stealing
-                    }
-
-                } while (_Py_atomic_load_int_acquire(&par_gc->num_workers_marking) > 0);
+            // Step 2: Process local buffer and own deque until both empty
+            // No stealing - just local work
+            while (1) {
+                drain_local_buffer(worker);
+                refill_local_buffer_from_deque(worker);
+                if (_PyGCLocalBuffer_IsEmpty(&worker->local_buffer)) {
+                    break;  // Both buffer and deque empty - done
+                }
             }
             break;
 
@@ -1590,15 +1505,8 @@ _PyGC_ParallelMoveUnreachable(
     // ==========================================================================
     // Workers will:
     // 1. Scan their segments for roots (gc_refs > 0, COLLECTING set)
-    // 2. Push roots to their own deques
-    // 3. Do work-stealing parallel marking
-
-    // Initialize coordinator-based termination state for this collection
-    _Py_atomic_store_int_release(&par_gc->num_workers_marking, (int)workers_to_use);
-    par_gc->steal_coordinator = NULL;
-    PyMUTEX_LOCK(&par_gc->steal_sema.lock);
-    par_gc->steal_sema.tokens = 0;
-    PyMUTEX_UNLOCK(&par_gc->steal_sema.lock);
+    // 2. Mark roots and traverse their subgraphs locally
+    // (No work-stealing - simplified local-only marking)
 
     // Signal workers to start (they're waiting on mark_barrier)
     _PyGCBarrier_Wait(&par_gc->mark_barrier);
