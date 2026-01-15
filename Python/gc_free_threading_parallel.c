@@ -1975,57 +1975,6 @@ _PyGC_ThreadPoolGetCollectionsCompleted(PyInterpreterState *interp)
     return pool->collections_completed;
 }
 
-//=============================================================================
-// Level-1 Expansion for mark_alive
-//=============================================================================
-//
-// Like GIL build, we expand interpreter roots by one level before distribution.
-// This creates many more work items, reducing the need for work-stealing.
-
-// Context for level-1 visitor
-typedef struct {
-    _PyGCThreadPool *pool;
-    int current_worker;
-    int num_workers;
-    size_t items_pushed;
-} _PyGCLevel1Context;
-
-// Visitor callback for level-1 expansion
-// Pushes each child to worker deques round-robin
-static int
-_level1_visitor(PyObject *child, void *arg)
-{
-    _PyGCLevel1Context *ctx = (_PyGCLevel1Context *)arg;
-
-    // Skip NULL and non-GC objects
-    if (child == NULL || !_PyObject_IS_GC(child)) {
-        return 0;
-    }
-
-    // Skip untracked objects
-    if (!_PyObject_GC_IS_TRACKED(child)) {
-        return 0;
-    }
-
-    // Skip frozen objects
-    if (child->ob_gc_bits & _PyGC_BITS_FROZEN) {
-        return 0;
-    }
-
-    // Try to mark child alive (atomic)
-    if (_PyGC_TryMarkAlive(child)) {
-        // We marked it first - push to worker deque
-        int worker_id = ctx->current_worker;
-        _PyWSDeque_Push(&ctx->pool->workers[worker_id].deque, child);
-        ctx->items_pushed++;
-
-        // Round-robin to next worker
-        ctx->current_worker = (ctx->current_worker + 1) % ctx->num_workers;
-    }
-
-    return 0;
-}
-
 // New parallel propagate using thread pool with barrier synchronization
 int
 _PyGC_ParallelPropagateAliveWithPool(PyInterpreterState *interp,
@@ -2058,30 +2007,16 @@ _PyGC_ParallelPropagateAliveWithPool(PyInterpreterState *interp,
     };
     pool->current_work = &work;
 
-    // Level-1 expansion: traverse each root's immediate children
-    // This creates many more work items, reducing need for work-stealing
-    _PyGCLevel1Context ctx = {
-        .pool = pool,
-        .current_worker = 0,
-        .num_workers = num_workers,
-        .items_pushed = 0,
-    };
-
+    // Distribute roots round-robin to worker deques
+    // Do this BEFORE signaling workers to start
     for (size_t i = 0; i < num_roots; i++) {
         PyObject *root = initial_roots[i];
-        if (root == NULL || !_PyObject_IS_GC(root)) {
-            continue;
-        }
-
-        // Mark root as alive
-        if (!_PyGC_TryMarkAlive(root)) {
-            continue;  // Already marked by another path
-        }
-
-        // Expand root by one level: traverse its children
-        traverseproc traverse = Py_TYPE(root)->tp_traverse;
-        if (traverse != NULL) {
-            traverse(root, _level1_visitor, &ctx);
+        if (root != NULL && _PyObject_IS_GC(root)) {
+            // Mark root as alive
+            _PyGC_TryMarkAlive(root);
+            // Push to worker's deque
+            int worker_id = i % num_workers;
+            _PyWSDeque_Push(&pool->workers[worker_id].deque, root);
         }
     }
 
