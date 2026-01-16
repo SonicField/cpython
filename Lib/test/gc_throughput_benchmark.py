@@ -44,8 +44,10 @@ BUILD_TYPE = detect_build()
 class PauseTracker:
     """Tracks GC pause times using gc.callbacks."""
     pauses_ms: List[float] = field(default_factory=list)
+    collected_counts: List[int] = field(default_factory=list)
     gc_start_time: Optional[float] = None
     total_collections: int = 0
+    zero_collections: int = 0  # Collections that returned 0 (possibly coalesced)
 
     def gc_callback(self, phase: str, info: dict):
         """Called by gc module at start/stop of each collection."""
@@ -56,13 +58,20 @@ class PauseTracker:
                 pause_ms = (time.perf_counter() - self.gc_start_time) * 1000
                 self.pauses_ms.append(pause_ms)
                 self.total_collections += 1
+                # Track collected count from info dict
+                collected = info.get('collected', 0)
+                self.collected_counts.append(collected)
+                if collected == 0:
+                    self.zero_collections += 1
                 self.gc_start_time = None
 
     def reset(self):
         """Reset tracking for a new measurement period."""
         self.pauses_ms.clear()
+        self.collected_counts.clear()
         self.gc_start_time = None
         self.total_collections = 0
+        self.zero_collections = 0
 
     def summary(self) -> dict:
         """Return pause statistics."""
@@ -74,6 +83,7 @@ class PauseTracker:
                 "max_ms": 0,
                 "p99_ms": 0,
                 "p95_ms": 0,
+                "zero_count": 0,
             }
 
         sorted_pauses = sorted(self.pauses_ms)
@@ -87,6 +97,7 @@ class PauseTracker:
             "max_ms": max(self.pauses_ms),
             "p99_ms": sorted_pauses[min(p99_idx, len(sorted_pauses) - 1)],
             "p95_ms": sorted_pauses[min(p95_idx, len(sorted_pauses) - 1)],
+            "zero_count": self.zero_collections,
         }
 
 # =============================================================================
@@ -257,6 +268,7 @@ def run_throughput_benchmark(
     heap_size: int,
     duration_seconds: float,
     parallel_workers: Optional[int],
+    heap_type: str = "cyclic",
     survivor_ratio: float = 0.8,
     gc_threshold: int = 500,
     seed: int = 42,
@@ -291,11 +303,14 @@ def run_throughput_benchmark(
                 pass
             mode = "serial"
 
-        print(f"Building initial heap ({heap_size} objects)...")
+        print(f"Building initial heap ({heap_size} objects, {heap_type})...")
 
-        # Phase 1: Build initial heap with cyclic clusters
+        # Phase 1: Build initial heap
         gc.disable()  # Don't count setup GC
-        heap = create_cyclic_heap(heap_size)
+        if heap_type == "ai":
+            heap = create_ai_workload(heap_size)
+        else:
+            heap = create_cyclic_heap(heap_size)
         gc.collect()  # Clean up any garbage from setup
         gc.enable()
 
@@ -352,6 +367,14 @@ def run_throughput_benchmark(
         # Get pause summary
         pause_summary = tracker.summary()
 
+        # Get phase timing from parallel stats (if available)
+        phase_timing = {}
+        try:
+            stats = gc.get_parallel_stats()
+            phase_timing = stats.get('phase_timing', {})
+        except (AttributeError, TypeError):
+            pass
+
         # Calculate throughput
         throughput = objects_created / elapsed
 
@@ -368,7 +391,9 @@ def run_throughput_benchmark(
             "pause_max_ms": pause_summary["max_ms"],
             "pause_p99_ms": pause_summary["p99_ms"],
             "pause_p95_ms": pause_summary["p95_ms"],
+            "pause_zero_count": pause_summary["zero_count"],
             "gc_overhead_percent": (pause_summary["total_ms"] / (elapsed * 1000)) * 100,
+            "phase_timing": phase_timing,
         }
 
     finally:
@@ -390,6 +415,7 @@ def format_results(results: dict) -> str:
         f"",
         f"GC Pauses:",
         f"  Count: {results['pause_count']}",
+        f"  Zero-collect: {results['pause_zero_count']} (cleanup in progress)",
         f"  Total: {results['pause_total_ms']:.1f}ms",
         f"  Mean: {results['pause_mean_ms']:.2f}ms",
         f"  Max: {results['pause_max_ms']:.2f}ms",
@@ -397,6 +423,16 @@ def format_results(results: dict) -> str:
         f"  P95: {results['pause_p95_ms']:.2f}ms",
         f"  Overhead: {results['gc_overhead_percent']:.2f}%",
     ]
+
+    # Add phase timing if available (from last collection)
+    phase_timing = results.get('phase_timing', {})
+    if phase_timing:
+        lines.append("")
+        lines.append("Phase timing (last collection):")
+        for phase, ns in phase_timing.items():
+            if ns != 0:
+                lines.append(f"  {phase}: {ns/1e6:.2f}ms")
+
     return "\n".join(lines)
 
 
@@ -404,6 +440,9 @@ def main():
     parser = argparse.ArgumentParser(description="Parallel GC Throughput Benchmark")
     parser.add_argument("--heap-size", "-s", type=str, default="500k",
                         help="Steady-state heap size (e.g., 100k, 500k, 1M)")
+    parser.add_argument("--heap-type", "-t", type=str, default="cyclic",
+                        choices=["cyclic", "ai"],
+                        help="Heap structure: cyclic (circular chains) or ai (transformer-style)")
     parser.add_argument("--duration", "-d", type=float, default=30.0,
                         help="Benchmark duration in seconds")
     parser.add_argument("--parallel", "-p", type=int, default=None,
@@ -446,6 +485,7 @@ def main():
             heap_size=heap_size,
             duration_seconds=args.duration,
             parallel_workers=None,
+            heap_type=args.heap_type,
             survivor_ratio=args.survivor_ratio,
         )
         print(format_results(serial_results))
@@ -456,6 +496,7 @@ def main():
             heap_size=heap_size,
             duration_seconds=args.duration,
             parallel_workers=args.workers,
+            heap_type=args.heap_type,
             survivor_ratio=args.survivor_ratio,
         )
         print(format_results(parallel_results))
@@ -464,20 +505,24 @@ def main():
         # Comparison
         speedup = parallel_results["throughput_per_second"] / serial_results["throughput_per_second"]
         pause_reduction = 1 - (parallel_results["pause_mean_ms"] / serial_results["pause_mean_ms"]) if serial_results["pause_mean_ms"] > 0 else 0
+        max_pause_reduction = 1 - (parallel_results["pause_max_ms"] / serial_results["pause_max_ms"]) if serial_results["pause_max_ms"] > 0 else 0
+        overhead_reduction = 1 - (parallel_results["gc_overhead_percent"] / serial_results["gc_overhead_percent"]) if serial_results["gc_overhead_percent"] > 0 else 0
 
         print("=" * 70)
         print("COMPARISON")
         print("=" * 70)
-        print(f"Throughput speedup: {speedup:.2f}x")
-        print(f"Mean pause reduction: {pause_reduction * 100:.1f}%")
-        print(f"Max pause: {serial_results['pause_max_ms']:.1f}ms (serial) -> {parallel_results['pause_max_ms']:.1f}ms (parallel)")
-        print(f"GC overhead: {serial_results['gc_overhead_percent']:.2f}% (serial) -> {parallel_results['gc_overhead_percent']:.2f}% (parallel)")
+        print(f"Throughput: {speedup:.2f}x ({'+' if speedup >= 1 else ''}{(speedup-1)*100:.1f}%)")
+        print(f"Mean pause: {serial_results['pause_mean_ms']:.1f}ms -> {parallel_results['pause_mean_ms']:.1f}ms ({pause_reduction * 100:+.1f}%)")
+        print(f"Max pause: {serial_results['pause_max_ms']:.1f}ms -> {parallel_results['pause_max_ms']:.1f}ms ({max_pause_reduction * 100:+.1f}%)")
+        print(f"GC overhead: {serial_results['gc_overhead_percent']:.1f}% -> {parallel_results['gc_overhead_percent']:.1f}% ({overhead_reduction * 100:+.1f}%)")
+        print(f"Total GC time: {serial_results['pause_total_ms']:.0f}ms -> {parallel_results['pause_total_ms']:.0f}ms")
     else:
         # Single run
         results = run_throughput_benchmark(
             heap_size=heap_size,
             duration_seconds=args.duration,
             parallel_workers=args.parallel,
+            heap_type=args.heap_type,
             survivor_ratio=args.survivor_ratio,
         )
         print(format_results(results))

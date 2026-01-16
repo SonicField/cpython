@@ -10,6 +10,7 @@
 #include "pycore_initconfig.h"    // _PyStatus_NO_MEMORY()
 #include "pycore_interp.h"        // PyInterpreterState.gc
 #include "pycore_interpframe.h"   // _PyFrame_GetLocalsArray()
+#include "pycore_lock.h"          // PyMutex_Lock/Unlock
 #include "pycore_object_alloc.h"  // _PyObject_MallocWithType()
 #include "pycore_pystate.h"       // _PyThreadState_GET()
 #include "pycore_tstate.h"        // _PyThreadStateImpl
@@ -2712,8 +2713,20 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
 
     int expected = 0;
     if (!_Py_atomic_compare_exchange_int(&gcstate->collecting, &expected, 1)) {
-        // Don't start a garbage collection if one is already in progress.
-        return 0;
+        // Cleanup from previous collection still running.
+        // Stop the world to eliminate allocation contention during cleanup,
+        // then wait for cleanup to finish by blocking on the cleanup mutex.
+        _PyEval_StopTheWorld(tstate->interp);
+        // Block until cleanup worker releases the mutex (i.e., cleanup finishes)
+        PyMutex_Lock(&gcstate->cleanup_mutex);
+        PyMutex_Unlock(&gcstate->cleanup_mutex);
+        _PyEval_StartTheWorld(tstate->interp);
+        // Now try again to set collecting flag
+        expected = 0;
+        if (!_Py_atomic_compare_exchange_int(&gcstate->collecting, &expected, 1)) {
+            // Another thread beat us - just return
+            return 0;
+        }
     }
 
     if (reason == _Py_GC_REASON_HEAP && !gc_should_collect(gcstate)) {

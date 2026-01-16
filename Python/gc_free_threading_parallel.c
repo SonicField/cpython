@@ -12,6 +12,7 @@
 #include "pycore_gc.h"
 #include "pycore_gc_ft_parallel.h"
 #include "pycore_interp.h"
+#include "pycore_lock.h"                // PyMutex_Lock/Unlock
 #include "pycore_pystate.h"
 #include "pycore_tstate.h"
 #include "pycore_time.h"  // For PyTime_PerfCounterRaw
@@ -1661,6 +1662,14 @@ async_cleanup_work(_PyGCThreadPool *pool, int worker_id)
         return;
     }
 
+    struct _gc_runtime_state *gcstate = work->gcstate;
+
+    // Acquire cleanup mutex - gc_collect_main will block on this if it tries
+    // to start a new collection while we're still cleaning up.
+    if (gcstate != NULL) {
+        PyMutex_Lock(&gcstate->cleanup_mutex);
+    }
+
     _PyGCWorkerState *worker = &pool->workers[worker_id];
     PyThreadState *tstate = worker->tstate;
 
@@ -1696,9 +1705,9 @@ async_cleanup_work(_PyGCThreadPool *pool, int worker_id)
     // Free the objects array (we own it)
     PyMem_Free(objects);
 
-    // Clear the collecting flag to allow new GC cycles
-    struct _gc_runtime_state *gcstate = work->gcstate;
+    // Release cleanup mutex and clear collecting flag to allow new GC cycles
     if (gcstate != NULL) {
+        PyMutex_Unlock(&gcstate->cleanup_mutex);
         _Py_atomic_store_int(&gcstate->collecting, 0);
     }
 
