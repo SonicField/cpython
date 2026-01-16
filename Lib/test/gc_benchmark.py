@@ -126,7 +126,8 @@ class ContainerNode:
 DEFAULT_CLUSTER_SIZE = 100  # Nodes per cluster
 
 
-def create_chain(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[List[Node]]:
+def create_chain(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE,
+                 node_class: type = None) -> List[List]:
     """
     Create isolated circular chains: A -> B -> C -> ... -> Z -> A
 
@@ -136,11 +137,13 @@ def create_chain(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[List[
     - Sequential dependencies within each chain
     - But clusters can be processed independently
     """
+    if node_class is None:
+        node_class = Node
     clusters = []
     num_clusters = max(1, n // cluster_size)
 
     for _ in range(num_clusters):
-        nodes = [Node() for _ in range(cluster_size)]
+        nodes = [node_class() for _ in range(cluster_size)]
         # Make circular
         for i in range(cluster_size):
             nodes[i].refs.append(nodes[(i + 1) % cluster_size])
@@ -149,7 +152,8 @@ def create_chain(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[List[
     return clusters
 
 
-def create_tree(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[List[Node]]:
+def create_tree(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE,
+                node_class: type = None) -> List[List]:
     """
     Create isolated cyclic trees - each tree has back-references to root.
 
@@ -159,13 +163,15 @@ def create_tree(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[List[N
     - Tree structure within cluster
     - Clusters are independent
     """
+    if node_class is None:
+        node_class = Node
     clusters = []
     num_clusters = max(1, n // cluster_size)
     branching = 2
 
     for _ in range(num_clusters):
         nodes = []
-        root = Node()
+        root = node_class()
         nodes.append(root)
 
         # Build tree
@@ -176,7 +182,7 @@ def create_tree(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[List[N
                 for _ in range(branching):
                     if len(nodes) >= cluster_size:
                         break
-                    child = Node()
+                    child = node_class()
                     parent.refs.append(child)
                     # Back-reference to root creates cycle
                     child.refs.append(root)
@@ -191,7 +197,8 @@ def create_tree(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[List[N
     return clusters
 
 
-def create_wide_tree(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[List[Node]]:
+def create_wide_tree(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE,
+                     node_class: type = None) -> List[List]:
     """
     Create isolated wide trees with cyclic back-references.
 
@@ -201,16 +208,18 @@ def create_wide_tree(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[L
     - Simple structure, easy to traverse
     - Clusters are independent
     """
+    if node_class is None:
+        node_class = Node
     clusters = []
     num_clusters = max(1, n // cluster_size)
 
     for _ in range(num_clusters):
         nodes = []
-        root = Node()
+        root = node_class()
         nodes.append(root)
 
         for _ in range(cluster_size - 1):
-            child = Node()
+            child = node_class()
             root.refs.append(child)
             child.refs.append(root)  # Back-reference creates cycle
             nodes.append(child)
@@ -220,7 +229,8 @@ def create_wide_tree(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[L
     return clusters
 
 
-def create_graph(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[List[Node]]:
+def create_graph(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE,
+                 node_class: type = None) -> List[List]:
     """
     Create isolated random graphs with internal cycles.
 
@@ -230,11 +240,13 @@ def create_graph(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[List[
     - Random structure within cluster
     - Clusters are independent
     """
+    if node_class is None:
+        node_class = Node
     clusters = []
     num_clusters = max(1, n // cluster_size)
 
     for _ in range(num_clusters):
-        nodes = [Node() for _ in range(cluster_size)]
+        nodes = [node_class() for _ in range(cluster_size)]
 
         # Add random edges within cluster
         for node in nodes:
@@ -246,7 +258,8 @@ def create_graph(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[List[
 
     return clusters
 
-def create_layered(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[List[Node]]:
+def create_layered(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE,
+                   node_class: type = None) -> List[List]:
     """
     Create isolated layered networks with cycles.
 
@@ -257,6 +270,8 @@ def create_layered(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[Lis
     - Layered structure within cluster
     - Clusters are independent
     """
+    if node_class is None:
+        node_class = Node
     clusters = []
     num_clusters = max(1, n // cluster_size)
     layers_per_cluster = 4
@@ -268,7 +283,7 @@ def create_layered(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[Lis
         prev_layer = None
 
         for layer_idx in range(layers_per_cluster):
-            layer = [Node() for _ in range(nodes_per_layer)]
+            layer = [node_class() for _ in range(nodes_per_layer)]
             all_nodes.extend(layer)
 
             if first_layer is None:
@@ -291,7 +306,8 @@ def create_layered(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[Lis
     return clusters
 
 
-def create_independent(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[List[Node]]:
+def create_independent(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE,
+                       node_class: type = None) -> List[List]:
     """
     Create isolated self-referencing clusters.
 
@@ -302,11 +318,13 @@ def create_independent(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List
     - Simple structure, minimal traversal
     - Clusters are independent
     """
+    if node_class is None:
+        node_class = Node
     clusters = []
     num_clusters = max(1, n // cluster_size)
 
     for _ in range(num_clusters):
-        nodes = [Node() for _ in range(cluster_size)]
+        nodes = [node_class() for _ in range(cluster_size)]
         # Simple cycle: each node refs the next
         for i in range(cluster_size):
             nodes[i].refs.append(nodes[(i + 1) % cluster_size])
@@ -371,16 +389,32 @@ def create_ai_workload(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List
     return clusters
 
 
+# Module-level node class selection (set by CLI --finalizers flag)
+_node_class = Node
+
+
+def set_node_class(use_finalizers: bool):
+    """Set the node class to use for heap generation."""
+    global _node_class
+    _node_class = FinalizerNode if use_finalizers else Node
+
+
+def get_node_class():
+    """Get the current node class."""
+    return _node_class
+
+
 # Map heap type names to generator functions
 # All generators return List[List[Node]] - a list of independent cyclic clusters
+# Note: We use get_node_class() to get late binding of the node class
 HEAP_GENERATORS = {
-    'chain': lambda n: create_chain(n),
-    'tree': lambda n: create_tree(n),
-    'wide_tree': lambda n: create_wide_tree(n),
-    'graph': lambda n: create_graph(n),
-    'layered': lambda n: create_layered(n),
-    'independent': lambda n: create_independent(n),
-    'ai_workload': lambda n: create_ai_workload(n),
+    'chain': lambda n: create_chain(n, node_class=get_node_class()),
+    'tree': lambda n: create_tree(n, node_class=get_node_class()),
+    'wide_tree': lambda n: create_wide_tree(n, node_class=get_node_class()),
+    'graph': lambda n: create_graph(n, node_class=get_node_class()),
+    'layered': lambda n: create_layered(n, node_class=get_node_class()),
+    'independent': lambda n: create_independent(n, node_class=get_node_class()),
+    'ai_workload': lambda n: create_ai_workload(n),  # Uses its own mixed types
 }
 
 # =============================================================================
@@ -688,7 +722,8 @@ def run_benchmark_matrix(
     warmup: int = 3,
     iterations: int = 5,
     output_file: Optional[str] = None,
-    verbose: bool = True
+    verbose: bool = True,
+    finalizers: bool = False
 ) -> List[ComparisonResult]:
     """Run the full benchmark matrix."""
 
@@ -708,6 +743,7 @@ def run_benchmark_matrix(
     print(f"Heap types: {heap_types}")
     print(f"Heap sizes: {heap_sizes}")
     print(f"Survivor ratios: {survivor_ratios}")
+    print(f"Finalizers: {'enabled' if finalizers else 'disabled'}")
     if BUILD_TYPE == "ftp":
         print(f"Creation threads: {creation_threads}")
     print(f"Warmup: {warmup}, Iterations: {iterations}")
@@ -838,6 +874,7 @@ def run_benchmark_matrix(
                 'creation_threads': creation_threads,
                 'warmup': warmup,
                 'iterations': iterations,
+                'finalizers': finalizers,
             },
             'results': [
                 {
@@ -906,6 +943,8 @@ Examples:
                         help='Run full benchmark matrix')
     parser.add_argument('--quiet', action='store_true',
                         help='Minimal output')
+    parser.add_argument('--finalizers', action='store_true',
+                        help='Use nodes with __del__ finalizers (tests cleanup phase)')
 
     args = parser.parse_args()
 
@@ -925,6 +964,9 @@ Examples:
         if BUILD_TYPE == "ftp":
             args.creation_threads = '1,2,4'
 
+    # Set node class based on --finalizers flag
+    set_node_class(args.finalizers)
+
     run_benchmark_matrix(
         workers=parse_int_list(args.workers),
         heap_types=parse_list_arg(args.heap_type),
@@ -934,7 +976,8 @@ Examples:
         warmup=args.warmup,
         iterations=args.iterations,
         output_file=args.output,
-        verbose=not args.quiet
+        verbose=not args.quiet,
+        finalizers=args.finalizers
     )
 
 if __name__ == '__main__':
