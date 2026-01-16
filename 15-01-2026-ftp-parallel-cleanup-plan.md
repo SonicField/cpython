@@ -21,6 +21,15 @@
 - Added `--finalizers` flag to gc_benchmark.py
 - Tests worst-case (all objects have `__del__`) vs common case (no finalizers)
 
+**Phase 3: parallel delete_garbage** (commit c72b791cc14)
+- Implemented using existing thread pool infrastructure
+- Added `_PyGC_WORK_DELETE` work type to `pycore_gc_ft_parallel.h`
+- Added `delete_pool_work()` worker function with batch-based distribution (BATCH_SIZE=64)
+- Added `_PyGC_ParallelDeleteWithPool()` API function
+- Added `parallel_cleanup_enabled` field to `_gc_runtime_state`
+- Uses atomic counter for accurate collected statistics
+- Falls back to serial for DEBUG_SAVEALL mode or < 1000 objects
+
 ### Performance Notes
 
 With trivial finalizers (worst case):
@@ -29,13 +38,25 @@ With trivial finalizers (worst case):
 
 With no finalizers (common case):
 - No impact - parallel finalize path is not taken when no tp_finalize exists
-- This is why Phase 3 (parallel delete_garbage) is more important
 
-### Next: Phase 3
+With parallel delete_garbage:
+- Shows ~10% overhead for simple objects due to barrier synchronization
+- Benchmark results (100k-500k objects): 0.72x-0.96x (slower than serial)
+- Operations (tp_clear + Py_DECREF) are very fast per-object
+- Memory-bound workload doesn't scale well with parallelism
 
-The `delete_garbage` phase is the real target:
-- Called for ALL objects, not just those with finalizers
-- Currently serial despite being the bulk of cleanup time
+### Analysis
+
+The cleanup phase parallelization shows overhead rather than speedup because:
+1. **Barrier synchronization overhead**: ~9ms for start/done barriers
+2. **Simple per-object work**: tp_clear and Py_DECREF are very fast (hundreds of ns)
+3. **Memory-bound**: Each object access is a cache miss, limiting scaling
+4. **Atomic contention**: Even with batching, atomic operations add overhead
+
+Parallel cleanup may benefit workloads with:
+- Very large heaps (millions of objects)
+- Complex tp_clear implementations
+- Objects with significant cleanup work
 
 ## Context
 
