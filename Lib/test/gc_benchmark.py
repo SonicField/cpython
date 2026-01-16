@@ -675,12 +675,15 @@ class GCBenchmark:
             parallel=False
         )
 
-        # Run parallel
-        parallel_result = self.run_single(
-            heap_type, heap_size, survivor_ratio,
-            num_workers=num_workers, creation_threads=creation_threads,
-            parallel=True
-        )
+        # Run parallel (skip if num_workers < 2)
+        if num_workers < 2:
+            parallel_result = serial_result  # Use serial as "parallel" for 1-worker case
+        else:
+            parallel_result = self.run_single(
+                heap_type, heap_size, survivor_ratio,
+                num_workers=num_workers, creation_threads=creation_threads,
+                parallel=True
+            )
 
         return ComparisonResult(
             config=config,

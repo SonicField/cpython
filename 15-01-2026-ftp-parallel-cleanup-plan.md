@@ -33,30 +33,53 @@
 ### Performance Notes
 
 With trivial finalizers (worst case):
-- Serial finalization is faster due to barrier synchronisation overhead (~9ms)
+- Serial finalization is faster due to cross-thread decref overhead
 - Parallel finalize adds overhead when finalizers are trivial (empty `__del__`)
 
 With no finalizers (common case):
 - No impact - parallel finalize path is not taken when no tp_finalize exists
 
 With parallel delete_garbage:
-- Shows ~10% overhead for simple objects due to barrier synchronization
-- Benchmark results (100k-500k objects): 0.72x-0.96x (slower than serial)
-- Operations (tp_clear + Py_DECREF) are very fast per-object
-- Memory-bound workload doesn't scale well with parallelism
+- Shows ~2.6x slowdown for typical objects (200k objects: serial 21ms, parallel 55ms)
+- Benchmark results (100k-500k objects): 0.38x-0.72x (significantly slower than serial)
 
-### Analysis
+### Root Cause Analysis (confirmed 16-01-2026)
 
-The cleanup phase parallelization shows overhead rather than speedup because:
-1. **Barrier synchronization overhead**: ~9ms for start/done barriers
-2. **Simple per-object work**: tp_clear and Py_DECREF are very fast (hundreds of ns)
-3. **Memory-bound**: Each object access is a cache miss, limiting scaling
-4. **Atomic contention**: Even with batching, atomic operations add overhead
+**Barrier synchronisation is NOT the issue** - pthread condvar barriers are sub-microsecond.
 
-Parallel cleanup may benefit workloads with:
-- Very large heaps (millions of objects)
-- Complex tp_clear implementations
-- Objects with significant cleanup work
+The real cause is **FTP's biased reference counting**:
+
+1. In FTP, `Py_DECREF` checks object ownership:
+   - **Fast path**: Object owned by current thread → simple atomic decrement
+   - **Slow path**: Object owned by another thread → `_Py_DecRefShared()` CAS loop
+
+2. When parallel workers process GC objects:
+   - Worker A calls `tp_clear(obj_a)` which decrefs `obj_b`
+   - Worker B simultaneously calls `tp_clear(obj_b)` which decrefs `obj_a`
+   - Both workers hit the slow path (cross-thread decrefs)
+   - CAS loops contend on shared cache lines
+
+3. Tested isolated clusters vs single big cycle - **both equally slow**:
+   ```
+   === Serial baseline ===
+   Single cycle: 21477us
+   Isolated clusters (100): 21586us
+
+   === Parallel (4 workers) ===
+   Single cycle: 55400us
+   Isolated clusters (100): 55687us
+   ```
+
+This proves the slowdown is fundamental to FTP's cross-thread reference counting,
+not cycle topology or synchronisation overhead.
+
+### Conclusion
+
+**Parallel cleanup is disabled by default** because FTP's biased reference counting
+makes cross-thread `Py_DECREF` inherently slow. Parallel cleanup may benefit:
+- Workloads where objects are processed by their owning thread (not typical in GC)
+- Very expensive `tp_clear` implementations that dominate ref counting overhead
+- Future FTP improvements to reference counting
 
 ## Context
 
