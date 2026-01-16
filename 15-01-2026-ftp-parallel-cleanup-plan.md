@@ -1,5 +1,42 @@
 # FTP Parallel GC: Parallel Cleanup Phase Plan
 
+## Progress
+
+### Completed
+
+**Phase 1: parallel_cleanup config option** (commit b4205ccaec8)
+- Added `parallel_cleanup` field to `GCConfig` struct
+- Added `gc.set_parallel_config(parallel_cleanup=True/False)` API
+- Config controls whether parallel finalize/delete is used
+
+**Phase 2: parallel finalize_garbage** (commit 2459024d4ac)
+- Implemented using existing thread pool infrastructure
+- Added `_PyGC_WORK_FINALIZE` work type to `pycore_gc_ft_parallel.h`
+- Added `finalize_pool_work()` worker function with batch-based distribution (BATCH_SIZE=64)
+- Added `_PyGC_ParallelFinalizeWithPool()` API function
+- Uses `_PyGC_TrySetBit()` for atomic FINALIZED flag setting
+- Falls back to serial for < 1000 objects
+
+**Benchmark additions** (commit ca14a4173e5)
+- Added `--finalizers` flag to gc_benchmark.py
+- Tests worst-case (all objects have `__del__`) vs common case (no finalizers)
+
+### Performance Notes
+
+With trivial finalizers (worst case):
+- Serial finalization is faster due to barrier synchronisation overhead (~9ms)
+- Parallel finalize adds overhead when finalizers are trivial (empty `__del__`)
+
+With no finalizers (common case):
+- No impact - parallel finalize path is not taken when no tp_finalize exists
+- This is why Phase 3 (parallel delete_garbage) is more important
+
+### Next: Phase 3
+
+The `delete_garbage` phase is the real target:
+- Called for ALL objects, not just those with finalizers
+- Currently serial despite being the bulk of cleanup time
+
 ## Context
 
 With the benchmark fixes, we now measure real garbage collection:
