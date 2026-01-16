@@ -264,9 +264,6 @@ struct _gc_runtime_state {
        When cleanup is running, gc_collect_main blocks on this mutex. */
     PyMutex cleanup_mutex;
 
-    /* Counter for how many times we blocked waiting for cleanup */
-    Py_ssize_t cleanup_blocked_count;
-
     /* Parallel GC configuration for FTP */
     int parallel_gc_enabled;    /* 1 = enabled, 0 = disabled (default) */
     int parallel_gc_num_workers; /* Number of workers, 0 = auto (based on CPU count) */

@@ -2716,6 +2716,16 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
         // Cleanup from previous collection still running.
         // Stop the world to eliminate allocation contention during cleanup,
         // then wait for cleanup to finish by blocking on the cleanup mutex.
+        //
+        // Note: There is a theoretical race where we could acquire the mutex
+        // before the cleanup worker does (if the worker hasn't been scheduled
+        // yet after the barrier release). This is benign because:
+        // 1. The retry CAS below will fail (collecting is still 1)
+        // 2. We return 0 without running a collection
+        // 3. The cleanup worker will run correctly when scheduled
+        // In practice this race never occurs because the cleanup worker wakes
+        // immediately from the barrier and acquires the mutex in microseconds,
+        // while triggering a new GC requires milliseconds of allocation.
         _PyEval_StopTheWorld(tstate->interp);
         // Block until cleanup worker releases the mutex (i.e., cleanup finishes)
         PyMutex_Lock(&gcstate->cleanup_mutex);

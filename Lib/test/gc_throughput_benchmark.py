@@ -47,7 +47,6 @@ class PauseTracker:
     collected_counts: List[int] = field(default_factory=list)
     gc_start_time: Optional[float] = None
     total_collections: int = 0
-    zero_collections: int = 0  # Collections that returned 0 (possibly coalesced)
 
     def gc_callback(self, phase: str, info: dict):
         """Called by gc module at start/stop of each collection."""
@@ -61,8 +60,6 @@ class PauseTracker:
                 # Track collected count from info dict
                 collected = info.get('collected', 0)
                 self.collected_counts.append(collected)
-                if collected == 0:
-                    self.zero_collections += 1
                 self.gc_start_time = None
 
     def reset(self):
@@ -71,7 +68,6 @@ class PauseTracker:
         self.collected_counts.clear()
         self.gc_start_time = None
         self.total_collections = 0
-        self.zero_collections = 0
 
     def summary(self) -> dict:
         """Return pause statistics."""
@@ -83,7 +79,6 @@ class PauseTracker:
                 "max_ms": 0,
                 "p99_ms": 0,
                 "p95_ms": 0,
-                "zero_count": 0,
             }
 
         sorted_pauses = sorted(self.pauses_ms)
@@ -97,7 +92,6 @@ class PauseTracker:
             "max_ms": max(self.pauses_ms),
             "p99_ms": sorted_pauses[min(p99_idx, len(sorted_pauses) - 1)],
             "p95_ms": sorted_pauses[min(p95_idx, len(sorted_pauses) - 1)],
-            "zero_count": self.zero_collections,
         }
 
 # =============================================================================
@@ -391,7 +385,6 @@ def run_throughput_benchmark(
             "pause_max_ms": pause_summary["max_ms"],
             "pause_p99_ms": pause_summary["p99_ms"],
             "pause_p95_ms": pause_summary["p95_ms"],
-            "pause_zero_count": pause_summary["zero_count"],
             "gc_overhead_percent": (pause_summary["total_ms"] / (elapsed * 1000)) * 100,
             "phase_timing": phase_timing,
         }
@@ -415,7 +408,6 @@ def format_results(results: dict) -> str:
         f"",
         f"GC Pauses:",
         f"  Count: {results['pause_count']}",
-        f"  Zero-collect: {results['pause_zero_count']} (cleanup in progress)",
         f"  Total: {results['pause_total_ms']:.1f}ms",
         f"  Mean: {results['pause_mean_ms']:.2f}ms",
         f"  Max: {results['pause_max_ms']:.2f}ms",
