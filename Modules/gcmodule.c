@@ -522,6 +522,7 @@ gc_enable_parallel_impl(PyObject *module, int num_workers)
     // Set configuration
     interp->gc.parallel_gc_enabled = 1;
     interp->gc.parallel_gc_num_workers = num_workers;
+    interp->gc.parallel_cleanup_enabled = 1;  // Enable parallel cleanup by default
 
     Py_RETURN_NONE;
 

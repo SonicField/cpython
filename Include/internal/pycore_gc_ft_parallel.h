@@ -132,6 +132,7 @@ typedef enum {
     _PyGC_WORK_MARK_HEAP,       // Find roots and mark reachable (deduce_unreachable phase 2)
     _PyGC_WORK_SCAN_HEAP,       // Collect unreachable objects (deduce_unreachable phase 3)
     _PyGC_WORK_FINALIZE,        // Finalize unreachable objects (cleanup phase)
+    _PyGC_WORK_DELETE,          // Delete unreachable objects (cleanup phase - tp_clear)
     _PyGC_WORK_SHUTDOWN         // Shutdown workers
 } _PyGCWorkType;
 
@@ -188,6 +189,12 @@ typedef struct {
     PyObject **finalize_objects;        // Array of objects to finalize (not owned)
     Py_ssize_t finalize_count;          // Number of objects to finalize
     _Atomic(Py_ssize_t) finalize_index; // Atomic counter for work distribution
+
+    // For DELETE work
+    PyObject **delete_objects;          // Array of objects to delete (not owned)
+    Py_ssize_t delete_count;            // Number of objects to delete
+    _Atomic(Py_ssize_t) delete_index;   // Atomic counter for work distribution
+    _Atomic(Py_ssize_t) collected_count; // Atomic counter for collected objects
 
     // Result
     volatile int error_flag;    // Set if any worker encounters an error
@@ -337,6 +344,14 @@ PyAPI_FUNC(int) _PyGC_ParallelScanHeapWithPool(
 // Dispatches finalization work to the thread pool workers.
 // Returns 0 on success, -1 if no pool available.
 PyAPI_FUNC(int) _PyGC_ParallelFinalizeWithPool(
+    PyInterpreterState *interp,
+    PyObject **objects,
+    Py_ssize_t count);
+
+// Pool-based parallel delete (tp_clear)
+// Dispatches delete work to the thread pool workers.
+// Returns the number of objects collected, or -1 if no pool available.
+PyAPI_FUNC(Py_ssize_t) _PyGC_ParallelDeleteWithPool(
     PyInterpreterState *interp,
     PyObject **objects,
     Py_ssize_t count);

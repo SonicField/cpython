@@ -138,6 +138,14 @@ worklist_pop(struct worklist *worklist)
     return op;
 }
 
+// Clear a worklist without processing its elements.
+// Used after parallel processing has already handled all elements via an array.
+static void
+worklist_clear(struct worklist *worklist)
+{
+    worklist->head = 0;
+}
+
 static void
 worklist_iter_init(struct worklist_iter *iter, uintptr_t *next)
 {
@@ -2096,6 +2104,152 @@ delete_garbage(struct collection_state *state)
     }
 }
 
+// Parallel version of delete_garbage using thread pool.
+// Falls back to serial for small worklists or if thread pool unavailable.
+static void
+delete_garbage_parallel(struct collection_state *state, int num_workers)
+{
+    PyThreadState *tstate = _PyThreadState_GET();
+    GCState *gcstate = state->gcstate;
+
+    assert(!_PyErr_Occurred(tstate));
+
+    // First, process objs_to_decref serially (just Py_DECREF calls)
+    // This is cheap and doesn't benefit from parallelization
+    PyObject *op;
+    while ((op = worklist_pop(&state->objs_to_decref)) != NULL) {
+        Py_DECREF(op);
+    }
+
+    // If DEBUG_SAVEALL is set, we need to append to gc.garbage list
+    // which is not thread-safe, so fall back to serial
+    if (gcstate->debug & _PyGC_DEBUG_SAVEALL) {
+        // Use serial delete_garbage for the unreachable list
+        // But objs_to_decref is already processed above, so just do the loop
+        while ((op = worklist_pop(&state->unreachable)) != NULL) {
+            gc_clear_unreachable(op);
+
+            if (!_PyObject_GC_IS_TRACKED(op)) {
+                Py_DECREF(op);
+                continue;
+            }
+
+            state->collected++;
+
+            assert(gcstate->garbage != NULL);
+            if (PyList_Append(gcstate->garbage, op) < 0) {
+                _PyErr_Clear(tstate);
+            }
+
+            Py_DECREF(op);
+        }
+        return;
+    }
+
+    // Convert unreachable worklist to array for parallel access
+    Py_ssize_t count;
+    PyObject **objects = worklist_to_array(&state->unreachable, &count);
+
+    if (objects == NULL || count == 0) {
+        // Fall back to serial for allocation failure or empty worklist
+        if (objects != NULL) {
+            PyMem_RawFree(objects);
+        }
+        // Process remaining in serial mode
+        while ((op = worklist_pop(&state->unreachable)) != NULL) {
+            gc_clear_unreachable(op);
+
+            if (!_PyObject_GC_IS_TRACKED(op)) {
+                Py_DECREF(op);
+                continue;
+            }
+
+            state->collected++;
+
+            inquiry clear = Py_TYPE(op)->tp_clear;
+            if (clear != NULL) {
+                (void) clear(op);
+                if (_PyErr_Occurred(tstate)) {
+                    PyErr_FormatUnraisable("Exception ignored in tp_clear of %s",
+                                           Py_TYPE(op)->tp_name);
+                }
+            }
+
+            Py_DECREF(op);
+        }
+        return;
+    }
+
+    // Minimum objects to justify parallelism overhead
+    const Py_ssize_t MIN_OBJECTS_FOR_PARALLEL = 1000;
+    if (count < MIN_OBJECTS_FOR_PARALLEL) {
+        PyMem_RawFree(objects);
+        // Process serially
+        while ((op = worklist_pop(&state->unreachable)) != NULL) {
+            gc_clear_unreachable(op);
+
+            if (!_PyObject_GC_IS_TRACKED(op)) {
+                Py_DECREF(op);
+                continue;
+            }
+
+            state->collected++;
+
+            inquiry clear = Py_TYPE(op)->tp_clear;
+            if (clear != NULL) {
+                (void) clear(op);
+                if (_PyErr_Occurred(tstate)) {
+                    PyErr_FormatUnraisable("Exception ignored in tp_clear of %s",
+                                           Py_TYPE(op)->tp_name);
+                }
+            }
+
+            Py_DECREF(op);
+        }
+        return;
+    }
+
+    // Use thread pool for parallel deletion
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    Py_ssize_t collected = _PyGC_ParallelDeleteWithPool(interp, objects, count);
+
+    if (collected < 0) {
+        // Thread pool not available - fall back to serial
+        // The array still contains objects that need processing
+        for (Py_ssize_t i = 0; i < count; i++) {
+            op = objects[i];
+            gc_clear_unreachable(op);
+
+            if (!_PyObject_GC_IS_TRACKED(op)) {
+                Py_DECREF(op);
+                continue;
+            }
+
+            state->collected++;
+
+            inquiry clear = Py_TYPE(op)->tp_clear;
+            if (clear != NULL) {
+                (void) clear(op);
+                if (_PyErr_Occurred(tstate)) {
+                    PyErr_FormatUnraisable("Exception ignored in tp_clear of %s",
+                                           Py_TYPE(op)->tp_name);
+                }
+            }
+
+            Py_DECREF(op);
+        }
+    }
+    else {
+        // Parallel deletion succeeded - update collected count
+        state->collected += collected;
+
+        // The worklist still needs to be cleared (parallel delete used array)
+        worklist_clear(&state->unreachable);
+    }
+
+    PyMem_RawFree(objects);
+}
+
 static void
 handle_legacy_finalizers(struct collection_state *state)
 {
@@ -2643,8 +2797,8 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
     // avoid potential deadlocks.
     call_weakref_callbacks(state);
 
-    // Use parallel finalization if parallel GC is enabled
-    if (interp->gc.parallel_gc_enabled) {
+    // Use parallel finalization if parallel GC is enabled and cleanup is enabled
+    if (interp->gc.parallel_gc_enabled && interp->gc.parallel_cleanup_enabled) {
         int num_workers = _PyGC_GetParallelWorkers(interp);
         finalize_garbage_parallel(state, num_workers);
     }
@@ -2674,7 +2828,14 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
     // Call tp_clear on objects in the unreachable set. This will cause
     // the reference cycles to be broken. It may also cause some objects
     // to be freed.
-    delete_garbage(state);
+    // Use parallel deletion if parallel GC is enabled
+    if (interp->gc.parallel_gc_enabled && interp->gc.parallel_cleanup_enabled) {
+        int num_workers = _PyGC_GetParallelWorkers(interp);
+        delete_garbage_parallel(state, num_workers);
+    }
+    else {
+        delete_garbage(state);
+    }
 
     // Store the current memory usage, can be smaller now if breaking cycles
     // freed some memory.
