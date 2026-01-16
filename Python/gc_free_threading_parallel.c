@@ -1646,118 +1646,65 @@ scan_heap_pool_work(_PyGCThreadPool *pool, int worker_id)
     }
 }
 
-// Worker function for parallel finalization using thread pool
-// Uses batch-based work distribution for reduced contention
+// Worker function for concurrent cleanup (runs in background on worker 1)
+// This is single-threaded cleanup - only worker 1 runs it.
+// When done, it sets gcstate->collecting = 0 to allow new GC cycles.
 static void
-finalize_pool_work(_PyGCThreadPool *pool, int worker_id)
+async_cleanup_work(_PyGCThreadPool *pool, int worker_id)
 {
     _PyGCWorkDescriptor *work = pool->current_work;
     assert(work != NULL);
-    assert(work->finalize_objects != NULL || work->finalize_count == 0);
+    assert(work->async_cleanup_objects != NULL || work->async_cleanup_count == 0);
+
+    // Only worker 1 does concurrent cleanup (worker 0 is main thread that returned)
+    if (worker_id != 1) {
+        return;
+    }
 
     _PyGCWorkerState *worker = &pool->workers[worker_id];
     PyThreadState *tstate = worker->tstate;
 
-    // Use larger batches to reduce atomic counter contention
-    const Py_ssize_t BATCH_SIZE = 64;
+    PyObject **objects = work->async_cleanup_objects;
+    Py_ssize_t count = work->async_cleanup_count;
 
-    while (1) {
-        // Grab a batch of objects
-        Py_ssize_t batch_start = atomic_fetch_add(&work->finalize_index, BATCH_SIZE);
-        if (batch_start >= work->finalize_count) {
-            break;
+    // Process all objects (single-threaded, no contention)
+    for (Py_ssize_t i = 0; i < count; i++) {
+        PyObject *op = objects[i];
+
+        // Clear the unreachable flag
+        _PyGC_AtomicClearBit(op, _PyGC_BITS_UNREACHABLE);
+
+        // Check if object is still tracked
+        if (!_PyObject_GC_IS_TRACKED(op)) {
+            Py_DECREF(op);
+            continue;
         }
 
-        Py_ssize_t batch_end = batch_start + BATCH_SIZE;
-        if (batch_end > work->finalize_count) {
-            batch_end = work->finalize_count;
-        }
-
-        // Process the batch
-        for (Py_ssize_t i = batch_start; i < batch_end; i++) {
-            PyObject *op = work->finalize_objects[i];
-            if (!_PyGC_FINALIZED(op)) {
-                destructor finalize = Py_TYPE(op)->tp_finalize;
-                if (finalize != NULL) {
-                    // Use atomic set for thread safety
-                    if (_PyGC_TrySetBit(op, _PyGC_BITS_FINALIZED)) {
-                        finalize(op);
-                        // Clear any exception that may have been set
-                        if (tstate != NULL && _PyErr_Occurred(tstate)) {
-                            _PyErr_Clear(tstate);
-                        }
-                    }
-                }
+        // Call tp_clear if available
+        inquiry clear = Py_TYPE(op)->tp_clear;
+        if (clear != NULL) {
+            (void) clear(op);
+            if (tstate != NULL && _PyErr_Occurred(tstate)) {
+                PyErr_FormatUnraisable("Exception ignored in tp_clear of %s",
+                                       Py_TYPE(op)->tp_name);
             }
         }
+
+        Py_DECREF(op);
     }
-}
 
-// Worker function for parallel delete_garbage (tp_clear + decref)
-// Uses batch-based work distribution like finalize_pool_work.
-static void
-delete_pool_work(_PyGCThreadPool *pool, int worker_id)
-{
-    _PyGCWorkDescriptor *work = pool->current_work;
-    assert(work != NULL);
-    assert(work->delete_objects != NULL || work->delete_count == 0);
+    // Free the objects array (we own it)
+    PyMem_Free(objects);
 
-    _PyGCWorkerState *worker = &pool->workers[worker_id];
-    PyThreadState *tstate = worker->tstate;
-
-    // Use larger batches to reduce atomic counter contention
-    const Py_ssize_t BATCH_SIZE = 64;
-
-    while (1) {
-        // Grab a batch of objects
-        Py_ssize_t batch_start = atomic_fetch_add(&work->delete_index, BATCH_SIZE);
-        if (batch_start >= work->delete_count) {
-            break;
-        }
-
-        Py_ssize_t batch_end = batch_start + BATCH_SIZE;
-        if (batch_end > work->delete_count) {
-            batch_end = work->delete_count;
-        }
-
-        // Track how many objects we collect in this batch
-        Py_ssize_t batch_collected = 0;
-
-        // Process the batch
-        for (Py_ssize_t i = batch_start; i < batch_end; i++) {
-            PyObject *op = work->delete_objects[i];
-
-            // Clear the unreachable flag (using atomic for thread safety)
-            _PyGC_AtomicClearBit(op, _PyGC_BITS_UNREACHABLE);
-
-            // Check if object is still tracked
-            if (!_PyObject_GC_IS_TRACKED(op)) {
-                // Object might have been untracked by some other tp_clear() call.
-                Py_DECREF(op);  // drop the reference from the worklist
-                continue;
-            }
-
-            batch_collected++;
-
-            // Call tp_clear if available
-            inquiry clear = Py_TYPE(op)->tp_clear;
-            if (clear != NULL) {
-                (void) clear(op);
-                // Clear any exception that may have been set
-                if (tstate != NULL && _PyErr_Occurred(tstate)) {
-                    PyErr_FormatUnraisable("Exception ignored in tp_clear of %s",
-                                           Py_TYPE(op)->tp_name);
-                }
-            }
-
-            Py_DECREF(op);  // drop the reference from the worklist
-        }
-
-        // Update collected count atomically (per-batch rather than per-object)
-        if (batch_collected > 0) {
-            (void)atomic_fetch_add(&work->collected_count, batch_collected);
-        }
+    // Clear the collecting flag to allow new GC cycles
+    struct _gc_runtime_state *gcstate = work->gcstate;
+    if (gcstate != NULL) {
+        _Py_atomic_store_int(&gcstate->collecting, 0);
     }
+
+    // Clear current_work and free the work descriptor (we own it)
+    pool->current_work = NULL;
+    PyMem_RawFree(work);
 }
 
 // Dispatcher for pool work based on work type
@@ -1782,11 +1729,8 @@ thread_pool_do_work(_PyGCThreadPool *pool, int worker_id)
         case _PyGC_WORK_SCAN_HEAP:
             scan_heap_pool_work(pool, worker_id);
             break;
-        case _PyGC_WORK_FINALIZE:
-            finalize_pool_work(pool, worker_id);
-            break;
-        case _PyGC_WORK_DELETE:
-            delete_pool_work(pool, worker_id);
+        case _PyGC_WORK_ASYNC_CLEANUP:
+            async_cleanup_work(pool, worker_id);
             break;
         default:
             // Unknown work type - do nothing
@@ -1834,11 +1778,19 @@ thread_pool_worker(void *arg)
             break;
         }
 
+        // Capture work type BEFORE doing work (concurrent cleanup clears current_work)
+        _PyGCWorkDescriptor *work = pool->current_work;
+        _PyGCWorkType work_type = (work != NULL) ? work->type : _PyGC_WORK_NONE;
+
         // Do the work
         thread_pool_do_work(pool, worker_id);
 
-        // Signal completion by arriving at done_barrier
-        _PyGCBarrier_Wait(&pool->done_barrier);
+        // Signal completion - use async_done_barrier for concurrent work (main thread doesn't wait)
+        if (work_type == _PyGC_WORK_ASYNC_CLEANUP) {
+            _PyGCBarrier_Wait(&pool->async_done_barrier);
+        } else {
+            _PyGCBarrier_Wait(&pool->done_barrier);
+        }
     }
 
     // Clean up Python thread state
@@ -1902,10 +1854,13 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
     _PyGCBarrier_Init(&pool->mark_barrier, num_workers);
     _PyGCBarrier_Init(&pool->done_barrier, num_workers);
     _PyGCBarrier_Init(&pool->phase_barrier, num_workers);
+    // Concurrent barrier for N-1 workers (worker 0 returns immediately for concurrent work)
+    _PyGCBarrier_Init(&pool->async_done_barrier, num_workers > 1 ? num_workers - 1 : 1);
 
     // Allocate thread handles (for workers 1..N-1, worker 0 is main thread)
     pool->threads = PyMem_RawCalloc(num_workers - 1, sizeof(PyThread_handle_t));
     if (pool->threads == NULL) {
+        _PyGCBarrier_Fini(&pool->async_done_barrier);
         _PyGCBarrier_Fini(&pool->phase_barrier);
         _PyGCBarrier_Fini(&pool->done_barrier);
         _PyGCBarrier_Fini(&pool->mark_barrier);
@@ -1917,6 +1872,7 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
     pool->workers = PyMem_RawCalloc(num_workers, sizeof(_PyGCWorkerState));
     if (pool->workers == NULL) {
         PyMem_RawFree(pool->threads);
+        _PyGCBarrier_Fini(&pool->async_done_barrier);
         _PyGCBarrier_Fini(&pool->phase_barrier);
         _PyGCBarrier_Fini(&pool->done_barrier);
         _PyGCBarrier_Fini(&pool->mark_barrier);
@@ -2058,6 +2014,7 @@ _PyGC_ThreadPoolFini(PyInterpreterState *interp)
 
     // Clean up
     PyMem_RawFree(pool->threads);
+    _PyGCBarrier_Fini(&pool->async_done_barrier);
     _PyGCBarrier_Fini(&pool->phase_barrier);
     _PyGCBarrier_Fini(&pool->done_barrier);
     _PyGCBarrier_Fini(&pool->mark_barrier);
@@ -3573,20 +3530,22 @@ pool_scan_heap_process_page(mi_page_t *page, struct _PyGCScanWorkerState *worker
     scan_heap_process_page(page, worker, gc_reason);
 }
 
-//=============================================================================
-// Parallel Finalization API
-//=============================================================================
+//-----------------------------------------------------------------------------
+// Concurrent Cleanup API
+//-----------------------------------------------------------------------------
 
-// Dispatch finalization work to the thread pool.
-// Takes an array of objects and uses dynamic work distribution.
-// Returns 0 on success, -1 on error.
+// Start concurrent cleanup - gc.collect() returns immediately, cleanup runs in background
+// Returns 0 on success, -1 on failure
+// On success, gcstate->collecting is cleared when cleanup finishes
+// On failure, caller must clear gcstate->collecting
 int
-_PyGC_ParallelFinalizeWithPool(PyInterpreterState *interp,
-                                PyObject **objects,
-                                Py_ssize_t count)
+_PyGC_StartAsyncCleanup(PyInterpreterState *interp,
+                        PyObject **objects,
+                        Py_ssize_t count)
 {
     if (count == 0) {
-        return 0;  // Nothing to do
+        // Nothing to clean up
+        return 0;
     }
 
     _PyGCThreadPool *pool = interp->gc.thread_pool;
@@ -3595,73 +3554,35 @@ _PyGC_ParallelFinalizeWithPool(PyInterpreterState *interp,
         return -1;
     }
 
-    // Set up work descriptor
-    _PyGCWorkDescriptor work = {
-        .type = _PyGC_WORK_FINALIZE,
-        .finalize_objects = objects,
-        .finalize_count = count,
-        .finalize_index = 0,
-        .error_flag = 0,
-    };
-    pool->current_work = &work;
-
-    // Signal workers to start
-    _PyGCBarrier_Wait(&pool->mark_barrier);
-
-    // Worker 0 (main thread) does its share
-    thread_pool_do_work(pool, 0);
-
-    // Wait for all workers to complete
-    _PyGCBarrier_Wait(&pool->done_barrier);
-
-    // Clear work descriptor
-    pool->current_work = NULL;
-
-    return work.error_flag ? -1 : 0;
-}
-
-// Pool-based parallel delete (tp_clear + decref)
-// Returns the number of objects collected, or -1 if no pool available.
-Py_ssize_t
-_PyGC_ParallelDeleteWithPool(PyInterpreterState *interp,
-                              PyObject **objects,
-                              Py_ssize_t count)
-{
-    if (count == 0) {
-        return 0;  // Nothing to do
+    // Copy the objects array since caller's list goes out of scope
+    PyObject **objects_copy = PyMem_Malloc(count * sizeof(PyObject *));
+    if (objects_copy == NULL) {
+        return -1;
     }
+    memcpy(objects_copy, objects, count * sizeof(PyObject *));
 
-    _PyGCThreadPool *pool = interp->gc.thread_pool;
-    if (pool == NULL) {
-        // No thread pool available - caller should fall back to serial
+    // Allocate work descriptor on heap (stack goes out of scope when we return)
+    _PyGCWorkDescriptor *work = PyMem_RawCalloc(1, sizeof(_PyGCWorkDescriptor));
+    if (work == NULL) {
+        PyMem_Free(objects_copy);
         return -1;
     }
 
-    // Set up work descriptor
-    _PyGCWorkDescriptor work = {
-        .type = _PyGC_WORK_DELETE,
-        .delete_objects = objects,
-        .delete_count = count,
-        .delete_index = 0,
-        .collected_count = 0,
-        .error_flag = 0,
-    };
-    pool->current_work = &work;
+    work->type = _PyGC_WORK_ASYNC_CLEANUP;
+    work->async_cleanup_objects = objects_copy;
+    work->async_cleanup_count = count;
+    work->gcstate = &interp->gc;
+
+    pool->current_work = work;
 
     // Signal workers to start
+    // Main thread participates in mark_barrier to wake workers, then returns immediately
     _PyGCBarrier_Wait(&pool->mark_barrier);
 
-    // Worker 0 (main thread) does its share
-    thread_pool_do_work(pool, 0);
+    // Do NOT wait on done_barrier - workers use async_done_barrier
+    // Do NOT clear pool->current_work - worker will handle cleanup
 
-    // Wait for all workers to complete
-    _PyGCBarrier_Wait(&pool->done_barrier);
-
-    // Clear work descriptor
-    pool->current_work = NULL;
-
-    // Return number of objects collected
-    return work.error_flag ? -1 : (Py_ssize_t)work.collected_count;
+    return 0;  // Success - cleanup is running in background
 }
 
 //=============================================================================

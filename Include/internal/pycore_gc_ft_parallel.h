@@ -131,8 +131,7 @@ typedef enum {
     _PyGC_WORK_UPDATE_REFS,     // Initialize gc_refs on heap (deduce_unreachable phase 1)
     _PyGC_WORK_MARK_HEAP,       // Find roots and mark reachable (deduce_unreachable phase 2)
     _PyGC_WORK_SCAN_HEAP,       // Collect unreachable objects (deduce_unreachable phase 3)
-    _PyGC_WORK_FINALIZE,        // Finalize unreachable objects (cleanup phase)
-    _PyGC_WORK_DELETE,          // Delete unreachable objects (cleanup phase - tp_clear)
+    _PyGC_WORK_ASYNC_CLEANUP,   // Single-threaded concurrent cleanup (runs in background)
     _PyGC_WORK_SHUTDOWN         // Shutdown workers
 } _PyGCWorkType;
 
@@ -185,16 +184,10 @@ typedef struct {
     // Shared worker state (deques, etc.)
     _PyGCWorkerState *workers;        // Now uses the full typedef
 
-    // For FINALIZE work
-    PyObject **finalize_objects;        // Array of objects to finalize (not owned)
-    Py_ssize_t finalize_count;          // Number of objects to finalize
-    _Atomic(Py_ssize_t) finalize_index; // Atomic counter for work distribution
-
-    // For DELETE work
-    PyObject **delete_objects;          // Array of objects to delete (not owned)
-    Py_ssize_t delete_count;            // Number of objects to delete
-    _Atomic(Py_ssize_t) delete_index;   // Atomic counter for work distribution
-    _Atomic(Py_ssize_t) collected_count; // Atomic counter for collected objects
+    // For ASYNC_CLEANUP work (single-threaded concurrent background cleanup)
+    PyObject **async_cleanup_objects;   // Array of objects to clean up (owned)
+    Py_ssize_t async_cleanup_count;     // Number of objects
+    struct _gc_runtime_state *gcstate;  // GC state for clearing collecting flag
 
     // Result
     volatile int error_flag;    // Set if any worker encounters an error
@@ -231,6 +224,7 @@ typedef struct _PyGCThreadPool {
     _PyGCBarrier mark_barrier;     // Workers wait here for work
     _PyGCBarrier done_barrier;     // All workers wait here when done
     _PyGCBarrier phase_barrier;    // For multi-phase operations
+    _PyGCBarrier async_done_barrier; // For concurrent work (N-1 workers, excludes main thread)
 
     // Worker control
     volatile int shutdown;           // 1 = pool is shutting down
@@ -340,18 +334,11 @@ PyAPI_FUNC(int) _PyGC_ParallelScanHeapWithPool(
     _PyGCFTParState *state,
     struct _PyGCScanHeapResult *result);
 
-// Pool-based parallel finalization
-// Dispatches finalization work to the thread pool workers.
+// Start concurrent cleanup in background worker (single-threaded).
+// Objects array is transferred to background worker (caller must not free).
+// The background worker will set gcstate->collecting = 0 when done.
 // Returns 0 on success, -1 if no pool available.
-PyAPI_FUNC(int) _PyGC_ParallelFinalizeWithPool(
-    PyInterpreterState *interp,
-    PyObject **objects,
-    Py_ssize_t count);
-
-// Pool-based parallel delete (tp_clear)
-// Dispatches delete work to the thread pool workers.
-// Returns the number of objects collected, or -1 if no pool available.
-PyAPI_FUNC(Py_ssize_t) _PyGC_ParallelDeleteWithPool(
+PyAPI_FUNC(int) _PyGC_StartAsyncCleanup(
     PyInterpreterState *interp,
     PyObject **objects,
     Py_ssize_t count);
