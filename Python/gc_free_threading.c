@@ -157,6 +157,46 @@ worklist_remove(struct worklist_iter *iter)
     iter->next = iter->ptr;
 }
 
+// Count objects in a worklist
+static Py_ssize_t
+worklist_count(struct worklist *worklist)
+{
+    Py_ssize_t count = 0;
+    PyObject *op;
+    WORKSTACK_FOR_EACH(worklist, op) {
+        count++;
+    }
+    return count;
+}
+
+// Convert worklist to array for parallel access
+// Returns allocated array and sets *out_count to number of elements
+// Caller must free the returned array with PyMem_RawFree
+static PyObject **
+worklist_to_array(struct worklist *worklist, Py_ssize_t *out_count)
+{
+    Py_ssize_t count = worklist_count(worklist);
+    if (count == 0) {
+        *out_count = 0;
+        return NULL;
+    }
+
+    PyObject **array = PyMem_RawMalloc(count * sizeof(PyObject *));
+    if (array == NULL) {
+        *out_count = 0;
+        return NULL;
+    }
+
+    Py_ssize_t i = 0;
+    PyObject *op;
+    WORKSTACK_FOR_EACH(worklist, op) {
+        array[i++] = op;
+    }
+
+    *out_count = count;
+    return array;
+}
+
 static inline int
 gc_has_bit(PyObject *op, uint8_t bit)
 {
@@ -1951,6 +1991,62 @@ finalize_garbage(struct collection_state *state)
     }
 }
 
+//=============================================================================
+// Parallel Cleanup Phase
+//=============================================================================
+
+// Parallel version of finalize_garbage using the thread pool
+// Dispatches work to pool workers via barrier synchronization
+static void
+finalize_garbage_parallel(struct collection_state *state, int num_workers)
+{
+    // Convert worklist to array for parallel access
+    Py_ssize_t count;
+    PyObject **objects = worklist_to_array(&state->unreachable, &count);
+
+    if (objects == NULL || count == 0) {
+        // Fall back to serial for allocation failure or empty worklist
+        if (objects != NULL) {
+            PyMem_RawFree(objects);
+        }
+        finalize_garbage(state);
+        return;
+    }
+
+    // Minimum objects to justify parallelism overhead
+    const Py_ssize_t MIN_OBJECTS_FOR_PARALLEL = 1000;
+    if (count < MIN_OBJECTS_FOR_PARALLEL) {
+        PyMem_RawFree(objects);
+        finalize_garbage(state);
+        return;
+    }
+
+    // Use thread pool for parallel finalization
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    int rc = _PyGC_ParallelFinalizeWithPool(interp, objects, count);
+
+    if (rc != 0) {
+        // Thread pool not available - fall back to serial
+        // Need to finalize any objects that weren't processed
+        PyThreadState *tstate = _PyThreadState_GET();
+        for (Py_ssize_t i = 0; i < count; i++) {
+            PyObject *op = objects[i];
+            if (!_PyGC_FINALIZED(op)) {
+                destructor finalize = Py_TYPE(op)->tp_finalize;
+                if (finalize != NULL) {
+                    _PyGC_SET_FINALIZED(op);
+                    finalize(op);
+                    if (_PyErr_Occurred(tstate)) {
+                        _PyErr_Clear(tstate);
+                    }
+                }
+            }
+        }
+    }
+
+    PyMem_RawFree(objects);
+}
+
 // Break reference cycles by clearing the containers involved.
 static void
 delete_garbage(struct collection_state *state)
@@ -2546,7 +2642,15 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
     // Call weakref callbacks and finalizers after unpausing other threads to
     // avoid potential deadlocks.
     call_weakref_callbacks(state);
-    finalize_garbage(state);
+
+    // Use parallel finalization if parallel GC is enabled
+    if (interp->gc.parallel_gc_enabled) {
+        int num_workers = _PyGC_GetParallelWorkers(interp);
+        finalize_garbage_parallel(state, num_workers);
+    }
+    else {
+        finalize_garbage(state);
+    }
 
     _PyEval_StopTheWorld(interp);
     // Handle any objects that may have resurrected after the finalization.

@@ -131,6 +131,7 @@ typedef enum {
     _PyGC_WORK_UPDATE_REFS,     // Initialize gc_refs on heap (deduce_unreachable phase 1)
     _PyGC_WORK_MARK_HEAP,       // Find roots and mark reachable (deduce_unreachable phase 2)
     _PyGC_WORK_SCAN_HEAP,       // Collect unreachable objects (deduce_unreachable phase 3)
+    _PyGC_WORK_FINALIZE,        // Finalize unreachable objects (cleanup phase)
     _PyGC_WORK_SHUTDOWN         // Shutdown workers
 } _PyGCWorkType;
 
@@ -182,6 +183,11 @@ typedef struct {
 
     // Shared worker state (deques, etc.)
     _PyGCWorkerState *workers;        // Now uses the full typedef
+
+    // For FINALIZE work
+    PyObject **finalize_objects;        // Array of objects to finalize (not owned)
+    Py_ssize_t finalize_count;          // Number of objects to finalize
+    _Atomic(Py_ssize_t) finalize_index; // Atomic counter for work distribution
 
     // Result
     volatile int error_flag;    // Set if any worker encounters an error
@@ -326,6 +332,14 @@ PyAPI_FUNC(int) _PyGC_ParallelScanHeapWithPool(
     PyInterpreterState *interp,
     _PyGCFTParState *state,
     struct _PyGCScanHeapResult *result);
+
+// Pool-based parallel finalization
+// Dispatches finalization work to the thread pool workers.
+// Returns 0 on success, -1 if no pool available.
+PyAPI_FUNC(int) _PyGC_ParallelFinalizeWithPool(
+    PyInterpreterState *interp,
+    PyObject **objects,
+    Py_ssize_t count);
 
 //-----------------------------------------------------------------------------
 // Ad-hoc thread versions (spawn threads per-collection instead of using pool)

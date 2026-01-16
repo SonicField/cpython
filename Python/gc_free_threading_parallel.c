@@ -1646,6 +1646,53 @@ scan_heap_pool_work(_PyGCThreadPool *pool, int worker_id)
     }
 }
 
+// Worker function for parallel finalization using thread pool
+// Uses batch-based work distribution for reduced contention
+static void
+finalize_pool_work(_PyGCThreadPool *pool, int worker_id)
+{
+    _PyGCWorkDescriptor *work = pool->current_work;
+    assert(work != NULL);
+    assert(work->finalize_objects != NULL || work->finalize_count == 0);
+
+    _PyGCWorkerState *worker = &pool->workers[worker_id];
+    PyThreadState *tstate = worker->tstate;
+
+    // Use larger batches to reduce atomic counter contention
+    const Py_ssize_t BATCH_SIZE = 64;
+
+    while (1) {
+        // Grab a batch of objects
+        Py_ssize_t batch_start = atomic_fetch_add(&work->finalize_index, BATCH_SIZE);
+        if (batch_start >= work->finalize_count) {
+            break;
+        }
+
+        Py_ssize_t batch_end = batch_start + BATCH_SIZE;
+        if (batch_end > work->finalize_count) {
+            batch_end = work->finalize_count;
+        }
+
+        // Process the batch
+        for (Py_ssize_t i = batch_start; i < batch_end; i++) {
+            PyObject *op = work->finalize_objects[i];
+            if (!_PyGC_FINALIZED(op)) {
+                destructor finalize = Py_TYPE(op)->tp_finalize;
+                if (finalize != NULL) {
+                    // Use atomic set for thread safety
+                    if (_PyGC_TrySetBit(op, _PyGC_BITS_FINALIZED)) {
+                        finalize(op);
+                        // Clear any exception that may have been set
+                        if (tstate != NULL && _PyErr_Occurred(tstate)) {
+                            _PyErr_Clear(tstate);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // Dispatcher for pool work based on work type
 static void
 thread_pool_do_work(_PyGCThreadPool *pool, int worker_id)
@@ -1667,6 +1714,9 @@ thread_pool_do_work(_PyGCThreadPool *pool, int worker_id)
             break;
         case _PyGC_WORK_SCAN_HEAP:
             scan_heap_pool_work(pool, worker_id);
+            break;
+        case _PyGC_WORK_FINALIZE:
+            finalize_pool_work(pool, worker_id);
             break;
         default:
             // Unknown work type - do nothing
@@ -3451,6 +3501,53 @@ pool_scan_heap_process_page(mi_page_t *page, struct _PyGCScanWorkerState *worker
                             int gc_reason)
 {
     scan_heap_process_page(page, worker, gc_reason);
+}
+
+//=============================================================================
+// Parallel Finalization API
+//=============================================================================
+
+// Dispatch finalization work to the thread pool.
+// Takes an array of objects and uses dynamic work distribution.
+// Returns 0 on success, -1 on error.
+int
+_PyGC_ParallelFinalizeWithPool(PyInterpreterState *interp,
+                                PyObject **objects,
+                                Py_ssize_t count)
+{
+    if (count == 0) {
+        return 0;  // Nothing to do
+    }
+
+    _PyGCThreadPool *pool = interp->gc.thread_pool;
+    if (pool == NULL) {
+        // No thread pool available - caller should fall back to serial
+        return -1;
+    }
+
+    // Set up work descriptor
+    _PyGCWorkDescriptor work = {
+        .type = _PyGC_WORK_FINALIZE,
+        .finalize_objects = objects,
+        .finalize_count = count,
+        .finalize_index = 0,
+        .error_flag = 0,
+    };
+    pool->current_work = &work;
+
+    // Signal workers to start
+    _PyGCBarrier_Wait(&pool->mark_barrier);
+
+    // Worker 0 (main thread) does its share
+    thread_pool_do_work(pool, 0);
+
+    // Wait for all workers to complete
+    _PyGCBarrier_Wait(&pool->done_barrier);
+
+    // Clear work descriptor
+    pool->current_work = NULL;
+
+    return work.error_flag ? -1 : 0;
 }
 
 //=============================================================================
