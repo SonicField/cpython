@@ -2628,8 +2628,15 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
     // Call tp_clear on objects in the unreachable set. This will cause
     // the reference cycles to be broken. It may also cause some objects
     // to be freed.
-    // For parallel GC, use concurrent cleanup (runs in background, gc.collect returns early)
-    if (interp->gc.parallel_gc_enabled) {
+    // For parallel GC with automatic collection, use concurrent cleanup
+    // (runs in background, allows new GC to be scheduled sooner).
+    // For explicit gc.collect() or shutdown, use synchronous cleanup
+    // to maintain expected semantics (cleanup complete when call returns).
+    bool use_async_cleanup = interp->gc.parallel_gc_enabled
+                             && state->reason != _Py_GC_REASON_MANUAL
+                             && state->reason != _Py_GC_REASON_SHUTDOWN;
+
+    if (use_async_cleanup) {
         // Convert worklist to array for concurrent cleanup
         Py_ssize_t count;
         PyObject **objects = worklist_to_array(&state->unreachable, &count);
@@ -2820,9 +2827,13 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
 
     assert(!_PyErr_Occurred(tstate));
     gcstate->frame = NULL;
-    // For parallel GC with concurrent cleanup, the background worker clears 'collecting'
-    // For serial GC, we clear it here
-    if (!interp->gc.parallel_gc_enabled) {
+    // For parallel GC with async cleanup (automatic collection), the background
+    // worker clears 'collecting'. For sync cleanup (serial GC, or parallel GC
+    // with manual/shutdown reason), we clear it here.
+    bool used_sync_cleanup = !interp->gc.parallel_gc_enabled
+                             || reason == _Py_GC_REASON_MANUAL
+                             || reason == _Py_GC_REASON_SHUTDOWN;
+    if (used_sync_cleanup) {
         _Py_atomic_store_int(&gcstate->collecting, 0);
     }
     return n + m;

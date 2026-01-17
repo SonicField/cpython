@@ -150,6 +150,30 @@ exit:
     return return_value;
 }
 
+PyDoc_STRVAR(gc_collect_async__doc__,
+"collect_async($module, /)\n"
+"--\n"
+"\n"
+"Schedule a garbage collection to run soon and return immediately.\n"
+"\n"
+"The collection runs asynchronously; this function does not wait for it\n"
+"to complete. This is useful when you want to hint to the garbage collector\n"
+"that now would be a good time to run, without blocking the current thread.\n"
+"\n"
+"Returns 0 (no objects have been collected yet when the function returns).");
+
+#define GC_COLLECT_ASYNC_METHODDEF    \
+    {"collect_async", (PyCFunction)gc_collect_async, METH_NOARGS, gc_collect_async__doc__},
+
+static PyObject *
+gc_collect_async_impl(PyObject *module);
+
+static PyObject *
+gc_collect_async(PyObject *module, PyObject *Py_UNUSED(ignored))
+{
+    return gc_collect_async_impl(module);
+}
+
 PyDoc_STRVAR(gc_set_debug__doc__,
 "set_debug($module, flags, /)\n"
 "--\n"
@@ -727,4 +751,4 @@ gc_get_parallel_stats(PyObject *module, PyObject *Py_UNUSED(ignored))
 {
     return gc_get_parallel_stats_impl(module);
 }
-/*[clinic end generated code: output=7f9276bc72468ef3 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=4947b2fa60d3a6d4 input=a9049054013a1b77]*/

@@ -100,6 +100,27 @@ gc_collect_impl(PyObject *module, int generation)
 }
 
 /*[clinic input]
+gc.collect_async
+
+Schedule a garbage collection to run soon and return immediately.
+
+The collection runs asynchronously; this function does not wait for it
+to complete. This is useful when you want to hint to the garbage collector
+that now would be a good time to run, without blocking the current thread.
+
+Returns 0 (no objects have been collected yet when the function returns).
+[clinic start generated code]*/
+
+static PyObject *
+gc_collect_async_impl(PyObject *module)
+/*[clinic end generated code: output=b46eb6d9963d5b87 input=e6a4619b52debf04]*/
+{
+    PyThreadState *tstate = _PyThreadState_GET();
+    _Py_ScheduleGC(tstate);
+    return PyLong_FromLong(0);
+}
+
+/*[clinic input]
 gc.set_debug
 
     flags: int
@@ -1043,6 +1064,7 @@ static PyMethodDef GcMethods[] = {
     GC_SET_THRESHOLD_METHODDEF
     GC_GET_THRESHOLD_METHODDEF
     GC_COLLECT_METHODDEF
+    GC_COLLECT_ASYNC_METHODDEF
     GC_GET_OBJECTS_METHODDEF
     GC_GET_STATS_METHODDEF
     GC_IS_TRACKED_METHODDEF
