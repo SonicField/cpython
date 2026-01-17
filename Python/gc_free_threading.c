@@ -1715,31 +1715,13 @@ deduce_unreachable_heap(PyInterpreterState *interp,
         }
 
         // Record scan_heap end time
+        // Note: disable_deferred is now done inline during scan_heap,
+        // so scan_heap_end includes that work. We record the same time
+        // for disable_deferred_end for backwards compatibility.
         PyTime_t scan_end;
         (void)PyTime_PerfCounterRaw(&scan_end);
         interp->gc.scan_heap_end_ns = scan_end;
-
-        // Disable deferred refcounting serially for unreachable objects
-        // (this uses internal locks that aren't safe for parallel access).
-        // Use the worklist-safe version that preserves ob_tid (worklist link).
-        PyObject *op = (PyObject *)state->unreachable.head;
-        while (op != NULL) {
-            PyObject *next = (PyObject *)op->ob_tid;
-            disable_deferred_refcounting_on_worklist(op);
-            op = next;
-        }
-        // Also for objects with legacy finalizers
-        op = (PyObject *)state->legacy_finalizers.head;
-        while (op != NULL) {
-            PyObject *next = (PyObject *)op->ob_tid;
-            disable_deferred_refcounting_on_worklist(op);
-            op = next;
-        }
-
-        // Record disable_deferred end time
-        PyTime_t deferred_end;
-        (void)PyTime_PerfCounterRaw(&deferred_end);
-        interp->gc.disable_deferred_end_ns = deferred_end;
+        interp->gc.disable_deferred_end_ns = scan_end;  // No separate loop anymore
 
         // Also scan the abandoned pool (serial, since it's typically small)
         Py_ssize_t offset_base = 0;

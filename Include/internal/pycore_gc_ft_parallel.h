@@ -427,6 +427,11 @@ struct _PyGCScanWorkerState {
     struct _PyGCScanWorklist legacy_finalizers; // Thread-local legacy finalizers
     size_t long_lived_total;                    // Count of reachable objects
     int reason;                                 // GC reason (for shutdown check)
+
+    // Unique IDs collected during scan for batch release (no locks during STW)
+    Py_ssize_t *unique_ids;                     // Array of unique IDs to release
+    size_t unique_id_count;                     // Number of IDs collected
+    size_t unique_id_capacity;                  // Capacity of array
 };
 
 // Parallel scan_heap output - passed to _PyGC_ParallelScanHeapWithPool

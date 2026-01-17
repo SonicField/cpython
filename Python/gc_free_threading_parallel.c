@@ -20,6 +20,7 @@
 #include "pycore_object_deferred.h"  // _PyObject_HasDeferredRefcount
 #include "pycore_frame.h"            // _PyInterpreterFrame, FRAME_CLEARED
 #include "pycore_stackref.h"         // PyStackRef_* functions
+#include "pycore_uniqueid.h"         // _PyObject_ClearUniqueId, batch release
 #include "frameobject.h"             // PyFrameObject
 
 // For mimalloc heap access - includes mimalloc/types.h for mi_page_t, mi_heap_t
@@ -2974,6 +2975,76 @@ par_disable_deferred_refcounting(PyObject *op)
     }
 }
 
+// Add a unique ID to the worker's collection for batch release
+// Returns 0 on success, -1 on allocation failure
+static int
+worker_collect_unique_id(struct _PyGCScanWorkerState *worker, Py_ssize_t id)
+{
+    if (id == _Py_INVALID_UNIQUE_ID) {
+        return 0;  // Nothing to collect
+    }
+
+    // Grow array if needed
+    if (worker->unique_id_count >= worker->unique_id_capacity) {
+        size_t new_capacity = worker->unique_id_capacity == 0 ? 64 :
+                              worker->unique_id_capacity * 2;
+        Py_ssize_t *new_array = PyMem_RawRealloc(worker->unique_ids,
+                                                  new_capacity * sizeof(Py_ssize_t));
+        if (new_array == NULL) {
+            return -1;  // Allocation failed
+        }
+        worker->unique_ids = new_array;
+        worker->unique_id_capacity = new_capacity;
+    }
+
+    worker->unique_ids[worker->unique_id_count++] = id;
+    return 0;
+}
+
+// Disable deferred refcounting and collect unique ID for batch release.
+// This version doesn't acquire locks - IDs are collected for batch release later.
+static void
+par_disable_deferred_collect_ids(PyObject *op, struct _PyGCScanWorkerState *worker)
+{
+    if (_PyObject_HasDeferredRefcount(op)) {
+        op->ob_gc_bits &= ~_PyGC_BITS_DEFERRED;
+        op->ob_ref_shared -= _Py_REF_SHARED(_Py_REF_DEFERRED, 0);
+        par_merge_refcount(op, 0);
+
+        // Collect unique ID instead of releasing (no locks)
+        Py_ssize_t id = _PyObject_ClearUniqueId(op);
+        worker_collect_unique_id(worker, id);
+    }
+
+    // Handle generator/frame objects (same as original)
+    if (PyGen_CheckExact(op) || PyCoro_CheckExact(op) || PyAsyncGen_CheckExact(op)) {
+        PyGenObject *gen = (PyGenObject *)op;
+        _PyInterpreterFrame *frame = &gen->gi_iframe;
+        if (frame->stackpointer != NULL &&
+            gen->gi_frame_state != FRAME_CLEARED) {
+            frame->f_executable = PyStackRef_AsStrongReference(frame->f_executable);
+            frame->f_funcobj = PyStackRef_AsStrongReference(frame->f_funcobj);
+            for (_PyStackRef *ref = frame->localsplus; ref < frame->stackpointer; ref++) {
+                if (!PyStackRef_IsNullOrInt(*ref) && PyStackRef_IsDeferred(*ref)) {
+                    *ref = PyStackRef_AsStrongReference(*ref);
+                }
+            }
+        }
+    }
+    else if (PyFrame_Check(op)) {
+        _PyInterpreterFrame *frame = ((PyFrameObject *)op)->f_frame;
+        if (frame != NULL && frame->stackpointer != NULL) {
+            frame->f_executable = PyStackRef_AsStrongReference(frame->f_executable);
+            frame->f_funcobj = PyStackRef_AsStrongReference(frame->f_funcobj);
+            for (_PyStackRef *ref = frame->localsplus; ref < frame->stackpointer; ref++) {
+                if (!PyStackRef_IsNullOrInt(*ref) && PyStackRef_IsDeferred(*ref)) {
+                    *ref = PyStackRef_AsStrongReference(*ref);
+                }
+            }
+        }
+    }
+}
+
 // Restore thread ID for reachable objects
 static void
 par_gc_restore_tid(PyObject *op)
@@ -3015,9 +3086,10 @@ scan_heap_block_visitor(const mi_heap_t *heap, const mi_heap_area_t *area,
 
     if (_PyGC_IsUnreachable(op)) {
         // Unreachable object
-        // NOTE: disable_deferred_refcounting is NOT called here because it uses
-        // internal locks that aren't safe for parallel access. It will be called
-        // serially after the parallel phase completes.
+        // Disable deferred refcounting and collect unique IDs for batch release.
+        // This is done inline during scan to avoid a separate O(n) loop.
+        par_disable_deferred_collect_ids(op, args->worker);
+
         par_merge_refcount(op, 1);
 
         if (par_has_legacy_finalizer(op)) {
@@ -3030,8 +3102,6 @@ scan_heap_block_visitor(const mi_heap_t *heap, const mi_heap_area_t *area,
     }
     else {
         // Reachable object
-        // NOTE: For shutdown, disable_deferred_refcounting is called serially later
-        // because it uses internal locks that aren't safe for parallel access.
         par_gc_restore_tid(op);
         par_gc_clear_alive(op);
         args->worker->long_lived_total++;
@@ -3465,6 +3535,21 @@ _PyGC_ParallelScanHeapWithPool(PyInterpreterState *interp,
         scan_worklist_merge(&scan_workers[i].legacy_finalizers,
                             result->legacy_finalizers_head);
         *result->long_lived_total += scan_workers[i].long_lived_total;
+    }
+
+    // Batch release all collected unique IDs (during STW, no lock needed)
+    // This replaces the O(n) lock acquisitions with a single batch operation
+    for (int i = 0; i < pool->num_workers; i++) {
+        if (scan_workers[i].unique_id_count > 0) {
+            _PyObject_ReleaseUniqueIdBatch_NoLock(
+                interp,
+                scan_workers[i].unique_ids,
+                scan_workers[i].unique_id_count);
+        }
+        // Free the worker's unique_id array
+        if (scan_workers[i].unique_ids != NULL) {
+            PyMem_RawFree(scan_workers[i].unique_ids);
+        }
     }
 
     // Cleanup
