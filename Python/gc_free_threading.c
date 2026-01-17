@@ -1714,6 +1714,11 @@ deduce_unreachable_heap(PyInterpreterState *interp,
             return -1;
         }
 
+        // Record scan_heap end time
+        PyTime_t scan_end;
+        (void)PyTime_PerfCounterRaw(&scan_end);
+        interp->gc.scan_heap_end_ns = scan_end;
+
         // Disable deferred refcounting serially for unreachable objects
         // (this uses internal locks that aren't safe for parallel access).
         // Use the worklist-safe version that preserves ob_tid (worklist link).
@@ -1730,6 +1735,11 @@ deduce_unreachable_heap(PyInterpreterState *interp,
             disable_deferred_refcounting_on_worklist(op);
             op = next;
         }
+
+        // Record disable_deferred end time
+        PyTime_t deferred_end;
+        (void)PyTime_PerfCounterRaw(&deferred_end);
+        interp->gc.disable_deferred_end_ns = deferred_end;
 
         // Also scan the abandoned pool (serial, since it's typically small)
         Py_ssize_t offset_base = 0;
@@ -2596,25 +2606,81 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
 
     // Find weakref callbacks we will honor (but do not call them).
     find_weakref_callbacks(state);
+
+    // Record find_weakrefs end time
+    PyTime_t find_weakrefs_end;
+    (void)PyTime_PerfCounterRaw(&find_weakrefs_end);
+    interp->gc.find_weakrefs_end_ns = find_weakrefs_end;
+
     _PyEval_StartTheWorld(interp);
+
+    // Record STW #1 end time
+    PyTime_t stw1_end;
+    (void)PyTime_PerfCounterRaw(&stw1_end);
+    interp->gc.stw1_end_ns = stw1_end;
 
     // Deallocate any object from the refcount merge step
     cleanup_worklist(&state->objs_to_decref);
 
+    // Record objs_decref end time
+    PyTime_t objs_decref_end;
+    (void)PyTime_PerfCounterRaw(&objs_decref_end);
+    interp->gc.objs_decref_end_ns = objs_decref_end;
+
     // Call weakref callbacks and finalizers after unpausing other threads to
     // avoid potential deadlocks.
     call_weakref_callbacks(state);
+
+    // Record weakref_callbacks end time
+    PyTime_t weakref_callbacks_end;
+    (void)PyTime_PerfCounterRaw(&weakref_callbacks_end);
+    interp->gc.weakref_callbacks_end_ns = weakref_callbacks_end;
+
     finalize_garbage(state);
 
+    // Record finalize end time
+    PyTime_t finalize_end;
+    (void)PyTime_PerfCounterRaw(&finalize_end);
+    interp->gc.finalize_end_ns = finalize_end;
+
     _PyEval_StopTheWorld(interp);
+
+    // Record STW #2 end time
+    PyTime_t stw2_end;
+    (void)PyTime_PerfCounterRaw(&stw2_end);
+    interp->gc.stw2_end_ns = stw2_end;
+
     // Handle any objects that may have resurrected after the finalization.
     err = handle_resurrected_objects(state);
+
+    // Record resurrection end time
+    PyTime_t resurrection_end;
+    (void)PyTime_PerfCounterRaw(&resurrection_end);
+    interp->gc.resurrection_end_ns = resurrection_end;
+
     // Clear free lists in all threads
     _PyGC_ClearAllFreeLists(interp);
+
+    // Record freelists end time
+    PyTime_t freelists_end;
+    (void)PyTime_PerfCounterRaw(&freelists_end);
+    interp->gc.freelists_end_ns = freelists_end;
+
     if (err == 0) {
         clear_weakrefs(state);
     }
+
+    // Record clear_weakrefs end time
+    PyTime_t clear_weakrefs_end;
+    (void)PyTime_PerfCounterRaw(&clear_weakrefs_end);
+    interp->gc.clear_weakrefs_end_ns = clear_weakrefs_end;
+
     _PyEval_StartTheWorld(interp);
+
+    // Record STW #3 end time
+    PyTime_t stw3_end;
+    (void)PyTime_PerfCounterRaw(&stw3_end);
+    interp->gc.stw3_end_ns = stw3_end;
 
     if (err < 0) {
         cleanup_worklist(&state->unreachable);

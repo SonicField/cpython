@@ -277,6 +277,18 @@ struct _gc_runtime_state {
     int64_t phase_start_ns;           /* Start of parallel GC */
     int64_t update_refs_end_ns;       /* End of update_refs phase */
     int64_t mark_heap_end_ns;         /* End of mark_heap phase */
+    int64_t scan_heap_end_ns;         /* End of scan_heap phase */
+    int64_t disable_deferred_end_ns;  /* End of disable_deferred_refcounting loop */
+    int64_t find_weakrefs_end_ns;     /* End of find_weakref_callbacks */
+    int64_t stw1_end_ns;              /* After StartTheWorld #1 */
+    int64_t objs_decref_end_ns;       /* After cleanup_worklist(objs_to_decref) */
+    int64_t weakref_callbacks_end_ns; /* After call_weakref_callbacks */
+    int64_t finalize_end_ns;          /* After finalize_garbage */
+    int64_t stw2_end_ns;              /* After StopTheWorld #2 */
+    int64_t resurrection_end_ns;      /* After handle_resurrected_objects */
+    int64_t freelists_end_ns;         /* After _PyGC_ClearAllFreeLists */
+    int64_t clear_weakrefs_end_ns;    /* After clear_weakrefs */
+    int64_t stw3_end_ns;              /* After StartTheWorld #3 */
     int64_t cleanup_start_ns;         /* Start of cleanup phase (actual tp_clear work) */
     int64_t cleanup_end_ns;           /* End of cleanup phase */
 #endif

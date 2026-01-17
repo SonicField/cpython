@@ -3631,17 +3631,78 @@ _PyGC_FTParallelGetStats(PyInterpreterState *interp)
         return NULL;
     }
 
+    // Helper macro to add a timing value to the dict
+    #define ADD_TIMING(name, value) do { \
+        PyObject *obj = PyLong_FromLongLong(value); \
+        if (obj == NULL || PyDict_SetItemString(phase_timing, name, obj) < 0) { \
+            Py_XDECREF(obj); \
+            Py_DECREF(phase_timing); \
+            Py_DECREF(result); \
+            return NULL; \
+        } \
+        Py_DECREF(obj); \
+    } while(0)
+
     // Calculate phase durations from recorded timestamps
     int64_t update_refs_ns = 0;
     int64_t mark_heap_ns = 0;
+    int64_t scan_heap_ns = 0;
+    int64_t disable_deferred_ns = 0;
+    int64_t find_weakrefs_ns = 0;
+    int64_t stw1_ns = 0;
+    int64_t objs_decref_ns = 0;
+    int64_t weakref_callbacks_ns = 0;
+    int64_t finalize_ns = 0;
+    int64_t stw2_ns = 0;
+    int64_t resurrection_ns = 0;
+    int64_t freelists_ns = 0;
+    int64_t clear_weakrefs_ns = 0;
+    int64_t stw3_ns = 0;
     int64_t cleanup_ns = 0;
     int64_t total_ns = 0;
 
+    // Calculate durations between timestamps
     if (interp->gc.phase_start_ns > 0 && interp->gc.update_refs_end_ns > 0) {
         update_refs_ns = interp->gc.update_refs_end_ns - interp->gc.phase_start_ns;
     }
     if (interp->gc.update_refs_end_ns > 0 && interp->gc.mark_heap_end_ns > 0) {
         mark_heap_ns = interp->gc.mark_heap_end_ns - interp->gc.update_refs_end_ns;
+    }
+    if (interp->gc.mark_heap_end_ns > 0 && interp->gc.scan_heap_end_ns > 0) {
+        scan_heap_ns = interp->gc.scan_heap_end_ns - interp->gc.mark_heap_end_ns;
+    }
+    if (interp->gc.scan_heap_end_ns > 0 && interp->gc.disable_deferred_end_ns > 0) {
+        disable_deferred_ns = interp->gc.disable_deferred_end_ns - interp->gc.scan_heap_end_ns;
+    }
+    if (interp->gc.disable_deferred_end_ns > 0 && interp->gc.find_weakrefs_end_ns > 0) {
+        find_weakrefs_ns = interp->gc.find_weakrefs_end_ns - interp->gc.disable_deferred_end_ns;
+    }
+    if (interp->gc.find_weakrefs_end_ns > 0 && interp->gc.stw1_end_ns > 0) {
+        stw1_ns = interp->gc.stw1_end_ns - interp->gc.find_weakrefs_end_ns;
+    }
+    if (interp->gc.stw1_end_ns > 0 && interp->gc.objs_decref_end_ns > 0) {
+        objs_decref_ns = interp->gc.objs_decref_end_ns - interp->gc.stw1_end_ns;
+    }
+    if (interp->gc.objs_decref_end_ns > 0 && interp->gc.weakref_callbacks_end_ns > 0) {
+        weakref_callbacks_ns = interp->gc.weakref_callbacks_end_ns - interp->gc.objs_decref_end_ns;
+    }
+    if (interp->gc.weakref_callbacks_end_ns > 0 && interp->gc.finalize_end_ns > 0) {
+        finalize_ns = interp->gc.finalize_end_ns - interp->gc.weakref_callbacks_end_ns;
+    }
+    if (interp->gc.finalize_end_ns > 0 && interp->gc.stw2_end_ns > 0) {
+        stw2_ns = interp->gc.stw2_end_ns - interp->gc.finalize_end_ns;
+    }
+    if (interp->gc.stw2_end_ns > 0 && interp->gc.resurrection_end_ns > 0) {
+        resurrection_ns = interp->gc.resurrection_end_ns - interp->gc.stw2_end_ns;
+    }
+    if (interp->gc.resurrection_end_ns > 0 && interp->gc.freelists_end_ns > 0) {
+        freelists_ns = interp->gc.freelists_end_ns - interp->gc.resurrection_end_ns;
+    }
+    if (interp->gc.freelists_end_ns > 0 && interp->gc.clear_weakrefs_end_ns > 0) {
+        clear_weakrefs_ns = interp->gc.clear_weakrefs_end_ns - interp->gc.freelists_end_ns;
+    }
+    if (interp->gc.clear_weakrefs_end_ns > 0 && interp->gc.stw3_end_ns > 0) {
+        stw3_ns = interp->gc.stw3_end_ns - interp->gc.clear_weakrefs_end_ns;
     }
     if (interp->gc.cleanup_start_ns > 0 && interp->gc.cleanup_end_ns > 0) {
         cleanup_ns = interp->gc.cleanup_end_ns - interp->gc.cleanup_start_ns;
@@ -3654,45 +3715,25 @@ _PyGC_FTParallelGetStats(PyInterpreterState *interp)
         total_ns = interp->gc.mark_heap_end_ns - interp->gc.phase_start_ns;
     }
 
-    PyObject *update_refs_obj = PyLong_FromLongLong(update_refs_ns);
-    if (update_refs_obj == NULL ||
-        PyDict_SetItemString(phase_timing, "update_refs_ns", update_refs_obj) < 0) {
-        Py_XDECREF(update_refs_obj);
-        Py_DECREF(phase_timing);
-        Py_DECREF(result);
-        return NULL;
-    }
-    Py_DECREF(update_refs_obj);
+    // Add all timing values
+    ADD_TIMING("update_refs_ns", update_refs_ns);
+    ADD_TIMING("mark_heap_ns", mark_heap_ns);
+    ADD_TIMING("scan_heap_ns", scan_heap_ns);
+    ADD_TIMING("disable_deferred_ns", disable_deferred_ns);
+    ADD_TIMING("find_weakrefs_ns", find_weakrefs_ns);
+    ADD_TIMING("stw1_ns", stw1_ns);
+    ADD_TIMING("objs_decref_ns", objs_decref_ns);
+    ADD_TIMING("weakref_callbacks_ns", weakref_callbacks_ns);
+    ADD_TIMING("finalize_ns", finalize_ns);
+    ADD_TIMING("stw2_ns", stw2_ns);
+    ADD_TIMING("resurrection_ns", resurrection_ns);
+    ADD_TIMING("freelists_ns", freelists_ns);
+    ADD_TIMING("clear_weakrefs_ns", clear_weakrefs_ns);
+    ADD_TIMING("stw3_ns", stw3_ns);
+    ADD_TIMING("cleanup_ns", cleanup_ns);
+    ADD_TIMING("total_ns", total_ns);
 
-    PyObject *mark_heap_obj = PyLong_FromLongLong(mark_heap_ns);
-    if (mark_heap_obj == NULL ||
-        PyDict_SetItemString(phase_timing, "mark_heap_ns", mark_heap_obj) < 0) {
-        Py_XDECREF(mark_heap_obj);
-        Py_DECREF(phase_timing);
-        Py_DECREF(result);
-        return NULL;
-    }
-    Py_DECREF(mark_heap_obj);
-
-    PyObject *cleanup_obj = PyLong_FromLongLong(cleanup_ns);
-    if (cleanup_obj == NULL ||
-        PyDict_SetItemString(phase_timing, "cleanup_ns", cleanup_obj) < 0) {
-        Py_XDECREF(cleanup_obj);
-        Py_DECREF(phase_timing);
-        Py_DECREF(result);
-        return NULL;
-    }
-    Py_DECREF(cleanup_obj);
-
-    PyObject *total_obj = PyLong_FromLongLong(total_ns);
-    if (total_obj == NULL ||
-        PyDict_SetItemString(phase_timing, "total_ns", total_obj) < 0) {
-        Py_XDECREF(total_obj);
-        Py_DECREF(phase_timing);
-        Py_DECREF(result);
-        return NULL;
-    }
-    Py_DECREF(total_obj);
+    #undef ADD_TIMING
 
     if (PyDict_SetItemString(result, "phase_timing", phase_timing) < 0) {
         Py_DECREF(phase_timing);
