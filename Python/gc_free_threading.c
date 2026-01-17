@@ -2511,6 +2511,15 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
 {
     _PyEval_StopTheWorld(interp);
 
+    // If async cleanup from a previous collection is still running, wait for it.
+    // The world is stopped, so no new garbage can be created while we wait.
+    // This ensures the previous cleanup completes before we start marking.
+    if (_Py_atomic_load_int_relaxed(&interp->gc.async_cleanup_running)) {
+        // Block until cleanup worker releases the mutex
+        PyMutex_Lock(&interp->gc.cleanup_mutex);
+        PyMutex_Unlock(&interp->gc.cleanup_mutex);
+    }
+
     // update collection and allocation counters
     if (generation+1 < NUM_GENERATIONS) {
         state->gcstate->old[generation].count += 1;
@@ -2626,66 +2635,51 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
         PyObject **objects = worklist_to_array(&state->unreachable, &count);
 
         if (objects != NULL && count > 0) {
-            // Try concurrent cleanup - background worker will clear 'collecting' flag
-            int rc = _PyGC_StartAsyncCleanup(interp, objects, count);
-            if (rc == 0) {
-                // Concurrent cleanup started - don't clear collecting flag here
-                // The unreachable worklist is now empty (consumed by worklist_to_array)
-                // The objects array is owned by the concurrent worker
-                PyMem_RawFree(objects);  // We copied the array in StartAsyncCleanup
-                state->collected += count;  // Count as collected
-            }
-            else {
-                // Concurrent cleanup failed - fall back to serial
-                // Process the array ourselves since worklist was consumed
-                PyThreadState *tstate = _PyThreadState_GET();
-                GCState *gcstate = state->gcstate;
-                for (Py_ssize_t i = 0; i < count; i++) {
-                    PyObject *op = objects[i];
-                    gc_clear_unreachable(op);
+            // Record cleanup start time
+            PyTime_t cleanup_start;
+            (void)PyTime_PerfCounterRaw(&cleanup_start);
+            interp->gc.cleanup_start_ns = cleanup_start;
 
-                    if (!_PyObject_GC_IS_TRACKED(op)) {
-                        Py_DECREF(op);
-                        continue;
-                    }
+            // Mark async cleanup as running BEFORE dispatch
+            _Py_atomic_store_int(&interp->gc.async_cleanup_running, 1);
 
-                    state->collected++;
+            // Dispatch to background worker
+            // Pool is guaranteed to exist if parallel_gc_enabled is true
+            // The async worker will set cleanup_end_ns when cleanup finishes
+            _PyGC_StartAsyncCleanup(interp, objects, count);
+            PyMem_RawFree(objects);  // StartAsyncCleanup copies the array
+            state->collected += count;
 
-                    if (gcstate->debug & _PyGC_DEBUG_SAVEALL) {
-                        assert(gcstate->garbage != NULL);
-                        if (PyList_Append(gcstate->garbage, op) < 0) {
-                            _PyErr_Clear(tstate);
-                        }
-                    }
-                    else {
-                        inquiry clear = Py_TYPE(op)->tp_clear;
-                        if (clear != NULL) {
-                            (void) clear(op);
-                            if (_PyErr_Occurred(tstate)) {
-                                PyErr_FormatUnraisable("Exception ignored in tp_clear of %s",
-                                                       Py_TYPE(op)->tp_name);
-                            }
-                        }
-                    }
-
-                    Py_DECREF(op);
-                }
-                PyMem_RawFree(objects);
-                // Clear collecting flag since we did sync cleanup
-                _Py_atomic_store_int(&gcstate->collecting, 0);
-            }
+            // Clear collecting flag - async cleanup is tracked separately
+            // This allows new GC to be scheduled while cleanup runs
+            _Py_atomic_store_int(&state->gcstate->collecting, 0);
         }
         else {
-            // Empty or allocation failed - nothing to do concurrently
+            // Empty or allocation failed - nothing to clean up
             if (objects != NULL) {
                 PyMem_RawFree(objects);
             }
+            // Record cleanup timing (cleanup was trivial/empty)
+            PyTime_t cleanup_time;
+            (void)PyTime_PerfCounterRaw(&cleanup_time);
+            interp->gc.cleanup_start_ns = cleanup_time;
+            interp->gc.cleanup_end_ns = cleanup_time;
             // Clear collecting flag since no concurrent cleanup started
             _Py_atomic_store_int(&state->gcstate->collecting, 0);
         }
     }
     else {
+        // Record cleanup start time for serial GC
+        PyTime_t cleanup_start;
+        (void)PyTime_PerfCounterRaw(&cleanup_start);
+        interp->gc.cleanup_start_ns = cleanup_start;
+
         delete_garbage(state);
+
+        // Record cleanup end time for serial GC
+        PyTime_t cleanup_end;
+        (void)PyTime_PerfCounterRaw(&cleanup_end);
+        interp->gc.cleanup_end_ns = cleanup_end;
     }
 
     // Store the current memory usage, can be smaller now if breaking cycles
@@ -2711,32 +2705,15 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
     assert(gcstate->garbage != NULL);
     assert(!_PyErr_Occurred(tstate));
 
+    // Note: We used to check async_cleanup_running here and wait, but that
+    // was wrong because it happened before STW. The wait is now done inside
+    // gc_collect_internal, after StopTheWorld, so no new garbage can be
+    // created while waiting.
+
     int expected = 0;
     if (!_Py_atomic_compare_exchange_int(&gcstate->collecting, &expected, 1)) {
-        // Cleanup from previous collection still running.
-        // Stop the world to eliminate allocation contention during cleanup,
-        // then wait for cleanup to finish by blocking on the cleanup mutex.
-        //
-        // Note: There is a theoretical race where we could acquire the mutex
-        // before the cleanup worker does (if the worker hasn't been scheduled
-        // yet after the barrier release). This is benign because:
-        // 1. The retry CAS below will fail (collecting is still 1)
-        // 2. We return 0 without running a collection
-        // 3. The cleanup worker will run correctly when scheduled
-        // In practice this race never occurs because the cleanup worker wakes
-        // immediately from the barrier and acquires the mutex in microseconds,
-        // while triggering a new GC requires milliseconds of allocation.
-        _PyEval_StopTheWorld(tstate->interp);
-        // Block until cleanup worker releases the mutex (i.e., cleanup finishes)
-        PyMutex_Lock(&gcstate->cleanup_mutex);
-        PyMutex_Unlock(&gcstate->cleanup_mutex);
-        _PyEval_StartTheWorld(tstate->interp);
-        // Now try again to set collecting flag
-        expected = 0;
-        if (!_Py_atomic_compare_exchange_int(&gcstate->collecting, &expected, 1)) {
-            // Another thread beat us - just return
-            return 0;
-        }
+        // Another thread is running a collection - just return
+        return 0;
     }
 
     if (reason == _Py_GC_REASON_HEAP && !gc_should_collect(gcstate)) {
@@ -2784,13 +2761,9 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
 
     gc_collect_internal(interp, &state, generation);
 
-    // Record cleanup end time for parallel GC timing
-    // Only record if parallel GC was used (mark_heap_end_ns is set)
-    if (interp->gc.mark_heap_end_ns > 0 && interp->gc.cleanup_end_ns == 0) {
-        PyTime_t cleanup_end;
-        (void)PyTime_PerfCounterRaw(&cleanup_end);
-        interp->gc.cleanup_end_ns = cleanup_end;
-    }
+    // Note: cleanup_end_ns is set by:
+    // - async_cleanup_work for parallel GC with async cleanup
+    // - gc_collect_internal for serial GC or empty parallel cleanup
 
     m = state.collected;
     n = state.uncollectable;

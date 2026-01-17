@@ -335,10 +335,10 @@ PyAPI_FUNC(int) _PyGC_ParallelScanHeapWithPool(
     struct _PyGCScanHeapResult *result);
 
 // Start concurrent cleanup in background worker (single-threaded).
-// Objects array is transferred to background worker (caller must not free).
+// Objects array is copied by the function (caller frees original).
 // The background worker will set gcstate->collecting = 0 when done.
-// Returns 0 on success, -1 if no pool available.
-PyAPI_FUNC(int) _PyGC_StartAsyncCleanup(
+// Pool must exist (guaranteed if parallel_gc_enabled is true).
+PyAPI_FUNC(void) _PyGC_StartAsyncCleanup(
     PyInterpreterState *interp,
     PyObject **objects,
     Py_ssize_t count);

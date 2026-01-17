@@ -19,6 +19,7 @@ import time
 import random
 import argparse
 import statistics
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -255,6 +256,65 @@ def create_cyclic_heap(size: int, cluster_size: int = 100) -> List:
 
 
 # =============================================================================
+# Threaded Worker for Multi-threaded Benchmark
+# =============================================================================
+
+def worker_churn_loop(
+    thread_id: int,
+    heap_size_per_thread: int,
+    churn_size: int,
+    end_time: float,
+    results: dict,
+    heap_type: str,
+):
+    """
+    Worker function that runs in a thread pool.
+    Each thread maintains its own local heap and churns objects independently.
+    """
+    # Each thread has its own random state
+    rng = random.Random(42 + thread_id)
+
+    # Build thread-local heap
+    if heap_type == "ai":
+        heap = create_ai_workload(heap_size_per_thread)
+    else:
+        heap = create_cyclic_heap(heap_size_per_thread)
+
+    objects_created = 0
+    cycles = 0
+
+    while time.perf_counter() < end_time:
+        # Create batch of new objects that form cycles among themselves
+        new_objects = []
+        for _ in range(churn_size):
+            obj = Node()
+            new_objects.append(obj)
+
+        # Create cycles within the batch
+        for i in range(len(new_objects)):
+            new_objects[i].refs.append(new_objects[(i + 1) % len(new_objects)])
+
+        # Add some refs to our local heap
+        for i, obj in enumerate(new_objects):
+            if heap and i % 5 == 0:
+                obj.refs.append(rng.choice(heap))
+
+        # Add to heap temporarily, then remove to create garbage
+        heap.extend(new_objects)
+
+        # Remove some objects to create garbage
+        num_to_remove = min(churn_size, len(heap) - heap_size_per_thread)
+        if num_to_remove > 0:
+            del heap[-num_to_remove:]
+
+        objects_created += churn_size
+        cycles += 1
+
+    # Store results for this thread
+    results[thread_id] = {"objects_created": objects_created, "cycles": cycles}
+
+
+# =============================================================================
 # Throughput Benchmark
 # =============================================================================
 
@@ -262,6 +322,7 @@ def run_throughput_benchmark(
     heap_size: int,
     duration_seconds: float,
     parallel_workers: Optional[int],
+    num_threads: Optional[int] = None,
     heap_type: str = "cyclic",
     survivor_ratio: float = 0.8,
     gc_threshold: int = 500,
@@ -273,6 +334,9 @@ def run_throughput_benchmark(
     2. Run create/destroy loop for duration
     3. Count objects created
     4. Track pause times
+
+    If num_threads is specified, use ThreadPoolExecutor with num_threads workers.
+    Each thread maintains its own local heap and churns objects independently.
     """
     random.seed(seed)
 
@@ -297,63 +361,111 @@ def run_throughput_benchmark(
                 pass
             mode = "serial"
 
+        # Add threading info to mode
+        if num_threads:
+            mode += f"-{num_threads}t"
+
         print(f"Building initial heap ({heap_size} objects, {heap_type})...")
 
-        # Phase 1: Build initial heap
-        gc.disable()  # Don't count setup GC
-        if heap_type == "ai":
-            heap = create_ai_workload(heap_size)
-        else:
-            heap = create_cyclic_heap(heap_size)
-        gc.collect()  # Clean up any garbage from setup
-        gc.enable()
-
         # Calculate churn parameters
-        # Small churn size = more cycles = more GC events = better measurement
-        # Target: ~1000-5000 objects per cycle to trigger frequent GC
         churn_size = min(5000, max(1000, heap_size // 100))
 
-        print(f"Starting steady-state benchmark ({duration_seconds}s, {mode})...")
-        print(f"  Heap size: {heap_size}, Churn per cycle: {churn_size}")
+        if num_threads:
+            # Multi-threaded execution: each thread maintains its own heap
+            heap_size_per_thread = heap_size // num_threads
+            churn_size_per_thread = churn_size // num_threads
 
-        # Phase 2: Steady-state throughput measurement
-        tracker.reset()
-        objects_created = 0
-        cycles = 0
+            print(f"Starting steady-state benchmark ({duration_seconds}s, {mode})...")
+            print(f"  Total heap size: {heap_size} ({heap_size_per_thread} per thread)")
+            print(f"  Churn per cycle: {churn_size} ({churn_size_per_thread} per thread)")
+            print(f"  Threads: {num_threads}")
 
-        start_time = time.perf_counter()
-        end_time = start_time + duration_seconds
+            # Phase 2: Multi-threaded steady-state throughput measurement
+            tracker.reset()
 
-        while time.perf_counter() < end_time:
-            # Create batch of new objects that form cycles among themselves
-            # This creates CYCLIC garbage that requires GC to collect
-            new_objects = []
-            for i in range(churn_size):
-                obj = Node()
-                new_objects.append(obj)
+            start_time = time.perf_counter()
+            end_time = start_time + duration_seconds
 
-            # Create cycles within the batch: each object refs the next, last refs first
-            for i in range(len(new_objects)):
-                new_objects[i].refs.append(new_objects[(i + 1) % len(new_objects)])
+            # Shared dict for worker results
+            worker_results = {}
 
-            # Also add some refs to the heap (one-way, doesn't affect cycle)
-            for i, obj in enumerate(new_objects):
-                if heap and i % 5 == 0:
-                    obj.refs.append(random.choice(heap))
+            # Launch worker threads
+            with ThreadPoolExecutor(max_workers=num_threads) as executor:
+                futures = []
+                for thread_id in range(num_threads):
+                    future = executor.submit(
+                        worker_churn_loop,
+                        thread_id,
+                        heap_size_per_thread,
+                        churn_size_per_thread,
+                        end_time,
+                        worker_results,
+                        heap_type,
+                    )
+                    futures.append(future)
 
-            # Add to heap temporarily, then remove to create garbage pattern
-            heap.extend(new_objects)
+                # Wait for all workers to complete
+                for future in futures:
+                    future.result()
 
-            # Remove some objects to create garbage (like real workload)
-            num_to_remove = min(churn_size, len(heap) - heap_size)
-            if num_to_remove > 0:
-                # Remove from the end (the newly added objects become garbage)
-                del heap[-num_to_remove:]
+            elapsed = time.perf_counter() - start_time
 
-            objects_created += churn_size
-            cycles += 1
+            # Aggregate results from all threads
+            objects_created = sum(r["objects_created"] for r in worker_results.values())
+            cycles = sum(r["cycles"] for r in worker_results.values())
 
-        elapsed = time.perf_counter() - start_time
+        else:
+            # Single-threaded execution (original behavior)
+            # Phase 1: Build initial heap
+            gc.disable()  # Don't count setup GC
+            if heap_type == "ai":
+                heap = create_ai_workload(heap_size)
+            else:
+                heap = create_cyclic_heap(heap_size)
+            gc.collect()  # Clean up any garbage from setup
+            gc.enable()
+
+            print(f"Starting steady-state benchmark ({duration_seconds}s, {mode})...")
+            print(f"  Heap size: {heap_size}, Churn per cycle: {churn_size}")
+
+            # Phase 2: Steady-state throughput measurement
+            tracker.reset()
+            objects_created = 0
+            cycles = 0
+
+            start_time = time.perf_counter()
+            end_time = start_time + duration_seconds
+
+            while time.perf_counter() < end_time:
+                # Create batch of new objects that form cycles among themselves
+                # This creates CYCLIC garbage that requires GC to collect
+                new_objects = []
+                for i in range(churn_size):
+                    obj = Node()
+                    new_objects.append(obj)
+
+                # Create cycles within the batch: each object refs the next, last refs first
+                for i in range(len(new_objects)):
+                    new_objects[i].refs.append(new_objects[(i + 1) % len(new_objects)])
+
+                # Also add some refs to the heap (one-way, doesn't affect cycle)
+                for i, obj in enumerate(new_objects):
+                    if heap and i % 5 == 0:
+                        obj.refs.append(random.choice(heap))
+
+                # Add to heap temporarily, then remove to create garbage pattern
+                heap.extend(new_objects)
+
+                # Remove some objects to create garbage (like real workload)
+                num_to_remove = min(churn_size, len(heap) - heap_size)
+                if num_to_remove > 0:
+                    # Remove from the end (the newly added objects become garbage)
+                    del heap[-num_to_remove:]
+
+                objects_created += churn_size
+                cycles += 1
+
+            elapsed = time.perf_counter() - start_time
 
         # Final collection to ensure consistent state
         gc.collect()
@@ -445,6 +557,8 @@ def main():
                         help="Run both serial and parallel, compare results")
     parser.add_argument("--workers", "-w", type=int, default=8,
                         help="Workers to use in compare mode")
+    parser.add_argument("--threads", type=int, default=None,
+                        help="Number of threads for object creation (uses ThreadPoolExecutor)")
     args = parser.parse_args()
 
     # Parse heap size
@@ -477,6 +591,7 @@ def main():
             heap_size=heap_size,
             duration_seconds=args.duration,
             parallel_workers=None,
+            num_threads=args.threads,
             heap_type=args.heap_type,
             survivor_ratio=args.survivor_ratio,
         )
@@ -488,6 +603,7 @@ def main():
             heap_size=heap_size,
             duration_seconds=args.duration,
             parallel_workers=args.workers,
+            num_threads=args.threads,
             heap_type=args.heap_type,
             survivor_ratio=args.survivor_ratio,
         )
@@ -514,6 +630,7 @@ def main():
             heap_size=heap_size,
             duration_seconds=args.duration,
             parallel_workers=args.parallel,
+            num_threads=args.threads,
             heap_type=args.heap_type,
             survivor_ratio=args.survivor_ratio,
         )

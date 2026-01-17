@@ -264,6 +264,10 @@ struct _gc_runtime_state {
        When cleanup is running, gc_collect_main blocks on this mutex. */
     PyMutex cleanup_mutex;
 
+    /* Flag indicating async cleanup is in progress. Used to decide whether
+       gc_collect_main needs to STW and wait on cleanup_mutex. */
+    int async_cleanup_running;
+
     /* Parallel GC configuration for FTP */
     int parallel_gc_enabled;    /* 1 = enabled, 0 = disabled (default) */
     int parallel_gc_num_workers; /* Number of workers, 0 = auto (based on CPU count) */
@@ -273,6 +277,7 @@ struct _gc_runtime_state {
     int64_t phase_start_ns;           /* Start of parallel GC */
     int64_t update_refs_end_ns;       /* End of update_refs phase */
     int64_t mark_heap_end_ns;         /* End of mark_heap phase */
+    int64_t cleanup_start_ns;         /* Start of cleanup phase (actual tp_clear work) */
     int64_t cleanup_end_ns;           /* End of cleanup phase */
 #endif
 

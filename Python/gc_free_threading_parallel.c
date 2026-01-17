@@ -1705,10 +1705,17 @@ async_cleanup_work(_PyGCThreadPool *pool, int worker_id)
     // Free the objects array (we own it)
     PyMem_Free(objects);
 
-    // Release cleanup mutex and clear collecting flag to allow new GC cycles
+    // Record cleanup end time for phase timing
+    if (gcstate != NULL) {
+        PyTime_t cleanup_end;
+        (void)PyTime_PerfCounterRaw(&cleanup_end);
+        gcstate->cleanup_end_ns = cleanup_end;
+    }
+
+    // Release cleanup mutex and clear async_cleanup_running flag
     if (gcstate != NULL) {
         PyMutex_Unlock(&gcstate->cleanup_mutex);
-        _Py_atomic_store_int(&gcstate->collecting, 0);
+        _Py_atomic_store_int(&gcstate->async_cleanup_running, 0);
     }
 
     // Clear current_work and free the work descriptor (we own it)
@@ -3544,29 +3551,26 @@ pool_scan_heap_process_page(mi_page_t *page, struct _PyGCScanWorkerState *worker
 //-----------------------------------------------------------------------------
 
 // Start concurrent cleanup - gc.collect() returns immediately, cleanup runs in background
-// Returns 0 on success, -1 on failure
-// On success, gcstate->collecting is cleared when cleanup finishes
-// On failure, caller must clear gcstate->collecting
-int
+// Pool must exist (guaranteed if parallel_gc_enabled is true)
+// gcstate->collecting is cleared when cleanup finishes
+void
 _PyGC_StartAsyncCleanup(PyInterpreterState *interp,
                         PyObject **objects,
                         Py_ssize_t count)
 {
     if (count == 0) {
-        // Nothing to clean up
-        return 0;
+        // Nothing to clean up - clear collecting flag
+        _Py_atomic_store_int(&interp->gc.collecting, 0);
+        return;
     }
 
     _PyGCThreadPool *pool = interp->gc.thread_pool;
-    if (pool == NULL) {
-        // No thread pool available - caller should fall back to serial
-        return -1;
-    }
+    assert(pool != NULL);  // Pool must exist if parallel GC is enabled
 
     // Copy the objects array since caller's list goes out of scope
     PyObject **objects_copy = PyMem_Malloc(count * sizeof(PyObject *));
     if (objects_copy == NULL) {
-        return -1;
+        Py_FatalError("Failed to allocate memory for async GC cleanup");
     }
     memcpy(objects_copy, objects, count * sizeof(PyObject *));
 
@@ -3574,7 +3578,7 @@ _PyGC_StartAsyncCleanup(PyInterpreterState *interp,
     _PyGCWorkDescriptor *work = PyMem_RawCalloc(1, sizeof(_PyGCWorkDescriptor));
     if (work == NULL) {
         PyMem_Free(objects_copy);
-        return -1;
+        Py_FatalError("Failed to allocate memory for async GC cleanup");
     }
 
     work->type = _PyGC_WORK_ASYNC_CLEANUP;
@@ -3590,8 +3594,6 @@ _PyGC_StartAsyncCleanup(PyInterpreterState *interp,
 
     // Do NOT wait on done_barrier - workers use async_done_barrier
     // Do NOT clear pool->current_work - worker will handle cleanup
-
-    return 0;  // Success - cleanup is running in background
 }
 
 //=============================================================================
@@ -3641,8 +3643,8 @@ _PyGC_FTParallelGetStats(PyInterpreterState *interp)
     if (interp->gc.update_refs_end_ns > 0 && interp->gc.mark_heap_end_ns > 0) {
         mark_heap_ns = interp->gc.mark_heap_end_ns - interp->gc.update_refs_end_ns;
     }
-    if (interp->gc.mark_heap_end_ns > 0 && interp->gc.cleanup_end_ns > 0) {
-        cleanup_ns = interp->gc.cleanup_end_ns - interp->gc.mark_heap_end_ns;
+    if (interp->gc.cleanup_start_ns > 0 && interp->gc.cleanup_end_ns > 0) {
+        cleanup_ns = interp->gc.cleanup_end_ns - interp->gc.cleanup_start_ns;
     }
     if (interp->gc.phase_start_ns > 0 && interp->gc.cleanup_end_ns > 0) {
         total_ns = interp->gc.cleanup_end_ns - interp->gc.phase_start_ns;
