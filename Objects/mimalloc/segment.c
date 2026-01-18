@@ -1680,3 +1680,79 @@ bool _mi_abandoned_pool_visit_blocks(mi_abandoned_pool_t* pool, uint8_t page_tag
 
   return true;
 }
+
+// Enumerate pages (not blocks) in abandoned segments - for parallel GC page assignment
+// This is a simpler API than _mi_abandoned_pool_visit_blocks for page-level enumeration.
+void _mi_abandoned_pool_enumerate_pages(mi_abandoned_pool_t* pool, uint8_t page_tag, mi_page_enumerate_fun enumerator, void* arg) {
+  // Note: this is not safe if any other thread is abandoning or claiming segments from the pool
+  // The caller must hold HEAD_LOCK or ensure stop-the-world.
+  mi_segment_t* segment = mi_tagged_segment_ptr(pool->abandoned);
+  while (segment != NULL) {
+    const mi_slice_t* end;
+    mi_slice_t* slice = mi_slices_start_iterate(segment, &end);
+    while (slice < end) {
+      if (mi_slice_is_used(slice)) {
+        mi_page_t* const page = mi_slice_to_page(slice);
+        if (page->tag == page_tag && page->used > 0) {
+          enumerator(page, arg);
+        }
+      }
+      slice = slice + slice->slice_count;
+    }
+    segment = segment->abandoned_next;
+  }
+
+  segment = pool->abandoned_visited;
+  while (segment != NULL) {
+    const mi_slice_t* end;
+    mi_slice_t* slice = mi_slices_start_iterate(segment, &end);
+    while (slice < end) {
+      if (mi_slice_is_used(slice)) {
+        mi_page_t* const page = mi_slice_to_page(slice);
+        if (page->tag == page_tag && page->used > 0) {
+          enumerator(page, arg);
+        }
+      }
+      slice = slice + slice->slice_count;
+    }
+    segment = segment->abandoned_next;
+  }
+}
+
+// Count pages in abandoned pool - for parallel GC page counting
+size_t _mi_abandoned_pool_count_pages(mi_abandoned_pool_t* pool, uint8_t page_tag) {
+  size_t count = 0;
+  mi_segment_t* segment = mi_tagged_segment_ptr(pool->abandoned);
+  while (segment != NULL) {
+    const mi_slice_t* end;
+    mi_slice_t* slice = mi_slices_start_iterate(segment, &end);
+    while (slice < end) {
+      if (mi_slice_is_used(slice)) {
+        mi_page_t* const page = mi_slice_to_page(slice);
+        if (page->tag == page_tag && page->used > 0) {
+          count++;
+        }
+      }
+      slice = slice + slice->slice_count;
+    }
+    segment = segment->abandoned_next;
+  }
+
+  segment = pool->abandoned_visited;
+  while (segment != NULL) {
+    const mi_slice_t* end;
+    mi_slice_t* slice = mi_slices_start_iterate(segment, &end);
+    while (slice < end) {
+      if (mi_slice_is_used(slice)) {
+        mi_page_t* const page = mi_slice_to_page(slice);
+        if (page->tag == page_tag && page->used > 0) {
+          count++;
+        }
+      }
+      slice = slice + slice->slice_count;
+    }
+    segment = segment->abandoned_next;
+  }
+
+  return count;
+}

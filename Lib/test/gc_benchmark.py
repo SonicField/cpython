@@ -263,8 +263,8 @@ def create_layered(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE,
     """
     Create isolated layered networks with cycles.
 
-    Each cluster is a mini neural-network-like structure with back-references
-    from the last layer to the first, creating cycles.
+    Each cluster is a mini neural-network-like structure with bidirectional
+    references between first and last layers, creating cycles.
 
     Parallelizability: MEDIUM
     - Layered structure within cluster
@@ -296,10 +296,15 @@ def create_layered(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE,
 
             prev_layer = layer
 
-        # Back-reference from last layer to first creates cycles
+        # Bidirectional references between first and last layer create cycles
+        # Last layer -> First layer
         if prev_layer and first_layer:
             for node in prev_layer:
                 node.refs.append(random.choice(first_layer))
+        # First layer -> Last layer (completes the cycle)
+        if first_layer and prev_layer:
+            for node in first_layer:
+                node.refs.append(random.choice(prev_layer))
 
         clusters.append(all_nodes)
 

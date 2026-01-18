@@ -72,9 +72,12 @@ _PyGC_CountPages(PyInterpreterState *interp)
         total_pages += count_heap_pages(&m->heaps[_Py_MIMALLOC_HEAP_GC_PRE]);
     }
 
-    // Note: Pages in mimalloc's abandoned pool (from dead threads) are not
-    // counted here. This is acceptable because abandoned pages are rare and
-    // this function is primarily used for performance diagnostics.
+    // Count pages in mimalloc's abandoned pool (from dead threads)
+    // These pages need to be included in parallel scanning for correct work
+    // distribution when objects are created by threads that subsequently exit.
+    mi_abandoned_pool_t *pool = &interp->mimalloc.abandoned_pool;
+    total_pages += _mi_abandoned_pool_count_pages(pool, _Py_MIMALLOC_HEAP_GC);
+    total_pages += _mi_abandoned_pool_count_pages(pool, _Py_MIMALLOC_HEAP_GC_PRE);
 
     HEAD_UNLOCK(&_PyRuntime);
 
@@ -175,6 +178,15 @@ enumerate_heap_pages(mi_heap_t *heap, struct page_enum_context *ctx)
     }
 }
 
+// Callback wrapper for _mi_abandoned_pool_enumerate_pages
+// Adapts mi_page_enumerate_fun to our page bucket assignment
+static void
+enumerate_abandoned_page_callback(mi_page_t *page, void *arg)
+{
+    struct page_enum_context *ctx = (struct page_enum_context *)arg;
+    assign_page_to_bucket(page, ctx);
+}
+
 
 //=============================================================================
 // Page Assignment (Sequential Bucket Filling)
@@ -266,6 +278,11 @@ count_pages_by_enumeration(PyInterpreterState *interp)
             }
         }
     }
+
+    // Count pages in abandoned pool (from dead threads)
+    mi_abandoned_pool_t *pool = &interp->mimalloc.abandoned_pool;
+    count += _mi_abandoned_pool_count_pages(pool, _Py_MIMALLOC_HEAP_GC);
+    count += _mi_abandoned_pool_count_pages(pool, _Py_MIMALLOC_HEAP_GC_PRE);
 
     return count;
 }
@@ -386,6 +403,19 @@ _PyGC_AssignPagesToBuckets(PyInterpreterState *interp,
         enumerate_heap_pages(&m->heaps[_Py_MIMALLOC_HEAP_GC_PRE], &ctx);
         if (ctx.error) {
             break;
+        }
+    }
+
+    // Also enumerate pages in abandoned pool (from dead threads)
+    // This is critical for multi-threaded object creation where worker threads
+    // exit after creating objects, putting their heap pages into the abandoned pool.
+    if (!ctx.error) {
+        mi_abandoned_pool_t *pool = &interp->mimalloc.abandoned_pool;
+        _mi_abandoned_pool_enumerate_pages(pool, _Py_MIMALLOC_HEAP_GC,
+                                           enumerate_abandoned_page_callback, &ctx);
+        if (!ctx.error) {
+            _mi_abandoned_pool_enumerate_pages(pool, _Py_MIMALLOC_HEAP_GC_PRE,
+                                               enumerate_abandoned_page_callback, &ctx);
         }
     }
 
@@ -3428,6 +3458,25 @@ _PyGC_ParallelMarkHeapWithPool(PyInterpreterState *interp,
     return work.error_flag ? -1 : 0;
 }
 
+// Context for scan page enumeration callback
+struct _PyGCScanEnumCtx {
+    mi_page_t **page_array;
+    size_t *total_pages;
+    size_t page_capacity;
+};
+
+// Callback for adding abandoned pool pages to scan_heap's page array
+static void
+_PyGC_ScanEnumeratePageCallback(mi_page_t *page, void *arg)
+{
+    struct _PyGCScanEnumCtx *ctx = (struct _PyGCScanEnumCtx *)arg;
+    if (page->used == 0) {
+        return;  // Skip empty pages
+    }
+    // Note: page_capacity check is done before calling enumerate
+    ctx->page_array[(*ctx->total_pages)++] = page;
+}
+
 // Pool-based parallel scan_heap
 // Returns 0 on success, -1 on error
 int
@@ -3496,6 +3545,42 @@ _PyGC_ParallelScanHeapWithPool(PyInterpreterState *interp,
             }
         }
     }
+
+    // Also include pages from the abandoned pool (from exited threads)
+    // This is critical for garbage collection of objects created by threads
+    // that have since exited. We use _mi_abandoned_pool_count_pages to get count
+    // and then enumerate.
+    mi_abandoned_pool_t *apool = &interp->mimalloc.abandoned_pool;
+    size_t abandoned_count = _mi_abandoned_pool_count_pages(apool, _Py_MIMALLOC_HEAP_GC)
+                           + _mi_abandoned_pool_count_pages(apool, _Py_MIMALLOC_HEAP_GC_PRE);
+
+    if (abandoned_count > 0) {
+        // Ensure we have space for abandoned pages
+        if (total_pages + abandoned_count > page_capacity) {
+            page_capacity = total_pages + abandoned_count + 64;  // Extra slack
+            mi_page_t **new_arr = PyMem_RawRealloc(
+                page_array, page_capacity * sizeof(mi_page_t *));
+            if (new_arr == NULL) {
+                HEAD_UNLOCK(&_PyRuntime);
+                PyMem_RawFree(page_array);
+                PyMem_RawFree(scan_workers);
+                return -1;
+            }
+            page_array = new_arr;
+        }
+
+        // Use the page enumeration function to add pages
+        struct _PyGCScanEnumCtx ectx = {
+            .page_array = page_array,
+            .total_pages = &total_pages,
+            .page_capacity = page_capacity
+        };
+        _mi_abandoned_pool_enumerate_pages(apool, _Py_MIMALLOC_HEAP_GC,
+            _PyGC_ScanEnumeratePageCallback, &ectx);
+        _mi_abandoned_pool_enumerate_pages(apool, _Py_MIMALLOC_HEAP_GC_PRE,
+            _PyGC_ScanEnumeratePageCallback, &ectx);
+    }
+
     HEAD_UNLOCK(&_PyRuntime);
 
     if (total_pages == 0) {

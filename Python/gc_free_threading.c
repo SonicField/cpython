@@ -1635,24 +1635,8 @@ deduce_unreachable_heap(PyInterpreterState *interp,
             }
             state->candidates = candidates;
 
-            // Also visit the abandoned pool (pages from dead threads)
-            // The parallel version only visits live thread heaps, not abandoned.
-            // Offset computation matches gc_visit_heaps_lock_held.
-            Py_ssize_t offset_base = 0;
-            if (_PyMem_DebugEnabled()) {
-                offset_base += 2 * sizeof(size_t);
-            }
-            Py_ssize_t offset_pre = offset_base + 2 * sizeof(PyObject*);
-
-            HEAD_LOCK(&_PyRuntime);
-            mi_abandoned_pool_t *pool = &interp->mimalloc.abandoned_pool;
-            state->base.offset = offset_base;
-            _mi_abandoned_pool_visit_blocks(pool, _Py_MIMALLOC_HEAP_GC, true,
-                                            update_refs, &state->base);
-            state->base.offset = offset_pre;
-            _mi_abandoned_pool_visit_blocks(pool, _Py_MIMALLOC_HEAP_GC_PRE, true,
-                                            update_refs, &state->base);
-            HEAD_UNLOCK(&_PyRuntime);
+            // Abandoned pool pages are now included in the parallel bucket
+            // assignment, so parallel workers will process them.
         }
     } else {
         // Serial path
@@ -1673,25 +1657,10 @@ deduce_unreachable_heap(PyInterpreterState *interp,
     int mark_result;
     if (using_parallel) {
         // Parallel path for mark_heap_visitor
+        // Abandoned pool pages are now included in the parallel bucket
+        // assignment, so parallel workers will process them.
         mark_result = _PyGC_ParallelMarkHeapWithPool(interp, &par_state,
                                               state->skip_deferred_objects);
-
-        // Also mark the abandoned pool (serial, since it's typically small)
-        Py_ssize_t offset_base = 0;
-        if (_PyMem_DebugEnabled()) {
-            offset_base += 2 * sizeof(size_t);
-        }
-        Py_ssize_t offset_pre = offset_base + 2 * sizeof(PyObject*);
-
-        HEAD_LOCK(&_PyRuntime);
-        mi_abandoned_pool_t *pool = &interp->mimalloc.abandoned_pool;
-        state->base.offset = offset_base;
-        _mi_abandoned_pool_visit_blocks(pool, _Py_MIMALLOC_HEAP_GC, true,
-                                        mark_heap_visitor, state);
-        state->base.offset = offset_pre;
-        _mi_abandoned_pool_visit_blocks(pool, _Py_MIMALLOC_HEAP_GC_PRE, true,
-                                        mark_heap_visitor, state);
-        HEAD_UNLOCK(&_PyRuntime);
 
         // Now free the buckets
         _PyGC_FreeBuckets(&par_state);
@@ -1732,22 +1701,8 @@ deduce_unreachable_heap(PyInterpreterState *interp,
         interp->gc.scan_heap_end_ns = scan_end;
         interp->gc.disable_deferred_end_ns = scan_end;  // No separate loop anymore
 
-        // Also scan the abandoned pool (serial, since it's typically small)
-        Py_ssize_t offset_base = 0;
-        if (_PyMem_DebugEnabled()) {
-            offset_base += 2 * sizeof(size_t);
-        }
-        Py_ssize_t offset_pre = offset_base + 2 * sizeof(PyObject*);
-
-        HEAD_LOCK(&_PyRuntime);
-        mi_abandoned_pool_t *pool = &interp->mimalloc.abandoned_pool;
-        state->base.offset = offset_base;
-        _mi_abandoned_pool_visit_blocks(pool, _Py_MIMALLOC_HEAP_GC, true,
-                                        scan_heap_visitor, state);
-        state->base.offset = offset_pre;
-        _mi_abandoned_pool_visit_blocks(pool, _Py_MIMALLOC_HEAP_GC_PRE, true,
-                                        scan_heap_visitor, state);
-        HEAD_UNLOCK(&_PyRuntime);
+        // Abandoned pool pages are now included in the parallel bucket
+        // assignment, so parallel workers will process them.
     } else {
         gc_visit_heaps(interp, &scan_heap_visitor, &state->base);
     }
