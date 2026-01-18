@@ -571,7 +571,7 @@ class GCBenchmark:
                         clusters = []
 
                 gc.collect()
-                del clusters
+                clusters = None  # Release references
                 gc.collect()
 
             # Timed runs
@@ -590,9 +590,9 @@ class GCBenchmark:
                     if num_keep > 0:
                         random.shuffle(clusters)
                         keep_refs = clusters[:num_keep]
-                    clusters = None  # Release original list
                 else:
                     keep_refs = clusters
+                clusters = None  # Release original list (must be after keep_refs assignment)
 
                 # Time the GC
                 start = time.perf_counter()
@@ -615,8 +615,8 @@ class GCBenchmark:
                     phase_timing=phase_timing
                 ))
 
-                # Cleanup
-                del keep_refs
+                # Cleanup: release all references and collect garbage to reset state
+                keep_refs = None
                 gc.collect()
 
         finally:
