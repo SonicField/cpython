@@ -804,6 +804,7 @@ def run_benchmark_matrix(
                             for r in result.parallel_result.runs:
                                 pt = r.phase_timing
                                 if pt:
+                                    total = pt.get('total_ns', 1) / 1e6  # avoid div by zero
                                     if BUILD_TYPE == "gil":
                                         upd = pt.get('update_refs_ns', 0) / 1e6
                                         alive = pt.get('mark_alive_ns', 0) / 1e6
@@ -812,10 +813,26 @@ def run_benchmark_matrix(
                                         cleanup = pt.get('cleanup_ns', 0) / 1e6
                                         par_details.append(f"{r.time_ms:.0f}[upd:{upd:.0f}+alive:{alive:.0f}+sub:{sub:.0f}+mark:{mark:.0f}+clean:{cleanup:.0f}]")
                                     else:
+                                        # FTP: show key phases with percentages
+                                        # Group: mark_alive | parallel_phases | cleanup_phases
+                                        mk_alive = pt.get('mark_alive_ns', 0) / 1e6
+                                        # Parallel phases
                                         upd = pt.get('update_refs_ns', 0) / 1e6
-                                        mark = pt.get('mark_heap_ns', 0) / 1e6
+                                        mk_heap = pt.get('mark_heap_ns', 0) / 1e6
+                                        scan = pt.get('scan_heap_ns', 0) / 1e6
+                                        # Cleanup phases (often substantial)
                                         cleanup = pt.get('cleanup_ns', 0) / 1e6
-                                        par_details.append(f"{r.time_ms:.0f}[{upd:.0f}+{mark:.0f}+{cleanup:.0f}]")
+                                        finalize = pt.get('finalize_ns', 0) / 1e6
+                                        resurrection = pt.get('resurrection_ns', 0) / 1e6
+                                        weakrefs = pt.get('find_weakrefs_ns', 0) / 1e6
+                                        # Calculate percentage of total
+                                        parallel_phases = upd + mk_heap + scan
+                                        cleanup_phases = cleanup + finalize + resurrection + weakrefs
+                                        # Format: total[alive|par|cleanup] with percentages
+                                        alive_pct = int(mk_alive / total * 100) if total > 0 else 0
+                                        par_pct = int(parallel_phases / total * 100) if total > 0 else 0
+                                        clean_pct = int(cleanup_phases / total * 100) if total > 0 else 0
+                                        par_details.append(f"{r.time_ms:.0f}[{alive_pct}%|{par_pct}%|{clean_pct}%]")
                                 else:
                                     par_details.append(f"{r.time_ms:.1f}")
                             print("  ".join(par_details))
@@ -841,9 +858,11 @@ def run_benchmark_matrix(
             # Header based on build type
             if BUILD_TYPE == "gil":
                 print(f"  {'Config':<25} | {'upd_refs':>8} | {'mk_alive':>8} | {'sub_refs':>8} | {'mark':>8} | {'cleanup':>8} | {'total':>8}")
+                print(f"  {'-' * 25}-+-{'-' * 8}-+-{'-' * 8}-+-{'-' * 8}-+-{'-' * 8}-+-{'-' * 8}-+-{'-' * 8}")
             else:
-                print(f"  {'Config':<25} | {'upd_refs':>10} | {'mark_heap':>10} | {'cleanup':>10} | {'total':>10}")
-            print(f"  {'-' * 25}-+-{'-' * 8}-+-{'-' * 8}-+-{'-' * 8}-+-{'-' * 8}-+-{'-' * 8}-+-{'-' * 8}")
+                # FTP: Show all significant phases grouped logically
+                print(f"  {'Config':<18} | {'mk_alive':>7} | {'upd_ref':>7} | {'mk_heap':>7} | {'scan':>7} | {'cleanup':>7} | {'final':>7} | {'resur':>7} | {'weakrf':>7} | {'total':>7}")
+                print(f"  {'-' * 18}-+-{'-' * 7}-+-{'-' * 7}-+-{'-' * 7}-+-{'-' * 7}-+-{'-' * 7}-+-{'-' * 7}-+-{'-' * 7}-+-{'-' * 7}-+-{'-' * 7}")
 
             for r in parallel_with_timing:
                 pt = r.parallel_result.mean_phase_timing
@@ -859,11 +878,17 @@ def run_benchmark_matrix(
                     total = pt.get('total_ns', 0) / 1e6
                     print(f"  {config_str:<25} | {upd:>8.1f} | {alive:>8.1f} | {sub:>8.1f} | {mark:>8.1f} | {cleanup:>8.1f} | {total:>8.1f}")
                 else:
+                    # FTP: Extract all key phases
+                    mk_alive = pt.get('mark_alive_ns', 0) / 1e6
                     upd = pt.get('update_refs_ns', 0) / 1e6
-                    mark = pt.get('mark_heap_ns', 0) / 1e6
+                    mk_heap = pt.get('mark_heap_ns', 0) / 1e6
+                    scan = pt.get('scan_heap_ns', 0) / 1e6
                     cleanup = pt.get('cleanup_ns', 0) / 1e6
+                    finalize = pt.get('finalize_ns', 0) / 1e6
+                    resurrection = pt.get('resurrection_ns', 0) / 1e6
+                    weakrefs = pt.get('find_weakrefs_ns', 0) / 1e6
                     total = pt.get('total_ns', 0) / 1e6
-                    print(f"  {config_str:<25} | {upd:>10.2f} | {mark:>10.2f} | {cleanup:>10.2f} | {total:>10.2f}")
+                    print(f"  {config_str:<18} | {mk_alive:>7.1f} | {upd:>7.1f} | {mk_heap:>7.1f} | {scan:>7.1f} | {cleanup:>7.1f} | {finalize:>7.1f} | {resurrection:>7.1f} | {weakrefs:>7.1f} | {total:>7.1f}")
 
     # Save results
     if output_file:

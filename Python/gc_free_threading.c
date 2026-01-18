@@ -1611,9 +1611,18 @@ deduce_unreachable_heap(PyInterpreterState *interp,
 
         // Assign pages to worker buckets
         if (_PyGC_AssignPagesToBuckets(interp, &par_state) < 0) {
+            // Record bucket assignment end time (for fallback path)
+            PyTime_t bucket_assign_end;
+            (void)PyTime_PerfCounterRaw(&bucket_assign_end);
+            interp->gc.bucket_assign_end_ns = bucket_assign_end;
             // Fallback to serial path on failure
             gc_visit_heaps(interp, &update_refs, &state->base);
         } else {
+            // Record bucket assignment end time
+            PyTime_t bucket_assign_end;
+            (void)PyTime_PerfCounterRaw(&bucket_assign_end);
+            interp->gc.bucket_assign_end_ns = bucket_assign_end;
+
             using_parallel = 1;
 
             // Run parallel update_refs on thread pages using thread pool
@@ -2501,7 +2510,17 @@ record_deallocation(PyThreadState *tstate)
 static void
 gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, int generation)
 {
+    // Record GC start time
+    PyTime_t gc_start;
+    (void)PyTime_PerfCounterRaw(&gc_start);
+    interp->gc.gc_start_ns = gc_start;
+
     _PyEval_StopTheWorld(interp);
+
+    // Record STW0 end time
+    PyTime_t stw0_end;
+    (void)PyTime_PerfCounterRaw(&stw0_end);
+    interp->gc.stw0_end_ns = stw0_end;
 
     // If async cleanup from a previous collection is still running, wait for it.
     // The world is stopped, so no new garbage can be created while we wait.
@@ -2511,6 +2530,11 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
         PyMutex_Lock(&interp->gc.cleanup_mutex);
         PyMutex_Unlock(&interp->gc.cleanup_mutex);
     }
+
+    // Record async wait end time
+    PyTime_t async_wait_end;
+    (void)PyTime_PerfCounterRaw(&async_wait_end);
+    interp->gc.async_wait_end_ns = async_wait_end;
 
     // update collection and allocation counters
     if (generation+1 < NUM_GENERATIONS) {
@@ -2541,7 +2565,17 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
     }
     _Py_FOR_EACH_TSTATE_END(interp);
 
+    // Record merge refs end time
+    PyTime_t merge_refs_end;
+    (void)PyTime_PerfCounterRaw(&merge_refs_end);
+    interp->gc.merge_refs_end_ns = merge_refs_end;
+
     process_delayed_frees(interp, state);
+
+    // Record delayed frees end time
+    PyTime_t delayed_frees_end;
+    (void)PyTime_PerfCounterRaw(&delayed_frees_end);
+    interp->gc.delayed_frees_end_ns = delayed_frees_end;
 
     #ifdef GC_ENABLE_MARK_ALIVE
     // If gc.freeze() was used, it seems likely that doing this "mark alive"
@@ -2561,6 +2595,11 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
         }
     }
     #endif
+
+    // Record mark_alive end time
+    PyTime_t mark_alive_end;
+    (void)PyTime_PerfCounterRaw(&mark_alive_end);
+    interp->gc.mark_alive_end_ns = mark_alive_end;
 
     // Find unreachable objects
     int err = deduce_unreachable_heap(interp, state);

@@ -3729,6 +3729,14 @@ _PyGC_FTParallelGetStats(PyInterpreterState *interp)
     } while(0)
 
     // Calculate phase durations from recorded timestamps
+    // Pre-parallel phases
+    int64_t stw0_ns = 0;
+    int64_t async_wait_ns = 0;
+    int64_t merge_refs_ns = 0;
+    int64_t delayed_frees_ns = 0;
+    int64_t mark_alive_ns = 0;
+    int64_t bucket_assign_ns = 0;
+    // Parallel phases
     int64_t update_refs_ns = 0;
     int64_t mark_heap_ns = 0;
     int64_t scan_heap_ns = 0;
@@ -3745,6 +3753,26 @@ _PyGC_FTParallelGetStats(PyInterpreterState *interp)
     int64_t stw3_ns = 0;
     int64_t cleanup_ns = 0;
     int64_t total_ns = 0;
+
+    // Calculate pre-parallel phase durations
+    if (interp->gc.gc_start_ns > 0 && interp->gc.stw0_end_ns > 0) {
+        stw0_ns = interp->gc.stw0_end_ns - interp->gc.gc_start_ns;
+    }
+    if (interp->gc.stw0_end_ns > 0 && interp->gc.async_wait_end_ns > 0) {
+        async_wait_ns = interp->gc.async_wait_end_ns - interp->gc.stw0_end_ns;
+    }
+    if (interp->gc.async_wait_end_ns > 0 && interp->gc.merge_refs_end_ns > 0) {
+        merge_refs_ns = interp->gc.merge_refs_end_ns - interp->gc.async_wait_end_ns;
+    }
+    if (interp->gc.merge_refs_end_ns > 0 && interp->gc.delayed_frees_end_ns > 0) {
+        delayed_frees_ns = interp->gc.delayed_frees_end_ns - interp->gc.merge_refs_end_ns;
+    }
+    if (interp->gc.delayed_frees_end_ns > 0 && interp->gc.mark_alive_end_ns > 0) {
+        mark_alive_ns = interp->gc.mark_alive_end_ns - interp->gc.delayed_frees_end_ns;
+    }
+    if (interp->gc.mark_alive_end_ns > 0 && interp->gc.bucket_assign_end_ns > 0) {
+        bucket_assign_ns = interp->gc.bucket_assign_end_ns - interp->gc.mark_alive_end_ns;
+    }
 
     // Calculate durations between timestamps
     if (interp->gc.phase_start_ns > 0 && interp->gc.update_refs_end_ns > 0) {
@@ -3792,13 +3820,25 @@ _PyGC_FTParallelGetStats(PyInterpreterState *interp)
     if (interp->gc.cleanup_start_ns > 0 && interp->gc.cleanup_end_ns > 0) {
         cleanup_ns = interp->gc.cleanup_end_ns - interp->gc.cleanup_start_ns;
     }
-    if (interp->gc.phase_start_ns > 0 && interp->gc.cleanup_end_ns > 0) {
-        total_ns = interp->gc.cleanup_end_ns - interp->gc.phase_start_ns;
+    // Calculate total from gc_start to cleanup_end (or fallback)
+    if (interp->gc.gc_start_ns > 0 && interp->gc.cleanup_end_ns > 0) {
+        total_ns = interp->gc.cleanup_end_ns - interp->gc.gc_start_ns;
     }
-    else if (interp->gc.phase_start_ns > 0 && interp->gc.mark_heap_end_ns > 0) {
-        // Fallback to mark_heap_end if cleanup not recorded
-        total_ns = interp->gc.mark_heap_end_ns - interp->gc.phase_start_ns;
+    else if (interp->gc.gc_start_ns > 0 && interp->gc.stw3_end_ns > 0) {
+        total_ns = interp->gc.stw3_end_ns - interp->gc.gc_start_ns;
     }
+    else if (interp->gc.gc_start_ns > 0 && interp->gc.mark_heap_end_ns > 0) {
+        // Fallback to mark_heap_end if nothing else recorded
+        total_ns = interp->gc.mark_heap_end_ns - interp->gc.gc_start_ns;
+    }
+
+    // Add pre-parallel phase timing values
+    ADD_TIMING("stw0_ns", stw0_ns);
+    ADD_TIMING("async_wait_ns", async_wait_ns);
+    ADD_TIMING("merge_refs_ns", merge_refs_ns);
+    ADD_TIMING("delayed_frees_ns", delayed_frees_ns);
+    ADD_TIMING("mark_alive_ns", mark_alive_ns);
+    ADD_TIMING("bucket_assign_ns", bucket_assign_ns);
 
     // Add all timing values
     ADD_TIMING("update_refs_ns", update_refs_ns);

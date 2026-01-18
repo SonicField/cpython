@@ -274,7 +274,14 @@ struct _gc_runtime_state {
     struct _PyGCThreadPool *thread_pool;  /* Persistent thread pool for parallel GC */
 
     /* Phase timing for benchmarking (nanoseconds) */
-    int64_t phase_start_ns;           /* Start of parallel GC */
+    int64_t gc_start_ns;              /* Start of gc_collect_internal */
+    int64_t stw0_end_ns;              /* After initial StopTheWorld */
+    int64_t async_wait_end_ns;        /* After waiting for async cleanup */
+    int64_t merge_refs_end_ns;        /* After merging per-thread refcounts */
+    int64_t delayed_frees_end_ns;     /* After processing delayed frees */
+    int64_t mark_alive_end_ns;        /* After gc_mark_alive_from_roots */
+    int64_t bucket_assign_end_ns;     /* After assigning pages to buckets */
+    int64_t phase_start_ns;           /* Start of parallel GC (update_refs) */
     int64_t update_refs_end_ns;       /* End of update_refs phase */
     int64_t mark_heap_end_ns;         /* End of mark_heap phase */
     int64_t scan_heap_end_ns;         /* End of scan_heap phase */

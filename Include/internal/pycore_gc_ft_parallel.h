@@ -68,27 +68,36 @@ _PyGC_AtomicClearBit(PyObject *op, uint8_t bit)
 
 // Convenience functions for common operations
 
-// Try to mark object as ALIVE and clear UNREACHABLE. Returns 1 if we were first to mark it.
-// Uses check-first optimization: fast relaxed load before atomic RMW.
-// This is a significant win for objects visited multiple times (type objects,
-// builtins, shared containers) - we skip the expensive atomic RMW entirely.
-// Clearing UNREACHABLE when marking ALIVE ensures objects with leftover
-// UNREACHABLE from a previous GC cycle are handled correctly.
+// Try to mark object as ALIVE and clear UNREACHABLE. Returns 1 if we should traverse.
+//
+// OPTIMIZATION: Uses relaxed read + relaxed write instead of atomic RMW.
+// During STW, all threads are GC workers cooperating. We only need memory
+// visibility at barrier sync points, not per-operation atomicity.
+//
+// If two workers race to mark the same object:
+// - Both do relaxed read, both see not-ALIVE
+// - Both write ALIVE (idempotent - same result)
+// - Both return 1 and traverse the object's referents
+// - Duplicate traversal is acceptable: discovered refs hit the relaxed read
+//   check on the next level and stop propagating
+//
+// This eliminates 2 expensive atomic RMW operations per object:
+// - _PyGC_TrySetBit (atomic fetch-or): ~10-20 cycles
+// - _PyGC_AtomicClearBit (atomic fetch-and): ~10-20 cycles
+// Replaced by 1 relaxed read + 1 relaxed store: ~2-3 cycles total.
 static inline int
 _PyGC_TryMarkAlive(PyObject *op)
 {
-    // Fast path: check if already marked (relaxed load - very cheap)
+    // Relaxed read - filters most already-marked objects
     if (_Py_atomic_load_uint8_relaxed(&op->ob_gc_bits) & _PyGC_BITS_ALIVE) {
-        return 0;  // Already marked, skip atomic RMW
+        return 0;  // Already marked
     }
-    // Slow path: not marked yet (or race), do atomic set of ALIVE
-    // and clear UNREACHABLE (which may have been leftover from previous cycle)
-    int marked = _PyGC_TrySetBit(op, _PyGC_BITS_ALIVE);
-    if (marked) {
-        // Also clear UNREACHABLE to prevent mishandling if it was left set
-        _PyGC_AtomicClearBit(op, _PyGC_BITS_UNREACHABLE);
-    }
-    return marked;
+    // Relaxed write - no atomic RMW needed during STW
+    // Compute new bits: set ALIVE, clear UNREACHABLE
+    // Use relaxed store for portability (byte-level atomicity on all architectures)
+    uint8_t new_bits = (op->ob_gc_bits | _PyGC_BITS_ALIVE) & ~_PyGC_BITS_UNREACHABLE;
+    _Py_atomic_store_uint8_relaxed(&op->ob_gc_bits, new_bits);
+    return 1;
 }
 
 // Check if object is marked ALIVE (atomic read).
