@@ -20,6 +20,7 @@ import gc
 import sys
 import time
 import json
+import queue
 import random
 import argparse
 import statistics
@@ -459,6 +460,97 @@ def create_objects_multithreaded(heap_type: str, total_objects: int,
 
     return all_clusters
 
+
+class CreationThreadPool:
+    """
+    Thread pool for object creation that keeps threads alive.
+
+    Unlike create_objects_multithreaded which creates new threads each time
+    (causing pages to go to abandoned pool), this pool keeps threads alive
+    so pages remain in live thread heaps.
+    """
+
+    def __init__(self, num_threads: int):
+        self.num_threads = num_threads
+        self.task_queue = queue.Queue()
+        self.result_queue = queue.Queue()
+        self.shutdown_flag = threading.Event()
+        self.threads = []
+
+        for i in range(num_threads):
+            t = threading.Thread(target=self._worker, args=(i,), daemon=True)
+            t.start()
+            self.threads.append(t)
+
+    def _worker(self, thread_id: int):
+        """Worker thread that waits for creation tasks."""
+        while not self.shutdown_flag.is_set():
+            try:
+                task = self.task_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+
+            if task is None:  # Shutdown signal
+                break
+
+            heap_type, num_objects = task
+            clusters = HEAP_GENERATORS[heap_type](num_objects)
+            self.result_queue.put(clusters)
+            # Release reference immediately to avoid retaining garbage across iterations
+            clusters = None
+            del clusters
+            self.task_queue.task_done()
+
+    def create_objects(self, heap_type: str, total_objects: int) -> List[List[Node]]:
+        """Create objects using the thread pool."""
+        objects_per_thread = total_objects // self.num_threads
+
+        # Submit tasks
+        for _ in range(self.num_threads):
+            self.task_queue.put((heap_type, objects_per_thread))
+
+        # Wait for completion
+        self.task_queue.join()
+
+        # Collect results
+        all_clusters = []
+        while not self.result_queue.empty():
+            clusters = self.result_queue.get()
+            all_clusters.extend(clusters)
+
+        return all_clusters
+
+    def shutdown(self):
+        """Shutdown the thread pool."""
+        self.shutdown_flag.set()
+        # Send shutdown signals
+        for _ in range(self.num_threads):
+            self.task_queue.put(None)
+        for t in self.threads:
+            t.join(timeout=1.0)
+
+
+# Global thread pool (created on demand)
+_creation_pool: Optional[CreationThreadPool] = None
+
+
+def get_creation_pool(num_threads: int) -> CreationThreadPool:
+    """Get or create the global creation thread pool."""
+    global _creation_pool
+    if _creation_pool is None or _creation_pool.num_threads != num_threads:
+        if _creation_pool is not None:
+            _creation_pool.shutdown()
+        _creation_pool = CreationThreadPool(num_threads)
+    return _creation_pool
+
+
+def shutdown_creation_pool():
+    """Shutdown the global creation thread pool."""
+    global _creation_pool
+    if _creation_pool is not None:
+        _creation_pool.shutdown()
+        _creation_pool = None
+
 # =============================================================================
 # Benchmark Result Data Structures
 # =============================================================================
@@ -536,10 +628,12 @@ class ComparisonResult:
 class GCBenchmark:
     """Main benchmark runner."""
 
-    def __init__(self, warmup: int = 3, iterations: int = 5, seed: int = 42):
+    def __init__(self, warmup: int = 3, iterations: int = 5, seed: int = 42,
+                 keep_threads: bool = False):
         self.warmup = warmup
         self.iterations = iterations
         self.seed = seed
+        self.keep_threads = keep_threads
 
     def run_single(self, heap_type: str, heap_size: int, survivor_ratio: float,
                    num_workers: int, creation_threads: int = 1,
@@ -561,7 +655,12 @@ class GCBenchmark:
             for _ in range(self.warmup):
                 random.seed(self.seed)
                 if BUILD_TYPE == "ftp" and creation_threads > 1:
-                    clusters = create_objects_multithreaded(heap_type, heap_size, creation_threads)
+                    if self.keep_threads:
+                        # Use thread pool - threads stay alive, pages remain in live heaps
+                        clusters = get_creation_pool(creation_threads).create_objects(heap_type, heap_size)
+                    else:
+                        # Create new threads - they exit, pages go to abandoned pool
+                        clusters = create_objects_multithreaded(heap_type, heap_size, creation_threads)
                 else:
                     clusters = HEAP_GENERATORS[heap_type](heap_size)
 
@@ -583,7 +682,12 @@ class GCBenchmark:
             for _ in range(self.iterations):
                 random.seed(self.seed)
                 if BUILD_TYPE == "ftp" and creation_threads > 1:
-                    clusters = create_objects_multithreaded(heap_type, heap_size, creation_threads)
+                    if self.keep_threads:
+                        # Use thread pool - threads stay alive, pages remain in live heaps
+                        clusters = get_creation_pool(creation_threads).create_objects(heap_type, heap_size)
+                    else:
+                        # Create new threads - they exit, pages go to abandoned pool
+                        clusters = create_objects_multithreaded(heap_type, heap_size, creation_threads)
                 else:
                     clusters = HEAP_GENERATORS[heap_type](heap_size)
 
@@ -727,6 +831,7 @@ def run_benchmark_matrix(
     heap_sizes: List[int] = [100000],
     survivor_ratios: List[float] = [0.5],
     creation_threads: List[int] = [1],
+    keep_threads: bool = False,
     warmup: int = 3,
     iterations: int = 5,
     output_file: Optional[str] = None,
@@ -741,7 +846,7 @@ def run_benchmark_matrix(
         return []
 
     results = []
-    benchmark = GCBenchmark(warmup=warmup, iterations=iterations)
+    benchmark = GCBenchmark(warmup=warmup, iterations=iterations, keep_threads=keep_threads)
 
     # Header
     print("=" * 80)
@@ -754,6 +859,7 @@ def run_benchmark_matrix(
     print(f"Finalizers: {'enabled' if finalizers else 'disabled'}")
     if BUILD_TYPE == "ftp":
         print(f"Creation threads: {creation_threads}")
+        print(f"Keep threads alive: {keep_threads} (no abandoned pool)" if keep_threads else f"Keep threads alive: {keep_threads}")
     print(f"Warmup: {warmup}, Iterations: {iterations}")
     print()
 
@@ -905,6 +1011,7 @@ def run_benchmark_matrix(
                 'heap_sizes': heap_sizes,
                 'survivor_ratios': survivor_ratios,
                 'creation_threads': creation_threads,
+                'keep_threads': keep_threads,
                 'warmup': warmup,
                 'iterations': iterations,
                 'finalizers': finalizers,
@@ -964,6 +1071,8 @@ Examples:
                         help='Comma-separated survivor ratios (default: 0.5)')
     parser.add_argument('--creation-threads', '-c', type=str, default='1',
                         help='FTP only: Comma-separated creation thread counts (default: 1)')
+    parser.add_argument('--keep-threads', '-k', action='store_true',
+                        help='FTP only: Keep creation threads alive (no abandoned pool)')
     parser.add_argument('--warmup', type=int, default=3,
                         help='Warmup iterations (default: 3)')
     parser.add_argument('--iterations', '-n', type=int, default=5,
@@ -1000,18 +1109,23 @@ Examples:
     # Set node class based on --finalizers flag
     set_node_class(args.finalizers)
 
-    run_benchmark_matrix(
-        workers=parse_int_list(args.workers),
-        heap_types=parse_list_arg(args.heap_type),
-        heap_sizes=parse_int_list(args.heap_size),
-        survivor_ratios=parse_float_list(args.survivor_ratio),
-        creation_threads=parse_int_list(args.creation_threads),
-        warmup=args.warmup,
-        iterations=args.iterations,
-        output_file=args.output,
-        verbose=not args.quiet,
-        finalizers=args.finalizers
-    )
+    try:
+        run_benchmark_matrix(
+            workers=parse_int_list(args.workers),
+            heap_types=parse_list_arg(args.heap_type),
+            heap_sizes=parse_int_list(args.heap_size),
+            survivor_ratios=parse_float_list(args.survivor_ratio),
+            creation_threads=parse_int_list(args.creation_threads),
+            keep_threads=args.keep_threads,
+            warmup=args.warmup,
+            iterations=args.iterations,
+            output_file=args.output,
+            verbose=not args.quiet,
+            finalizers=args.finalizers
+        )
+    finally:
+        # Clean up thread pool if used
+        shutdown_creation_pool()
 
 if __name__ == '__main__':
     main()
