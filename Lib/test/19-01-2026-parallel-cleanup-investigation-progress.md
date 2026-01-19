@@ -581,3 +581,67 @@ For production use:
 - `cleanup_workers=0` (serial) remains the safe default
 - Parallel cleanup is only beneficial for workloads dominated by simple objects (strings, numbers, etc.)
 - BRC sharding still valuable for general FTP scalability beyond GC
+
+### Entry 11: Atomic ADD Optimization for _Py_DecRefShared
+
+**Date**: 2026-01-19
+**Status**: Implemented and benchmarked
+
+#### The Insight
+
+The CAS loop in `_Py_DecRefShared` (object.c:403-404) is only needed for the FIRST cross-thread decref to set the QUEUED flag. For already-queued or merged objects, we're just decrementing - which can be done with atomic ADD instead of CAS.
+
+#### The Optimization
+
+```c
+// Non-atomic read - flags are monotonic (0->2->3), so this is safe
+Py_ssize_t shared = o->ob_ref_shared;
+if ((shared & _Py_REF_SHARED_FLAG_MASK) >= _Py_REF_QUEUED) {
+    // Fast path: atomic ADD, no CAS loop
+    Py_ssize_t old = _Py_atomic_add_ssize(&o->ob_ref_shared,
+                                          -(1 << _Py_REF_SHARED_SHIFT));
+    return (old - (1 << _Py_REF_SHARED_SHIFT)) == _Py_REF_MERGED;
+}
+// Slow path: CAS to set QUEUED flag (first cross-thread access)
+```
+
+**Why non-atomic read is safe**: The flags only increase (0→2→3, never backwards). If we see ≥2, the current value is also ≥2. Seeing a stale low value just takes the CAS path unnecessarily.
+
+#### Benchmark Results (BRC Contention)
+
+Test 3 (pre-merged objects):
+```
+Consumers= 1:    4.01 ms, throughput=24.96 M/s
+Consumers= 4:    2.05 ms, throughput=48.89 M/s
+Consumers=16:    2.95 ms, throughput=33.92 M/s
+```
+
+Excellent scaling for already-merged objects!
+
+#### Benchmark Results (GC Cleanup)
+
+Mixed results - some configurations now benefit from parallel cleanup:
+
+| Config | cw0 (serial) | cw4 (parallel) | Winner |
+|--------|--------------|----------------|--------|
+| chain_w8 | 1.74x | **1.88x** | cw4 |
+| chain_w16 | 1.81x | **2.00x** | cw4 |
+| tree_w8 | 1.58x | **1.78x** | cw4 |
+| tree_w16 | **1.77x** | 1.18x | cw0 |
+| wide_tree_w4 | 1.33x | **1.41x** | cw4 |
+
+The tree_w16_cw4 case shows high variance (53-78ms), indicating residual contention on highly-connected object graphs.
+
+#### Analysis
+
+The optimization helps when:
+1. Objects have been accessed cross-thread before (already QUEUED/MERGED)
+2. Object graph is not highly interconnected
+
+The optimization doesn't fully solve:
+1. First cross-thread decref still needs CAS
+2. Dense object graphs cause cache-line contention even with atomic ADD
+
+#### Conclusion
+
+This is a low-risk, high-reward optimization for `_Py_DecRefShared` that benefits all cross-thread decrefs in free-threading Python, not just GC cleanup. Combined with BRC sharding, parallel GC cleanup is now beneficial for many workloads.

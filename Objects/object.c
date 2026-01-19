@@ -372,11 +372,30 @@ is_dead(PyObject *o)
 static int
 _Py_DecRefSharedIsDead(PyObject *o, const char *filename, int lineno)
 {
-    // Should we queue the object for the owning thread to merge?
-    int should_queue;
+    // Fast path: check if already queued/merged using non-atomic read.
+    // The flags are monotonic (only increase: 0->2->3), so if we see >= 2,
+    // the current value is also >= 2 and we can safely use atomic add
+    // instead of a CAS loop.
+    Py_ssize_t shared = o->ob_ref_shared;  // non-atomic read is safe here
+    if ((shared & _Py_REF_SHARED_FLAG_MASK) >= _Py_REF_QUEUED) {
+        // Already queued or merged - just decrement using atomic add
+        Py_ssize_t old = _Py_atomic_add_ssize(&o->ob_ref_shared,
+                                              -(1 << _Py_REF_SHARED_SHIFT));
+        Py_ssize_t new_shared = old - (1 << _Py_REF_SHARED_SHIFT);
 
+#ifdef Py_REF_DEBUG
+        if (new_shared < 0 && _Py_REF_IS_MERGED(new_shared)) {
+            _Py_NegativeRefcount(filename, lineno, o);
+        }
+#endif
+        // Return 1 (dead) only if refcount hit zero AND object is merged
+        return new_shared == _Py_REF_MERGED;
+    }
+
+    // Slow path: first cross-thread decref, need CAS to set QUEUED flag
+    int should_queue;
     Py_ssize_t new_shared;
-    Py_ssize_t shared = _Py_atomic_load_ssize_relaxed(&o->ob_ref_shared);
+    shared = _Py_atomic_load_ssize_relaxed(&o->ob_ref_shared);
     do {
         should_queue = (shared == 0 || shared == _Py_REF_MAYBE_WEAKREF);
 
