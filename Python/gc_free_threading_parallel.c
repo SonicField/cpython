@@ -1694,13 +1694,6 @@ async_cleanup_work(_PyGCThreadPool *pool, int worker_id)
     }
 
     struct _gc_runtime_state *gcstate = work->gcstate;
-
-    // Acquire cleanup mutex - gc_collect_main will block on this if it tries
-    // to start a new collection while we're still cleaning up.
-    if (gcstate != NULL) {
-        PyMutex_Lock(&gcstate->cleanup_mutex);
-    }
-
     _PyGCWorkerState *worker = &pool->workers[worker_id];
     PyThreadState *tstate = worker->tstate;
 
@@ -1741,12 +1734,9 @@ async_cleanup_work(_PyGCThreadPool *pool, int worker_id)
         PyTime_t cleanup_end;
         (void)PyTime_PerfCounterRaw(&cleanup_end);
         gcstate->cleanup_end_ns = cleanup_end;
-    }
 
-    // Release cleanup mutex and clear async_cleanup_running flag
-    if (gcstate != NULL) {
-        PyMutex_Unlock(&gcstate->cleanup_mutex);
-        _Py_atomic_store_int(&gcstate->async_cleanup_running, 0);
+        // Clear the collecting flag - allows new GC cycles to be scheduled
+        _Py_atomic_store_int(&gcstate->collecting, 0);
     }
 
     // Clear current_work and free the work descriptor (we own it)
@@ -3816,7 +3806,6 @@ _PyGC_FTParallelGetStats(PyInterpreterState *interp)
     // Calculate phase durations from recorded timestamps
     // Pre-parallel phases
     int64_t stw0_ns = 0;
-    int64_t async_wait_ns = 0;
     int64_t merge_refs_ns = 0;
     int64_t delayed_frees_ns = 0;
     int64_t mark_alive_ns = 0;
@@ -3843,11 +3832,8 @@ _PyGC_FTParallelGetStats(PyInterpreterState *interp)
     if (interp->gc.gc_start_ns > 0 && interp->gc.stw0_end_ns > 0) {
         stw0_ns = interp->gc.stw0_end_ns - interp->gc.gc_start_ns;
     }
-    if (interp->gc.stw0_end_ns > 0 && interp->gc.async_wait_end_ns > 0) {
-        async_wait_ns = interp->gc.async_wait_end_ns - interp->gc.stw0_end_ns;
-    }
-    if (interp->gc.async_wait_end_ns > 0 && interp->gc.merge_refs_end_ns > 0) {
-        merge_refs_ns = interp->gc.merge_refs_end_ns - interp->gc.async_wait_end_ns;
+    if (interp->gc.stw0_end_ns > 0 && interp->gc.merge_refs_end_ns > 0) {
+        merge_refs_ns = interp->gc.merge_refs_end_ns - interp->gc.stw0_end_ns;
     }
     if (interp->gc.merge_refs_end_ns > 0 && interp->gc.delayed_frees_end_ns > 0) {
         delayed_frees_ns = interp->gc.delayed_frees_end_ns - interp->gc.merge_refs_end_ns;
@@ -3919,7 +3905,6 @@ _PyGC_FTParallelGetStats(PyInterpreterState *interp)
 
     // Add pre-parallel phase timing values
     ADD_TIMING("stw0_ns", stw0_ns);
-    ADD_TIMING("async_wait_ns", async_wait_ns);
     ADD_TIMING("merge_refs_ns", merge_refs_ns);
     ADD_TIMING("delayed_frees_ns", delayed_frees_ns);
     ADD_TIMING("mark_alive_ns", mark_alive_ns);

@@ -547,7 +547,6 @@ def run_throughput_benchmark(
     heap_type: str = "cyclic",
     gc_threshold: int = 500,
     seed: int = 42,
-    pre_stw_wait: bool = False,
 ) -> dict:
     """
     Run throughput benchmark:
@@ -565,7 +564,6 @@ def run_throughput_benchmark(
         heap_type: "cyclic" or "ai"
         gc_threshold: GC threshold for triggering collections
         seed: Random seed for reproducibility
-        pre_stw_wait: If True, wait for cleanup before STW (better for multi-threaded)
     """
     random.seed(seed)
 
@@ -580,16 +578,9 @@ def run_throughput_benchmark(
         if parallel_workers is not None:
             if BUILD_TYPE == "ftp":
                 gc.enable_parallel(num_workers=parallel_workers)
-                # Set async wait mode (only available in FTP builds)
-                try:
-                    gc.set_async_wait_stw(not pre_stw_wait)
-                except AttributeError:
-                    pass
             else:
                 gc.enable_parallel(parallel_workers)
             mode = f"parallel-{parallel_workers}"
-            if pre_stw_wait:
-                mode += "-prestw"
             tracker.parallel_enabled = True
         else:
             try:
@@ -887,8 +878,6 @@ def main():
                         help="Number of threads for object creation")
     parser.add_argument("--keep-threads", "-k", action="store_true",
                         help="Keep creation threads alive (no abandoned pool)")
-    parser.add_argument("--pre-stw-wait", action="store_true",
-                        help="Wait for cleanup before STW (not in STW)")
     args = parser.parse_args()
 
     # Parse heap size
@@ -937,7 +926,6 @@ def main():
                 num_threads=args.threads,
                 keep_threads=args.keep_threads,
                 heap_type=args.heap_type,
-                pre_stw_wait=args.pre_stw_wait,
             )
             print(format_results(parallel_results))
             print()
@@ -977,7 +965,6 @@ def main():
                 num_threads=args.threads,
                 keep_threads=args.keep_threads,
                 heap_type=args.heap_type,
-                pre_stw_wait=args.pre_stw_wait,
             )
             print(format_results(results))
     finally:

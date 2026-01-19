@@ -1924,9 +1924,6 @@ _PyGC_Init(PyInterpreterState *interp)
         return _PyStatus_NO_MEMORY();
     }
 
-    // Default: wait for async cleanup in STW (original behaviour)
-    gcstate->async_wait_stw = 1;
-
     return _PyStatus_OK();
 }
 
@@ -2473,15 +2470,9 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
     (void)PyTime_PerfCounterRaw(&gc_start);
     interp->gc.gc_start_ns = gc_start;
 
-    // If async_wait_stw == 0, wait for previous cleanup BEFORE stopping the world.
-    // This allows mutator threads to continue running (with some contention).
-    // With multiple mutator threads, this can be more efficient than waiting in STW.
-    if (!interp->gc.async_wait_stw) {
-        if (_Py_atomic_load_int_relaxed(&interp->gc.async_cleanup_running)) {
-            PyMutex_Lock(&interp->gc.cleanup_mutex);
-            PyMutex_Unlock(&interp->gc.cleanup_mutex);
-        }
-    }
+    // Note: No wait for previous async cleanup - the collecting flag provides
+    // serialization. If a previous collection's async cleanup is still running,
+    // the collecting flag will be 1 and gc_collect_main will have returned 0.
 
     _PyEval_StopTheWorld(interp);
 
@@ -2489,22 +2480,6 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
     PyTime_t stw0_end;
     (void)PyTime_PerfCounterRaw(&stw0_end);
     interp->gc.stw0_end_ns = stw0_end;
-
-    // If async_wait_stw == 1 (default), wait for previous cleanup in STW.
-    // The world is stopped, so no new garbage can be created while we wait.
-    // This reduces contention and allows cleanup to finish faster, but all
-    // mutator threads are paused during the wait.
-    if (interp->gc.async_wait_stw) {
-        if (_Py_atomic_load_int_relaxed(&interp->gc.async_cleanup_running)) {
-            PyMutex_Lock(&interp->gc.cleanup_mutex);
-            PyMutex_Unlock(&interp->gc.cleanup_mutex);
-        }
-    }
-
-    // Record async wait end time
-    PyTime_t async_wait_end;
-    (void)PyTime_PerfCounterRaw(&async_wait_end);
-    interp->gc.async_wait_end_ns = async_wait_end;
 
     // update collection and allocation counters
     if (generation+1 < NUM_GENERATIONS) {
@@ -2686,7 +2661,7 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
     // the reference cycles to be broken. It may also cause some objects
     // to be freed.
     // For parallel GC with automatic collection, use concurrent cleanup
-    // (runs in background, allows new GC to be scheduled sooner).
+    // (runs in background while collecting flag remains set).
     // For explicit gc.collect() or shutdown, use synchronous cleanup
     // to maintain expected semantics (cleanup complete when call returns).
     bool use_async_cleanup = interp->gc.parallel_gc_enabled
@@ -2704,19 +2679,17 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
             (void)PyTime_PerfCounterRaw(&cleanup_start);
             interp->gc.cleanup_start_ns = cleanup_start;
 
-            // Mark async cleanup as running BEFORE dispatch
-            _Py_atomic_store_int(&interp->gc.async_cleanup_running, 1);
-
             // Dispatch to background worker
             // Pool is guaranteed to exist if parallel_gc_enabled is true
             // The async worker will set cleanup_end_ns when cleanup finishes
+            // The async worker will clear the collecting flag when done
             _PyGC_StartAsyncCleanup(interp, objects, count);
             PyMem_RawFree(objects);  // StartAsyncCleanup copies the array
             state->collected += count;
 
-            // Clear collecting flag - async cleanup is tracked separately
-            // This allows new GC to be scheduled while cleanup runs
-            _Py_atomic_store_int(&state->gcstate->collecting, 0);
+            // Note: collecting flag stays set (=1) until async cleanup finishes.
+            // This prevents new GC from starting while cleanup is in progress.
+            // The async worker will clear the flag when done.
         }
         else {
             // Empty or allocation failed - nothing to clean up
@@ -2769,11 +2742,9 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
     assert(gcstate->garbage != NULL);
     assert(!_PyErr_Occurred(tstate));
 
-    // Note: async_cleanup_running wait is handled inside gc_collect_internal.
-    // The wait timing is controlled by gc.async_wait_stw:
-    //   - True (default): wait after STW (reduces contention)
-    //   - False: wait before STW (better for multi-threaded mutators)
-
+    // The collecting flag serializes GC access. If async cleanup from a
+    // previous collection is still running, the collecting flag will be 1
+    // and this CAS will fail, returning 0 without doing anything.
     int expected = 0;
     if (!_Py_atomic_compare_exchange_int(&gcstate->collecting, &expected, 1)) {
         // Another thread is running a collection - just return

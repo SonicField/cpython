@@ -260,24 +260,14 @@ struct _gc_runtime_state {
     /* Mutex held for gc_should_collect_mem_usage(). */
     PyMutex mutex;
 
-    /* Mutex for cleanup synchronization - held during async cleanup.
-       When cleanup is running, gc_collect_main blocks on this mutex. */
-    PyMutex cleanup_mutex;
-
-    /* Flag indicating async cleanup is in progress. Used to decide whether
-       gc_collect_main needs to STW and wait on cleanup_mutex. */
-    int async_cleanup_running;
-
     /* Parallel GC configuration for FTP */
     int parallel_gc_enabled;    /* 1 = enabled, 0 = disabled (default) */
     int parallel_gc_num_workers; /* Number of workers, 0 = auto (based on CPU count) */
-    int async_wait_stw;          /* 1 = wait in STW (default), 0 = wait before STW */
     struct _PyGCThreadPool *thread_pool;  /* Persistent thread pool for parallel GC */
 
     /* Phase timing for benchmarking (nanoseconds) */
     int64_t gc_start_ns;              /* Start of gc_collect_internal */
     int64_t stw0_end_ns;              /* After initial StopTheWorld */
-    int64_t async_wait_end_ns;        /* After waiting for async cleanup */
     int64_t merge_refs_end_ns;        /* After merging per-thread refcounts */
     int64_t delayed_frees_end_ns;     /* After processing delayed frees */
     int64_t mark_alive_end_ns;        /* After gc_mark_alive_from_roots */
