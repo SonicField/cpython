@@ -756,12 +756,15 @@ PyDoc_STRVAR(gc_set_cleanup_workers__doc__,
 "set_cleanup_workers($module, /, num_workers)\n"
 "--\n"
 "\n"
-"Set the number of cleanup workers for parallel garbage collection.\n"
+"Set the maximum number of cleanup workers for parallel garbage collection.\n"
 "\n"
-"num_workers specifies how cleanup of unreachable objects is performed:\n"
+"num_workers specifies the maximum workers for cleanup of unreachable objects:\n"
 "- 0: Serial/inline cleanup (synchronous, on main thread after STW)\n"
 "- 1: Single async worker (default - cleanup runs in background)\n"
-"- N>1: Parallel cleanup with N workers (experimental)\n"
+"- N>1: Parallel cleanup with up to N workers (experimental)\n"
+"\n"
+"The actual number of workers used is clamped to the available pool size\n"
+"at each GC cycle. This value is a maximum hint, not a guaranteed count.\n"
 "\n"
 "Only available in free-threading builds with parallel GC enabled.");
 
@@ -824,10 +827,16 @@ PyDoc_STRVAR(gc_get_cleanup_workers__doc__,
 "get_cleanup_workers($module, /)\n"
 "--\n"
 "\n"
-"Get the current number of cleanup workers for parallel garbage collection.\n"
+"Get the requested maximum number of cleanup workers for parallel GC.\n"
 "\n"
-"Returns:\n"
-"    int: Number of cleanup workers (0=serial, 1=async, N>1=parallel)\n"
+"This returns the value set by gc.set_cleanup_workers(), which specifies\n"
+"the requested cleanup mode:\n"
+"- 0: Serial cleanup requested (synchronous, on main thread after STW)\n"
+"- 1: Single async worker requested (cleanup runs in background)\n"
+"- N > 1: Parallel cleanup with up to N workers requested\n"
+"\n"
+"Note: The actual number of workers used during cleanup may be lower if\n"
+"the thread pool size is smaller than the requested value.\n"
 "\n"
 "Only available in free-threading builds with parallel GC enabled.");
 
@@ -842,4 +851,4 @@ gc_get_cleanup_workers(PyObject *module, PyObject *Py_UNUSED(ignored))
 {
     return gc_get_cleanup_workers_impl(module);
 }
-/*[clinic end generated code: output=49dbad3430ade5d3 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=ba2ec0c1ff049282 input=a9049054013a1b77]*/

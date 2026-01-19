@@ -2462,6 +2462,30 @@ record_deallocation(PyThreadState *tstate)
     }
 }
 
+// Apply pending configuration at start of GC cycle (after STW).
+// This is the single place where all pending config becomes active.
+// Called after StopTheWorld to avoid races with mutator threads.
+static void
+gc_apply_pending_configuration(PyInterpreterState *interp)
+{
+    GCState *gc = &interp->gc;
+
+    // Compute active cleanup workers from pending value and pool size
+    int pool_size = 0;
+    if (gc->parallel_gc_enabled && gc->thread_pool != NULL) {
+        pool_size = gc->thread_pool->num_workers;
+    }
+
+    int requested = gc->cleanup_workers;
+    if (requested <= 0) {
+        gc->cleanup_workers_active = 0;  // Serial cleanup
+    } else if (requested > pool_size) {
+        gc->cleanup_workers_active = pool_size;  // Clamp to pool size
+    } else {
+        gc->cleanup_workers_active = requested;
+    }
+}
+
 static void
 gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, int generation)
 {
@@ -2480,6 +2504,9 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
     PyTime_t stw0_end;
     (void)PyTime_PerfCounterRaw(&stw0_end);
     interp->gc.stw0_end_ns = stw0_end;
+
+    // Apply pending configuration (cleanup_workers, etc.) now that world is stopped
+    gc_apply_pending_configuration(interp);
 
     // update collection and allocation counters
     if (generation+1 < NUM_GENERATIONS) {
@@ -2660,12 +2687,12 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
     // Call tp_clear on objects in the unreachable set. This will cause
     // the reference cycles to be broken. It may also cause some objects
     // to be freed.
-    // For parallel GC with automatic collection and cleanup_workers >= 1,
-    // use concurrent cleanup (runs in background while collecting flag remains set).
-    // For cleanup_workers == 0, explicit gc.collect(), or shutdown, use
+    // For parallel GC with cleanup_workers_active >= 1, use concurrent cleanup
+    // (runs in background while collecting flag remains set).
+    // For cleanup_workers_active == 0, explicit gc.collect(), or shutdown, use
     // synchronous cleanup to maintain expected semantics.
     bool use_async_cleanup = interp->gc.parallel_gc_enabled
-                             && interp->gc.cleanup_workers >= 1
+                             && interp->gc.cleanup_workers_active >= 1
                              && state->reason != _Py_GC_REASON_MANUAL
                              && state->reason != _Py_GC_REASON_SHUTDOWN;
 
@@ -2680,11 +2707,12 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
             (void)PyTime_PerfCounterRaw(&cleanup_start);
             interp->gc.cleanup_start_ns = cleanup_start;
 
-            // Dispatch to background worker
+            // Dispatch to background worker(s)
             // Pool is guaranteed to exist if parallel_gc_enabled is true
             // The async worker will set cleanup_end_ns when cleanup finishes
             // The async worker will clear the collecting flag when done
-            _PyGC_StartAsyncCleanup(interp, objects, count);
+            _PyGC_StartAsyncCleanup(interp, objects, count,
+                                    interp->gc.cleanup_workers_active);
             PyMem_RawFree(objects);  // StartAsyncCleanup copies the array
             state->collected += count;
 
@@ -2856,11 +2884,11 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
 
     assert(!_PyErr_Occurred(tstate));
     gcstate->frame = NULL;
-    // For parallel GC with async cleanup (automatic collection with cleanup_workers >= 1),
+    // For parallel GC with async cleanup (cleanup_workers_active >= 1),
     // the background worker clears 'collecting'. For sync cleanup (serial GC,
-    // cleanup_workers == 0, or parallel GC with manual/shutdown reason), we clear it here.
+    // cleanup_workers_active == 0, or parallel GC with manual/shutdown reason), we clear it here.
     bool used_sync_cleanup = !interp->gc.parallel_gc_enabled
-                             || interp->gc.cleanup_workers < 1
+                             || interp->gc.cleanup_workers_active < 1
                              || reason == _Py_GC_REASON_MANUAL
                              || reason == _Py_GC_REASON_SHUTDOWN;
     if (used_sync_cleanup) {

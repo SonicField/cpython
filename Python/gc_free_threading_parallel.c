@@ -1678,9 +1678,10 @@ scan_heap_pool_work(_PyGCThreadPool *pool, int worker_id)
     }
 }
 
-// Worker function for concurrent cleanup (runs in background on worker 1)
-// This is single-threaded cleanup - only worker 1 runs it.
-// When done, it sets gcstate->collecting = 0 to allow new GC cycles.
+// Worker function for concurrent cleanup (runs in background on workers 1..N)
+// Supports N-worker parallel cleanup with contiguous chunk partitioning.
+// Objects are pre-sorted by address, so contiguous chunks minimise contention.
+// Last worker to complete (workers_remaining reaches 0) clears collecting flag.
 static void
 async_cleanup_work(_PyGCThreadPool *pool, int worker_id)
 {
@@ -1688,20 +1689,38 @@ async_cleanup_work(_PyGCThreadPool *pool, int worker_id)
     assert(work != NULL);
     assert(work->async_cleanup_objects != NULL || work->async_cleanup_count == 0);
 
-    // Only worker 1 does concurrent cleanup (worker 0 is main thread that returned)
-    if (worker_id != 1) {
+    int num_workers = work->async_cleanup_workers;
+
+    // Workers 1..num_workers participate (worker 0 is main thread that returned)
+    // Worker IDs are 1-based for cleanup (0 is main thread)
+    if (worker_id < 1 || worker_id > num_workers) {
         return;
     }
 
-    struct _gc_runtime_state *gcstate = work->gcstate;
     _PyGCWorkerState *worker = &pool->workers[worker_id];
     PyThreadState *tstate = worker->tstate;
 
     PyObject **objects = work->async_cleanup_objects;
-    Py_ssize_t count = work->async_cleanup_count;
+    Py_ssize_t total_count = work->async_cleanup_count;
 
-    // Process all objects (single-threaded, no contention)
-    for (Py_ssize_t i = 0; i < count; i++) {
+    // Calculate contiguous chunk for this worker.
+    // Workers are numbered 1..num_workers, so convert to 0-based index.
+    int chunk_index = worker_id - 1;
+    Py_ssize_t chunk_size = total_count / num_workers;
+    Py_ssize_t remainder = total_count % num_workers;
+
+    // Distribute remainder evenly: first 'remainder' workers get one extra object
+    Py_ssize_t start, end;
+    if (chunk_index < remainder) {
+        start = chunk_index * (chunk_size + 1);
+        end = start + chunk_size + 1;
+    } else {
+        start = chunk_index * chunk_size + remainder;
+        end = start + chunk_size;
+    }
+
+    // Process our chunk of objects
+    for (Py_ssize_t i = start; i < end; i++) {
         PyObject *op = objects[i];
 
         // Clear the unreachable flag
@@ -1726,22 +1745,30 @@ async_cleanup_work(_PyGCThreadPool *pool, int worker_id)
         Py_DECREF(op);
     }
 
-    // Free the objects array (we own it)
-    PyMem_Free(objects);
+    // Atomically decrement workers_remaining. Last worker (reaches 0) does cleanup.
+    int remaining = atomic_fetch_sub(&work->workers_remaining, 1) - 1;
 
-    // Record cleanup end time for phase timing
-    if (gcstate != NULL) {
-        PyTime_t cleanup_end;
-        (void)PyTime_PerfCounterRaw(&cleanup_end);
-        gcstate->cleanup_end_ns = cleanup_end;
+    if (remaining == 0) {
+        // We are the last worker - do final cleanup
+        struct _gc_runtime_state *gcstate = work->gcstate;
 
-        // Clear the collecting flag - allows new GC cycles to be scheduled
-        _Py_atomic_store_int(&gcstate->collecting, 0);
+        // Free the objects array (we own it)
+        PyMem_Free(objects);
+
+        // Record cleanup end time for phase timing
+        if (gcstate != NULL) {
+            PyTime_t cleanup_end;
+            (void)PyTime_PerfCounterRaw(&cleanup_end);
+            gcstate->cleanup_end_ns = cleanup_end;
+
+            // Clear the collecting flag - allows new GC cycles to be scheduled
+            _Py_atomic_store_int(&gcstate->collecting, 0);
+        }
+
+        // Clear current_work and free the work descriptor (we own it)
+        pool->current_work = NULL;
+        PyMem_RawFree(work);
     }
-
-    // Clear current_work and free the work descriptor (we own it)
-    pool->current_work = NULL;
-    PyMem_RawFree(work);
 }
 
 // Dispatcher for pool work based on work type
@@ -3710,13 +3737,33 @@ pool_scan_heap_process_page(mi_page_t *page, struct _PyGCScanWorkerState *worker
 // Concurrent Cleanup API
 //-----------------------------------------------------------------------------
 
+// Comparison function for qsort - sorts objects by pointer address.
+// This achieves page-based grouping: mimalloc addresses encode page structure,
+// so sorting by address naturally groups objects from the same page together.
+// This minimises contention when multiple workers process contiguous chunks.
+static int
+compare_objects_by_address(const void *a, const void *b)
+{
+    const PyObject *obj_a = *(const PyObject **)a;
+    const PyObject *obj_b = *(const PyObject **)b;
+    // Use subtraction-safe comparison for pointers
+    if ((uintptr_t)obj_a < (uintptr_t)obj_b) {
+        return -1;
+    } else if ((uintptr_t)obj_a > (uintptr_t)obj_b) {
+        return 1;
+    }
+    return 0;
+}
+
 // Start concurrent cleanup - gc.collect() returns immediately, cleanup runs in background
 // Pool must exist (guaranteed if parallel_gc_enabled is true)
 // gcstate->collecting is cleared when cleanup finishes
+// num_workers: number of workers to use (1..pool_size), already clamped by caller
 void
 _PyGC_StartAsyncCleanup(PyInterpreterState *interp,
                         PyObject **objects,
-                        Py_ssize_t count)
+                        Py_ssize_t count,
+                        int num_workers)
 {
     if (count == 0) {
         // Nothing to clean up - clear collecting flag
@@ -3727,12 +3774,25 @@ _PyGC_StartAsyncCleanup(PyInterpreterState *interp,
     _PyGCThreadPool *pool = interp->gc.thread_pool;
     assert(pool != NULL);  // Pool must exist if parallel GC is enabled
 
+    // Ensure num_workers is valid (caller should have clamped, but be defensive)
+    if (num_workers < 1) {
+        num_workers = 1;
+    }
+    if (num_workers > pool->num_workers) {
+        num_workers = pool->num_workers;
+    }
+
     // Copy the objects array since caller's list goes out of scope
     PyObject **objects_copy = PyMem_Malloc(count * sizeof(PyObject *));
     if (objects_copy == NULL) {
         Py_FatalError("Failed to allocate memory for async GC cleanup");
     }
     memcpy(objects_copy, objects, count * sizeof(PyObject *));
+
+    // Sort objects by pointer address for page-based grouping.
+    // This minimises contention: mimalloc addresses encode page structure,
+    // so contiguous address ranges tend to be on the same page.
+    qsort(objects_copy, count, sizeof(PyObject *), compare_objects_by_address);
 
     // Allocate work descriptor on heap (stack goes out of scope when we return)
     _PyGCWorkDescriptor *work = PyMem_RawCalloc(1, sizeof(_PyGCWorkDescriptor));
@@ -3745,6 +3805,9 @@ _PyGC_StartAsyncCleanup(PyInterpreterState *interp,
     work->async_cleanup_objects = objects_copy;
     work->async_cleanup_count = count;
     work->gcstate = &interp->gc;
+    work->async_cleanup_workers = num_workers;
+    // Initialise workers_remaining to num_workers; last worker to decrement to 0 clears collecting
+    atomic_store(&work->workers_remaining, num_workers);
 
     pool->current_work = work;
 

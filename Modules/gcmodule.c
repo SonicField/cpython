@@ -814,19 +814,22 @@ gc.set_cleanup_workers
 
     num_workers: int
 
-Set the number of cleanup workers for parallel garbage collection.
+Set the maximum number of cleanup workers for parallel garbage collection.
 
-num_workers specifies how cleanup of unreachable objects is performed:
+num_workers specifies the maximum workers for cleanup of unreachable objects:
 - 0: Serial/inline cleanup (synchronous, on main thread after STW)
 - 1: Single async worker (default - cleanup runs in background)
-- N>1: Parallel cleanup with N workers (experimental)
+- N>1: Parallel cleanup with up to N workers (experimental)
+
+The actual number of workers used is clamped to the available pool size
+at each GC cycle. This value is a maximum hint, not a guaranteed count.
 
 Only available in free-threading builds with parallel GC enabled.
 [clinic start generated code]*/
 
 static PyObject *
 gc_set_cleanup_workers_impl(PyObject *module, int num_workers)
-/*[clinic end generated code: output=b55363332aeeba3d input=64b15fcfa0dcc612]*/
+/*[clinic end generated code: output=b55363332aeeba3d input=f3eafc4d696fb1bd]*/
 {
 #ifdef Py_GIL_DISABLED
     PyInterpreterState *interp = _PyInterpreterState_GET();
@@ -839,13 +842,6 @@ gc_set_cleanup_workers_impl(PyObject *module, int num_workers)
 
     if (num_workers < 0) {
         PyErr_SetString(PyExc_ValueError, "num_workers must be >= 0");
-        return NULL;
-    }
-
-    if (num_workers > interp->gc.parallel_gc_num_workers) {
-        PyErr_Format(PyExc_ValueError,
-                     "num_workers (%d) cannot exceed parallel_gc_num_workers (%d)",
-                     num_workers, interp->gc.parallel_gc_num_workers);
         return NULL;
     }
 
@@ -862,17 +858,23 @@ gc_set_cleanup_workers_impl(PyObject *module, int num_workers)
 /*[clinic input]
 gc.get_cleanup_workers
 
-Get the current number of cleanup workers for parallel garbage collection.
+Get the requested maximum number of cleanup workers for parallel GC.
 
-Returns:
-    int: Number of cleanup workers (0=serial, 1=async, N>1=parallel)
+This returns the value set by gc.set_cleanup_workers(), which specifies
+the requested cleanup mode:
+- 0: Serial cleanup requested (synchronous, on main thread after STW)
+- 1: Single async worker requested (cleanup runs in background)
+- N > 1: Parallel cleanup with up to N workers requested
+
+Note: The actual number of workers used during cleanup may be lower if
+the thread pool size is smaller than the requested value.
 
 Only available in free-threading builds with parallel GC enabled.
 [clinic start generated code]*/
 
 static PyObject *
 gc_get_cleanup_workers_impl(PyObject *module)
-/*[clinic end generated code: output=818c97cc95a0f5c3 input=171b3c03f7fea0e6]*/
+/*[clinic end generated code: output=818c97cc95a0f5c3 input=871e50434977a5f7]*/
 {
 #ifdef Py_GIL_DISABLED
     PyInterpreterState *interp = _PyInterpreterState_GET();

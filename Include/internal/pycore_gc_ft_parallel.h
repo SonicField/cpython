@@ -193,10 +193,12 @@ typedef struct {
     // Shared worker state (deques, etc.)
     _PyGCWorkerState *workers;        // Now uses the full typedef
 
-    // For ASYNC_CLEANUP work (single-threaded concurrent background cleanup)
+    // For ASYNC_CLEANUP work (parallel concurrent background cleanup)
     PyObject **async_cleanup_objects;   // Array of objects to clean up (owned)
     Py_ssize_t async_cleanup_count;     // Number of objects
     struct _gc_runtime_state *gcstate;  // GC state for clearing collecting flag
+    int async_cleanup_workers;          // Number of workers participating in cleanup (1..N)
+    _Atomic(int) workers_remaining;     // Counter for completion tracking (last to 0 clears collecting)
 
     // Result
     volatile int error_flag;    // Set if any worker encounters an error
@@ -347,10 +349,12 @@ PyAPI_FUNC(int) _PyGC_ParallelScanHeapWithPool(
 // Objects array is copied by the function (caller frees original).
 // The background worker will set gcstate->collecting = 0 when done.
 // Pool must exist (guaranteed if parallel_gc_enabled is true).
+// num_workers: how many workers to use for cleanup (1..pool_size, already clamped by caller)
 PyAPI_FUNC(void) _PyGC_StartAsyncCleanup(
     PyInterpreterState *interp,
     PyObject **objects,
-    Py_ssize_t count);
+    Py_ssize_t count,
+    int num_workers);
 
 //-----------------------------------------------------------------------------
 // Ad-hoc thread versions (spawn threads per-collection instead of using pool)
