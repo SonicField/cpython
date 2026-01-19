@@ -11,7 +11,8 @@ Measures real-world throughput impact of parallel GC by:
 Usage:
     python gc_throughput_benchmark.py --heap-size 500k --duration 30
     python gc_throughput_benchmark.py --heap-size 500k --duration 30 --parallel 8
-    python gc_throughput_benchmark.py --heap-size 500k --duration 30 --threads 4 --keep-threads
+    python gc_throughput_benchmark.py --heap-size 500k --duration 30 --parallel 8 --cleanup-workers 4
+    python gc_throughput_benchmark.py --heap-size 500k --duration 30 --compare --cleanup-workers 4
 """
 
 import gc
@@ -542,6 +543,7 @@ def run_throughput_benchmark(
     heap_size: int,
     duration_seconds: float,
     parallel_workers: Optional[int],
+    cleanup_workers: int = 0,
     num_threads: Optional[int] = None,
     keep_threads: bool = False,
     heap_type: str = "cyclic",
@@ -559,6 +561,7 @@ def run_throughput_benchmark(
         heap_size: Target heap size in objects
         duration_seconds: How long to run the benchmark
         parallel_workers: Number of parallel GC workers (None for serial)
+        cleanup_workers: Number of cleanup workers (0=serial, N=parallel async cleanup)
         num_threads: Number of threads for object creation
         keep_threads: If True, keep creation threads alive (no abandoned pool)
         heap_type: "cyclic" or "ai"
@@ -589,6 +592,16 @@ def run_throughput_benchmark(
                 pass
             mode = "serial"
             tracker.parallel_enabled = False
+
+        # Configure cleanup workers (0=serial, N=parallel async cleanup)
+        # Only set if parallel GC is enabled
+        if parallel_workers is not None:
+            try:
+                gc.set_cleanup_workers(cleanup_workers)
+                if cleanup_workers > 0:
+                    mode += f"-cw{cleanup_workers}"
+            except (AttributeError, RuntimeError):
+                pass  # API not available or parallel GC not enabled
 
         # Add threading info to mode
         if num_threads:
@@ -718,6 +731,7 @@ def run_throughput_benchmark(
         return {
             "mode": mode,
             "heap_size": heap_size,
+            "cleanup_workers": cleanup_workers,
             "duration_seconds": elapsed,
             "objects_created": objects_created,
             "cycles": cycles,
@@ -749,6 +763,10 @@ def run_throughput_benchmark(
     finally:
         # Clean up
         gc.callbacks.remove(tracker.gc_callback)
+        try:
+            gc.set_cleanup_workers(0)  # Reset to serial
+        except (AttributeError, RuntimeError):
+            pass
         try:
             gc.disable_parallel()
         except (RuntimeError, AttributeError):
@@ -870,6 +888,8 @@ def main():
                         help="Benchmark duration in seconds")
     parser.add_argument("--parallel", "-p", type=int, default=None,
                         help="Number of parallel GC workers (omit for serial)")
+    parser.add_argument("--cleanup-workers", type=int, default=0,
+                        help="Number of cleanup workers (0=serial, N=parallel async cleanup)")
     parser.add_argument("--compare", "-c", action="store_true",
                         help="Run both serial and parallel, compare results")
     parser.add_argument("--workers", "-w", type=int, default=8,
@@ -911,6 +931,7 @@ def main():
                 heap_size=heap_size,
                 duration_seconds=args.duration,
                 parallel_workers=None,
+                cleanup_workers=0,
                 num_threads=args.threads,
                 keep_threads=args.keep_threads,
                 heap_type=args.heap_type,
@@ -918,11 +939,12 @@ def main():
             print(format_results(serial_results))
             print()
 
-            print(f"Running parallel benchmark ({args.workers} workers)...")
+            print(f"Running parallel benchmark ({args.workers} workers, cleanup_workers={args.cleanup_workers})...")
             parallel_results = run_throughput_benchmark(
                 heap_size=heap_size,
                 duration_seconds=args.duration,
                 parallel_workers=args.workers,
+                cleanup_workers=args.cleanup_workers,
                 num_threads=args.threads,
                 keep_threads=args.keep_threads,
                 heap_type=args.heap_type,
@@ -962,6 +984,7 @@ def main():
                 heap_size=heap_size,
                 duration_seconds=args.duration,
                 parallel_workers=args.parallel,
+                cleanup_workers=args.cleanup_workers,
                 num_threads=args.threads,
                 keep_threads=args.keep_threads,
                 heap_type=args.heap_type,

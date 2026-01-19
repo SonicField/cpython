@@ -2,30 +2,30 @@
 """
 Parallel GC Benchmark Suite - Unified for GIL and Free-Threading Builds
 
-This benchmark measures parallel GC performance across 5 dimensions:
+This benchmark measures parallel GC performance across 6 dimensions:
 1. Worker count (1, 2, 4, 8)
-2. Heap type (chain, tree, wide_tree, graph, layered, independent)
-3. Heap size (10k, 50k, 100k, 500k, 1M objects)
-4. Survivor ratio (0%, 25%, 50%, 75%, 100%)
-5. Multi-threaded creation (FTP only: 1, 2, 4, 8 threads)
+2. Cleanup workers (0=serial, 1=async, N=parallel async cleanup)
+3. Heap type (chain, tree, wide_tree, graph, layered, independent)
+4. Heap size (10k, 50k, 100k, 500k, 1M objects)
+5. Survivor ratio (0%, 25%, 50%, 75%, 100%)
+6. Multi-threaded creation (FTP only: 1, 2, 4, 8 threads)
 
 Usage:
     python gc_benchmark.py --quick             # Quick test
     python gc_benchmark.py --workers 1,2,4    # Specific worker counts
-    python gc_benchmark.py --heap-type chain  # Specific heap type
-    python gc_benchmark.py --full-matrix -o results.json  # Full benchmark
+    python gc_benchmark.py --cleanup-workers 0,1,4  # Test cleanup workers
+    python gc_benchmark.py --full-matrix -o results.md  # Full benchmark
 """
 
 import gc
 import sys
 import time
-import json
 import queue
 import random
 import argparse
 import statistics
 import threading
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
 
 # =============================================================================
@@ -78,6 +78,22 @@ def disable_parallel_gc():
         gc.disable_parallel()
     except (RuntimeError, AttributeError):
         pass  # Already disabled or not available
+
+
+def set_cleanup_workers(n: int):
+    """Set the number of cleanup workers (0=serial, N=parallel async cleanup)."""
+    try:
+        gc.set_cleanup_workers(n)
+    except (AttributeError, RuntimeError):
+        pass  # API not available or parallel GC not enabled
+
+
+def get_cleanup_workers() -> int:
+    """Get the current cleanup workers setting."""
+    try:
+        return gc.get_cleanup_workers()
+    except AttributeError:
+        return 0
 
 # =============================================================================
 # Node Classes for Object Graphs
@@ -572,6 +588,7 @@ class BenchmarkResult:
     heap_size: int
     survivor_ratio: float
     num_workers: int
+    cleanup_workers: int  # 0=serial, N=parallel async cleanup
     creation_threads: int  # FTP only
 
     # Mode (serial or parallel)
@@ -636,7 +653,8 @@ class GCBenchmark:
         self.keep_threads = keep_threads
 
     def run_single(self, heap_type: str, heap_size: int, survivor_ratio: float,
-                   num_workers: int, creation_threads: int = 1,
+                   num_workers: int, cleanup_workers: int = 0,
+                   creation_threads: int = 1,
                    parallel: bool = True) -> BenchmarkResult:
         """Run a single benchmark configuration."""
 
@@ -649,6 +667,9 @@ class GCBenchmark:
             enable_parallel_gc(num_workers)
         else:
             disable_parallel_gc()
+
+        # Configure cleanup workers (0=serial, N=parallel async cleanup)
+        set_cleanup_workers(cleanup_workers)
 
         try:
             # Warmup
@@ -752,6 +773,7 @@ class GCBenchmark:
             heap_size=heap_size,
             survivor_ratio=survivor_ratio,
             num_workers=num_workers,
+            cleanup_workers=cleanup_workers,
             creation_threads=creation_threads,
             mode=mode,
             mean_ms=statistics.mean(times),
@@ -766,7 +788,8 @@ class GCBenchmark:
         )
 
     def compare(self, heap_type: str, heap_size: int, survivor_ratio: float,
-                num_workers: int, creation_threads: int = 1) -> ComparisonResult:
+                num_workers: int, cleanup_workers: int = 0,
+                creation_threads: int = 1) -> ComparisonResult:
         """Compare serial vs parallel for a configuration."""
 
         config = {
@@ -774,13 +797,14 @@ class GCBenchmark:
             'heap_size': heap_size,
             'survivor_ratio': survivor_ratio,
             'num_workers': num_workers,
+            'cleanup_workers': cleanup_workers,
             'creation_threads': creation_threads,
         }
 
         # Run serial (1 worker or parallel disabled)
         serial_result = self.run_single(
             heap_type, heap_size, survivor_ratio,
-            num_workers=1, creation_threads=creation_threads,
+            num_workers=1, cleanup_workers=0, creation_threads=creation_threads,
             parallel=False
         )
 
@@ -790,7 +814,8 @@ class GCBenchmark:
         else:
             parallel_result = self.run_single(
                 heap_type, heap_size, survivor_ratio,
-                num_workers=num_workers, creation_threads=creation_threads,
+                num_workers=num_workers, cleanup_workers=cleanup_workers,
+                creation_threads=creation_threads,
                 parallel=True
             )
 
@@ -827,6 +852,7 @@ def parse_float_list(arg: str) -> List[float]:
 
 def run_benchmark_matrix(
     workers: List[int] = [1, 2, 4],
+    cleanup_workers_list: List[int] = [0],
     heap_types: List[str] = ['chain', 'wide_tree'],
     heap_sizes: List[int] = [100000],
     survivor_ratios: List[float] = [0.5],
@@ -853,6 +879,7 @@ def run_benchmark_matrix(
     print(f"Parallel GC Benchmark - {BUILD_TYPE.upper()} Build")
     print("=" * 80)
     print(f"Workers: {workers}")
+    print(f"Cleanup workers: {cleanup_workers_list}")
     print(f"Heap types: {heap_types}")
     print(f"Heap sizes: {heap_sizes}")
     print(f"Survivor ratios: {survivor_ratios}")
@@ -863,92 +890,94 @@ def run_benchmark_matrix(
     print(f"Warmup: {warmup}, Iterations: {iterations}")
     print()
 
-    total_configs = (len(workers) * len(heap_types) * len(heap_sizes) *
-                    len(survivor_ratios) * len(creation_threads))
+    total_configs = (len(workers) * len(cleanup_workers_list) * len(heap_types) *
+                    len(heap_sizes) * len(survivor_ratios) * len(creation_threads))
     current = 0
 
-    print(f"{'Config':<40} | {'Serial':>10} | {'Parallel':>10} | {'Speedup':>10}")
-    print("-" * 80)
+    print(f"{'Config':<45} | {'Serial':>10} | {'Parallel':>10} | {'Speedup':>10}")
+    print("-" * 85)
 
     for heap_type in heap_types:
         for heap_size in heap_sizes:
             for survivor_ratio in survivor_ratios:
                 for num_workers in workers:
-                    for ct in creation_threads:
-                        if BUILD_TYPE == "gil" and ct > 1:
-                            continue  # Skip multi-thread creation for GIL build
+                    for cw in cleanup_workers_list:
+                        for ct in creation_threads:
+                            if BUILD_TYPE == "gil" and ct > 1:
+                                continue  # Skip multi-thread creation for GIL build
 
-                        current += 1
-                        config_str = f"{heap_type}_{heap_size//1000}k_s{int(survivor_ratio*100)}_w{num_workers}"
-                        if BUILD_TYPE == "ftp" and ct > 1:
-                            config_str += f"_t{ct}"
+                            current += 1
+                            config_str = f"{heap_type}_{heap_size//1000}k_s{int(survivor_ratio*100)}_w{num_workers}_cw{cw}"
+                            if BUILD_TYPE == "ftp" and ct > 1:
+                                config_str += f"_t{ct}"
 
-                        if verbose:
-                            print(f"[{current}/{total_configs}] {config_str:<36}", end=" | ", flush=True)
+                            if verbose:
+                                print(f"[{current}/{total_configs}] {config_str:<41}", end=" | ", flush=True)
 
-                        result = benchmark.compare(
-                            heap_type=heap_type,
-                            heap_size=heap_size,
-                            survivor_ratio=survivor_ratio,
-                            num_workers=num_workers,
-                            creation_threads=ct
-                        )
-                        results.append(result)
+                            result = benchmark.compare(
+                                heap_type=heap_type,
+                                heap_size=heap_size,
+                                survivor_ratio=survivor_ratio,
+                                num_workers=num_workers,
+                                cleanup_workers=cw,
+                                creation_threads=ct
+                            )
+                            results.append(result)
 
-                        if verbose:
-                            speedup_str = f"{result.speedup:.2f}x"
-                            if result.speedup > 1.1:
-                                speedup_str = f"\033[32m{speedup_str}\033[0m"  # Green
-                            elif result.speedup < 0.9:
-                                speedup_str = f"\033[31m{speedup_str}\033[0m"  # Red
+                            if verbose:
+                                speedup_str = f"{result.speedup:.2f}x"
+                                if result.speedup > 1.1:
+                                    speedup_str = f"\033[32m{speedup_str}\033[0m"  # Green
+                                elif result.speedup < 0.9:
+                                    speedup_str = f"\033[31m{speedup_str}\033[0m"  # Red
 
-                            print(f"{result.serial_result.mean_ms:>10.2f} | "
-                                  f"{result.parallel_result.mean_ms:>10.2f} | "
-                                  f"{speedup_str:>10}")
+                                print(f"{result.serial_result.mean_ms:>10.2f} | "
+                                      f"{result.parallel_result.mean_ms:>10.2f} | "
+                                      f"{speedup_str:>10}")
 
-                            # Per-iteration details
-                            print(f"    Serial runs:   ", end="")
-                            print("  ".join(f"{r.time_ms:.1f}" for r in result.serial_result.runs))
+                                # Per-iteration details
+                                print(f"    Serial runs:   ", end="")
+                                print("  ".join(f"{r.time_ms:.1f}" for r in result.serial_result.runs))
 
-                            print(f"    Parallel runs: ", end="")
-                            par_details = []
-                            for r in result.parallel_result.runs:
-                                pt = r.phase_timing
-                                if pt:
-                                    total = pt.get('total_ns', 1) / 1e6  # avoid div by zero
-                                    if BUILD_TYPE == "gil":
-                                        upd = pt.get('update_refs_ns', 0) / 1e6
-                                        alive = pt.get('mark_alive_ns', 0) / 1e6
-                                        sub = pt.get('subtract_refs_ns', 0) / 1e6
-                                        mark = pt.get('mark_ns', 0) / 1e6
-                                        cleanup = pt.get('cleanup_ns', 0) / 1e6
-                                        par_details.append(f"{r.time_ms:.0f}[upd:{upd:.0f}+alive:{alive:.0f}+sub:{sub:.0f}+mark:{mark:.0f}+clean:{cleanup:.0f}]")
+                                print(f"    Parallel runs: ", end="")
+                                par_details = []
+                                for r in result.parallel_result.runs:
+                                    pt = r.phase_timing
+                                    if pt:
+                                        total = pt.get('total_ns', 1) / 1e6  # avoid div by zero
+                                        if BUILD_TYPE == "gil":
+                                            upd = pt.get('update_refs_ns', 0) / 1e6
+                                            alive = pt.get('mark_alive_ns', 0) / 1e6
+                                            sub = pt.get('subtract_refs_ns', 0) / 1e6
+                                            mark = pt.get('mark_ns', 0) / 1e6
+                                            cleanup = pt.get('cleanup_ns', 0) / 1e6
+                                            par_details.append(f"{r.time_ms:.0f}[upd:{upd:.0f}+alive:{alive:.0f}+sub:{sub:.0f}+mark:{mark:.0f}+clean:{cleanup:.0f}]")
+                                        else:
+                                            # FTP: show key phases with percentages
+                                            # Group: mark_alive | parallel_phases | cleanup_phases
+                                            mk_alive = pt.get('mark_alive_ns', 0) / 1e6
+                                            # Parallel phases
+                                            upd = pt.get('update_refs_ns', 0) / 1e6
+                                            mk_heap = pt.get('mark_heap_ns', 0) / 1e6
+                                            scan = pt.get('scan_heap_ns', 0) / 1e6
+                                            # Cleanup phases (often substantial)
+                                            cleanup = pt.get('cleanup_ns', 0) / 1e6
+                                            finalize = pt.get('finalize_ns', 0) / 1e6
+                                            resurrection = pt.get('resurrection_ns', 0) / 1e6
+                                            weakrefs = pt.get('find_weakrefs_ns', 0) / 1e6
+                                            # Calculate percentage of total
+                                            parallel_phases = upd + mk_heap + scan
+                                            cleanup_phases = cleanup + finalize + resurrection + weakrefs
+                                            # Format: total[alive|par|cleanup] with percentages
+                                            alive_pct = int(mk_alive / total * 100) if total > 0 else 0
+                                            par_pct = int(parallel_phases / total * 100) if total > 0 else 0
+                                            clean_pct = int(cleanup_phases / total * 100) if total > 0 else 0
+                                            par_details.append(f"{r.time_ms:.0f}[{alive_pct}%|{par_pct}%|{clean_pct}%]")
                                     else:
-                                        # FTP: show key phases with percentages
-                                        # Group: mark_alive | parallel_phases | cleanup_phases
-                                        mk_alive = pt.get('mark_alive_ns', 0) / 1e6
-                                        # Parallel phases
-                                        upd = pt.get('update_refs_ns', 0) / 1e6
-                                        mk_heap = pt.get('mark_heap_ns', 0) / 1e6
-                                        scan = pt.get('scan_heap_ns', 0) / 1e6
-                                        # Cleanup phases (often substantial)
-                                        cleanup = pt.get('cleanup_ns', 0) / 1e6
-                                        finalize = pt.get('finalize_ns', 0) / 1e6
-                                        resurrection = pt.get('resurrection_ns', 0) / 1e6
-                                        weakrefs = pt.get('find_weakrefs_ns', 0) / 1e6
-                                        # Calculate percentage of total
-                                        parallel_phases = upd + mk_heap + scan
-                                        cleanup_phases = cleanup + finalize + resurrection + weakrefs
-                                        # Format: total[alive|par|cleanup] with percentages
-                                        alive_pct = int(mk_alive / total * 100) if total > 0 else 0
-                                        par_pct = int(parallel_phases / total * 100) if total > 0 else 0
-                                        clean_pct = int(cleanup_phases / total * 100) if total > 0 else 0
-                                        par_details.append(f"{r.time_ms:.0f}[{alive_pct}%|{par_pct}%|{clean_pct}%]")
-                                else:
-                                    par_details.append(f"{r.time_ms:.1f}")
-                            print("  ".join(par_details))
+                                        par_details.append(f"{r.time_ms:.1f}")
+                                print("  ".join(par_details))
 
-    print("-" * 80)
+    print("-" * 85)
 
     # Summary
     if results:
@@ -977,7 +1006,8 @@ def run_benchmark_matrix(
 
             for r in parallel_with_timing:
                 pt = r.parallel_result.mean_phase_timing
-                config_str = f"{r.config['heap_type']}_{r.config['heap_size']//1000}k_w{r.config['num_workers']}"
+                cw = r.config.get('cleanup_workers', 0)
+                config_str = f"{r.config['heap_type']}_{r.config['heap_size']//1000}k_w{r.config['num_workers']}_cw{cw}"
 
                 # Get phase values (convert ns to ms for readability)
                 if BUILD_TYPE == "gil":
@@ -1001,34 +1031,81 @@ def run_benchmark_matrix(
                     total = pt.get('total_ns', 0) / 1e6
                     print(f"  {config_str:<18} | {mk_alive:>7.1f} | {upd:>7.1f} | {mk_heap:>7.1f} | {scan:>7.1f} | {cleanup:>7.1f} | {finalize:>7.1f} | {resurrection:>7.1f} | {weakrefs:>7.1f} | {total:>7.1f}")
 
-    # Save results
+    # Save results as markdown
     if output_file:
-        output = {
-            'metadata': {
-                'build_type': BUILD_TYPE,
-                'workers': workers,
-                'heap_types': heap_types,
-                'heap_sizes': heap_sizes,
-                'survivor_ratios': survivor_ratios,
-                'creation_threads': creation_threads,
-                'keep_threads': keep_threads,
-                'warmup': warmup,
-                'iterations': iterations,
-                'finalizers': finalizers,
-            },
-            'results': [
-                {
-                    'config': r.config,
-                    'speedup': r.speedup,
-                    'significant': r.significant,
-                    'serial': asdict(r.serial_result),
-                    'parallel': asdict(r.parallel_result),
-                }
-                for r in results
-            ]
-        }
         with open(output_file, 'w') as f:
-            json.dump(output, f, indent=2, default=str)
+            f.write(f"# Parallel GC Benchmark Results\n\n")
+            f.write(f"## Configuration\n\n")
+            f.write(f"- **Build type:** {BUILD_TYPE.upper()}\n")
+            f.write(f"- **Workers:** {workers}\n")
+            f.write(f"- **Cleanup workers:** {cleanup_workers_list}\n")
+            f.write(f"- **Heap types:** {heap_types}\n")
+            f.write(f"- **Heap sizes:** {heap_sizes}\n")
+            f.write(f"- **Survivor ratios:** {survivor_ratios}\n")
+            f.write(f"- **Finalizers:** {'enabled' if finalizers else 'disabled'}\n")
+            if BUILD_TYPE == "ftp":
+                f.write(f"- **Creation threads:** {creation_threads}\n")
+                f.write(f"- **Keep threads alive:** {keep_threads}\n")
+            f.write(f"- **Warmup:** {warmup}\n")
+            f.write(f"- **Iterations:** {iterations}\n")
+            f.write(f"\n")
+
+            f.write(f"## Results\n\n")
+            f.write(f"| Config | Serial (ms) | Parallel (ms) | Speedup |\n")
+            f.write(f"|--------|-------------|---------------|--------|\n")
+            for r in results:
+                cw = r.config.get('cleanup_workers', 0)
+                config_str = f"{r.config['heap_type']}_{r.config['heap_size']//1000}k_s{int(r.config['survivor_ratio']*100)}_w{r.config['num_workers']}_cw{cw}"
+                if BUILD_TYPE == "ftp" and r.config.get('creation_threads', 1) > 1:
+                    config_str += f"_t{r.config['creation_threads']}"
+                f.write(f"| {config_str} | {r.serial_result.mean_ms:.2f} | {r.parallel_result.mean_ms:.2f} | {r.speedup:.2f}x |\n")
+
+            f.write(f"\n## Summary\n\n")
+            if results:
+                speedups = [r.speedup for r in results if r.speedup > 0]
+                significant = [r for r in results if r.significant]
+                f.write(f"- **Total configurations:** {len(results)}\n")
+                f.write(f"- **Mean speedup:** {statistics.mean(speedups):.2f}x\n")
+                f.write(f"- **Min speedup:** {min(speedups):.2f}x\n")
+                f.write(f"- **Max speedup:** {max(speedups):.2f}x\n")
+                f.write(f"- **Statistically significant:** {len(significant)}/{len(results)}\n")
+
+            # Phase timing table
+            parallel_with_timing = [r for r in results if r.parallel_result.mean_phase_timing]
+            if parallel_with_timing:
+                f.write(f"\n## Phase Timing (ms)\n\n")
+                if BUILD_TYPE == "gil":
+                    f.write(f"| Config | upd_refs | mk_alive | sub_refs | mark | cleanup | total |\n")
+                    f.write(f"|--------|----------|----------|----------|------|---------|-------|\n")
+                    for r in parallel_with_timing:
+                        pt = r.parallel_result.mean_phase_timing
+                        cw = r.config.get('cleanup_workers', 0)
+                        config_str = f"{r.config['heap_type']}_{r.config['heap_size']//1000}k_w{r.config['num_workers']}_cw{cw}"
+                        upd = pt.get('update_refs_ns', 0) / 1e6
+                        alive = pt.get('mark_alive_ns', 0) / 1e6
+                        sub = pt.get('subtract_refs_ns', 0) / 1e6
+                        mark = pt.get('mark_ns', 0) / 1e6
+                        cleanup = pt.get('cleanup_ns', 0) / 1e6
+                        total = pt.get('total_ns', 0) / 1e6
+                        f.write(f"| {config_str} | {upd:.1f} | {alive:.1f} | {sub:.1f} | {mark:.1f} | {cleanup:.1f} | {total:.1f} |\n")
+                else:
+                    f.write(f"| Config | mk_alive | upd_ref | mk_heap | scan | cleanup | final | resur | weakrf | total |\n")
+                    f.write(f"|--------|----------|---------|---------|------|---------|-------|-------|--------|-------|\n")
+                    for r in parallel_with_timing:
+                        pt = r.parallel_result.mean_phase_timing
+                        cw = r.config.get('cleanup_workers', 0)
+                        config_str = f"{r.config['heap_type']}_{r.config['heap_size']//1000}k_w{r.config['num_workers']}_cw{cw}"
+                        mk_alive = pt.get('mark_alive_ns', 0) / 1e6
+                        upd = pt.get('update_refs_ns', 0) / 1e6
+                        mk_heap = pt.get('mark_heap_ns', 0) / 1e6
+                        scan = pt.get('scan_heap_ns', 0) / 1e6
+                        cleanup = pt.get('cleanup_ns', 0) / 1e6
+                        finalize = pt.get('finalize_ns', 0) / 1e6
+                        resurrection = pt.get('resurrection_ns', 0) / 1e6
+                        weakrefs = pt.get('find_weakrefs_ns', 0) / 1e6
+                        total = pt.get('total_ns', 0) / 1e6
+                        f.write(f"| {config_str} | {mk_alive:.1f} | {upd:.1f} | {mk_heap:.1f} | {scan:.1f} | {cleanup:.1f} | {finalize:.1f} | {resurrection:.1f} | {weakrefs:.1f} | {total:.1f} |\n")
+
         print(f"\nResults saved to: {output_file}")
 
     print("=" * 80)
@@ -1050,19 +1127,21 @@ Examples:
   # Test specific worker counts
   %(prog)s --workers 1,2,4,8
 
-  # Test specific heap types
-  %(prog)s --heap-type chain,wide_tree,independent
+  # Test cleanup workers (parallel async cleanup)
+  %(prog)s --cleanup-workers 0,1,4,8
 
   # Full matrix with output
-  %(prog)s --full-matrix -o results.json
+  %(prog)s --full-matrix -o results.md
 
   # Custom configuration
-  %(prog)s --workers 2,4 --heap-type graph --heap-size 100k,500k --survivor-ratio 0.5,0.8
+  %(prog)s --workers 2,4 --cleanup-workers 0,4 --heap-type graph --heap-size 100k,500k
 """
     )
 
     parser.add_argument('--workers', '-w', type=str, default='1,2,4',
                         help='Comma-separated worker counts (default: 1,2,4)')
+    parser.add_argument('--cleanup-workers', type=str, default='0',
+                        help='Comma-separated cleanup worker counts (0=serial, N=parallel async cleanup) (default: 0)')
     parser.add_argument('--heap-type', '-t', type=str, default='chain,wide_tree',
                         help='Comma-separated heap types (default: chain,wide_tree)')
     parser.add_argument('--heap-size', '-s', type=str, default='100k',
@@ -1078,7 +1157,7 @@ Examples:
     parser.add_argument('--iterations', '-n', type=int, default=5,
                         help='Timed iterations (default: 5)')
     parser.add_argument('--output', '-o', type=str,
-                        help='Output JSON file')
+                        help='Output markdown file')
     parser.add_argument('--quick', '-q', action='store_true',
                         help='Quick test: 2 warmup, 3 iterations, small matrix')
     parser.add_argument('--full-matrix', '-f', action='store_true',
@@ -1094,12 +1173,14 @@ Examples:
         args.warmup = 2
         args.iterations = 3
         args.workers = '1,2,4'
+        args.cleanup_workers = '0'
         args.heap_type = 'chain,wide_tree'
         args.heap_size = '50k'
         args.survivor_ratio = '0.5'
 
     if args.full_matrix:
         args.workers = '1,2,4,8'
+        args.cleanup_workers = '0,1,4,8'
         args.heap_type = 'chain,tree,wide_tree,graph,layered,independent'
         args.heap_size = '10k,50k,100k,500k'
         args.survivor_ratio = '0.0,0.25,0.5,0.75,1.0'
@@ -1112,6 +1193,7 @@ Examples:
     try:
         run_benchmark_matrix(
             workers=parse_int_list(args.workers),
+            cleanup_workers_list=parse_int_list(args.cleanup_workers),
             heap_types=parse_list_arg(args.heap_type),
             heap_sizes=parse_int_list(args.heap_size),
             survivor_ratios=parse_float_list(args.survivor_ratio),
