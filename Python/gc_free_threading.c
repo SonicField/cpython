@@ -1924,6 +1924,9 @@ _PyGC_Init(PyInterpreterState *interp)
         return _PyStatus_NO_MEMORY();
     }
 
+    // Default: wait for async cleanup in STW (original behaviour)
+    gcstate->async_wait_stw = 1;
+
     return _PyStatus_OK();
 }
 
@@ -2470,6 +2473,16 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
     (void)PyTime_PerfCounterRaw(&gc_start);
     interp->gc.gc_start_ns = gc_start;
 
+    // If async_wait_stw == 0, wait for previous cleanup BEFORE stopping the world.
+    // This allows mutator threads to continue running (with some contention).
+    // With multiple mutator threads, this can be more efficient than waiting in STW.
+    if (!interp->gc.async_wait_stw) {
+        if (_Py_atomic_load_int_relaxed(&interp->gc.async_cleanup_running)) {
+            PyMutex_Lock(&interp->gc.cleanup_mutex);
+            PyMutex_Unlock(&interp->gc.cleanup_mutex);
+        }
+    }
+
     _PyEval_StopTheWorld(interp);
 
     // Record STW0 end time
@@ -2477,13 +2490,15 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
     (void)PyTime_PerfCounterRaw(&stw0_end);
     interp->gc.stw0_end_ns = stw0_end;
 
-    // If async cleanup from a previous collection is still running, wait for it.
+    // If async_wait_stw == 1 (default), wait for previous cleanup in STW.
     // The world is stopped, so no new garbage can be created while we wait.
-    // This ensures the previous cleanup completes before we start marking.
-    if (_Py_atomic_load_int_relaxed(&interp->gc.async_cleanup_running)) {
-        // Block until cleanup worker releases the mutex
-        PyMutex_Lock(&interp->gc.cleanup_mutex);
-        PyMutex_Unlock(&interp->gc.cleanup_mutex);
+    // This reduces contention and allows cleanup to finish faster, but all
+    // mutator threads are paused during the wait.
+    if (interp->gc.async_wait_stw) {
+        if (_Py_atomic_load_int_relaxed(&interp->gc.async_cleanup_running)) {
+            PyMutex_Lock(&interp->gc.cleanup_mutex);
+            PyMutex_Unlock(&interp->gc.cleanup_mutex);
+        }
     }
 
     // Record async wait end time
@@ -2754,10 +2769,10 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
     assert(gcstate->garbage != NULL);
     assert(!_PyErr_Occurred(tstate));
 
-    // Note: We used to check async_cleanup_running here and wait, but that
-    // was wrong because it happened before STW. The wait is now done inside
-    // gc_collect_internal, after StopTheWorld, so no new garbage can be
-    // created while waiting.
+    // Note: async_cleanup_running wait is handled inside gc_collect_internal.
+    // The wait timing is controlled by gc.async_wait_stw:
+    //   - True (default): wait after STW (reduces contention)
+    //   - False: wait before STW (better for multi-threaded mutators)
 
     int expected = 0;
     if (!_Py_atomic_compare_exchange_int(&gcstate->collecting, &expected, 1)) {

@@ -664,6 +664,69 @@ gc_disable_parallel_impl(PyObject *module)
 
 
 /*[clinic input]
+gc.set_async_wait_stw
+
+    mode: bool
+        True = wait in STW (default), False = wait before STW
+
+Set the async cleanup wait mode.
+
+When parallel GC is enabled and a new collection starts while async cleanup
+from a previous collection is still running, this setting controls when to
+wait for that cleanup to complete:
+
+- True (default): Stop the world first, then wait. Reduces contention but
+  all mutator threads are paused during the wait.
+
+- False: Wait before stopping the world. Mutators can continue (with
+  contention), then stop once cleanup completes.
+
+Only available in free-threaded builds.
+[clinic start generated code]*/
+
+static PyObject *
+gc_set_async_wait_stw_impl(PyObject *module, int mode)
+/*[clinic end generated code: output=01c74e3477a7f1b5 input=c7ed8be0f5a3e242]*/
+{
+#ifdef Py_GIL_DISABLED
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    interp->gc.async_wait_stw = mode ? 1 : 0;
+    Py_RETURN_NONE;
+#else
+    PyErr_SetString(PyExc_NotImplementedError,
+                    "async_wait_stw is only available in free-threaded builds");
+    return NULL;
+#endif
+}
+
+
+/*[clinic input]
+gc.get_async_wait_stw -> bool
+
+Get the current async cleanup wait mode.
+
+Returns True if waiting happens in STW (default), False if waiting happens
+before STW.
+
+Only available in free-threaded builds.
+[clinic start generated code]*/
+
+static int
+gc_get_async_wait_stw_impl(PyObject *module)
+/*[clinic end generated code: output=d6d93ffec2080e69 input=f6e84fc35998ba29]*/
+{
+#ifdef Py_GIL_DISABLED
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    return interp->gc.async_wait_stw;
+#else
+    PyErr_SetString(PyExc_NotImplementedError,
+                    "async_wait_stw is only available in free-threaded builds");
+    return -1;
+#endif
+}
+
+
+/*[clinic input]
 gc.get_parallel_config -> object
 
 Return parallel GC configuration as a dictionary.
@@ -1078,6 +1141,8 @@ static PyMethodDef GcMethods[] = {
     GC_DISABLE_PARALLEL_METHODDEF
     GC_GET_PARALLEL_CONFIG_METHODDEF
     GC_GET_PARALLEL_STATS_METHODDEF
+    GC_SET_ASYNC_WAIT_STW_METHODDEF
+    GC_GET_ASYNC_WAIT_STW_METHODDEF
     // FTP parallel GC test APIs (debug builds only)
     GC_COUNT_GC_PAGES_METHODDEF
     GC_TEST_PAGE_ASSIGNMENT_METHODDEF

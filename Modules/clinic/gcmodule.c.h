@@ -696,6 +696,115 @@ gc_disable_parallel(PyObject *module, PyObject *Py_UNUSED(ignored))
     return gc_disable_parallel_impl(module);
 }
 
+PyDoc_STRVAR(gc_set_async_wait_stw__doc__,
+"set_async_wait_stw($module, /, mode)\n"
+"--\n"
+"\n"
+"Set the async cleanup wait mode.\n"
+"\n"
+"  mode\n"
+"    True = wait in STW (default), False = wait before STW\n"
+"\n"
+"When parallel GC is enabled and a new collection starts while async cleanup\n"
+"from a previous collection is still running, this setting controls when to\n"
+"wait for that cleanup to complete:\n"
+"\n"
+"- True (default): Stop the world first, then wait. Reduces contention but\n"
+"  all mutator threads are paused during the wait.\n"
+"\n"
+"- False: Wait before stopping the world. Mutators can continue (with\n"
+"  contention), then stop once cleanup completes.\n"
+"\n"
+"Only available in free-threaded builds.");
+
+#define GC_SET_ASYNC_WAIT_STW_METHODDEF    \
+    {"set_async_wait_stw", _PyCFunction_CAST(gc_set_async_wait_stw), METH_FASTCALL|METH_KEYWORDS, gc_set_async_wait_stw__doc__},
+
+static PyObject *
+gc_set_async_wait_stw_impl(PyObject *module, int mode);
+
+static PyObject *
+gc_set_async_wait_stw(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObject *kwnames)
+{
+    PyObject *return_value = NULL;
+    #if defined(Py_BUILD_CORE) && !defined(Py_BUILD_CORE_MODULE)
+
+    #define NUM_KEYWORDS 1
+    static struct {
+        PyGC_Head _this_is_not_used;
+        PyObject_VAR_HEAD
+        Py_hash_t ob_hash;
+        PyObject *ob_item[NUM_KEYWORDS];
+    } _kwtuple = {
+        .ob_base = PyVarObject_HEAD_INIT(&PyTuple_Type, NUM_KEYWORDS)
+        .ob_hash = -1,
+        .ob_item = { &_Py_ID(mode), },
+    };
+    #undef NUM_KEYWORDS
+    #define KWTUPLE (&_kwtuple.ob_base.ob_base)
+
+    #else  // !Py_BUILD_CORE
+    #  define KWTUPLE NULL
+    #endif  // !Py_BUILD_CORE
+
+    static const char * const _keywords[] = {"mode", NULL};
+    static _PyArg_Parser _parser = {
+        .keywords = _keywords,
+        .fname = "set_async_wait_stw",
+        .kwtuple = KWTUPLE,
+    };
+    #undef KWTUPLE
+    PyObject *argsbuf[1];
+    int mode;
+
+    args = _PyArg_UnpackKeywords(args, nargs, NULL, kwnames, &_parser,
+            /*minpos*/ 1, /*maxpos*/ 1, /*minkw*/ 0, /*varpos*/ 0, argsbuf);
+    if (!args) {
+        goto exit;
+    }
+    mode = PyObject_IsTrue(args[0]);
+    if (mode < 0) {
+        goto exit;
+    }
+    return_value = gc_set_async_wait_stw_impl(module, mode);
+
+exit:
+    return return_value;
+}
+
+PyDoc_STRVAR(gc_get_async_wait_stw__doc__,
+"get_async_wait_stw($module, /)\n"
+"--\n"
+"\n"
+"Get the current async cleanup wait mode.\n"
+"\n"
+"Returns True if waiting happens in STW (default), False if waiting happens\n"
+"before STW.\n"
+"\n"
+"Only available in free-threaded builds.");
+
+#define GC_GET_ASYNC_WAIT_STW_METHODDEF    \
+    {"get_async_wait_stw", (PyCFunction)gc_get_async_wait_stw, METH_NOARGS, gc_get_async_wait_stw__doc__},
+
+static int
+gc_get_async_wait_stw_impl(PyObject *module);
+
+static PyObject *
+gc_get_async_wait_stw(PyObject *module, PyObject *Py_UNUSED(ignored))
+{
+    PyObject *return_value = NULL;
+    int _return_value;
+
+    _return_value = gc_get_async_wait_stw_impl(module);
+    if ((_return_value == -1) && PyErr_Occurred()) {
+        goto exit;
+    }
+    return_value = PyBool_FromLong((long)_return_value);
+
+exit:
+    return return_value;
+}
+
 PyDoc_STRVAR(gc_get_parallel_config__doc__,
 "get_parallel_config($module, /)\n"
 "--\n"
@@ -751,4 +860,4 @@ gc_get_parallel_stats(PyObject *module, PyObject *Py_UNUSED(ignored))
 {
     return gc_get_parallel_stats_impl(module);
 }
-/*[clinic end generated code: output=4947b2fa60d3a6d4 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=9e69310b8c62249d input=a9049054013a1b77]*/
