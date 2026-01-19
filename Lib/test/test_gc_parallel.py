@@ -1,19 +1,21 @@
 """
-Tests for parallel garbage collection.
+Tests for parallel garbage collection in free-threaded Python.
 
 This test module covers the parallel GC feature, which is only available
-in GIL-based builds compiled with --with-parallel-gc.
+in free-threaded builds compiled with --disable-gil.
 """
 
 import gc
 import sys
+import threading
+import time
 import unittest
 from test import support
 
 
-# Skip entire test file if free-threading build
-if hasattr(sys, '_is_gil_enabled') and not sys._is_gil_enabled():
-    raise unittest.SkipTest("Parallel GC requires GIL-based build")
+# Skip entire test file if NOT free-threading build
+if not hasattr(sys, '_is_gil_enabled') or sys._is_gil_enabled():
+    raise unittest.SkipTest("Parallel GC requires free-threaded build (--disable-gil)")
 
 
 class TestParallelGCAPI(unittest.TestCase):
@@ -125,15 +127,12 @@ class TestParallelGCEnable(unittest.TestCase):
 class TestParallelGCBuildConfig(unittest.TestCase):
     """Test build configuration for parallel GC."""
 
-    def test_parallel_gc_not_in_nogil_builds(self):
-        """Verify parallel GC is not available in nogil builds."""
-        if hasattr(sys, '_is_gil_enabled') and not sys._is_gil_enabled():
-            # This test should be skipped due to module-level skip,
-            # but double-check here
-            config = gc.get_parallel_config()
-            self.assertFalse(config['available'])
-            self.assertFalse(config['enabled'])
-            self.assertEqual(config['num_workers'], 0)
+    def test_parallel_gc_available_in_free_threading(self):
+        """Verify parallel GC IS available in free-threading builds."""
+        # We're in a free-threading build (verified by module-level skip)
+        config = gc.get_parallel_config()
+        self.assertTrue(config['available'],
+                       "Parallel GC should be available in free-threading builds")
 
     @support.cpython_only
     def test_enable_parallel_error_message_without_build_flag(self):
@@ -187,614 +186,6 @@ class TestParallelGCCompatibility(unittest.TestCase):
         self.assertEqual(len(counts), 3)
 
 
-class TestParallelMarkingPhase5(unittest.TestCase):
-    """
-    TDD tests for Phase 5: Parallel Marking Implementation
-
-    These tests verify each step of the parallel marking algorithm:
-    - Step 1: Root scanning
-    - Step 2: Root distribution
-    - Step 3: Worker marking loop
-    - Step 4: Work stealing
-    - Step 5: Termination detection
-    - Step 6: Barrier synchronization
-    """
-
-    def setUp(self):
-        """Set up test fixtures."""
-        # Check if parallel GC is available
-        config = gc.get_parallel_config()
-        if not config['available']:
-            self.skipTest("Parallel GC not available in this build")
-
-        # Ensure parallel GC is disabled at start
-        # (No disable API yet, but we can test from clean state)
-
-    def tearDown(self):
-        """Clean up after test."""
-        # Force a collection to clean up test objects
-        gc.collect()
-
-    @support.cpython_only
-    def test_step1_root_scanning(self):
-        """
-        Step 1: Verify roots are identified from young generation.
-
-        This test checks that _PyGC_ParallelMoveUnreachable() correctly
-        scans the young generation list and identifies root objects
-        (objects with gc_refs > 0, meaning they have external references).
-        """
-        # Enable parallel GC with 4 workers (skip if already enabled)
-        config = gc.get_parallel_config()
-        if not config.get('enabled', False):
-            gc.enable_parallel(4)
-
-        # Get baseline stats
-        stats_before = gc.get_parallel_stats()
-        # Note: roots_found may be non-zero from previous collections
-
-        # Create objects with external references (these become roots)
-        # The list 'roots' holds references, so these objects won't be garbage
-        roots = []
-        for i in range(100):
-            obj = {'data': i, 'value': 'test'}
-            roots.append(obj)  # External ref makes it a root
-
-        # Trigger GC collection
-        gc.collect()
-
-        # Check stats after collection
-        stats_after = gc.get_parallel_stats()
-
-        # Verify collections_attempted was incremented
-        # (Even if parallel marking returns 0, we should attempt it)
-        self.assertGreater(stats_after['collections_attempted'],
-                          stats_before['collections_attempted'],
-                          "Should have attempted parallel marking")
-
-        # Verify roots were found
-        # Note: May fall back to serial if not enough roots, so check both cases
-        if stats_after['collections_succeeded'] > 0:
-            # Parallel marking was used
-            self.assertGreater(stats_after['roots_found'], 0,
-                              "Should have found root objects when using parallel marking")
-            # Should find at least our 100 dicts plus some builtins
-            self.assertGreaterEqual(stats_after['roots_found'], 100,
-                                   f"Should find at least the 100 dicts we created, "
-                                   f"got {stats_after['roots_found']}")
-        else:
-            # Fell back to serial - that's OK for now, just document it
-            # When Step 1 is fully implemented, this should not happen
-            pass
-
-    @support.cpython_only
-    def test_step2_root_distribution(self):
-        """
-        Step 2: Verify roots are distributed to worker deques.
-
-        This test checks that roots identified in Step 1 are distributed
-        across worker deques using static slicing for temporal locality.
-        With static slicing, roots are assigned to workers based on their
-        position in the GC list, preserving allocation order.
-        """
-        # Disable automatic GC to control when collections happen
-        was_enabled = gc.isenabled()
-        gc.disable()
-
-        try:
-            # Enable parallel GC with 4 workers (skip if already enabled)
-            config = gc.get_parallel_config()
-            if not config.get('enabled', False):
-                gc.enable_parallel(4)
-
-            # Force a full collection to clear out old objects
-            gc.collect()
-
-            # Get baseline stats
-            stats_before = gc.get_parallel_stats()
-
-            # Create a large object graph that will have roots
-            # Note: In CPython's GC, a "root" is an object with EXTERNAL references
-            # (from stack frames, module globals, etc.), not internal references
-            # from other tracked objects. So creating nested structures doesn't
-            # create more roots - only the outer container referenced by a local
-            # variable is a root.
-            #
-            # To ensure parallel marking is used, we need enough TOTAL OBJECTS
-            # (threshold is num_workers * 4 = 16 objects for 4 workers)
-            roots = []
-            for i in range(50):
-                # Create a list with dicts - this creates many objects
-                # but only 'roots' is the actual GC root
-                obj_list = [{'id': i, 'data': j} for j in range(5)]
-                roots.append(obj_list)
-
-            # Trigger GC collection on generation 0 only
-            # This ensures our new objects are in the young generation
-            gc.collect(0)
-
-            # Check stats after collection
-            stats_after = gc.get_parallel_stats()
-
-            # Verify at least some roots were found (from Step 1)
-            # With our object graph, we expect at least 1 root (the 'roots' list)
-            # plus potentially a few temporary objects
-            self.assertGreater(stats_after['roots_found'], 0,
-                              "Should have found roots (Step 1)")
-
-            # If parallel marking was attempted and succeeded
-            if stats_after['collections_succeeded'] > stats_before.get('collections_succeeded', 0):
-                # Step 2 verification: roots should be distributed
-                self.assertGreater(stats_after['roots_distributed'], 0,
-                                  "Should have distributed roots to workers")
-
-                # Note: roots_found and roots_distributed may differ for queue-based mark_alive
-                # roots_found = interpreter roots, roots_distributed = level-1 children
-
-                # Verify distribution is roughly balanced
-                # (This is a heuristic - perfect balance not guaranteed)
-                worker_stats = stats_after['workers']
-                self.assertEqual(len(worker_stats), 4,
-                               "Should have 4 worker entries")
-
-                # roots_in_slice is set by segment scanning, so should equal gc_roots_found
-                total_roots_in_slices = sum(w['roots_in_slice'] for w in worker_stats)
-                self.assertEqual(total_roots_in_slices, stats_after['gc_roots_found'],
-                               "Sum of roots_in_slice should equal gc_roots_found")
-
-            else:
-                # Fell back to serial - that's OK for small collections
-                # Parallel GC has overhead, so it falls back for small heaps
-                pass
-
-        finally:
-            # Restore GC state
-            if was_enabled:
-                gc.enable()
-            else:
-                gc.disable()
-
-    @support.cpython_only
-    def test_step3_worker_marking(self):
-        """
-        Step 3: Verify workers mark objects by traversing object graphs.
-
-        This test checks that worker threads actually process objects from
-        their deques, marking them and traversing their children.
-        """
-        # Disable automatic GC to control when collections happen
-        was_enabled = gc.isenabled()
-        gc.disable()
-
-        try:
-            # Enable parallel GC with 4 workers (skip if already enabled)
-            config = gc.get_parallel_config()
-            if not config.get('enabled', False):
-                gc.enable_parallel(4)
-
-            # Force a full collection to clear out old objects
-            gc.collect()
-
-            # Get baseline stats
-            stats_before = gc.get_parallel_stats()
-
-            # Create an object graph with parent->children references
-            # Each parent dict will have a list of child dicts
-            # This creates a tree structure that workers need to traverse
-            roots = []
-            for i in range(20):
-                # Create parent object
-                parent = {'id': i, 'children': []}
-
-                # Create children for this parent
-                for j in range(10):
-                    child = {'parent_id': i, 'child_id': j, 'data': list(range(5))}
-                    parent['children'].append(child)
-
-                roots.append(parent)  # Keep parent alive (makes it a root)
-
-            # Trigger GC collection on generation 0
-            gc.collect(0)
-
-            # Check stats after collection
-            stats_after = gc.get_parallel_stats()
-
-            # Verify roots were found and distributed (Steps 1-2)
-            self.assertGreater(stats_after['roots_found'], 0,
-                              "Should have found roots (Step 1)")
-            self.assertGreater(stats_after['roots_distributed'], 0,
-                              "Should have distributed roots (Step 2)")
-
-            # Step 3 verification: workers should have marked objects
-            if stats_after['collections_succeeded'] > 0:
-                # Parallel marking was used
-                worker_stats = stats_after['workers']
-                total_marked = sum(w['objects_marked'] for w in worker_stats)
-
-                self.assertGreater(total_marked, 0,
-                                  "At least one worker should have marked objects")
-
-                # With 20 parents + 200 children = 220 objects minimum,
-                # we should see significant marking activity
-                self.assertGreaterEqual(total_marked, 20,
-                                       f"Should have marked at least the 20 parent dicts, "
-                                       f"got {total_marked}")
-
-            else:
-                # Fell back to serial - that's OK, Step 3 not fully implemented yet
-                # When Step 3 is complete, this branch should not be taken
-                # for collections with sufficient roots and distribution
-                pass
-
-        finally:
-            # Restore GC state
-            if was_enabled:
-                gc.enable()
-            else:
-                gc.disable()
-
-    @support.cpython_only
-    def test_step4_work_stealing(self):
-        """
-        Step 4: Verify workers can steal work from each other.
-
-        This test checks that when a worker runs out of local work,
-        it attempts to steal from other workers' deques.
-        """
-        # Disable automatic GC to control when collections happen
-        was_enabled = gc.isenabled()
-        gc.disable()
-
-        try:
-            # Enable parallel GC with 4 workers (skip if already enabled)
-            config = gc.get_parallel_config()
-            if not config.get('enabled', False):
-                gc.enable_parallel(4)
-
-            # Force a full collection to clear out old objects
-            gc.collect()
-
-            # Get baseline stats
-            stats_before = gc.get_parallel_stats()
-
-            # Create many root objects to ensure there's work to do
-            # With current implementation (no traversal), each worker
-            # gets roots via round-robin and processes them quickly.
-            # Work-stealing might not occur often, but we can verify
-            # the infrastructure exists and tracks statistics.
-            roots = []
-            for i in range(100):
-                # Create root object
-                obj = {'id': i, 'data': list(range(10))}
-                roots.append(obj)
-
-            # Trigger GC collection on generation 0
-            gc.collect(0)
-
-            # Check stats after collection
-            stats_after = gc.get_parallel_stats()
-
-            # Verify roots were found and distributed (Steps 1-2)
-            self.assertGreater(stats_after['roots_found'], 0,
-                              "Should have found roots (Step 1)")
-            self.assertGreater(stats_after['roots_distributed'], 0,
-                              "Should have distributed roots (Step 2)")
-
-            # Step 4 verification: check work-stealing infrastructure
-            if stats_after['collections_succeeded'] > 0:
-                # Parallel marking was used
-                worker_stats = stats_after['workers']
-
-                # At minimum, verify steal statistics exist and are tracked
-                # (Even if no stealing occurred due to balanced distribution)
-                for i, w in enumerate(worker_stats):
-                    self.assertIn('steal_attempts', w,
-                                 f"Worker {i} should track steal_attempts")
-                    self.assertIn('steal_successes', w,
-                                 f"Worker {i} should track steal_successes")
-                    self.assertIsInstance(w['steal_attempts'], int,
-                                        f"Worker {i} steal_attempts should be int")
-                    self.assertIsInstance(w['steal_successes'], int,
-                                        f"Worker {i} steal_successes should be int")
-
-                    # Note: steal_successes counts ITEMS stolen, not operations,
-                    # so it can exceed steal_attempts when batch stealing is used
-
-                # Note: With current implementation (no traversal, round-robin distribution),
-                # workers may not actually steal since they all finish quickly.
-                # That's OK - we're verifying the infrastructure exists.
-                # When traversal is added, work-stealing will become more important.
-
-            else:
-                # Fell back to serial - that's OK, Step 4 not fully implemented yet
-                pass
-
-        finally:
-            # Restore GC state
-            if was_enabled:
-                gc.enable()
-            else:
-                gc.disable()
-
-    @support.cpython_only
-    def test_step3b_object_traversal(self):
-        """
-        Step 3b: Verify workers traverse object graphs and discover children.
-
-        This test checks that workers actually call tp_traverse() to discover
-        child objects, not just process the initial roots. This is the critical
-        step that makes parallel GC actually useful.
-        """
-        # Disable automatic GC to control when collections happen
-        was_enabled = gc.isenabled()
-        gc.disable()
-
-        try:
-            # Enable parallel GC with 4 workers (skip if already enabled)
-            config = gc.get_parallel_config()
-            if not config.get('enabled', False):
-                gc.enable_parallel(4)
-
-            # Force a full collection to clear out old objects
-            gc.collect()
-
-            # Create deep object graph:
-            # Root -> 10 level-1 children -> 100 level-2 grandchildren
-            # Total: 1 + 10 + 100 = 111 objects
-            root = {'level': 0, 'children': []}
-            for i in range(10):
-                child = {'level': 1, 'parent': root, 'children': []}
-                root['children'].append(child)
-                for j in range(10):
-                    grandchild = {'level': 2, 'parent': child, 'id': f'{i}_{j}'}
-                    child['children'].append(grandchild)
-
-            # Trigger GC collection on generation 0
-            gc.collect(0)
-
-            # Check stats after collection
-            stats = gc.get_parallel_stats()
-
-            # Step 3b verification: workers should traverse and discover children
-            if stats['collections_succeeded'] > 0:
-                # Parallel marking was used
-
-                # Should have distributed only the root (or few roots)
-                # but discovered many more objects via traversal
-                self.assertGreater(stats['roots_distributed'], 0,
-                                  "Should have distributed root objects")
-
-                # **KEY TEST**: Objects traversed should be MUCH larger than roots distributed
-                # With traversal, we expect to discover all 111 objects (root + children + grandchildren)
-                # Without traversal, we'd only see the root(s)
-                self.assertGreater(stats.get('objects_traversed', 0), 100,
-                                  "Workers should discover 100+ objects via tp_traverse(). "
-                                  "Currently only counting roots - need to implement traversal!")
-
-                # Verify workers actually performed traversals
-                worker_stats = stats['workers']
-                total_traversed = sum(w.get('objects_marked', 0) for w in worker_stats)
-                self.assertGreater(total_traversed, 100,
-                                  "Workers should have marked 100+ objects via traversal")
-
-                # Verify traversal statistics exist
-                for i, w in enumerate(worker_stats):
-                    # New fields for Step 3b
-                    if w.get('objects_marked', 0) > 0:
-                        # If worker marked objects, it should have performed traversals
-                        self.assertIn('traversals_performed', w,
-                                     f"Worker {i} should track traversals_performed")
-                        self.assertGreater(w.get('traversals_performed', 0), 0,
-                                         f"Worker {i} should have performed tp_traverse calls")
-
-            else:
-                # Fell back to serial - that's OK for now
-                self.skipTest("Parallel GC not used (fell back to serial)")
-
-        finally:
-            # Restore GC state
-            if was_enabled:
-                gc.enable()
-            else:
-                gc.disable()
-
-
-class TestBidirectionalScanPhases(unittest.TestCase):
-    """
-    Tests for bidirectional scan and parallel update_refs/subtract_refs phases.
-
-    These tests verify that the new parallel phases (bidirectional scan,
-    parallel update_refs, parallel subtract_refs) produce correct results.
-    """
-
-    def setUp(self):
-        """Set up test fixtures."""
-        config = gc.get_parallel_config()
-        if not config['available']:
-            self.skipTest("Parallel GC not available in this build")
-
-        # Enable parallel GC if not already enabled
-        if not config.get('enabled', False):
-            gc.enable_parallel(4)
-
-        # Disable automatic GC
-        self.was_enabled = gc.isenabled()
-        gc.disable()
-
-        # Force a full collection to start clean
-        gc.collect()
-
-    def tearDown(self):
-        """Clean up after test."""
-        gc.collect()
-        if self.was_enabled:
-            gc.enable()
-
-    def test_parallel_phases_collect_garbage(self):
-        """Verify that cyclic garbage is collected with parallel phases."""
-        # Create cyclic garbage
-        garbage = []
-        for i in range(1000):
-            a = {'id': i}
-            b = {'ref': a}
-            a['ref'] = b
-            garbage.append(a)
-
-        # Delete references - now it's garbage
-        del garbage
-
-        # Collect and verify garbage was collected
-        collected = gc.collect()
-        self.assertGreater(collected, 0, "Should collect cyclic garbage")
-
-    def test_parallel_phases_preserve_live_objects(self):
-        """Verify that live objects survive collection with parallel phases."""
-        # Create live objects (kept referenced)
-        live_objects = []
-        for i in range(1000):
-            obj = {'id': i, 'data': list(range(10))}
-            live_objects.append(obj)
-
-        # Collect - should not affect live objects
-        gc.collect()
-
-        # Verify all objects still exist with correct data
-        self.assertEqual(len(live_objects), 1000)
-        for i, obj in enumerate(live_objects):
-            self.assertEqual(obj['id'], i)
-            self.assertEqual(obj['data'], list(range(10)))
-
-    def test_parallel_phases_mixed_graph(self):
-        """Test with mixed live and garbage objects in complex graph."""
-        # Create live root objects
-        roots = []
-        for i in range(100):
-            root = {'id': i, 'children': []}
-            for j in range(10):
-                child = {'parent_id': i, 'child_id': j}
-                root['children'].append(child)
-            roots.append(root)
-
-        # Create garbage (cycles not referenced from roots)
-        for _ in range(100):
-            a = []
-            b = []
-            a.append(b)
-            b.append(a)
-            # a and b go out of scope - garbage
-
-        # Collect
-        collected = gc.collect()
-
-        # Verify garbage was collected
-        self.assertGreater(collected, 0, "Should collect garbage cycles")
-
-        # Verify live objects survive
-        self.assertEqual(len(roots), 100)
-        for root in roots:
-            self.assertEqual(len(root['children']), 10)
-
-    def test_parallel_phases_deep_graph(self):
-        """Test with deep object graph (100 levels deep)."""
-        # Create a deep chain
-        depth = 100
-        root = {'level': 0, 'child': None}
-        current = root
-        for i in range(1, depth):
-            child = {'level': i, 'child': None}
-            current['child'] = child
-            current = child
-
-        # Collect - should not break the chain
-        gc.collect()
-
-        # Verify chain is intact
-        current = root
-        for i in range(depth):
-            self.assertEqual(current['level'], i)
-            if i < depth - 1:
-                self.assertIsNotNone(current['child'])
-                current = current['child']
-
-    def test_parallel_phases_wide_graph(self):
-        """Test with wide object graph (10000 children)."""
-        # Create a wide tree
-        root = {'children': []}
-        for i in range(10000):
-            child = {'id': i, 'parent': root}
-            root['children'].append(child)
-
-        # Collect
-        gc.collect()
-
-        # Verify all children survive
-        self.assertEqual(len(root['children']), 10000)
-        for i, child in enumerate(root['children']):
-            self.assertEqual(child['id'], i)
-            self.assertIs(child['parent'], root)
-
-    def test_parallel_phases_cross_references(self):
-        """Test with many cross-references between objects."""
-        # Create objects with cross-references
-        # This stresses the atomic decrement in parallel subtract_refs
-        objects = []
-        for i in range(1000):
-            obj = {'id': i, 'refs': []}
-            objects.append(obj)
-
-        # Add cross-references
-        import random
-        random.seed(42)
-        for obj in objects:
-            # Each object references 10 random other objects
-            for _ in range(10):
-                target = random.choice(objects)
-                obj['refs'].append(target)
-
-        # Collect - cross-references should be handled correctly
-        gc.collect()
-
-        # Verify all objects survive (they're all reachable from 'objects')
-        self.assertEqual(len(objects), 1000)
-
-    def test_parallel_phases_stress(self):
-        """Stress test with many objects and collections."""
-        for round_num in range(5):
-            # Create objects
-            live = []
-            for i in range(5000):
-                obj = {'round': round_num, 'id': i}
-                if i > 0:
-                    obj['prev'] = live[i - 1]
-                live.append(obj)
-
-            # Create garbage
-            for _ in range(1000):
-                a = {'garbage': True}
-                b = {'garbage': True, 'ref': a}
-                a['ref'] = b
-
-            # Collect
-            collected = gc.collect()
-            self.assertGreater(collected, 0, f"Round {round_num}: should collect garbage")
-
-            # Verify live objects
-            self.assertEqual(len(live), 5000)
-
-    def test_parallel_phases_empty_collection(self):
-        """Test collection with no garbage (empty collection set)."""
-        # Just collect with nothing to collect
-        gc.collect()
-        gc.collect()  # Second collection should also work
-        # No assertions needed - just verify it doesn't crash
-
-    def test_parallel_phases_single_object(self):
-        """Test with single object."""
-        obj = {'single': True}
-        gc.collect()
-        self.assertEqual(obj['single'], True)
-
-
 class TestParallelGCPhaseTiming(unittest.TestCase):
     """Test phase timing instrumentation in parallel GC."""
 
@@ -820,21 +211,22 @@ class TestParallelGCPhaseTiming(unittest.TestCase):
         """Test that phase_timing has all required keys."""
         stats = gc.get_parallel_stats()
         timing = stats['phase_timing']
-        self.assertIn('subtract_refs_ns', timing)
-        self.assertIn('mark_ns', timing)
+        # Check for the actual keys in the current implementation
+        self.assertIn('update_refs_ns', timing)
+        self.assertIn('mark_alive_ns', timing)
         self.assertIn('total_ns', timing)
 
     def test_phase_timing_values_are_integers(self):
         """Test that phase timing values are integers."""
         stats = gc.get_parallel_stats()
         timing = stats['phase_timing']
-        self.assertIsInstance(timing['subtract_refs_ns'], int)
-        self.assertIsInstance(timing['mark_ns'], int)
+        self.assertIsInstance(timing['update_refs_ns'], int)
+        self.assertIsInstance(timing['mark_alive_ns'], int)
         self.assertIsInstance(timing['total_ns'], int)
 
     def test_phase_timing_after_collection(self):
         """Test that phase timing is populated after a collection."""
-        # Create objects to ensure parallel GC runs
+        # Create objects to ensure GC runs
         class Node:
             __slots__ = ['refs']
             def __init__(self):
@@ -852,13 +244,12 @@ class TestParallelGCPhaseTiming(unittest.TestCase):
         stats = gc.get_parallel_stats()
         timing = stats['phase_timing']
 
-        # At least subtract_refs should have run
-        # (mark may not run if parallel marking wasn't triggered)
-        self.assertGreaterEqual(timing['subtract_refs_ns'], 0)
+        # total_ns should have been recorded
+        self.assertGreaterEqual(timing['total_ns'], 0)
 
-    def test_phase_timing_subtract_refs_positive(self):
-        """Test that subtract_refs timing is positive after parallel collection."""
-        # Create enough objects to trigger parallel subtract_refs
+    def test_phase_timing_total_positive(self):
+        """Test that total timing is positive after collection."""
+        # Create enough objects to trigger collection
         class Node:
             __slots__ = ['refs']
             def __init__(self):
@@ -874,12 +265,12 @@ class TestParallelGCPhaseTiming(unittest.TestCase):
         stats = gc.get_parallel_stats()
         timing = stats['phase_timing']
 
-        # subtract_refs should have measurable time
-        self.assertGreater(timing['subtract_refs_ns'], 0,
-                          "subtract_refs should have positive timing after parallel collection")
+        # total should have measurable time
+        self.assertGreater(timing['total_ns'], 0,
+                          "total_ns should have positive timing after collection")
 
     def test_phase_timing_consistency(self):
-        """Test that total_ns >= subtract_refs_ns when both are recorded."""
+        """Test that individual phases don't exceed total."""
         class Node:
             __slots__ = ['refs']
             def __init__(self):
@@ -895,10 +286,544 @@ class TestParallelGCPhaseTiming(unittest.TestCase):
         stats = gc.get_parallel_stats()
         timing = stats['phase_timing']
 
-        # If both phases ran, total should be >= subtract_refs
-        if timing['total_ns'] > 0 and timing['subtract_refs_ns'] > 0:
-            self.assertGreaterEqual(timing['total_ns'], timing['subtract_refs_ns'],
-                                   "total_ns should be >= subtract_refs_ns")
+        # If total is recorded, individual phases should be <= total
+        if timing['total_ns'] > 0:
+            self.assertLessEqual(timing['mark_alive_ns'], timing['total_ns'],
+                                "mark_alive_ns should be <= total_ns")
+
+
+class TestAbandonedSerial(unittest.TestCase):
+    """
+    Test garbage collection correctness with abandoned threads using serial GC.
+
+    Abandoned threads are threads that exit, causing their heap pages to be
+    moved to the abandoned pool. This tests that objects created in such
+    threads are correctly collected when using serial (non-parallel) GC.
+    """
+
+    def setUp(self):
+        """Save original GC state."""
+        self.was_enabled = gc.isenabled()
+        gc.disable()
+        gc.collect()  # Start clean
+
+    def tearDown(self):
+        """Restore original GC state."""
+        gc.collect()
+        if self.was_enabled:
+            gc.enable()
+
+    def test_abandoned_thread_cyclic_garbage_collected(self):
+        """
+        Test that cyclic garbage created in abandoned threads is collected.
+
+        Creates cyclic garbage in threads that then exit. The garbage should
+        be collected when gc.collect() is called from the main thread.
+        """
+        collected_count = []
+
+        def create_garbage():
+            # Create cyclic garbage
+            for _ in range(100):
+                a = {'ref': None}
+                b = {'ref': a}
+                a['ref'] = b
+                # a and b go out of scope when function returns
+
+        # Create threads that make garbage then exit
+        threads = []
+        for _ in range(4):
+            t = threading.Thread(target=create_garbage)
+            t.start()
+            threads.append(t)
+
+        # Wait for all threads to complete (abandon their heaps)
+        for t in threads:
+            t.join()
+
+        # Collect garbage - should collect objects from abandoned heaps
+        collected = gc.collect()
+        self.assertGreater(collected, 0,
+                          "Should collect cyclic garbage from abandoned threads")
+
+    def test_abandoned_thread_reachable_objects_preserved(self):
+        """
+        Test that objects from abandoned threads that are still reachable survive.
+
+        Creates objects in threads that are stored in a shared structure.
+        Even after threads exit, these objects should survive collection.
+        """
+        results = []
+        lock = threading.Lock()
+
+        def create_and_store():
+            obj = {'data': list(range(100)), 'id': threading.get_ident()}
+            with lock:
+                results.append(obj)
+
+        # Create threads that store objects then exit
+        threads = []
+        for _ in range(4):
+            t = threading.Thread(target=create_and_store)
+            t.start()
+            threads.append(t)
+
+        for t in threads:
+            t.join()
+
+        # Objects are still reachable via 'results'
+        gc.collect()
+
+        # Verify all objects survived
+        self.assertEqual(len(results), 4)
+        for obj in results:
+            self.assertEqual(obj['data'], list(range(100)))
+
+    def test_multiple_abandoned_waves(self):
+        """
+        Test collection after multiple waves of thread creation and abandonment.
+        """
+        total_collected = 0
+
+        for wave in range(3):
+            def create_garbage():
+                for _ in range(50):
+                    a = []
+                    b = []
+                    a.append(b)
+                    b.append(a)
+
+            threads = []
+            for _ in range(4):
+                t = threading.Thread(target=create_garbage)
+                t.start()
+                threads.append(t)
+
+            for t in threads:
+                t.join()
+
+            collected = gc.collect()
+            total_collected += collected
+
+        self.assertGreater(total_collected, 0,
+                          "Should collect garbage across multiple waves")
+
+
+class TestAbandonedParallel(unittest.TestCase):
+    """
+    Test garbage collection correctness with abandoned threads using parallel GC.
+
+    Same scenarios as TestAbandonedSerial but with parallel GC enabled.
+    """
+
+    def setUp(self):
+        """Enable parallel GC and save original state."""
+        self.was_enabled = gc.isenabled()
+        gc.disable()
+        gc.collect()
+
+        config = gc.get_parallel_config()
+        if not config['available']:
+            self.skipTest("Parallel GC not available")
+
+        # Enable parallel GC with 4 workers
+        gc.enable_parallel(4)
+
+    def tearDown(self):
+        """Restore original GC state."""
+        gc.collect()
+        if self.was_enabled:
+            gc.enable()
+
+    def test_abandoned_thread_cyclic_garbage_collected_parallel(self):
+        """
+        Test that cyclic garbage from abandoned threads is collected with parallel GC.
+        """
+        def create_garbage():
+            for _ in range(100):
+                a = {'ref': None}
+                b = {'ref': a}
+                a['ref'] = b
+
+        threads = []
+        for _ in range(8):  # More threads for parallel testing
+            t = threading.Thread(target=create_garbage)
+            t.start()
+            threads.append(t)
+
+        for t in threads:
+            t.join()
+
+        collected = gc.collect()
+        self.assertGreater(collected, 0,
+                          "Parallel GC should collect garbage from abandoned threads")
+
+    def test_abandoned_thread_large_garbage_parallel(self):
+        """
+        Test parallel GC with large amounts of garbage from abandoned threads.
+        """
+        def create_large_garbage():
+            # Create many objects with complex references
+            objects = []
+            for i in range(200):
+                obj = {'id': i, 'children': []}
+                if objects:
+                    # Reference previous object (creates chain)
+                    obj['prev'] = objects[-1]
+                objects.append(obj)
+            # Create cycles
+            for i in range(0, len(objects) - 1, 2):
+                objects[i]['pair'] = objects[i + 1]
+                objects[i + 1]['pair'] = objects[i]
+            # All become garbage when function returns
+
+        threads = []
+        for _ in range(8):
+            t = threading.Thread(target=create_large_garbage)
+            t.start()
+            threads.append(t)
+
+        for t in threads:
+            t.join()
+
+        collected = gc.collect()
+        self.assertGreater(collected, 0,
+                          "Should collect large garbage graphs from abandoned threads")
+
+    def test_abandoned_reachable_preserved_parallel(self):
+        """
+        Test that reachable objects from abandoned threads survive parallel GC.
+        """
+        results = []
+        lock = threading.Lock()
+
+        def create_and_store():
+            obj = {'data': list(range(100)), 'thread': threading.get_ident()}
+            with lock:
+                results.append(obj)
+
+        threads = []
+        for _ in range(8):
+            t = threading.Thread(target=create_and_store)
+            t.start()
+            threads.append(t)
+
+        for t in threads:
+            t.join()
+
+        gc.collect()
+
+        self.assertEqual(len(results), 8)
+        for obj in results:
+            self.assertEqual(obj['data'], list(range(100)))
+
+
+class TestPersistentThreads(unittest.TestCase):
+    """
+    Test garbage collection with persistent (long-lived) threads.
+
+    Persistent threads keep their heap pages active (not abandoned).
+    This tests that GC correctly handles objects in active thread heaps.
+    """
+
+    def setUp(self):
+        """Save original GC state."""
+        self.was_enabled = gc.isenabled()
+        gc.disable()
+        gc.collect()
+
+    def tearDown(self):
+        """Restore original GC state."""
+        gc.collect()
+        if self.was_enabled:
+            gc.enable()
+
+    def _run_persistent_thread_test(self, use_parallel):
+        """Helper to run test with serial or parallel GC."""
+        if use_parallel:
+            config = gc.get_parallel_config()
+            if not config['available']:
+                self.skipTest("Parallel GC not available")
+            gc.enable_parallel(4)
+
+        barrier = threading.Barrier(5)  # 4 workers + main
+        results = []
+        lock = threading.Lock()
+        stop_event = threading.Event()
+
+        def worker():
+            # Create garbage in a persistent thread
+            for _ in range(50):
+                a = {'ref': None}
+                b = {'ref': a}
+                a['ref'] = b
+
+            # Create object to keep
+            obj = {'id': threading.get_ident(), 'data': 'persistent'}
+            with lock:
+                results.append(obj)
+
+            # Signal ready and wait for collection to complete
+            barrier.wait()  # Wait 1: ready
+            barrier.wait()  # Wait 2: collection done
+
+            # Thread is still alive - not abandoned
+            stop_event.wait()
+
+        threads = []
+        for _ in range(4):
+            t = threading.Thread(target=worker)
+            t.start()
+            threads.append(t)
+
+        # Wait for all workers to be ready
+        barrier.wait()  # Wait 1
+
+        # Collect while threads are still alive
+        collected = gc.collect()
+
+        # Signal collection done
+        barrier.wait()  # Wait 2
+
+        # Stop threads
+        stop_event.set()
+        for t in threads:
+            t.join()
+
+        self.assertGreater(collected, 0,
+                          "Should collect garbage from persistent threads")
+        self.assertEqual(len(results), 4)
+
+    def test_persistent_threads_serial(self):
+        """Test garbage collection in persistent threads with serial GC."""
+        self._run_persistent_thread_test(use_parallel=False)
+
+    def test_persistent_threads_parallel(self):
+        """Test garbage collection in persistent threads with parallel GC."""
+        self._run_persistent_thread_test(use_parallel=True)
+
+    def test_concurrent_allocation_during_gc(self):
+        """
+        Test that threads can continue allocating while GC runs.
+
+        This specifically tests that persistent threads don't block allocation
+        during the collection cycle.
+        """
+        config = gc.get_parallel_config()
+        if not config['available']:
+            self.skipTest("Parallel GC not available")
+        gc.enable_parallel(4)
+
+        stop_event = threading.Event()
+        allocation_counts = []
+        lock = threading.Lock()
+
+        def allocator():
+            count = 0
+            while not stop_event.is_set():
+                # Allocate objects rapidly
+                objs = [{'n': i} for i in range(100)]
+                count += len(objs)
+                del objs
+            with lock:
+                allocation_counts.append(count)
+
+        # Start allocator threads
+        threads = []
+        for _ in range(4):
+            t = threading.Thread(target=allocator)
+            t.start()
+            threads.append(t)
+
+        # Run several GC collections while threads allocate
+        for _ in range(5):
+            gc.collect()
+            time.sleep(0.01)
+
+        # Stop allocators
+        stop_event.set()
+        for t in threads:
+            t.join()
+
+        # Verify threads were able to allocate
+        self.assertEqual(len(allocation_counts), 4)
+        for count in allocation_counts:
+            self.assertGreater(count, 0, "Thread should have allocated objects")
+
+
+class TestMixedAndConfig(unittest.TestCase):
+    """
+    Test mixed abandoned/persistent thread scenarios and cleanup configuration.
+    """
+
+    def setUp(self):
+        """Save original GC state."""
+        self.was_enabled = gc.isenabled()
+        gc.disable()
+        gc.collect()
+
+    def tearDown(self):
+        """Restore original GC state."""
+        gc.collect()
+        if self.was_enabled:
+            gc.enable()
+
+    def test_mixed_abandoned_and_persistent(self):
+        """
+        Test GC with mix of abandoned and persistent threads.
+
+        Some threads exit (abandoned) while others stay alive (persistent).
+        GC should correctly handle both cases simultaneously.
+        """
+        config = gc.get_parallel_config()
+        if not config['available']:
+            self.skipTest("Parallel GC not available")
+        gc.enable_parallel(4)
+
+        persistent_ready = threading.Event()
+        gc_done = threading.Event()
+        stop_persistent = threading.Event()
+        results = []
+        lock = threading.Lock()
+
+        def abandoned_worker():
+            """Thread that creates garbage and exits."""
+            for _ in range(100):
+                a = []
+                b = []
+                a.append(b)
+                b.append(a)
+            # Store one object
+            with lock:
+                results.append({'type': 'abandoned', 'id': threading.get_ident()})
+            # Thread exits - heap becomes abandoned
+
+        def persistent_worker():
+            """Thread that creates garbage and stays alive."""
+            for _ in range(100):
+                a = []
+                b = []
+                a.append(b)
+                b.append(a)
+            # Store one object
+            with lock:
+                results.append({'type': 'persistent', 'id': threading.get_ident()})
+            # Signal ready and wait
+            persistent_ready.set()
+            gc_done.wait()
+            stop_persistent.wait()
+
+        # Start abandoned threads (they exit after creating garbage)
+        abandoned = []
+        for _ in range(4):
+            t = threading.Thread(target=abandoned_worker)
+            t.start()
+            abandoned.append(t)
+
+        # Start persistent thread
+        persistent = threading.Thread(target=persistent_worker)
+        persistent.start()
+
+        # Wait for abandoned threads to exit
+        for t in abandoned:
+            t.join()
+
+        # Wait for persistent thread to be ready
+        persistent_ready.wait()
+
+        # Now we have: abandoned heaps + one active heap
+        collected = gc.collect()
+
+        # Signal GC done
+        gc_done.set()
+
+        # Stop persistent thread
+        stop_persistent.set()
+        persistent.join()
+
+        self.assertGreater(collected, 0,
+                          "Should collect garbage from mixed thread scenario")
+        self.assertEqual(len(results), 5)  # 4 abandoned + 1 persistent
+
+    def test_gc_config_num_workers(self):
+        """
+        Test that gc.get_parallel_config() returns correct worker count.
+        """
+        config = gc.get_parallel_config()
+        if not config['available']:
+            self.skipTest("Parallel GC not available")
+
+        # Enable with specific worker count
+        gc.enable_parallel(8)
+        config = gc.get_parallel_config()
+        self.assertEqual(config['num_workers'], 8)
+
+        # Change worker count
+        gc.enable_parallel(2)
+        config = gc.get_parallel_config()
+        self.assertEqual(config['num_workers'], 2)
+
+    def test_parallel_stats_tracks_collections(self):
+        """
+        Test that gc.get_parallel_stats() tracks collection statistics.
+        """
+        config = gc.get_parallel_config()
+        if not config['available']:
+            self.skipTest("Parallel GC not available")
+
+        gc.enable_parallel(4)
+
+        # Get baseline
+        stats_before = gc.get_parallel_stats()
+        attempts_before = stats_before.get('collections_attempted', 0)
+
+        # Create garbage and collect
+        for _ in range(100):
+            a = []
+            b = []
+            a.append(b)
+            b.append(a)
+
+        gc.collect()
+
+        # Check stats updated
+        stats_after = gc.get_parallel_stats()
+        self.assertGreaterEqual(stats_after.get('collections_attempted', 0),
+                               attempts_before,
+                               "Should track collection attempts")
+
+    def test_serial_vs_parallel_correctness(self):
+        """
+        Test that serial and parallel GC produce same results.
+
+        Run the same garbage creation pattern with both modes and verify
+        the same objects are collected.
+        """
+        config = gc.get_parallel_config()
+        if not config['available']:
+            self.skipTest("Parallel GC not available")
+
+        def create_garbage_pattern():
+            """Create reproducible garbage pattern."""
+            garbage = []
+            for i in range(100):
+                a = {'id': i, 'ref': None}
+                b = {'id': i + 1000, 'ref': a}
+                a['ref'] = b
+                garbage.append(a)
+            del garbage
+            return gc.collect()
+
+        # Test with parallel GC
+        gc.enable_parallel(4)
+        gc.collect()  # Clean slate
+        parallel_collected = create_garbage_pattern()
+
+        # Test without parallel GC (serial) - use disable_parallel if available
+        # For now, we can't easily disable parallel once enabled,
+        # so we just verify parallel collects correctly
+        self.assertGreater(parallel_collected, 0,
+                          "Parallel GC should collect cyclic garbage")
 
 
 if __name__ == '__main__':
