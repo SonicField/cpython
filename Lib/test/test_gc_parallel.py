@@ -826,5 +826,109 @@ class TestMixedAndConfig(unittest.TestCase):
                           "Parallel GC should collect cyclic garbage")
 
 
+class TestCleanupWorkersAPI(unittest.TestCase):
+    """Test cleanup_workers API functions."""
+
+    def test_get_cleanup_workers_exists(self):
+        """Test that gc.get_cleanup_workers() exists."""
+        self.assertTrue(hasattr(gc, 'get_cleanup_workers'))
+        self.assertTrue(callable(gc.get_cleanup_workers))
+
+    def test_set_cleanup_workers_exists(self):
+        """Test that gc.set_cleanup_workers() exists."""
+        self.assertTrue(hasattr(gc, 'set_cleanup_workers'))
+        self.assertTrue(callable(gc.set_cleanup_workers))
+
+    def test_get_cleanup_workers_returns_int(self):
+        """Test that gc.get_cleanup_workers() returns an integer."""
+        result = gc.get_cleanup_workers()
+        self.assertIsInstance(result, int)
+
+    def test_get_cleanup_workers_in_config(self):
+        """Test that cleanup_workers is available in get_parallel_config()."""
+        config = gc.get_parallel_config()
+        if config.get('enabled', False):
+            self.assertIn('cleanup_workers', config)
+            self.assertIsInstance(config['cleanup_workers'], int)
+
+    @unittest.skipUnless(
+        gc.get_parallel_config().get('enabled', False),
+        "Parallel GC not enabled")
+    def test_set_cleanup_workers_valid_values(self):
+        """Test setting valid cleanup_workers values."""
+        # Save original value
+        original = gc.get_cleanup_workers()
+        try:
+            # Test setting to 0 (serial)
+            gc.set_cleanup_workers(0)
+            self.assertEqual(gc.get_cleanup_workers(), 0)
+
+            # Test setting to 1 (async single worker)
+            gc.set_cleanup_workers(1)
+            self.assertEqual(gc.get_cleanup_workers(), 1)
+
+        finally:
+            # Restore original value
+            gc.set_cleanup_workers(original)
+
+    @unittest.skipUnless(
+        gc.get_parallel_config().get('enabled', False),
+        "Parallel GC not enabled")
+    def test_set_cleanup_workers_negative_raises(self):
+        """Test that negative values raise ValueError."""
+        with self.assertRaises(ValueError):
+            gc.set_cleanup_workers(-1)
+
+    @unittest.skipUnless(
+        gc.get_parallel_config().get('enabled', False),
+        "Parallel GC not enabled")
+    def test_set_cleanup_workers_too_large_raises(self):
+        """Test that values exceeding num_workers raise ValueError."""
+        config = gc.get_parallel_config()
+        num_workers = config.get('num_workers', 0)
+        if num_workers > 0:
+            with self.assertRaises(ValueError):
+                gc.set_cleanup_workers(num_workers + 1)
+
+    @unittest.skipUnless(
+        gc.get_parallel_config().get('enabled', False),
+        "Parallel GC not enabled")
+    def test_cleanup_workers_gc_still_works(self):
+        """Test that GC still works with different cleanup_workers settings."""
+        original = gc.get_cleanup_workers()
+        try:
+            # Test with serial cleanup
+            gc.set_cleanup_workers(0)
+
+            # Create cyclic garbage
+            class Cycle:
+                pass
+            a = Cycle()
+            b = Cycle()
+            a.ref = b
+            b.ref = a
+            del a, b
+
+            # Force collection
+            collected = gc.collect()
+            # Just verify no crash - collection count varies
+
+            # Test with async cleanup
+            gc.set_cleanup_workers(1)
+
+            # Create more cyclic garbage
+            a = Cycle()
+            b = Cycle()
+            a.ref = b
+            b.ref = a
+            del a, b
+
+            collected = gc.collect()
+            # Just verify no crash
+
+        finally:
+            gc.set_cleanup_workers(original)
+
+
 if __name__ == '__main__':
     unittest.main()

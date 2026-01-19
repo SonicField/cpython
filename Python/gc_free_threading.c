@@ -2660,11 +2660,12 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
     // Call tp_clear on objects in the unreachable set. This will cause
     // the reference cycles to be broken. It may also cause some objects
     // to be freed.
-    // For parallel GC with automatic collection, use concurrent cleanup
-    // (runs in background while collecting flag remains set).
-    // For explicit gc.collect() or shutdown, use synchronous cleanup
-    // to maintain expected semantics (cleanup complete when call returns).
+    // For parallel GC with automatic collection and cleanup_workers >= 1,
+    // use concurrent cleanup (runs in background while collecting flag remains set).
+    // For cleanup_workers == 0, explicit gc.collect(), or shutdown, use
+    // synchronous cleanup to maintain expected semantics.
     bool use_async_cleanup = interp->gc.parallel_gc_enabled
+                             && interp->gc.cleanup_workers >= 1
                              && state->reason != _Py_GC_REASON_MANUAL
                              && state->reason != _Py_GC_REASON_SHUTDOWN;
 
@@ -2855,10 +2856,11 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
 
     assert(!_PyErr_Occurred(tstate));
     gcstate->frame = NULL;
-    // For parallel GC with async cleanup (automatic collection), the background
-    // worker clears 'collecting'. For sync cleanup (serial GC, or parallel GC
-    // with manual/shutdown reason), we clear it here.
+    // For parallel GC with async cleanup (automatic collection with cleanup_workers >= 1),
+    // the background worker clears 'collecting'. For sync cleanup (serial GC,
+    // cleanup_workers == 0, or parallel GC with manual/shutdown reason), we clear it here.
     bool used_sync_cleanup = !interp->gc.parallel_gc_enabled
+                             || interp->gc.cleanup_workers < 1
                              || reason == _Py_GC_REASON_MANUAL
                              || reason == _Py_GC_REASON_SHUTDOWN;
     if (used_sync_cleanup) {

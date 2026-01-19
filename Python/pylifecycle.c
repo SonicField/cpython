@@ -1274,6 +1274,7 @@ init_interp_main(PyThreadState *tstate)
             }
             tstate->interp->gc.parallel_gc_enabled = 1;
             tstate->interp->gc.parallel_gc_num_workers = config->parallel_gc;
+            tstate->interp->gc.cleanup_workers = 1;  /* Default: single async worker */
         }
 #endif
 
