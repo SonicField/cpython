@@ -469,3 +469,115 @@ For typical workloads (1-2 active shards), this eliminates 80-90% of lock operat
 1. Review proposal with team
 2. Implement and benchmark
 3. Discuss with CPython core if successful
+
+### Entry 10: Atomic Contention Analysis - The Specific Bottleneck
+
+**Date**: 2026-01-19
+**Status**: Root cause definitively identified
+
+#### Summary
+
+BRC sharding (Entry 8-9) addresses the mutex contention for cross-thread decref **queueing**. But for cyclic objects, there's a deeper bottleneck: atomic CAS loops on shared refcount fields.
+
+#### Primary Contention Point: `ob_ref_shared` CAS Loop
+
+**Location**: `Objects/object.c:403-404`
+
+```c
+} while (!_Py_atomic_compare_exchange_ssize(&o->ob_ref_shared,
+                                            &shared, new_shared));
+```
+
+**Code path**:
+1. Cleanup worker calls `tp_clear(container)`
+2. `tp_clear` calls `Py_DECREF` on each contained object
+3. For non-owned objects: `Py_DECREF` → `_Py_DecRefShared()` → `_Py_DecRefSharedIsDead()` (line 373)
+4. Executes atomic CAS loop on `ob_ref_shared`
+
+**Why this serialises**:
+- When object O is referenced by multiple containers
+- Multiple workers clearing different containers that reference O
+- All workers spin on `O->ob_ref_shared` simultaneously
+- Each successful CAS invalidates the cache line on all other cores
+- Failed CAS → retry → O(N) retries per success with N workers
+
+#### Secondary Contention Point: mimalloc `xthread_free` CAS Loop
+
+**Location**: `Objects/mimalloc/alloc.c:457`
+
+```c
+} while (!mi_atomic_cas_weak_release(&page->xthread_free, &tfree, tfreex));
+```
+
+**Code path**:
+1. Object finally deallocated by non-owning worker
+2. mimalloc detects cross-thread free
+3. Block added to `page->xthread_free` via atomic CAS
+
+**Why address-sorting only partially helps**: Groups objects by page, but doesn't prevent multiple workers from processing the same page.
+
+#### The Cascade Effect
+
+```
+Worker 1: tp_clear(list_A)
+  → Py_DECREF(shared_obj) → CAS on shared_obj->ob_ref_shared
+
+Worker 2: tp_clear(list_B)
+  → Py_DECREF(shared_obj) → CAS on shared_obj->ob_ref_shared  ← CACHE LINE BOUNCE
+
+Worker 3: tp_clear(list_C)
+  → Py_DECREF(shared_obj) → CAS on shared_obj->ob_ref_shared  ← CACHE LINE BOUNCE
+```
+
+The `shared_obj->ob_ref_shared` cache line bounces between cores. Only one core can hold it at a time. Parallelism is illusory.
+
+#### Perf Confirmation
+
+```
+_Py_DecRefShared:         7.14% CPU
+par_visit_decref_atomic:  4.06% CPU
+Total atomic overhead:   11.2% CPU
+Lock/mutex overhead:      <1% CPU
+```
+
+The bottleneck is **cache-line contention on atomics**, not mutex blocking.
+
+#### Why BRC Sharding Doesn't Help Here
+
+BRC sharding reduces contention on the **queueing path** (when an object is first queued for merge). But the `ob_ref_shared` CAS loop is hit:
+1. **Before** the BRC queue path (if object is already merged)
+2. **During** tp_clear cascades (refcount decrements)
+
+For cyclic garbage where objects reference each other, the cascade causes multiple workers to hit the same `ob_ref_shared` fields.
+
+#### Why Simple Objects Scale, Cyclic Don't
+
+**Simple objects** (no references to other objects):
+- `tp_clear` is a no-op or trivial
+- No cascade of decrefs
+- Each worker processes independent objects
+- **Result**: 25x speedup
+
+**Cyclic objects** (containers with references):
+- `tp_clear` decrefs all contained objects
+- Contained objects may be in other workers' chunks
+- Multiple workers hit the same `ob_ref_shared`
+- **Result**: 1.06x speedup (no scaling)
+
+#### Fundamental Limit
+
+This is not a bug but a fundamental limit of atomic reference counting for shared objects. When N threads atomically modify the same memory location, throughput is bounded by cache coherency latency, not CPU count.
+
+#### Potential Mitigations
+
+1. **Ownership transfer**: GC "adopts" all unreachable objects before cleanup, eliminating cross-thread decrefs
+2. **Epoch-based reclamation**: Defer actual deallocation to avoid atomic contention
+3. **Per-worker deferred free lists**: Accumulate frees, batch process after all tp_clear complete
+4. **Accept the limit**: Document that parallel cleanup only benefits simple-object-dominated workloads
+
+#### Recommendation
+
+For production use:
+- `cleanup_workers=0` (serial) remains the safe default
+- Parallel cleanup is only beneficial for workloads dominated by simple objects (strings, numbers, etc.)
+- BRC sharding still valuable for general FTP scalability beyond GC
