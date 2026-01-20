@@ -372,6 +372,7 @@ is_dead(PyObject *o)
 static int
 _Py_DecRefSharedIsDead(PyObject *o, const char *filename, int lineno)
 {
+#if Py_BRC_FAST_DECREF
     // Fast path: check if already queued/merged using non-atomic read.
     // The flags are monotonic (only increase: 0->2->3), so if we see >= 2,
     // the current value is also >= 2 and we can safely use atomic add
@@ -391,11 +392,12 @@ _Py_DecRefSharedIsDead(PyObject *o, const char *filename, int lineno)
         // Return 1 (dead) only if refcount hit zero AND object is merged
         return new_shared == _Py_REF_MERGED;
     }
+#endif  /* Py_BRC_FAST_DECREF */
 
     // Slow path: first cross-thread decref, need CAS to set QUEUED flag
     int should_queue;
     Py_ssize_t new_shared;
-    shared = _Py_atomic_load_ssize_relaxed(&o->ob_ref_shared);
+    Py_ssize_t shared = _Py_atomic_load_ssize_relaxed(&o->ob_ref_shared);
     do {
         should_queue = (shared == 0 || shared == _Py_REF_MAYBE_WEAKREF);
 

@@ -151,42 +151,62 @@ For each metric:
 
 ### Setup
 
+Pyperformance and pyperf are cloned to `/data/users/alexturner/parallel_gc/`:
+- `pyperformance/` - benchmark suite
+- `pyperf/` - benchmark runner
+
+Run individual benchmarks with:
 ```bash
-# Ensure pyperformance is available
-./python -m pip install pyperformance  # if allowed, otherwise use system
+cd /data/users/alexturner/parallel_gc
+PYTHONPATH=./pyperf ./cpython/python pyperformance/benchmarks/bm_XXX/run_benchmark.py \
+    -o results_config_X_bm_XXX.json
 ```
+
+### Benchmarks to Run
+
+Core benchmarks (representative of real workloads):
+
+| Benchmark | Category | Notes |
+|-----------|----------|-------|
+| deltablue | Constraint solving | HIGH_CYCLES (416 cycles/iter) |
+| richards | Task scheduling | MINIMAL_CYCLES |
+| nbody | Numerical | MINIMAL_CYCLES |
+| float | Numerical | NO_CYCLES |
+| regex_compile | Text processing | NO_CYCLES |
+| json_loads | Serialisation | NO_CYCLES |
+| deepcopy | Object copying | HIGH_CYCLES (242 cycles/iter) |
+| async_tree | Async | HIGH_CYCLES (242 cycles/iter) |
+| comprehensions | Core Python | NO_CYCLES |
+| generators | Core Python | NO_CYCLES |
+| gc_collect | GC specific | Direct GC measurement |
+| gc_traversal | GC specific | Direct GC measurement |
 
 ### Procedure
 
 For each configuration (A, B, C, D):
 ```bash
-# Rebuild
+# Rebuild with LTO
 make clean && make -j
 
-# Run pyperformance (5 iterations built-in)
-./python -m pyperformance run \
-    --python=./python \
-    --output=pyperformance_config_X.json
+cd /data/users/alexturner/parallel_gc
+
+# Run each benchmark (5 iterations is default)
+for bm in deltablue richards nbody float regex_compile json_loads deepcopy \
+          async_tree comprehensions generators gc_collect gc_traversal; do
+    echo "Running $bm..."
+    PYTHONPATH=./pyperf ./cpython/python \
+        pyperformance/benchmarks/bm_$bm/run_benchmark.py \
+        -o results_config_X_$bm.json
+done
 ```
 
 ### Comparison
 
+Use pyperf to compare results:
 ```bash
-# Compare each config to baseline
-./python -m pyperformance compare \
-    pyperformance_config_A.json \
-    pyperformance_config_B.json \
-    --output=compare_A_vs_B.txt
-
-./python -m pyperformance compare \
-    pyperformance_config_A.json \
-    pyperformance_config_C.json \
-    --output=compare_A_vs_C.txt
-
-./python -m pyperformance compare \
-    pyperformance_config_A.json \
-    pyperformance_config_D.json \
-    --output=compare_A_vs_D.txt
+PYTHONPATH=./pyperf ./cpython/python -m pyperf compare_to \
+    results_config_A_deltablue.json \
+    results_config_D_deltablue.json
 ```
 
 ---

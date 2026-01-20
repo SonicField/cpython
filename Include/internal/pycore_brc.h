@@ -20,6 +20,11 @@ extern "C" {
 // thread's ID, reducing mutex contention by a factor of _Py_BRC_NUM_SHARDS.
 #define Py_BRC_SHARDED 1
 
+// Enable fast decref path using atomic ADD when object is already queued/merged.
+// When disabled, always uses CAS loop for all shared decrefs.
+// This optimisation avoids CAS retry loops for the common case.
+#define Py_BRC_FAST_DECREF 1
+
 // Prime number to avoid correlations with memory addresses.
 #define _Py_BRC_NUM_BUCKETS 257
 
