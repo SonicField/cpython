@@ -263,8 +263,6 @@ struct _gc_runtime_state {
     /* Parallel GC configuration for FTP */
     int parallel_gc_enabled;    /* 1 = enabled, 0 = disabled (default) */
     int parallel_gc_num_workers; /* Number of workers, 0 = auto (based on CPU count) */
-    int cleanup_workers;        /* Requested max cleanup workers (0=serial, N=parallel) */
-    int cleanup_workers_active; /* Actual cleanup workers for current cycle (set after STW) */
     struct _PyGCThreadPool *thread_pool;  /* Persistent thread pool for parallel GC */
 
     /* Phase timing for benchmarking (nanoseconds) */

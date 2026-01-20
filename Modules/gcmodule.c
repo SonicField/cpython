@@ -543,9 +543,6 @@ gc_enable_parallel_impl(PyObject *module, int num_workers)
     // Set configuration
     interp->gc.parallel_gc_enabled = 1;
     interp->gc.parallel_gc_num_workers = num_workers;
-    if (interp->gc.cleanup_workers == 0) {
-        interp->gc.cleanup_workers = 1;  /* Default: single async worker */
-    }
 
     Py_RETURN_NONE;
 
@@ -720,16 +717,6 @@ gc_get_parallel_config_impl(PyObject *module)
         return NULL;
     }
 
-    // Add cleanup_workers setting
-    PyObject *cleanup_workers = PyLong_FromLong(interp->gc.cleanup_workers);
-    if (cleanup_workers == NULL ||
-        PyDict_SetItemString(result, "cleanup_workers", cleanup_workers) < 0) {
-        Py_XDECREF(cleanup_workers);
-        Py_DECREF(result);
-        return NULL;
-    }
-    Py_DECREF(cleanup_workers);
-
     return result;
 
 #elif defined(Py_PARALLEL_GC)
@@ -805,87 +792,6 @@ gc_get_parallel_stats_impl(PyObject *module)
         return NULL;
     }
     return result;
-#endif
-}
-
-
-/*[clinic input]
-gc.set_cleanup_workers
-
-    num_workers: int
-
-Set the maximum number of cleanup workers for parallel garbage collection.
-
-num_workers specifies the maximum workers for cleanup of unreachable objects:
-- 0: Serial/inline cleanup (synchronous, on main thread after STW)
-- 1: Single async worker (default - cleanup runs in background)
-- N>1: Parallel cleanup with up to N workers (experimental)
-
-The actual number of workers used is clamped to the available pool size
-at each GC cycle. This value is a maximum hint, not a guaranteed count.
-
-Only available in free-threading builds with parallel GC enabled.
-[clinic start generated code]*/
-
-static PyObject *
-gc_set_cleanup_workers_impl(PyObject *module, int num_workers)
-/*[clinic end generated code: output=b55363332aeeba3d input=f3eafc4d696fb1bd]*/
-{
-#ifdef Py_GIL_DISABLED
-    PyInterpreterState *interp = _PyInterpreterState_GET();
-
-    if (!interp->gc.parallel_gc_enabled) {
-        PyErr_SetString(PyExc_RuntimeError,
-                        "Parallel GC is not enabled. Call gc.enable_parallel() first.");
-        return NULL;
-    }
-
-    if (num_workers < 0) {
-        PyErr_SetString(PyExc_ValueError, "num_workers must be >= 0");
-        return NULL;
-    }
-
-    interp->gc.cleanup_workers = num_workers;
-    Py_RETURN_NONE;
-#else
-    PyErr_SetString(PyExc_NotImplementedError,
-                    "cleanup_workers only available in free-threading builds");
-    return NULL;
-#endif
-}
-
-
-/*[clinic input]
-gc.get_cleanup_workers
-
-Get the requested maximum number of cleanup workers for parallel GC.
-
-This returns the value set by gc.set_cleanup_workers(), which specifies
-the requested cleanup mode:
-- 0: Serial cleanup requested (synchronous, on main thread after STW)
-- 1: Single async worker requested (cleanup runs in background)
-- N > 1: Parallel cleanup with up to N workers requested
-
-Note: The actual number of workers used during cleanup may be lower if
-the thread pool size is smaller than the requested value.
-
-Only available in free-threading builds with parallel GC enabled.
-[clinic start generated code]*/
-
-static PyObject *
-gc_get_cleanup_workers_impl(PyObject *module)
-/*[clinic end generated code: output=818c97cc95a0f5c3 input=871e50434977a5f7]*/
-{
-#ifdef Py_GIL_DISABLED
-    PyInterpreterState *interp = _PyInterpreterState_GET();
-
-    if (!interp->gc.parallel_gc_enabled) {
-        return PyLong_FromLong(0);  // Serial when parallel GC not enabled
-    }
-
-    return PyLong_FromLong(interp->gc.cleanup_workers);
-#else
-    return PyLong_FromLong(0);  // Always serial in non-free-threading builds
 #endif
 }
 
@@ -1172,8 +1078,6 @@ static PyMethodDef GcMethods[] = {
     GC_DISABLE_PARALLEL_METHODDEF
     GC_GET_PARALLEL_CONFIG_METHODDEF
     GC_GET_PARALLEL_STATS_METHODDEF
-    GC_SET_CLEANUP_WORKERS_METHODDEF
-    GC_GET_CLEANUP_WORKERS_METHODDEF
     // FTP parallel GC test APIs (debug builds only)
     GC_COUNT_GC_PAGES_METHODDEF
     GC_TEST_PAGE_ASSIGNMENT_METHODDEF
