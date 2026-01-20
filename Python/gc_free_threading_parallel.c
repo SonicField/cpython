@@ -3737,16 +3737,25 @@ pool_scan_heap_process_page(mi_page_t *page, struct _PyGCScanWorkerState *worker
 // Concurrent Cleanup API
 //-----------------------------------------------------------------------------
 
-// Comparison function for qsort - sorts objects by pointer address.
-// This achieves page-based grouping: mimalloc addresses encode page structure,
-// so sorting by address naturally groups objects from the same page together.
-// This minimises contention when multiple workers process contiguous chunks.
+// Comparison function for qsort - sorts objects by owner thread then address.
+// Primary sort by ob_tid groups objects by owning thread together, so cleanup
+// workers handle mostly same-owner objects and can use the fast ob_ref_local
+// decref path instead of the atomic ob_ref_shared path.
+// Secondary sort by address maintains cache locality within each owner group.
 static int
-compare_objects_by_address(const void *a, const void *b)
+compare_objects_by_tid_then_address(const void *a, const void *b)
 {
     const PyObject *obj_a = *(const PyObject **)a;
     const PyObject *obj_b = *(const PyObject **)b;
-    // Use subtraction-safe comparison for pointers
+
+    // Primary: sort by ob_tid (owner thread)
+    if (obj_a->ob_tid < obj_b->ob_tid) {
+        return -1;
+    } else if (obj_a->ob_tid > obj_b->ob_tid) {
+        return 1;
+    }
+
+    // Secondary: sort by address (cache locality within owner)
     if ((uintptr_t)obj_a < (uintptr_t)obj_b) {
         return -1;
     } else if ((uintptr_t)obj_a > (uintptr_t)obj_b) {
@@ -3789,10 +3798,10 @@ _PyGC_StartAsyncCleanup(PyInterpreterState *interp,
     }
     memcpy(objects_copy, objects, count * sizeof(PyObject *));
 
-    // Sort objects by pointer address for page-based grouping.
-    // This minimises contention: mimalloc addresses encode page structure,
-    // so contiguous address ranges tend to be on the same page.
-    qsort(objects_copy, count, sizeof(PyObject *), compare_objects_by_address);
+    // Sort objects by owner thread (ob_tid) then by address.
+    // This groups same-owner objects together, so workers mostly handle objects
+    // they "own" and can use fast non-atomic decrefs during tp_clear.
+    qsort(objects_copy, count, sizeof(PyObject *), compare_objects_by_tid_then_address);
 
     // Allocate work descriptor on heap (stack goes out of scope when we return)
     _PyGCWorkDescriptor *work = PyMem_RawCalloc(1, sizeof(_PyGCWorkDescriptor));

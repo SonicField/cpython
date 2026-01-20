@@ -14,7 +14,7 @@
 # Standard benchmark parameters (chosen to be convincing to observers):
 #   - Workers: 4, 8, 16
 #   - Cleanup workers: 0 (serial), 4 (parallel)
-#   - Heap types: all 7 (chain, tree, wide_tree, graph, layered, independent, ai_workload)
+#   - Heap types: all 8 (chain, tree, wide_tree, graph, layered, independent, ai_workload, web_server)
 #   - Heap size: 500k objects
 #   - Survivor ratio: 80%
 #   - Creation threads: 4 (with persistent pool)
@@ -162,7 +162,7 @@ case "${1:-standard}" in
 
         # Main GC benchmark - all heap types, key worker counts
         run_gc_benchmark "gc-standard" \
-            "--workers 4,8,16 --cleanup-workers 0,4 --heap-type chain,tree,wide_tree,graph,layered,independent,ai_workload --heap-size 500k --survivor-ratio 0.8 --creation-threads 4 --keep-threads --warmup 3 --iterations 5"
+            "--workers 4,8,16 --cleanup-workers 0,4 --heap-type chain,tree,wide_tree,graph,layered,independent,ai_workload,web_server --heap-size 500k --survivor-ratio 0.8 --creation-threads 4 --keep-threads --warmup 3 --iterations 5"
 
         # Throughput benchmarks
         echo ""
@@ -188,6 +188,10 @@ case "${1:-standard}" in
         # AI workload
         run_throughput_benchmark "throughput-ai-p8-cw4" \
             "--heap-size 500k --duration 60 --parallel 8 --cleanup-workers 4 --threads 4 --keep-threads --heap-type ai"
+
+        # Web server workload (isolated requests, ideal for tid-based cleanup)
+        run_throughput_benchmark "throughput-web-p8-cw4" \
+            "--heap-size 500k --duration 60 --parallel 8 --cleanup-workers 4 --threads 4 --keep-threads --heap-type web_server"
         ;;
 esac
 

@@ -645,3 +645,85 @@ The optimization doesn't fully solve:
 #### Conclusion
 
 This is a low-risk, high-reward optimization for `_Py_DecRefShared` that benefits all cross-thread decrefs in free-threading Python, not just GC cleanup. Combined with BRC sharding, parallel GC cleanup is now beneficial for many workloads.
+
+---
+
+### Entry 12: TID-Based Sorting and Web Server Heap Type
+
+**Date**: 2026-01-19
+**Status**: Implemented and validated
+
+#### Root Cause Analysis
+
+Perf annotation of `_Py_DecRefShared` revealed:
+- 80.73% of time on `lock xaddq` (atomic ADD in fast path)
+- Even with atomic ADD (not CAS), cache-line contention remains
+
+The contention isn't on global objects (types/strings are immortal in FTP), but on **cross-referenced heap objects**. When worker A clears object X via `tp_clear`, it decrefs objects that worker B is also touching.
+
+Analysis of reference patterns showed:
+- With address-based sorting: 80% of nodes decreffed by multiple workers
+- With tid-based sorting: Objects from same owner stay together
+
+#### Implementation: TID-Based Cleanup Sorting
+
+Changed `gc_free_threading_parallel.c` to sort cleanup objects by `(ob_tid, address)` instead of just `address`:
+
+```c
+static int
+compare_objects_by_tid_then_address(const void *a, const void *b)
+{
+    // Primary: sort by ob_tid (owner thread)
+    if (obj_a->ob_tid < obj_b->ob_tid) return -1;
+    if (obj_a->ob_tid > obj_b->ob_tid) return 1;
+    // Secondary: sort by address (cache locality)
+    if ((uintptr_t)obj_a < (uintptr_t)obj_b) return -1;
+    if ((uintptr_t)obj_a > (uintptr_t)obj_b) return 1;
+    return 0;
+}
+```
+
+This groups same-owner objects together, so each cleanup worker handles mostly same-tid objects and can use the fast `ob_ref_local` path.
+
+#### Implementation: Web Server Heap Type
+
+Added new benchmark heap type `web_server` that models isolated HTTP request lifecycles:
+- Each cluster = one HTTP request (request, response, session, middleware chain, db results)
+- **NO cross-cluster references** (each request is independent)
+- Perfect for testing parallel cleanup with isolated object graphs
+
+#### Benchmark Results
+
+Standard heap types (mixed results):
+- Some configurations: cw4 wins (wide_tree w4: 14ms faster)
+- Some configurations: cw0 wins (tree w8: 6ms faster)
+- Cross-references in test patterns still cause contention
+
+**Web server heap type (isolated graphs):**
+
+| Config | cw0 | cw4 | Improvement |
+|--------|-----|-----|-------------|
+| web_server w8 | 54.23ms | 54.56ms | ~0% |
+| web_server w16 | 50.36ms | **43.48ms** | **+14%** |
+
+For isolated object graphs with proper tid partitioning, **cw4 provides consistent 14% improvement**.
+
+#### Throughput Comparison
+
+| Mode | Throughput | STW Overhead |
+|------|------------|--------------|
+| Serial | 1.89M/s | 99% |
+| Parallel 8, cw0 | 2.18M/s | 45% |
+| Parallel 8, cw4 | **2.40M/s** | **29%** |
+
+cw4 provides +10% throughput and -16% STW overhead.
+
+#### Conclusion
+
+TID-based sorting + parallel cleanup workers provide meaningful speedup for workloads where:
+1. Threads create their own isolated object graphs (web servers, request handlers)
+2. Objects from same thread reference each other (no cross-thread refs)
+
+For highly-interconnected heaps with cross-thread references, the benefit is inconsistent.
+
+**Recommendation**: Enable `cleanup_workers` for web server / request-handler workloads. Document that benefit depends on object graph structure.

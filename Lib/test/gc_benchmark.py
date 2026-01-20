@@ -411,6 +411,112 @@ def create_ai_workload(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List
     return clusters
 
 
+def create_web_server(n: int, cluster_size: int = 200) -> List[List[Node]]:
+    """
+    Create isolated web server request-like clusters with NO cross-cluster references.
+
+    Each cluster models a single HTTP request/response lifecycle:
+    - A Request object (ContainerNode) with headers, body, session
+    - Associated Response object with data
+    - Middleware/handler chain with back-references (creates cycles)
+    - Database result objects
+
+    CRITICAL: No cross-cluster references. Each request is fully independent.
+    This models real web server behaviour where requests don't share mutable state.
+
+    When created in multiple threads, each thread's requests stay isolated,
+    making this ideal for testing thread-local cleanup (ob_tid partitioning).
+
+    Parallelizability: VERY HIGH
+    - Each cluster is completely independent
+    - No cross-cluster references means no cross-thread decrefs
+    - Perfect for testing parallel cleanup with tid-based partitioning
+    """
+    clusters = []
+    num_clusters = max(1, n // cluster_size)
+
+    for _ in range(num_clusters):
+        all_nodes = []
+
+        # Request object - the root of this request's object graph
+        request = ContainerNode()
+        all_nodes.append(request)
+
+        # Headers dict (simulated as nodes)
+        for i in range(5):
+            header = Node()
+            request.children_dict[f"header_{i}"] = header
+            all_nodes.append(header)
+
+        # Request body / parsed data
+        body = ContainerNode()
+        request.children_list.append(body)
+        all_nodes.append(body)
+
+        # Session object with back-reference to request (cycle!)
+        session = ContainerNode()
+        session.children_list.append(request)  # Back-ref creates cycle
+        request.children_dict["session"] = session
+        all_nodes.append(session)
+
+        # Session data items
+        for i in range(10):
+            item = Node()
+            session.children_list.append(item)
+            all_nodes.append(item)
+
+        # Response object
+        response = ContainerNode()
+        request.children_dict["response"] = response
+        response.children_list.append(request)  # Back-ref creates cycle
+        all_nodes.append(response)
+
+        # Response body chunks
+        for i in range(8):
+            chunk = Node()
+            response.children_list.append(chunk)
+            all_nodes.append(chunk)
+
+        # Middleware chain (each references next and previous - cycles)
+        middleware_chain = []
+        for i in range(5):
+            mw = ContainerNode()
+            middleware_chain.append(mw)
+            all_nodes.append(mw)
+            if i > 0:
+                mw.children_list.append(middleware_chain[i-1])  # Prev
+                middleware_chain[i-1].children_list.append(mw)  # Next
+
+        # First middleware attached to request
+        if middleware_chain:
+            request.children_list.append(middleware_chain[0])
+            middleware_chain[0].children_list.append(request)  # Cycle
+
+        # Database query results (attached to response)
+        db_results = ContainerNode()
+        response.children_dict["db_results"] = db_results
+        all_nodes.append(db_results)
+
+        # Result rows
+        for i in range(15):
+            row = Node()
+            db_results.children_list.append(row)
+            all_nodes.append(row)
+
+        # Fill remaining cluster size with generic handler objects
+        remaining = cluster_size - len(all_nodes)
+        for _ in range(max(0, remaining)):
+            handler = Node()
+            # Reference something in the request graph (creates more cycles)
+            handler.refs.append(request)
+            request.children_list.append(handler)
+            all_nodes.append(handler)
+
+        clusters.append(all_nodes)
+
+    return clusters
+
+
 # Module-level node class selection (set by CLI --finalizers flag)
 _node_class = Node
 
@@ -437,6 +543,7 @@ HEAP_GENERATORS = {
     'layered': lambda n: create_layered(n, node_class=get_node_class()),
     'independent': lambda n: create_independent(n, node_class=get_node_class()),
     'ai_workload': lambda n: create_ai_workload(n),  # Uses its own mixed types
+    'web_server': lambda n: create_web_server(n),    # Isolated requests, no cross-thread refs
 }
 
 # =============================================================================

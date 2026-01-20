@@ -224,6 +224,15 @@ class Node:
         self.data = None
 
 
+class ContainerNode:
+    """Node using __dict__ with list and dict children - models real objects."""
+
+    def __init__(self):
+        self.children_list = []
+        self.children_dict = {}
+        self.parent_ref = None
+
+
 class TensorMock:
     """Mock tensor with shape and data references."""
     __slots__ = ['shape', 'data', 'grad', 'requires_grad']
@@ -343,6 +352,96 @@ def create_ai_workload(size: int) -> List:
     return objects
 
 
+def create_web_server(size: int) -> List:
+    """
+    Create web server workload with isolated request clusters.
+
+    Each cluster models a single HTTP request lifecycle with NO cross-cluster
+    references. This is ideal for testing parallel cleanup with tid-based
+    partitioning since each thread's objects are fully independent.
+
+    Returns list of objects for heap retention.
+    """
+    objects = []
+    cluster_size = 200
+    num_clusters = max(1, size // cluster_size)
+
+    for _ in range(num_clusters):
+        # Request object - root of this request's graph
+        request = ContainerNode()
+        objects.append(request)
+
+        # Headers
+        for i in range(5):
+            header = Node()
+            request.children_dict[f"header_{i}"] = header
+            objects.append(header)
+
+        # Request body
+        body = ContainerNode()
+        request.children_list.append(body)
+        objects.append(body)
+
+        # Session with back-reference (cycle)
+        session = ContainerNode()
+        session.children_list.append(request)
+        request.children_dict["session"] = session
+        objects.append(session)
+
+        # Session data
+        for i in range(10):
+            item = Node()
+            session.children_list.append(item)
+            objects.append(item)
+
+        # Response with back-reference (cycle)
+        response = ContainerNode()
+        request.children_dict["response"] = response
+        response.children_list.append(request)
+        objects.append(response)
+
+        # Response chunks
+        for i in range(8):
+            chunk = Node()
+            response.children_list.append(chunk)
+            objects.append(chunk)
+
+        # Middleware chain with cycles
+        middleware = []
+        for i in range(5):
+            mw = ContainerNode()
+            middleware.append(mw)
+            objects.append(mw)
+            if i > 0:
+                mw.children_list.append(middleware[i-1])
+                middleware[i-1].children_list.append(mw)
+
+        if middleware:
+            request.children_list.append(middleware[0])
+            middleware[0].children_list.append(request)
+
+        # DB results
+        db_results = ContainerNode()
+        response.children_dict["db_results"] = db_results
+        objects.append(db_results)
+
+        for i in range(15):
+            row = Node()
+            db_results.children_list.append(row)
+            objects.append(row)
+
+        # Fill remaining with handlers
+        current_size = len(objects)
+        target_size = (len(objects) // cluster_size + 1) * cluster_size
+        for _ in range(target_size - current_size):
+            handler = Node()
+            handler.refs.append(request)
+            request.children_list.append(handler)
+            objects.append(handler)
+
+    return objects
+
+
 # =============================================================================
 # Heap Creation with Cycles
 # =============================================================================
@@ -378,6 +477,7 @@ def create_cyclic_heap(size: int, cluster_size: int = 100) -> List:
 HEAP_GENERATORS = {
     "cyclic": create_cyclic_heap,
     "ai": create_ai_workload,
+    "web_server": create_web_server,
 }
 
 
@@ -882,8 +982,8 @@ def main():
     parser.add_argument("--heap-size", "-s", type=str, default="500k",
                         help="Steady-state heap size (e.g., 100k, 500k, 1M)")
     parser.add_argument("--heap-type", "-t", type=str, default="cyclic",
-                        choices=["cyclic", "ai"],
-                        help="Heap structure: cyclic (circular chains) or ai (transformer-style)")
+                        choices=["cyclic", "ai", "web_server"],
+                        help="Heap structure: cyclic (circular chains), ai (transformer-style), or web_server (isolated requests)")
     parser.add_argument("--duration", "-d", type=float, default=30.0,
                         help="Benchmark duration in seconds")
     parser.add_argument("--parallel", "-p", type=int, default=None,
