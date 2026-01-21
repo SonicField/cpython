@@ -98,6 +98,24 @@ def get_parallel_stats() -> Dict[str, Any]:
 # =============================================================================
 
 @dataclass
+class CollectionResult:
+    """Result from a single collection benchmark (measures GC collection time)."""
+    heap_type: str
+    heap_size: int
+    serial_time_ms: float
+    parallel_time_ms: float
+    serial_stdev: float = 0.0
+    parallel_stdev: float = 0.0
+    num_runs: int = 1
+
+    @property
+    def speedup(self) -> float:
+        if self.parallel_time_ms > 0:
+            return self.serial_time_ms / self.parallel_time_ms
+        return 1.0
+
+
+@dataclass
 class BenchmarkRun:
     """Result from a single benchmark run."""
     throughput: float  # workloads/sec or objects/sec
@@ -123,6 +141,12 @@ class BenchmarkResult:
         return statistics.mean(r.throughput for r in self.runs) if self.runs else 0
 
     @property
+    def throughput_stdev(self) -> float:
+        if len(self.runs) < 2:
+            return 0
+        return statistics.stdev(r.throughput for r in self.runs)
+
+    @property
     def throughput_best(self) -> float:
         return max(r.throughput for r in self.runs) if self.runs else 0
 
@@ -135,12 +159,26 @@ class BenchmarkResult:
         return statistics.mean(r.stw_pause_ms for r in self.runs) if self.runs else 0
 
     @property
+    def stw_pause_stdev(self) -> float:
+        if len(self.runs) < 2:
+            return 0
+        return statistics.stdev(r.stw_pause_ms for r in self.runs)
+
+    @property
     def stw_pause_max(self) -> float:
         return max(r.stw_max_ms for r in self.runs) if self.runs else 0
 
     @property
     def gc_overhead_mean(self) -> float:
         return statistics.mean(r.gc_overhead_pct for r in self.runs) if self.runs else 0
+
+    @property
+    def total_duration(self) -> float:
+        return sum(r.duration_sec for r in self.runs)
+
+    @property
+    def total_collections(self) -> int:
+        return sum(r.collections for r in self.runs)
 
 
 @dataclass
@@ -176,10 +214,43 @@ class SuiteResult:
     parallel_gc_available: bool
     num_workers: int
     timestamp: str
+    duration_per_benchmark: float = 30.0
+    num_runs: int = 3
+    num_threads: int = 4
+    heap_size: int = 500000
     realistic: Optional[ComparisonResult] = None
-    synthetic_cyclic: Optional[ComparisonResult] = None
-    synthetic_ai: Optional[ComparisonResult] = None
+    synthetic_by_heap: Dict[str, ComparisonResult] = field(default_factory=dict)
+    collection_results: List[CollectionResult] = field(default_factory=list)
     phase_timing: Dict[str, Dict[str, float]] = field(default_factory=dict)
+
+    @property
+    def geometric_mean_speedup(self) -> float:
+        """Geometric mean of speedups across all synthetic heap types."""
+        if not self.synthetic_by_heap:
+            return 1.0
+        speedups = [r.speedup for r in self.synthetic_by_heap.values() if r.speedup > 0]
+        if not speedups:
+            return 1.0
+        product = 1.0
+        for s in speedups:
+            product *= s
+        return product ** (1.0 / len(speedups))
+
+    @property
+    def geometric_mean_stw_reduction(self) -> float:
+        """Geometric mean of STW pause reduction ratios across all synthetic heap types."""
+        if not self.synthetic_by_heap:
+            return 1.0
+        ratios = []
+        for r in self.synthetic_by_heap.values():
+            if r.serial.stw_pause_mean > 0 and r.parallel.stw_pause_mean > 0:
+                ratios.append(r.parallel.stw_pause_mean / r.serial.stw_pause_mean)
+        if not ratios:
+            return 1.0
+        product = 1.0
+        for ratio in ratios:
+            product *= ratio
+        return product ** (1.0 / len(ratios))
 
 # =============================================================================
 # Realistic Workloads (pyperformance-style)
@@ -409,30 +480,60 @@ REALISTIC_WORKLOADS: Dict[str, Callable] = {
 # =============================================================================
 # Synthetic Heap Generators
 # =============================================================================
+#
+# All heap generators return List[List[Node]] - a list of independent cyclic
+# clusters. This allows survivor_ratio to work correctly by discarding complete
+# clusters, ensuring discarded objects are truly unreachable and can be collected.
+#
+# For FTP (free-threading), GC only collects cyclic garbage - reference counting
+# handles acyclic structures. Creating isolated cycles is essential for meaningful
+# GC benchmarks.
+
+DEFAULT_CLUSTER_SIZE = 100  # Nodes per cluster
+
 
 class Node:
-    """Simple node for cyclic structures."""
-    __slots__ = ['refs', 'data']
+    """Generic node for building object graphs."""
+    __slots__ = ['refs', 'data', '__weakref__']
     def __init__(self):
         self.refs = []
         self.data = None
 
 
+class FinalizerNode:
+    """Node with a finalizer (__del__ method)."""
+    __slots__ = ['refs', 'data', '__weakref__']
+    def __init__(self):
+        self.refs = []
+        self.data = None
+
+    def __del__(self):
+        pass  # Presence of __del__ is what matters
+
+
 class ContainerNode:
-    """Container node with dict/list children."""
+    """Node using __dict__ with list and dict children - models real objects."""
     def __init__(self):
         self.children_list = []
         self.children_dict = {}
         self.parent_ref = None
 
 
-def create_cyclic_heap(size: int, cluster_size: int = 100) -> List:
-    """Create heap with isolated cyclic clusters."""
+def create_chain(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE,
+                 node_class: type = None) -> List[List]:
+    """
+    Create isolated circular chains: A -> B -> C -> ... -> Z -> A
+
+    Each cluster is a closed loop, so discarding a cluster creates cyclic garbage.
+    """
+    if node_class is None:
+        node_class = Node
     clusters = []
-    num_clusters = max(1, size // cluster_size)
+    num_clusters = max(1, n // cluster_size)
 
     for _ in range(num_clusters):
-        nodes = [Node() for _ in range(cluster_size)]
+        nodes = [node_class() for _ in range(cluster_size)]
+        # Make circular
         for i in range(cluster_size):
             nodes[i].refs.append(nodes[(i + 1) % cluster_size])
         clusters.append(nodes)
@@ -440,14 +541,186 @@ def create_cyclic_heap(size: int, cluster_size: int = 100) -> List:
     return clusters
 
 
-def create_ai_heap(size: int, cluster_size: int = 100) -> List:
-    """Create AI-workload-like heap with mixed node types."""
+def create_tree(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE,
+                node_class: type = None) -> List[List]:
+    """
+    Create isolated cyclic trees - each tree has back-references to root.
+
+    Each cluster is a tree where leaves reference back to root, creating cycles.
+    """
+    if node_class is None:
+        node_class = Node
     clusters = []
-    num_clusters = max(1, size // cluster_size)
+    num_clusters = max(1, n // cluster_size)
+    branching = 2
+
+    for _ in range(num_clusters):
+        nodes = []
+        root = node_class()
+        nodes.append(root)
+
+        # Build tree
+        level = [root]
+        while len(nodes) < cluster_size:
+            next_level = []
+            for parent in level:
+                for _ in range(branching):
+                    if len(nodes) >= cluster_size:
+                        break
+                    child = node_class()
+                    parent.refs.append(child)
+                    # Back-reference to root creates cycle
+                    child.refs.append(root)
+                    next_level.append(child)
+                    nodes.append(child)
+            if not next_level:
+                break
+            level = next_level
+
+        clusters.append(nodes)
+
+    return clusters
+
+
+def create_wide_tree(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE,
+                     node_class: type = None) -> List[List]:
+    """
+    Create isolated wide trees with cyclic back-references.
+
+    Each cluster has one root with many children, all children ref back to root.
+    """
+    if node_class is None:
+        node_class = Node
+    clusters = []
+    num_clusters = max(1, n // cluster_size)
+
+    for _ in range(num_clusters):
+        nodes = []
+        root = node_class()
+        nodes.append(root)
+
+        for _ in range(cluster_size - 1):
+            child = node_class()
+            root.refs.append(child)
+            child.refs.append(root)  # Back-reference creates cycle
+            nodes.append(child)
+
+        clusters.append(nodes)
+
+    return clusters
+
+
+def create_graph(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE,
+                 node_class: type = None) -> List[List]:
+    """
+    Create isolated random graphs with internal cycles.
+
+    Each cluster is a fully-connected random graph with many cycles.
+    """
+    if node_class is None:
+        node_class = Node
+    clusters = []
+    num_clusters = max(1, n // cluster_size)
+
+    for _ in range(num_clusters):
+        nodes = [node_class() for _ in range(cluster_size)]
+
+        # Add random edges within cluster
+        for node in nodes:
+            for _ in range(random.randint(1, 3)):
+                target = random.choice(nodes)
+                node.refs.append(target)
+
+        clusters.append(nodes)
+
+    return clusters
+
+
+def create_layered(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE,
+                   node_class: type = None) -> List[List]:
+    """
+    Create isolated layered networks with cycles.
+
+    Each cluster is a mini neural-network-like structure with bidirectional
+    references between first and last layers, creating cycles.
+    """
+    if node_class is None:
+        node_class = Node
+    clusters = []
+    num_clusters = max(1, n // cluster_size)
+    layers_per_cluster = 4
+    nodes_per_layer = cluster_size // layers_per_cluster
 
     for _ in range(num_clusters):
         all_nodes = []
-        num_parents = cluster_size // 6
+        first_layer = None
+        prev_layer = None
+
+        for layer_idx in range(layers_per_cluster):
+            layer = [node_class() for _ in range(nodes_per_layer)]
+            all_nodes.extend(layer)
+
+            if first_layer is None:
+                first_layer = layer
+
+            if prev_layer:
+                # Connect to previous layer
+                for node in layer:
+                    node.refs.append(random.choice(prev_layer))
+
+            prev_layer = layer
+
+        # Bidirectional references between first and last layer create cycles
+        if prev_layer and first_layer:
+            for node in prev_layer:
+                node.refs.append(random.choice(first_layer))
+            for node in first_layer:
+                node.refs.append(random.choice(prev_layer))
+
+        clusters.append(all_nodes)
+
+    return clusters
+
+
+def create_independent(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE,
+                       node_class: type = None) -> List[List]:
+    """
+    Create isolated self-referencing clusters.
+
+    Each cluster contains nodes that reference each other in a cycle.
+    """
+    if node_class is None:
+        node_class = Node
+    clusters = []
+    num_clusters = max(1, n // cluster_size)
+
+    for _ in range(num_clusters):
+        nodes = [node_class() for _ in range(cluster_size)]
+        # Simple cycle: each node refs the next
+        for i in range(cluster_size):
+            nodes[i].refs.append(nodes[(i + 1) % cluster_size])
+        clusters.append(nodes)
+
+    return clusters
+
+
+def create_ai_workload(n: int, cluster_size: int = DEFAULT_CLUSTER_SIZE) -> List[List]:
+    """
+    Create isolated AI-workload-like clusters with cycles.
+
+    Each cluster models a mini ML computation graph:
+    - ContainerNode parents with list and dict children
+    - 10% of children have finalizers
+    - Cross-references within cluster create cycles
+    """
+    clusters = []
+    num_clusters = max(1, n // cluster_size)
+
+    for _ in range(num_clusters):
+        all_nodes = []
+
+        # Create parent-child structure with cycles
+        num_parents = cluster_size // 6  # Each parent has ~5 children
 
         parents = []
         for _ in range(num_parents):
@@ -455,8 +728,13 @@ def create_ai_heap(size: int, cluster_size: int = 100) -> List:
             parents.append(parent)
             all_nodes.append(parent)
 
+            # Add 3-5 children
             for j in range(random.randint(3, 5)):
-                child = Node()
+                if random.random() < 0.1:
+                    child = FinalizerNode()
+                else:
+                    child = Node()
+
                 all_nodes.append(child)
 
                 if random.random() < 0.5:
@@ -464,8 +742,10 @@ def create_ai_heap(size: int, cluster_size: int = 100) -> List:
                 else:
                     parent.children_dict[f"child_{j}"] = child
 
+                # Back-reference to parent creates cycle
                 child.refs.append(parent)
 
+        # Cross-references between parents (more cycles)
         for parent in parents:
             if parents:
                 parent.children_list.append(random.choice(parents))
@@ -475,9 +755,113 @@ def create_ai_heap(size: int, cluster_size: int = 100) -> List:
     return clusters
 
 
+def create_web_server(n: int, cluster_size: int = 200) -> List[List]:
+    """
+    Create isolated web server request-like clusters with NO cross-cluster references.
+
+    Each cluster models a single HTTP request/response lifecycle:
+    - A Request object (ContainerNode) with headers, body, session
+    - Associated Response object with data
+    - Middleware/handler chain with back-references (creates cycles)
+    - Database result objects
+
+    CRITICAL: No cross-cluster references. Each request is fully independent.
+    """
+    clusters = []
+    num_clusters = max(1, n // cluster_size)
+
+    for _ in range(num_clusters):
+        all_nodes = []
+
+        # Request object - the root of this request's object graph
+        request = ContainerNode()
+        all_nodes.append(request)
+
+        # Headers dict (simulated as nodes)
+        for i in range(5):
+            header = Node()
+            request.children_dict[f"header_{i}"] = header
+            all_nodes.append(header)
+
+        # Request body / parsed data
+        body = ContainerNode()
+        request.children_list.append(body)
+        all_nodes.append(body)
+
+        # Session object with back-reference to request (cycle!)
+        session = ContainerNode()
+        session.children_list.append(request)  # Back-ref creates cycle
+        request.children_dict["session"] = session
+        all_nodes.append(session)
+
+        # Session data items
+        for i in range(10):
+            item = Node()
+            session.children_list.append(item)
+            all_nodes.append(item)
+
+        # Response object
+        response = ContainerNode()
+        request.children_dict["response"] = response
+        response.children_list.append(request)  # Back-ref creates cycle
+        all_nodes.append(response)
+
+        # Response body chunks
+        for i in range(8):
+            chunk = Node()
+            response.children_list.append(chunk)
+            all_nodes.append(chunk)
+
+        # Middleware chain (each references next and previous - cycles)
+        middleware_chain = []
+        for i in range(5):
+            mw = ContainerNode()
+            middleware_chain.append(mw)
+            all_nodes.append(mw)
+            if i > 0:
+                mw.children_list.append(middleware_chain[i-1])  # Prev
+                middleware_chain[i-1].children_list.append(mw)  # Next
+
+        # First middleware attached to request
+        if middleware_chain:
+            request.children_list.append(middleware_chain[0])
+            middleware_chain[0].children_list.append(request)  # Cycle
+
+        # Database query results (attached to response)
+        db_results = ContainerNode()
+        response.children_dict["db_results"] = db_results
+        all_nodes.append(db_results)
+
+        # Result rows
+        for i in range(15):
+            row = Node()
+            db_results.children_list.append(row)
+            all_nodes.append(row)
+
+        # Fill remaining cluster size with generic handler objects
+        remaining = cluster_size - len(all_nodes)
+        for _ in range(max(0, remaining)):
+            handler = Node()
+            # Reference something in the request graph (creates more cycles)
+            handler.refs.append(request)
+            request.children_list.append(handler)
+            all_nodes.append(handler)
+
+        clusters.append(all_nodes)
+
+    return clusters
+
+
+# All 8 heap types for collection benchmarks
 HEAP_GENERATORS = {
-    "cyclic": create_cyclic_heap,
-    "ai": create_ai_heap,
+    "chain": create_chain,
+    "tree": create_tree,
+    "wide_tree": create_wide_tree,
+    "graph": create_graph,
+    "layered": create_layered,
+    "independent": create_independent,
+    "ai_workload": create_ai_workload,
+    "web_server": create_web_server,
 }
 
 # =============================================================================
@@ -713,6 +1097,190 @@ def run_synthetic_benchmark(
     )
 
 # =============================================================================
+# Collection Time Benchmark (measures single GC collection times)
+# =============================================================================
+
+class CreationThreadPool:
+    """
+    Thread pool for object creation that keeps threads alive.
+
+    Keeps threads alive so mimalloc pages remain in live thread heaps
+    (not abandoned pool). This matches the old gc_benchmark.py methodology.
+    """
+
+    def __init__(self, num_threads: int):
+        import queue as queue_module
+        self.num_threads = num_threads
+        self.task_queue = queue_module.Queue()
+        self.result_queue = queue_module.Queue()
+        self.shutdown_flag = threading.Event()
+        self.threads = []
+
+        for i in range(num_threads):
+            t = threading.Thread(target=self._worker, args=(i,), daemon=True)
+            t.start()
+            self.threads.append(t)
+
+    def _worker(self, thread_id: int):
+        """Worker thread that waits for creation tasks."""
+        while not self.shutdown_flag.is_set():
+            try:
+                task = self.task_queue.get(timeout=0.1)
+            except:
+                continue
+
+            if task is None:
+                break
+
+            heap_type, num_objects = task
+            clusters = HEAP_GENERATORS[heap_type](num_objects)
+            self.result_queue.put(clusters)
+            # Release reference immediately to avoid retaining garbage across iterations
+            clusters = None
+            del clusters
+            self.task_queue.task_done()
+
+    def create_objects(self, heap_type: str, total_objects: int) -> List:
+        """Create objects using the thread pool."""
+        objects_per_thread = total_objects // self.num_threads
+
+        # Submit tasks
+        for _ in range(self.num_threads):
+            self.task_queue.put((heap_type, objects_per_thread))
+
+        # Wait for completion
+        self.task_queue.join()
+
+        # Collect results
+        all_clusters = []
+        while not self.result_queue.empty():
+            clusters = self.result_queue.get()
+            all_clusters.extend(clusters)
+
+        return all_clusters
+
+    def shutdown(self):
+        """Shutdown the thread pool."""
+        self.shutdown_flag.set()
+        for _ in range(self.num_threads):
+            self.task_queue.put(None)
+        for t in self.threads:
+            t.join(timeout=1.0)
+
+
+# Global thread pool (kept alive between runs like old benchmark)
+_creation_pool = None
+
+
+def get_creation_pool(num_threads: int) -> CreationThreadPool:
+    """Get or create the global creation thread pool."""
+    global _creation_pool
+    if _creation_pool is None or _creation_pool.num_threads != num_threads:
+        if _creation_pool is not None:
+            _creation_pool.shutdown()
+        _creation_pool = CreationThreadPool(num_threads)
+    return _creation_pool
+
+
+def run_collection_benchmark(
+    heap_size: int,
+    heap_type: str,
+    num_runs: int,
+    parallel_workers: int = 8,
+    survivor_ratio: float = 0.8,
+    creation_threads: int = 4,
+    warmup_runs: int = 3
+) -> CollectionResult:
+    """
+    Measure GC collection time for a given heap type.
+
+    Matches the old gc_benchmark.py methodology exactly:
+    - Creates heap across multiple threads using persistent thread pool
+    - Keeps threads alive (pages remain in live thread heaps)
+    - Uses survivor ratio on complete CLUSTERS (not individual objects)
+    - Warmup runs before measurement
+    - Serial and parallel measured in separate passes (not interleaved)
+    """
+    pool = get_creation_pool(creation_threads)
+    seed = 42
+
+    def run_batch(use_parallel: bool, num_iterations: int, is_warmup: bool) -> List[float]:
+        """Run a batch of iterations and return times in ms."""
+        gc.disable()
+
+        if use_parallel:
+            enable_parallel_gc(parallel_workers)
+        else:
+            disable_parallel_gc()
+
+        times = []
+
+        try:
+            for _ in range(num_iterations):
+                random.seed(seed)
+
+                # Create clusters using thread pool (threads stay alive)
+                clusters = pool.create_objects(heap_type, heap_size)
+
+                # Apply survivor ratio by keeping complete CLUSTERS
+                keep_refs = None
+                if survivor_ratio < 1.0:
+                    num_keep = int(len(clusters) * survivor_ratio)
+                    if num_keep > 0:
+                        random.shuffle(clusters)
+                        keep_refs = clusters[:num_keep]
+                    else:
+                        keep_refs = []
+                else:
+                    keep_refs = clusters
+
+                clusters = None  # Release original list
+
+                if is_warmup:
+                    # Warmup: just collect and cleanup
+                    gc.collect()
+                    keep_refs = None
+                    gc.collect()
+                else:
+                    # Timed run: measure collection time
+                    start = time.perf_counter()
+                    gc.collect()
+                    elapsed = (time.perf_counter() - start) * 1000
+                    times.append(elapsed)
+
+                    # Cleanup
+                    keep_refs = None
+                    gc.collect()
+
+        finally:
+            gc.enable()
+
+        return times
+
+    # Run serial: warmup then measurements
+    run_batch(use_parallel=False, num_iterations=warmup_runs, is_warmup=True)
+    serial_times = run_batch(use_parallel=False, num_iterations=num_runs, is_warmup=False)
+
+    # Run parallel: warmup then measurements
+    run_batch(use_parallel=True, num_iterations=warmup_runs, is_warmup=True)
+    parallel_times = run_batch(use_parallel=True, num_iterations=num_runs, is_warmup=False)
+
+    serial_mean = statistics.mean(serial_times)
+    parallel_mean = statistics.mean(parallel_times)
+    serial_stdev = statistics.stdev(serial_times) if len(serial_times) > 1 else 0
+    parallel_stdev = statistics.stdev(parallel_times) if len(parallel_times) > 1 else 0
+
+    return CollectionResult(
+        heap_type=heap_type,
+        heap_size=heap_size,
+        serial_time_ms=serial_mean,
+        parallel_time_ms=parallel_mean,
+        serial_stdev=serial_stdev,
+        parallel_stdev=parallel_stdev,
+        num_runs=num_runs
+    )
+
+# =============================================================================
 # Suite Runner
 # =============================================================================
 
@@ -780,13 +1348,18 @@ def run_suite(
     print(f"Parallel GC workers: {parallel_workers}")
     print(f"Duration per benchmark: {duration_per_benchmark}s")
     print(f"Runs per configuration: {num_runs}")
+    print(f"Heap size: {heap_size:,}")
     print()
 
     result = SuiteResult(
         build_type=BUILD_TYPE,
         parallel_gc_available=PARALLEL_GC_AVAILABLE,
         num_workers=parallel_workers,
-        timestamp=datetime.now().isoformat()
+        timestamp=datetime.now().isoformat(),
+        duration_per_benchmark=duration_per_benchmark,
+        num_runs=num_runs,
+        num_threads=num_threads,
+        heap_size=heap_size
     )
 
     if not PARALLEL_GC_AVAILABLE:
@@ -810,41 +1383,53 @@ def run_suite(
     print()
 
     if include_synthetic:
-        # Synthetic cyclic benchmark
-        print("Running: Synthetic Cyclic (stress test)")
+        # Collection time benchmarks (measures single GC collection time)
+        # Run all 8 heap types - these are fast
+        all_heap_types = list(HEAP_GENERATORS.keys())
+        print("Running: Collection Time Benchmarks (all heap types)")
         print("-" * 60)
-        result.synthetic_cyclic = run_comparison(
-            name="synthetic_cyclic",
-            description="100% cyclic garbage - worst case for GC",
-            run_fn=run_synthetic_benchmark,
-            num_runs=num_runs,
-            parallel_workers=parallel_workers,
-            verbose=verbose,
-            duration_sec=duration_per_benchmark,
-            heap_size=heap_size,
-            heap_type="cyclic",
-            num_threads=num_threads
-        )
-        _print_comparison(result.synthetic_cyclic)
+        for heap_type in all_heap_types:
+            coll = run_collection_benchmark(
+                heap_size=heap_size,
+                heap_type=heap_type,
+                num_runs=num_runs,
+                parallel_workers=parallel_workers
+            )
+            result.collection_results.append(coll)
+            print(f"  {heap_type:<12}: {coll.serial_time_ms:6.1f}ms -> {coll.parallel_time_ms:6.1f}ms "
+                  f"({coll.speedup:.2f}x)")
         print()
 
-        # Synthetic AI benchmark
-        print("Running: Synthetic AI (ML-style workload)")
-        print("-" * 60)
-        result.synthetic_ai = run_comparison(
-            name="synthetic_ai",
-            description="AI/ML-style object graphs",
-            run_fn=run_synthetic_benchmark,
-            num_runs=num_runs,
-            parallel_workers=parallel_workers,
-            verbose=verbose,
-            duration_sec=duration_per_benchmark,
-            heap_size=heap_size,
-            heap_type="ai",
-            num_threads=num_threads
-        )
-        _print_comparison(result.synthetic_ai)
-        print()
+        # Synthetic throughput - use representative subset (takes longer)
+        throughput_heap_types = ["chain", "graph", "ai_workload"]
+        for heap_type in throughput_heap_types:
+            print(f"Running: Synthetic {heap_type} throughput")
+            print("-" * 60)
+            comp = run_comparison(
+                name=f"synthetic_{heap_type}",
+                description=f"{heap_type} heap structure",
+                run_fn=run_synthetic_benchmark,
+                num_runs=num_runs,
+                parallel_workers=parallel_workers,
+                verbose=verbose,
+                duration_sec=duration_per_benchmark,
+                heap_size=heap_size,
+                heap_type=heap_type,
+                num_threads=num_threads
+            )
+            result.synthetic_by_heap[heap_type] = comp
+            _print_comparison(comp)
+            print()
+
+        # Print geometric mean summary
+        if result.synthetic_by_heap:
+            print("Synthetic Summary (geometric mean across heap types)")
+            print("-" * 60)
+            gm_speedup = result.geometric_mean_speedup
+            gm_stw = result.geometric_mean_stw_reduction
+            print(f"  Throughput change: {_format_change(gm_speedup)}")
+            print(f"  STW pause change: {(gm_stw - 1) * 100:+.0f}%")
+            print()
 
     return result
 
@@ -872,56 +1457,139 @@ def _print_comparison(comp: ComparisonResult):
 # =============================================================================
 
 def format_markdown(result: SuiteResult) -> str:
-    """Format results as markdown."""
+    """Format results as markdown with aligned tables."""
     lines = []
     lines.append("# Parallel GC Performance Benchmark Results")
     lines.append("")
     lines.append("## Configuration")
     lines.append("")
-    lines.append(f"- **Build type:** {result.build_type.upper()}")
-    lines.append(f"- **Parallel GC available:** {result.parallel_gc_available}")
-    lines.append(f"- **Parallel workers:** {result.num_workers}")
-    lines.append(f"- **Timestamp:** {result.timestamp}")
+    lines.append(f"- Build type: {result.build_type.upper()}")
+    lines.append(f"- Parallel GC available: {result.parallel_gc_available}")
+    lines.append(f"- Parallel workers: {result.num_workers}")
+    lines.append(f"- Worker threads: {result.num_threads}")
+    lines.append(f"- Duration per benchmark: {result.duration_per_benchmark}s")
+    lines.append(f"- Runs per configuration: {result.num_runs}")
+    lines.append(f"- Heap size (synthetic): {result.heap_size:,}")
+    lines.append(f"- Timestamp: {result.timestamp}")
     lines.append("")
 
     # Realistic results (prominently displayed)
     if result.realistic:
+        r = result.realistic
         lines.append("## Realistic Workloads (Primary Metric)")
         lines.append("")
         lines.append("Mixed workloads based on pyperformance benchmarks. This is the most")
         lines.append("representative measure of real-world parallel GC benefit.")
         lines.append("")
-        lines.append("| Metric | Serial | Parallel | Change |")
-        lines.append("|--------|--------|----------|--------|")
-        r = result.realistic
-        change_mean = (r.speedup - 1) * 100
-        lines.append(f"| Throughput | {r.serial.throughput_mean:,.0f}/sec | {r.parallel.throughput_mean:,.0f}/sec | **{change_mean:+.1f}%** |")
+
+        # Runtime info
+        serial_dur = r.serial.total_duration
+        parallel_dur = r.parallel.total_duration
+        serial_coll = r.serial.total_collections
+        parallel_coll = r.parallel.total_collections
+        lines.append(f"Runtime: {serial_dur + parallel_dur:.0f}s total "
+                     f"({serial_coll + parallel_coll} collections)")
+        lines.append("")
+
+        # Aligned table for realistic results
+        lines.append("| Metric           | Serial             | Parallel           | Change     |")
+        lines.append("|------------------|--------------------|--------------------|------------|")
+
+        # Throughput with stddev
+        s_tp = f"{r.serial.throughput_mean:,.0f} ± {r.serial.throughput_stdev:,.0f}/s"
+        p_tp = f"{r.parallel.throughput_mean:,.0f} ± {r.parallel.throughput_stdev:,.0f}/s"
+        change_str = f"{(r.speedup - 1) * 100:+.1f}%"
+        lines.append(f"| Throughput       | {s_tp:<18} | {p_tp:<18} | {change_str:<10} |")
+
         if r.serial.stw_pause_mean > 0:
-            stw_change = (r.parallel.stw_pause_mean / r.serial.stw_pause_mean - 1) * 100
-            lines.append(f"| STW pause (mean) | {r.serial.stw_pause_mean:.0f}ms | {r.parallel.stw_pause_mean:.0f}ms | {stw_change:+.0f}% |")
+            # STW pause mean with stddev
+            s_stw = f"{r.serial.stw_pause_mean:.0f} ± {r.serial.stw_pause_stdev:.0f}ms"
+            p_stw = f"{r.parallel.stw_pause_mean:.0f} ± {r.parallel.stw_pause_stdev:.0f}ms"
+            stw_change_str = f"{(r.parallel.stw_pause_mean / r.serial.stw_pause_mean - 1) * 100:+.0f}%"
+            lines.append(f"| STW pause (mean) | {s_stw:<18} | {p_stw:<18} | {stw_change_str:<10} |")
+
+            # STW pause max
+            s_max = f"{r.serial.stw_pause_max:.0f}ms"
+            p_max = f"{r.parallel.stw_pause_max:.0f}ms"
             stw_max_change = (r.parallel.stw_pause_max / r.serial.stw_pause_max - 1) * 100 if r.serial.stw_pause_max > 0 else 0
-            lines.append(f"| STW pause (max) | {r.serial.stw_pause_max:.0f}ms | {r.parallel.stw_pause_max:.0f}ms | {stw_max_change:+.0f}% |")
-        lines.append(f"| GC overhead | {r.serial.gc_overhead_mean:.1f}% | {r.parallel.gc_overhead_mean:.1f}% | {r.parallel.gc_overhead_mean - r.serial.gc_overhead_mean:+.1f}pp |")
+            stw_max_str = f"{stw_max_change:+.0f}%"
+            lines.append(f"| STW pause (max)  | {s_max:<18} | {p_max:<18} | {stw_max_str:<10} |")
+
+        # GC overhead (absolute change in percentage)
+        s_overhead = f"{r.serial.gc_overhead_mean:.1f}%"
+        p_overhead = f"{r.parallel.gc_overhead_mean:.1f}%"
+        overhead_change = r.parallel.gc_overhead_mean - r.serial.gc_overhead_mean
+        overhead_str = f"{overhead_change:+.1f}%"
+        lines.append(f"| GC overhead      | {s_overhead:<18} | {p_overhead:<18} | {overhead_str:<10} |")
         lines.append("")
 
-    # Synthetic results
-    if result.synthetic_cyclic or result.synthetic_ai:
-        lines.append("## Synthetic Workloads (Stress Tests)")
+    # Collection time benchmarks
+    if result.collection_results:
+        lines.append("## GC Collection Time (500k heap)")
         lines.append("")
-        lines.append("These represent upper-bound performance for GC-heavy workloads.")
+        lines.append("Time to collect a single 500,000 object heap. Lower is better.")
         lines.append("")
-        lines.append("| Benchmark | Serial | Parallel | Change |")
-        lines.append("|-----------|--------|----------|--------|")
 
-        if result.synthetic_cyclic:
-            r = result.synthetic_cyclic
-            c_mean = (r.speedup - 1) * 100
-            lines.append(f"| Cyclic | {r.serial.throughput_mean:,.0f}/sec | {r.parallel.throughput_mean:,.0f}/sec | **{c_mean:+.1f}%** |")
+        # Aligned table - wider heap type column for ai_workload, web_server
+        lines.append("| Heap Type    | Serial (ms)        | Parallel (ms)      | Speedup |")
+        lines.append("|--------------|--------------------|--------------------|---------|")
 
-        if result.synthetic_ai:
-            r = result.synthetic_ai
-            a_mean = (r.speedup - 1) * 100
-            lines.append(f"| AI | {r.serial.throughput_mean:,.0f}/sec | {r.parallel.throughput_mean:,.0f}/sec | **{a_mean:+.1f}%** |")
+        for coll in result.collection_results:
+            s_time = f"{coll.serial_time_ms:.1f} ± {coll.serial_stdev:.1f}"
+            p_time = f"{coll.parallel_time_ms:.1f} ± {coll.parallel_stdev:.1f}"
+            speedup_str = f"{coll.speedup:.2f}x"
+            lines.append(f"| {coll.heap_type:<12} | {s_time:<18} | {p_time:<18} | {speedup_str:<7} |")
+
+        # Geometric mean of collection speedups
+        if len(result.collection_results) > 1:
+            product = 1.0
+            for coll in result.collection_results:
+                product *= coll.speedup
+            gm_speedup = product ** (1.0 / len(result.collection_results))
+            gm_str = f"{gm_speedup:.2f}x"
+            lines.append(f"| Geomean      |                    |                    | {gm_str:<7} |")
+        lines.append("")
+
+    # Synthetic throughput results
+    if result.synthetic_by_heap:
+        lines.append("## Synthetic Throughput (Per Heap Type)")
+        lines.append("")
+        lines.append("Steady-state throughput with continuous allocation. Representative subset of heap types.")
+        lines.append("")
+
+        # Aligned table
+        lines.append("| Heap Type    | Serial             | Parallel           | Throughput | STW Change |")
+        lines.append("|--------------|--------------------|--------------------|------------|------------|")
+
+        for heap_type, comp in result.synthetic_by_heap.items():
+            s_tp = f"{comp.serial.throughput_mean:,.0f}/s"
+            p_tp = f"{comp.parallel.throughput_mean:,.0f}/s"
+            tp_change = f"{(comp.speedup - 1) * 100:+.1f}%"
+            if comp.serial.stw_pause_mean > 0:
+                stw_change = f"{(comp.parallel.stw_pause_mean / comp.serial.stw_pause_mean - 1) * 100:+.0f}%"
+            else:
+                stw_change = "N/A"
+            lines.append(f"| {heap_type:<12} | {s_tp:<18} | {p_tp:<18} | {tp_change:<10} | {stw_change:<10} |")
+
+        # Geometric mean summary
+        gm_speedup = f"{(result.geometric_mean_speedup - 1) * 100:+.1f}%"
+        gm_stw = f"{(result.geometric_mean_stw_reduction - 1) * 100:+.0f}%"
+        lines.append(f"| Geomean      |                    |                    | {gm_speedup:<10} | {gm_stw:<10} |")
+        lines.append("")
+
+        # STW Pause times table
+        lines.append("### STW Pause Times")
+        lines.append("")
+        lines.append("| Heap Type    | Serial Mean (ms) | Serial Max (ms) | Parallel Mean (ms) | Parallel Max (ms) |")
+        lines.append("|--------------|------------------|-----------------|--------------------|--------------------|")
+
+        for heap_type, comp in result.synthetic_by_heap.items():
+            s_mean = f"{comp.serial.stw_pause_mean:.0f}"
+            s_max = f"{comp.serial.stw_pause_max:.0f}"
+            p_mean = f"{comp.parallel.stw_pause_mean:.0f}"
+            p_max = f"{comp.parallel.stw_pause_max:.0f}"
+            lines.append(f"| {heap_type:<12} | {s_mean:<16} | {s_max:<15} | {p_mean:<18} | {p_max:<18} |")
+
         lines.append("")
 
     # Summary
@@ -930,9 +1598,16 @@ def format_markdown(result: SuiteResult) -> str:
     if result.realistic:
         pct = (result.realistic.speedup - 1) * 100
         if pct > 0:
-            lines.append(f"Parallel GC provides **{pct:.1f}% throughput improvement** on realistic workloads.")
+            lines.append(f"Parallel GC provides {pct:.1f}% throughput improvement on realistic workloads.")
         else:
-            lines.append(f"Parallel GC shows **{pct:.1f}% throughput change** on realistic workloads.")
+            lines.append(f"Parallel GC shows {pct:.1f}% throughput change on realistic workloads.")
+
+    if result.collection_results:
+        product = 1.0
+        for coll in result.collection_results:
+            product *= coll.speedup
+        gm_coll = product ** (1.0 / len(result.collection_results))
+        lines.append(f"GC collection time improved by {gm_coll:.2f}x (geometric mean across heap types).")
 
     return "\n".join(lines)
 
@@ -942,37 +1617,81 @@ def format_json(result: SuiteResult) -> str:
     def comparison_to_dict(comp: Optional[ComparisonResult]) -> Optional[Dict]:
         if comp is None:
             return None
+        stw_change = 0
+        if comp.serial.stw_pause_mean > 0:
+            stw_change = (comp.parallel.stw_pause_mean / comp.serial.stw_pause_mean - 1) * 100
         return {
             "name": comp.benchmark_name,
             "serial": {
                 "throughput_mean": comp.serial.throughput_mean,
-                "throughput_best": comp.serial.throughput_best,
-                "throughput_worst": comp.serial.throughput_worst,
+                "throughput_stdev": comp.serial.throughput_stdev,
                 "stw_pause_mean": comp.serial.stw_pause_mean,
+                "stw_pause_stdev": comp.serial.stw_pause_stdev,
                 "stw_pause_max": comp.serial.stw_pause_max,
                 "gc_overhead": comp.serial.gc_overhead_mean,
+                "total_duration_sec": comp.serial.total_duration,
+                "total_collections": comp.serial.total_collections,
             },
             "parallel": {
                 "throughput_mean": comp.parallel.throughput_mean,
-                "throughput_best": comp.parallel.throughput_best,
-                "throughput_worst": comp.parallel.throughput_worst,
+                "throughput_stdev": comp.parallel.throughput_stdev,
                 "stw_pause_mean": comp.parallel.stw_pause_mean,
+                "stw_pause_stdev": comp.parallel.stw_pause_stdev,
                 "stw_pause_max": comp.parallel.stw_pause_max,
                 "gc_overhead": comp.parallel.gc_overhead_mean,
+                "total_duration_sec": comp.parallel.total_duration,
+                "total_collections": comp.parallel.total_collections,
             },
-            "speedup": comp.speedup,
-            "speedup_best": comp.speedup_best,
-            "speedup_worst": comp.speedup_worst,
+            "throughput_change_pct": (comp.speedup - 1) * 100,
+            "stw_change_pct": stw_change,
         }
 
+    def collection_to_dict(coll: CollectionResult) -> Dict:
+        return {
+            "heap_type": coll.heap_type,
+            "heap_size": coll.heap_size,
+            "serial_time_ms": coll.serial_time_ms,
+            "serial_stdev": coll.serial_stdev,
+            "parallel_time_ms": coll.parallel_time_ms,
+            "parallel_stdev": coll.parallel_stdev,
+            "speedup": coll.speedup,
+            "num_runs": coll.num_runs,
+        }
+
+    synthetic_dict = {}
+    for heap_type, comp in result.synthetic_by_heap.items():
+        synthetic_dict[heap_type] = comparison_to_dict(comp)
+
+    collection_list = [collection_to_dict(c) for c in result.collection_results]
+
+    # Geometric mean of collection speedups
+    gm_collection = 1.0
+    if result.collection_results:
+        product = 1.0
+        for coll in result.collection_results:
+            product *= coll.speedup
+        gm_collection = product ** (1.0 / len(result.collection_results))
+
     data = {
-        "build_type": result.build_type,
-        "parallel_gc_available": result.parallel_gc_available,
-        "num_workers": result.num_workers,
+        "configuration": {
+            "build_type": result.build_type,
+            "parallel_gc_available": result.parallel_gc_available,
+            "num_workers": result.num_workers,
+            "num_threads": result.num_threads,
+            "duration_per_benchmark": result.duration_per_benchmark,
+            "num_runs": result.num_runs,
+            "heap_size": result.heap_size,
+        },
         "timestamp": result.timestamp,
         "realistic": comparison_to_dict(result.realistic),
-        "synthetic_cyclic": comparison_to_dict(result.synthetic_cyclic),
-        "synthetic_ai": comparison_to_dict(result.synthetic_ai),
+        "collection_results": collection_list,
+        "synthetic_by_heap": synthetic_dict,
+        "summary": {
+            "realistic_throughput_change_pct": (result.realistic.speedup - 1) * 100 if result.realistic else 0,
+            "collection_speedup_geomean": gm_collection,
+            "synthetic_throughput_geomean_pct": (result.geometric_mean_speedup - 1) * 100,
+            "synthetic_stw_geomean_pct": (result.geometric_mean_stw_reduction - 1) * 100,
+        },
     }
 
     return json.dumps(data, indent=2)
