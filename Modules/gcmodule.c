@@ -503,7 +503,7 @@ Enable parallel garbage collection with the specified number of workers.
 
 num_workers must be >= 2 (one coordinator + workers).
 
-Only available in GIL-based builds compiled with --with-parallel-gc.
+Available in all GIL-based builds (parallel GC is built-in).
 [clinic start generated code]*/
 
 static PyObject *
@@ -597,7 +597,7 @@ gc_enable_parallel_impl(PyObject *module, int num_workers)
     // No parallel GC available
     PyErr_SetString(PyExc_RuntimeError,
                     "Parallel GC not available. "
-                    "Use a free-threading build or --with-parallel-gc.");
+                    "Use a free-threading build or a standard GIL build.");
     return NULL;
 #endif
 }
@@ -611,7 +611,7 @@ Disable parallel garbage collection.
 Stops worker threads and switches back to incremental/serial GC.
 Can be re-enabled later with gc.enable_parallel().
 
-Only available in GIL-based builds compiled with --with-parallel-gc.
+Available in all GIL-based builds (parallel GC is built-in).
 [clinic start generated code]*/
 
 static PyObject *
@@ -657,7 +657,7 @@ gc_disable_parallel_impl(PyObject *module)
     // No parallel GC available
     PyErr_SetString(PyExc_RuntimeError,
                     "Parallel GC not available. "
-                    "Use a free-threading build or --with-parallel-gc.");
+                    "Use a free-threading build or a standard GIL build.");
     return NULL;
 #endif
 }
@@ -674,7 +674,7 @@ Returns:
     - 'enabled': bool - True if parallel GC is enabled
     - 'num_workers': int - Number of worker threads (or 0 if disabled)
 
-Only available in GIL-based builds compiled with --with-parallel-gc.
+Available in all GIL-based builds (parallel GC is built-in).
 [clinic start generated code]*/
 
 static PyObject *
@@ -765,7 +765,7 @@ Returns:
     - 'collections_succeeded': int - Times parallel marking succeeded (vs serial fallback)
     - 'workers': list - Per-worker statistics (objects_marked, steal_attempts, steal_successes)
 
-Only available in GIL-based builds compiled with --with-parallel-gc.
+Available in all GIL-based builds (parallel GC is built-in).
 [clinic start generated code]*/
 
 static PyObject *

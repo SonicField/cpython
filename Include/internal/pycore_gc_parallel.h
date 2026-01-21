@@ -21,7 +21,7 @@ extern "C" {
 #include "pycore_gc_barrier.h"     // _PyGCBarrier (shared with FTP)
 
 // Parallel GC Configuration
-// Only enabled when built with --with-parallel-gc
+// Unconditionally enabled for all GIL builds
 // Mutual exclusion with --disable-gil (free-threading uses different GC)
 
 #ifdef Py_PARALLEL_GC
