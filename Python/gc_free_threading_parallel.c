@@ -3796,6 +3796,55 @@ _PyGC_FTParallelGetStats(PyInterpreterState *interp)
     ADD_TIMING("cleanup_ns", cleanup_ns);
     ADD_TIMING("total_ns", total_ns);
 
+    // Abstract phases - provide a common interface across GIL and FTP collectors.
+    // These allow benchmarks to compare builds using identical phase names.
+    //
+    // scan_mark_ns: Core graph traversal to identify reachable objects.
+    //   FTP: stw0 + merge_refs + delayed_frees + mark_alive + bucket_assign +
+    //        update_refs + mark_heap + scan_heap
+    //
+    // finalization_ns: Weakref/finalize handling.
+    //   FTP: disable_deferred + find_weakrefs + stw1 + objs_decref +
+    //        weakref_callbacks + finalize + stw2 + resurrection
+    //
+    // dealloc_ns: Final deallocation and cleanup.
+    //   FTP: freelists + clear_weakrefs + stw3 + cleanup
+    //
+    // stw_pause_ns: Total time threads are stopped (not just barrier sync).
+    //   FTP has two STW periods:
+    //   - First STW: gc_start → find_weakrefs_end (merge, mark, scan, find_weakrefs)
+    //   - Second STW: finalize_end → clear_weakrefs_end (resurrection, freelists, clear)
+    int64_t scan_mark = stw0_ns + merge_refs_ns + delayed_frees_ns +
+                        mark_alive_ns + bucket_assign_ns +
+                        update_refs_ns + mark_heap_ns + scan_heap_ns;
+    int64_t finalization = disable_deferred_ns + find_weakrefs_ns +
+                           stw1_ns + objs_decref_ns +
+                           weakref_callbacks_ns + finalize_ns +
+                           stw2_ns + resurrection_ns;
+    int64_t dealloc = freelists_ns + clear_weakrefs_ns + stw3_ns + cleanup_ns;
+
+    // First STW period: from gc_start until world is resumed after find_weakrefs
+    // This includes: stw0 barrier + merge_refs + delayed_frees + mark_alive +
+    //                update_refs + mark_heap + scan_heap + find_weakrefs
+    int64_t stw_period_1 = 0;
+    if (interp->gc.gc_start_ns > 0 && interp->gc.find_weakrefs_end_ns > 0) {
+        stw_period_1 = interp->gc.find_weakrefs_end_ns - interp->gc.gc_start_ns;
+    }
+
+    // Second STW period: from entering STW2 until world is resumed after clear_weakrefs
+    // This includes: stw2 barrier + resurrection + freelists + clear_weakrefs
+    int64_t stw_period_2 = 0;
+    if (interp->gc.finalize_end_ns > 0 && interp->gc.clear_weakrefs_end_ns > 0) {
+        stw_period_2 = interp->gc.clear_weakrefs_end_ns - interp->gc.finalize_end_ns;
+    }
+
+    int64_t stw_pause = stw_period_1 + stw_period_2;
+
+    ADD_TIMING("scan_mark_ns", scan_mark);
+    ADD_TIMING("finalization_ns", finalization);
+    ADD_TIMING("dealloc_ns", dealloc);
+    ADD_TIMING("stw_pause_ns", stw_pause);
+
     #undef ADD_TIMING
 
     if (PyDict_SetItemString(result, "phase_timing", phase_timing) < 0) {
