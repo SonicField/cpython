@@ -22,6 +22,92 @@ extern "C" {
 #include "pycore_pythread.h"
 
 //-----------------------------------------------------------------------------
+// Atomic operation instrumentation (for debugging/analysis)
+//-----------------------------------------------------------------------------
+// Enable with: #define GC_DEBUG_ATOMICS 1
+// This tracks where atomic marking operations occur and their success rates.
+
+// Uncomment the line below to enable atomic instrumentation
+#define GC_DEBUG_ATOMICS 1
+
+#ifdef GC_DEBUG_ATOMICS
+
+#include <string.h>  // for memset
+
+// Phases where atomic marking can occur
+typedef enum {
+    GC_ATOMIC_PHASE_ROOT_DISTRIBUTE,  // Initial root distribution to workers
+    GC_ATOMIC_PHASE_PAGE_MARK,        // Marking objects on assigned pages
+    GC_ATOMIC_PHASE_TRAVERSE,         // Traversing object children
+    GC_ATOMIC_PHASE_PROPAGATE,        // Propagation phase (mark_alive)
+    GC_ATOMIC_PHASE_POOL_PROPAGATE,   // Pool-based propagation
+    GC_ATOMIC_PHASE_MARK_HEAP,        // Mark heap phase (TryMarkReachable)
+    GC_ATOMIC_PHASE_COUNT             // Number of phases
+} _PyGCAtomicPhase;
+
+// Per-phase statistics for atomic operations
+typedef struct {
+    size_t attempts;      // Total _PyGC_TryMarkAlive calls
+    size_t successes;     // Successful marks (we won the race)
+    size_t already_done;  // Object already marked by another worker
+} _PyGCAtomicPhaseStats;
+
+// Per-worker atomic stats (to avoid synchronisation during collection)
+typedef struct {
+    _PyGCAtomicPhaseStats phases[GC_ATOMIC_PHASE_COUNT];
+} _PyGCAtomicWorkerStats;
+
+// Thread-local current phase (set by GC code before calling TryMarkAlive)
+extern _Py_thread_local _PyGCAtomicPhase _PyGC_atomic_current_phase;
+
+// Thread-local worker stats (accumulated during collection)
+extern _Py_thread_local _PyGCAtomicWorkerStats _PyGC_atomic_worker_stats;
+
+// Set current phase for subsequent TryMarkAlive calls
+#define _PyGC_ATOMIC_SET_PHASE(phase) \
+    _PyGC_atomic_current_phase = (phase)
+
+// Record attempt and result (called from instrumented TryMarkAlive)
+#define _PyGC_ATOMIC_RECORD(success) do { \
+    _PyGCAtomicPhaseStats *ps = &_PyGC_atomic_worker_stats.phases[_PyGC_atomic_current_phase]; \
+    ps->attempts++; \
+    if (success) { ps->successes++; } else { ps->already_done++; } \
+} while (0)
+
+// Reset thread-local stats (call at start of collection)
+#define _PyGC_ATOMIC_RESET_STATS() \
+    memset(&_PyGC_atomic_worker_stats, 0, sizeof(_PyGC_atomic_worker_stats))
+
+// Print stats summary (call at end of collection with aggregated stats)
+PyAPI_FUNC(void) _PyGC_AtomicPrintStats(
+    _PyGCAtomicWorkerStats *all_workers,
+    int num_workers);
+
+// Get phase name for reporting
+static inline const char *
+_PyGC_AtomicPhaseName(_PyGCAtomicPhase phase)
+{
+    switch (phase) {
+        case GC_ATOMIC_PHASE_ROOT_DISTRIBUTE: return "root_distribute";
+        case GC_ATOMIC_PHASE_PAGE_MARK:       return "page_mark";
+        case GC_ATOMIC_PHASE_TRAVERSE:        return "traverse";
+        case GC_ATOMIC_PHASE_PROPAGATE:       return "propagate";
+        case GC_ATOMIC_PHASE_POOL_PROPAGATE:  return "pool_propagate";
+        case GC_ATOMIC_PHASE_MARK_HEAP:       return "mark_heap";
+        default:                              return "unknown";
+    }
+}
+
+#else  // !GC_DEBUG_ATOMICS
+
+// No-op macros when instrumentation is disabled
+#define _PyGC_ATOMIC_SET_PHASE(phase) ((void)0)
+#define _PyGC_ATOMIC_RECORD(success)  ((void)0)
+#define _PyGC_ATOMIC_RESET_STATS()    ((void)0)
+
+#endif  // GC_DEBUG_ATOMICS
+
+//-----------------------------------------------------------------------------
 // Atomic GC bit operations for parallel marking
 //-----------------------------------------------------------------------------
 
@@ -90,13 +176,15 @@ _PyGC_TryMarkAlive(PyObject *op)
 {
     // Relaxed read - filters most already-marked objects
     if (_Py_atomic_load_uint8_relaxed(&op->ob_gc_bits) & _PyGC_BITS_ALIVE) {
-        return 0;  // Already marked
+        _PyGC_ATOMIC_RECORD(0);  // Already marked
+        return 0;
     }
     // Relaxed write - no atomic RMW needed during STW
     // Compute new bits: set ALIVE, clear UNREACHABLE
     // Use relaxed store for portability (byte-level atomicity on all architectures)
     uint8_t new_bits = (op->ob_gc_bits | _PyGC_BITS_ALIVE) & ~_PyGC_BITS_UNREACHABLE;
     _Py_atomic_store_uint8_relaxed(&op->ob_gc_bits, new_bits);
+    _PyGC_ATOMIC_RECORD(1);  // We marked it
     return 1;
 }
 
@@ -122,10 +210,13 @@ _PyGC_TryMarkReachable(PyObject *op)
 {
     // Fast path: check if already reachable (relaxed load - very cheap)
     if (!(_Py_atomic_load_uint8_relaxed(&op->ob_gc_bits) & _PyGC_BITS_UNREACHABLE)) {
+        _PyGC_ATOMIC_RECORD(0);  // Already reachable
         return 0;  // Already reachable, skip atomic RMW
     }
     // Slow path: still unreachable (or race), do atomic clear
-    return _PyGC_TryClearBit(op, _PyGC_BITS_UNREACHABLE);
+    int result = _PyGC_TryClearBit(op, _PyGC_BITS_UNREACHABLE);
+    _PyGC_ATOMIC_RECORD(result);
+    return result;
 }
 
 //-----------------------------------------------------------------------------
@@ -168,6 +259,11 @@ typedef struct _PyGCWorkerState {
     size_t objects_marked;   // Objects marked by this worker
     size_t objects_stolen;   // Objects stolen from other workers
     size_t steals_attempted; // Number of steal attempts
+
+#ifdef GC_DEBUG_ATOMICS
+    // Per-phase atomic stats - copied from TLS after work completes
+    _PyGCAtomicWorkerStats atomic_stats;
+#endif
 } _PyGCWorkerState;
 
 // Work descriptor - describes work for a single collection

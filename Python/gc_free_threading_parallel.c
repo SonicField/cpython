@@ -32,6 +32,54 @@
 #define _PyGC_BUCKET_MIN_CAPACITY 16
 
 //=============================================================================
+// Atomic instrumentation support (only when GC_DEBUG_ATOMICS is enabled)
+//=============================================================================
+
+#ifdef GC_DEBUG_ATOMICS
+
+// Thread-local storage for atomic instrumentation
+_Py_thread_local _PyGCAtomicPhase _PyGC_atomic_current_phase = GC_ATOMIC_PHASE_TRAVERSE;
+_Py_thread_local _PyGCAtomicWorkerStats _PyGC_atomic_worker_stats = {0};
+
+// Print aggregated atomic stats at end of collection
+void
+_PyGC_AtomicPrintStats(_PyGCAtomicWorkerStats *all_workers, int num_workers)
+{
+    // Aggregate across all workers
+    _PyGCAtomicWorkerStats total = {0};
+    for (int w = 0; w < num_workers; w++) {
+        for (int p = 0; p < GC_ATOMIC_PHASE_COUNT; p++) {
+            total.phases[p].attempts += all_workers[w].phases[p].attempts;
+            total.phases[p].successes += all_workers[w].phases[p].successes;
+            total.phases[p].already_done += all_workers[w].phases[p].already_done;
+        }
+    }
+
+    // Print summary
+    fprintf(stderr, "\n=== GC Atomic Stats (%d workers) ===\n", num_workers);
+    size_t grand_attempts = 0, grand_successes = 0;
+    for (int p = 0; p < GC_ATOMIC_PHASE_COUNT; p++) {
+        _PyGCAtomicPhaseStats *ps = &total.phases[p];
+        if (ps->attempts > 0) {
+            double success_rate = 100.0 * ps->successes / ps->attempts;
+            fprintf(stderr, "  %-16s: attempts=%zu, success=%zu (%.1f%%), already_done=%zu\n",
+                    _PyGC_AtomicPhaseName(p), ps->attempts, ps->successes,
+                    success_rate, ps->already_done);
+            grand_attempts += ps->attempts;
+            grand_successes += ps->successes;
+        }
+    }
+    if (grand_attempts > 0) {
+        fprintf(stderr, "  TOTAL           : attempts=%zu, success=%zu (%.1f%%)\n",
+                grand_attempts, grand_successes,
+                100.0 * grand_successes / grand_attempts);
+    }
+    fprintf(stderr, "===================================\n\n");
+}
+
+#endif  // GC_DEBUG_ATOMICS
+
+//=============================================================================
 // Page Counting - O(heaps), not O(objects)
 //=============================================================================
 
@@ -528,6 +576,7 @@ static bool
 parallel_mark_block_visitor(const mi_heap_t *heap, const mi_heap_area_t *area,
                             void *block, size_t block_size, void *arg)
 {
+    _PyGC_ATOMIC_SET_PHASE(GC_ATOMIC_PHASE_PAGE_MARK);
     struct parallel_mark_page_args *args = (struct parallel_mark_page_args *)arg;
 
     PyObject *op = block_to_object(block, args->offset);
@@ -583,6 +632,7 @@ parallel_mark_page(mi_page_t *page, _PyGCWorkerState *worker)
 static int
 parallel_mark_visitproc(PyObject *child, void *arg)
 {
+    _PyGC_ATOMIC_SET_PHASE(GC_ATOMIC_PHASE_TRAVERSE);
     struct parallel_mark_page_args *a = (struct parallel_mark_page_args *)arg;
 
     if (child == NULL) {
@@ -896,6 +946,7 @@ typedef struct {
 static int
 propagate_visitproc(PyObject *child, void *arg)
 {
+    _PyGC_ATOMIC_SET_PHASE(GC_ATOMIC_PHASE_PROPAGATE);
     _PyGCWorkerState *worker = (_PyGCWorkerState *)arg;
 
     if (child == NULL) {
@@ -1687,6 +1738,11 @@ thread_pool_do_work(_PyGCThreadPool *pool, int worker_id)
         return;  // No work to do
     }
 
+#ifdef GC_DEBUG_ATOMICS
+    // Reset TLS stats at start of work
+    _PyGC_ATOMIC_RESET_STATS();
+#endif
+
     switch (work->type) {
         case _PyGC_WORK_PROPAGATE:
             propagate_pool_work(pool, worker_id);
@@ -1704,6 +1760,11 @@ thread_pool_do_work(_PyGCThreadPool *pool, int worker_id)
             // Unknown work type - do nothing
             break;
     }
+
+#ifdef GC_DEBUG_ATOMICS
+    // Copy TLS stats to worker state for aggregation after barrier
+    pool->workers[worker_id].atomic_stats = _PyGC_atomic_worker_stats;
+#endif
 }
 
 // Thread args for pool workers (passed at creation time)
@@ -1768,6 +1829,7 @@ thread_pool_worker(void *arg)
 static int
 propagate_pool_visitproc(PyObject *obj, void *arg)
 {
+    _PyGC_ATOMIC_SET_PHASE(GC_ATOMIC_PHASE_POOL_PROPAGATE);
     if (obj == NULL || !_PyObject_IS_GC(obj)) {
         return 0;
     }
@@ -2041,6 +2103,7 @@ _PyGC_ParallelPropagateAliveWithPool(PyInterpreterState *interp,
 
     // Distribute roots round-robin to worker deques
     // Do this BEFORE signaling workers to start
+    _PyGC_ATOMIC_SET_PHASE(GC_ATOMIC_PHASE_ROOT_DISTRIBUTE);
     for (size_t i = 0; i < num_roots; i++) {
         PyObject *root = initial_roots[i];
         if (root != NULL && _PyObject_IS_GC(root)) {
@@ -2068,6 +2131,16 @@ _PyGC_ParallelPropagateAliveWithPool(PyInterpreterState *interp,
 
     // All work is complete
     pool->collections_completed++;
+
+#ifdef GC_DEBUG_ATOMICS
+    // Print aggregated atomic stats from all workers
+    _PyGCAtomicWorkerStats all_stats[num_workers];
+    for (int i = 0; i < num_workers; i++) {
+        all_stats[i] = pool->workers[i].atomic_stats;
+    }
+    fprintf(stderr, "[pool_propagate phase]\n");
+    _PyGC_AtomicPrintStats(all_stats, num_workers);
+#endif
 
     return 0;
 }
@@ -2449,6 +2522,7 @@ _PyGC_ParallelUpdateRefs(PyInterpreterState *interp,
 static int
 par_mark_visitproc(PyObject *child, void *arg)
 {
+    _PyGC_ATOMIC_SET_PHASE(GC_ATOMIC_PHASE_MARK_HEAP);
     _PyGCWorkerState *worker = (_PyGCWorkerState *)arg;
 
     if (child == NULL) {
@@ -3362,6 +3436,17 @@ _PyGC_ParallelMarkHeapWithPool(PyInterpreterState *interp,
 
     // Clear work descriptor
     pool->current_work = NULL;
+
+#ifdef GC_DEBUG_ATOMICS
+    // Print aggregated atomic stats from all workers for mark_heap phase
+    int num_workers = pool->num_workers;
+    _PyGCAtomicWorkerStats all_stats[num_workers];
+    for (int i = 0; i < num_workers; i++) {
+        all_stats[i] = pool->workers[i].atomic_stats;
+    }
+    fprintf(stderr, "[mark_heap phase]\n");
+    _PyGC_AtomicPrintStats(all_stats, num_workers);
+#endif
 
     return work.error_flag ? -1 : 0;
 }
