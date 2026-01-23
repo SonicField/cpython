@@ -750,15 +750,14 @@ gc_mark_alive_from_roots(PyInterpreterState *interp, PyGC_Head *containers)
                 ENQUEUE_OBJECT(exec);
             }
 
-            // Visit f_globals - important for module-level frames where
-            // "local" variables are actually stored in the module's __dict__
-            ENQUEUE_OBJECT(frame->f_globals);
-
-            // Visit f_builtins
-            ENQUEUE_OBJECT(frame->f_builtins);
-
-            // Visit f_locals if set
-            ENQUEUE_OBJECT(frame->f_locals);
+            // Visit f_globals, f_builtins, f_locals - but ONLY if frame is NOT on C stack.
+            // These fields are documented as "Only valid if not on C stack" in
+            // pycore_interpframe_structs.h. FRAME_OWNED_BY_THREAD means frame IS on C stack.
+            if (frame->owner != FRAME_OWNED_BY_THREAD) {
+                ENQUEUE_OBJECT(frame->f_globals);
+                ENQUEUE_OBJECT(frame->f_builtins);
+                ENQUEUE_OBJECT(frame->f_locals);
+            }
 
             // Visit all stackrefs from stackpointer down to localsplus
             _PyStackRef *top = frame->stackpointer;
