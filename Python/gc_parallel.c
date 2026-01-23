@@ -91,7 +91,18 @@ gc_try_mark_reachable_atomic(PyGC_Head *gc)
 
     // If old value had COLLECTING set, we successfully claimed this object
     // If old value didn't have COLLECTING, another worker beat us (race case)
-    return (old_prev & _PyGC_PREV_MASK_COLLECTING) != 0;
+    int marked = (old_prev & _PyGC_PREV_MASK_COLLECTING) != 0;
+
+    // ARM memory ordering fix: acquire fence after successful mark.
+    // This ensures we see all writes to the object's fields before we
+    // traverse them in tp_traverse. Without this fence, on weakly-ordered
+    // architectures (ARM), we could read stale/uninitialised field values
+    // that were written by another thread before their release store.
+    if (marked) {
+        _Py_atomic_fence_acquire();
+    }
+
+    return marked;
 }
 
 // =============================================================================
@@ -231,11 +242,14 @@ _parallel_gc_worker_thread(void *arg)
     // to ensure all workers are initialized before Start() returns
     _PyGCBarrier_Wait(&par_gc->startup_barrier);
 
-    while (!_Py_atomic_load_int(&worker->should_exit)) {
-        // =======================================================================
-        // Wait for start signal from main thread
-        // =======================================================================
-        // Workers wait on mark_barrier until main thread signals work is ready
+    // Main worker loop
+    // IMPORTANT: We must wait at mark_barrier BEFORE checking should_exit to avoid
+    // a race condition with _PyGC_ParallelStop(). Without this, there's a window
+    // between startup_barrier and the first mark_barrier where Stop could set
+    // should_exit, causing some workers to skip mark_barrier while the main
+    // thread waits there, resulting in deadlock.
+    while (1) {
+        // Wait for start signal from main thread (or stop signal)
         _PyGCBarrier_Wait(&par_gc->mark_barrier);
 
         // Check if we should exit (signaled during shutdown)
@@ -365,22 +379,19 @@ _parallel_gc_worker_thread(void *arg)
         _PyGCBarrier_Wait(&par_gc->done_barrier);
     }
 
-    // Clean up Python thread state
-    // The order here is critical:
-    // 1. PyThreadState_Clear() requires current_fast_get()->interp == tstate->interp
-    //    so we MUST still be the current thread (TLS set)
-    // 2. PyThreadState_Delete() calls tstate_verify_not_active() which requires
-    //    the tstate is NOT the current thread (TLS cleared)
-    if (worker->tstate != NULL) {
-        // First clear while we're still the current thread
-        PyThreadState_Clear(worker->tstate);
-        // Now clear TLS so we're no longer "current"
-        _Py_tss_tstate = NULL;
-        _Py_tss_interp = NULL;
-        // Now delete (requires that we're NOT the current thread)
-        PyThreadState_Delete(worker->tstate);
-        worker->tstate = NULL;
-    }
+    // Clean up thread-local storage only.
+    // The actual PyThreadState cleanup (Clear + Delete) is done by the main
+    // thread in _PyGC_ParallelStop() after joining this thread. This avoids
+    // a race condition where:
+    // 1. Worker is doing PyThreadState_Clear/Delete (which touches interpreter state)
+    // 2. Main thread has already joined us and is creating new workers
+    // 3. New workers access structures while old workers are still cleaning up
+    //
+    // By having the main thread do cleanup after join, we ensure all cleanup
+    // completes before any re-initialization can occur.
+    _Py_tss_tstate = NULL;
+    _Py_tss_interp = NULL;
+    // Note: worker->tstate is cleaned up by main thread after join
 }
 
 // =============================================================================
@@ -625,10 +636,25 @@ _PyGC_ParallelStop(PyInterpreterState *interp)
     _PyGCBarrier_Wait(&par_gc->mark_barrier);
 
     // Wait for workers to finish (they exit after seeing should_exit)
+    // After joining, clean up each worker's tstate from the main thread.
+    // This avoids a race condition: if workers did cleanup themselves, there
+    // would be a window between done_barrier and thread exit where cleanup
+    // could race with re-initialization if enable_parallel() is called quickly.
     for (size_t i = 0; i < par_gc->num_workers; i++) {
         _PyParallelGCWorker *worker = &par_gc->workers[i];
 
         PyThread_join_thread(worker->thread);
+
+        // Clean up worker's PyThreadState from the main thread
+        // This is safe because:
+        // 1. The worker thread has exited (join returned)
+        // 2. The worker cleared its TLS, so tstate is not "current"
+        // 3. Main thread holds the GIL and has same interpreter
+        if (worker->tstate != NULL) {
+            PyThreadState_Clear(worker->tstate);
+            PyThreadState_Delete(worker->tstate);
+            worker->tstate = NULL;
+        }
 
         // Reset should_exit for potential restart
         _Py_atomic_store_int(&worker->should_exit, 0);
@@ -1015,6 +1041,31 @@ _PyGC_ParallelGetStats(PyInterpreterState *interp)
     ADD_TIMING("mark_ns", mark_ns);
     ADD_TIMING("cleanup_ns", cleanup_ns);
     ADD_TIMING("total_ns", total_ns);
+
+    // Abstract phases - provide a common interface across GIL and FTP collectors.
+    // These allow benchmarks to compare builds using identical phase names.
+    //
+    // scan_mark_ns: Core graph traversal to identify reachable objects.
+    //   GIL: update_refs + mark_alive + subtract_refs + mark
+    //
+    // finalization_ns: Weakref/finalize handling.
+    //   GIL: Not separately tracked (included in cleanup_ns), so report 0.
+    //
+    // dealloc_ns: Final deallocation and cleanup.
+    //   GIL: cleanup_ns
+    //
+    // stw_pause_ns: Time threads are stopped (main thread holds GIL exclusively).
+    //   GIL: update_refs and cleanup are serial; mark phases have parallel workers
+    //   doing concurrent work. Best approximation: serial phases only.
+    int64_t scan_mark = update_refs_ns + mark_alive_ns + subtract_refs_ns + mark_ns;
+    int64_t finalization = 0;  // Not separately tracked in GIL build
+    int64_t dealloc = cleanup_ns;
+    int64_t stw_pause = update_refs_ns + cleanup_ns;  // Serial phases only
+
+    ADD_TIMING("scan_mark_ns", scan_mark);
+    ADD_TIMING("finalization_ns", finalization);
+    ADD_TIMING("dealloc_ns", dealloc);
+    ADD_TIMING("stw_pause_ns", stw_pause);
 
     #undef ADD_TIMING
 
@@ -1850,14 +1901,14 @@ gc_collect_interpreter_roots(_PyParallelGCState *par_gc, PyInterpreterState *int
                 ENQUEUE_ROOT(exec);
             }
 
-            // Visit f_globals
-            ENQUEUE_ROOT(frame->f_globals);
-
-            // Visit f_builtins
-            ENQUEUE_ROOT(frame->f_builtins);
-
-            // Visit f_locals if set
-            ENQUEUE_ROOT(frame->f_locals);
+            // Visit f_globals, f_builtins, f_locals - but ONLY if frame is NOT on C stack.
+            // These fields are documented as "Only valid if not on C stack" in
+            // pycore_interpframe_structs.h. FRAME_OWNED_BY_THREAD means frame IS on C stack.
+            if (frame->owner != FRAME_OWNED_BY_THREAD) {
+                ENQUEUE_ROOT(frame->f_globals);
+                ENQUEUE_ROOT(frame->f_builtins);
+                ENQUEUE_ROOT(frame->f_locals);
+            }
 
             // Visit all stackrefs from stackpointer down to localsplus
             _PyStackRef *top = frame->stackpointer;
@@ -2005,10 +2056,14 @@ gc_expand_roots_to_queue(_PyParallelGCState *par_gc, PyInterpreterState *interp,
                 EXPAND_ROOT(exec);
             }
 
-            // Expand f_globals, f_builtins, f_locals
-            EXPAND_ROOT(frame->f_globals);
-            EXPAND_ROOT(frame->f_builtins);
-            EXPAND_ROOT(frame->f_locals);
+            // Expand f_globals, f_builtins, f_locals - but ONLY if frame is NOT on C stack.
+            // These fields are documented as "Only valid if not on C stack" in
+            // pycore_interpframe_structs.h. FRAME_OWNED_BY_THREAD means frame IS on C stack.
+            if (frame->owner != FRAME_OWNED_BY_THREAD) {
+                EXPAND_ROOT(frame->f_globals);
+                EXPAND_ROOT(frame->f_builtins);
+                EXPAND_ROOT(frame->f_locals);
+            }
 
             // Expand all stackrefs from stackpointer down to localsplus
             _PyStackRef *top = frame->stackpointer;
