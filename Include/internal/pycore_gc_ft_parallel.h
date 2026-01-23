@@ -184,6 +184,12 @@ _PyGC_TryMarkAlive(PyObject *op)
     // Use relaxed store for portability (byte-level atomicity on all architectures)
     uint8_t new_bits = (op->ob_gc_bits | _PyGC_BITS_ALIVE) & ~_PyGC_BITS_UNREACHABLE;
     _Py_atomic_store_uint8_relaxed(&op->ob_gc_bits, new_bits);
+
+    // Acquire fence: ensure subsequent reads of object's fields (for traversal)
+    // see consistent data. On x86 this compiles to nothing (TSO provides it).
+    // On ARM this ensures marks propagate quickly between cores.
+    _Py_atomic_fence_acquire();
+
     _PyGC_ATOMIC_RECORD(1);  // We marked it
     return 1;
 }
