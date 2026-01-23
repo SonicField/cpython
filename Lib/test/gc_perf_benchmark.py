@@ -889,9 +889,8 @@ class PauseTracker:
                     stats = get_parallel_stats()
                     if 'phase_timing' in stats:
                         pt = stats['phase_timing']
-                        stw_phases = ['mark_alive_ns', 'update_refs_ns', 'mark_heap_ns',
-                                     'scan_heap_ns', 'resurrection_ns']
-                        stw_ns = sum(pt.get(p, 0) for p in stw_phases)
+                        # Use the abstract stw_pause_ns phase (works for both GIL and FTP builds)
+                        stw_ns = pt.get('stw_pause_ns', 0)
                         self.stw_pauses_ms.append(stw_ns / 1e6)
                     else:
                         self.stw_pauses_ms.append(gc_time_ms)
@@ -1443,6 +1442,17 @@ def _format_change(ratio: float) -> str:
         return f"{pct:.1f}%"
 
 
+def _format_pause_ms(ms: float) -> str:
+    """Format pause time with appropriate precision.
+
+    Uses 1 decimal place for values < 10ms to avoid showing "0ms"
+    when the actual value is e.g. 0.4ms.
+    """
+    if ms < 10:
+        return f"{ms:.1f}"
+    return f"{ms:.0f}"
+
+
 def _print_comparison(comp: ComparisonResult):
     """Print a comparison result."""
     print(f"  Serial:   {comp.serial.throughput_mean:,.0f}/sec (range: {comp.serial.throughput_worst:,.0f} - {comp.serial.throughput_best:,.0f})")
@@ -1450,7 +1460,7 @@ def _print_comparison(comp: ComparisonResult):
     print(f"  Throughput change: {_format_change(comp.speedup)}")
     if comp.serial.stw_pause_mean > 0:
         stw_change = (comp.parallel.stw_pause_mean / comp.serial.stw_pause_mean - 1) * 100
-        print(f"  STW pause: {comp.serial.stw_pause_mean:.0f}ms -> {comp.parallel.stw_pause_mean:.0f}ms ({stw_change:+.0f}%)")
+        print(f"  STW pause: {_format_pause_ms(comp.serial.stw_pause_mean)}ms -> {_format_pause_ms(comp.parallel.stw_pause_mean)}ms ({stw_change:+.0f}%)")
 
 # =============================================================================
 # Output Formatters
@@ -1503,14 +1513,14 @@ def format_markdown(result: SuiteResult) -> str:
 
         if r.serial.stw_pause_mean > 0:
             # STW pause mean with stddev
-            s_stw = f"{r.serial.stw_pause_mean:.0f} ± {r.serial.stw_pause_stdev:.0f}ms"
-            p_stw = f"{r.parallel.stw_pause_mean:.0f} ± {r.parallel.stw_pause_stdev:.0f}ms"
+            s_stw = f"{_format_pause_ms(r.serial.stw_pause_mean)} ± {_format_pause_ms(r.serial.stw_pause_stdev)}ms"
+            p_stw = f"{_format_pause_ms(r.parallel.stw_pause_mean)} ± {_format_pause_ms(r.parallel.stw_pause_stdev)}ms"
             stw_change_str = f"{(r.parallel.stw_pause_mean / r.serial.stw_pause_mean - 1) * 100:+.0f}%"
             lines.append(f"| STW pause (mean) | {s_stw:<18} | {p_stw:<18} | {stw_change_str:<10} |")
 
             # STW pause max
-            s_max = f"{r.serial.stw_pause_max:.0f}ms"
-            p_max = f"{r.parallel.stw_pause_max:.0f}ms"
+            s_max = f"{_format_pause_ms(r.serial.stw_pause_max)}ms"
+            p_max = f"{_format_pause_ms(r.parallel.stw_pause_max)}ms"
             stw_max_change = (r.parallel.stw_pause_max / r.serial.stw_pause_max - 1) * 100 if r.serial.stw_pause_max > 0 else 0
             stw_max_str = f"{stw_max_change:+.0f}%"
             lines.append(f"| STW pause (max)  | {s_max:<18} | {p_max:<18} | {stw_max_str:<10} |")
@@ -1584,10 +1594,10 @@ def format_markdown(result: SuiteResult) -> str:
         lines.append("|--------------|------------------|-----------------|--------------------|--------------------|")
 
         for heap_type, comp in result.synthetic_by_heap.items():
-            s_mean = f"{comp.serial.stw_pause_mean:.0f}"
-            s_max = f"{comp.serial.stw_pause_max:.0f}"
-            p_mean = f"{comp.parallel.stw_pause_mean:.0f}"
-            p_max = f"{comp.parallel.stw_pause_max:.0f}"
+            s_mean = _format_pause_ms(comp.serial.stw_pause_mean)
+            s_max = _format_pause_ms(comp.serial.stw_pause_max)
+            p_mean = _format_pause_ms(comp.parallel.stw_pause_mean)
+            p_max = _format_pause_ms(comp.parallel.stw_pause_max)
             lines.append(f"| {heap_type:<12} | {s_mean:<16} | {s_max:<15} | {p_mean:<18} | {p_max:<18} |")
 
         lines.append("")
