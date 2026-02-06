@@ -21,6 +21,7 @@
 #include "pycore_frame.h"            // _PyInterpreterFrame, FRAME_CLEARED
 #include "pycore_stackref.h"         // PyStackRef_* functions
 #include "pycore_uniqueid.h"         // _PyObject_ClearUniqueId, batch release
+#include "pycore_tuple.h"            // _PyTuple_MaybeUntrack
 #include "frameobject.h"             // PyFrameObject
 
 // For mimalloc heap access - includes mimalloc/types.h for mi_page_t, mi_heap_t
@@ -1264,6 +1265,9 @@ _PyGC_TestParallelMark(int num_workers)
     // Step 2: Run parallel marking
     err = _PyGC_ParallelMarkAlive(interp, &state);
     if (err < 0) {
+        // Clear alive bits before freeing buckets to prevent assertion
+        // failures in subsequent GC runs
+        clear_alive_bits_all_buckets(&state);
         _PyGC_FreeBuckets(&state);
         goto cleanup;
     }
@@ -1355,8 +1359,22 @@ propagate_pool_work(_PyGCThreadPool *pool, int worker_id)
         while (!_PyGCLocalBuffer_IsEmpty(local)) {
             steal_attempts_since_work = 0;
             PyObject *obj = _PyGCLocalBuffer_Pop(local);
-            if (Py_TYPE(obj)->tp_traverse != NULL) {
-                Py_TYPE(obj)->tp_traverse(obj,
+            traverseproc traverse = Py_TYPE(obj)->tp_traverse;
+            if (traverse != NULL) {
+                // Special handling for tuples: untrack if possible and clear
+                // alive bit. This matches the serial gc_mark_traverse_tuple
+                // behavior and prevents alive bits from being left on untracked
+                // tuples.
+                if (traverse == PyTuple_Type.tp_traverse) {
+                    _PyTuple_MaybeUntrack(obj);
+                    if (!_PyObject_GC_IS_TRACKED(obj)) {
+                        // Tuple was untracked - clear alive bit
+                        _PyGC_AtomicClearBit(obj, _PyGC_BITS_ALIVE);
+                        worker->objects_marked++;
+                        continue;
+                    }
+                }
+                traverse(obj,
                     (visitproc)propagate_pool_visitproc,
                     (void *)worker);
             }

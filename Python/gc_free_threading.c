@@ -2547,6 +2547,9 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
     // Find unreachable objects
     int err = deduce_unreachable_heap(interp, state);
     if (err < 0) {
+        // Clean up alive bits that were set by gc_mark_alive_from_roots
+        // but not yet cleared by deduce_unreachable_heap
+        gc_visit_heaps(interp, &gc_clear_alive_bits, &state->base);
         _PyEval_StartTheWorld(interp);
         PyErr_NoMemory();
         return;
