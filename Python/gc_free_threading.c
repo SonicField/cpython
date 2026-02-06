@@ -1006,16 +1006,7 @@ merge_queued_objects(_PyThreadStateImpl *tstate, struct collection_state *state)
 {
     struct _brc_thread_state *brc = &tstate->brc;
 
-#ifdef Py_BRC_SHARDED
-    // Merge all shards' queues into local stack
-    for (int i = 0; i < _Py_BRC_NUM_SHARDS; i++) {
-        _PyObjectStack_Merge(&brc->local_objects_to_merge, &brc->queues[i]);
-    }
-    // Clear the bitmap since we're draining everything
-    brc->non_empty_shards = 0;
-#else
     _PyObjectStack_Merge(&brc->local_objects_to_merge, &brc->objects_to_merge);
-#endif
 
     PyObject *op;
     while ((op = _PyObjectStack_Pop(&brc->local_objects_to_merge)) != NULL) {

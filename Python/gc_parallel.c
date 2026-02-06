@@ -75,6 +75,9 @@ gc_is_collecting_atomic(PyGC_Head *gc)
 static inline int
 gc_try_mark_reachable_atomic(PyGC_Head *gc)
 {
+    // Precondition: gc must be a valid GC head pointer
+    assert(gc != NULL && "gc_try_mark_reachable_atomic: gc pointer must not be NULL");
+
     // Fast path: check if already marked reachable (relaxed load - very cheap)
     uintptr_t prev = _Py_atomic_load_uintptr_relaxed(&gc->_gc_prev);
     if (!(prev & _PyGC_PREV_MASK_COLLECTING)) {
@@ -402,8 +405,9 @@ int
 _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
 {
     if (num_workers == 0 || num_workers > _PyGC_MAX_WORKERS) {
-        PyErr_SetString(PyExc_ValueError,
-                       "num_workers must be between 1 and _PyGC_MAX_WORKERS");
+        PyErr_Format(PyExc_ValueError,
+                     "num_workers must be between 1 and %zu, got %zu",
+                     (size_t)_PyGC_MAX_WORKERS, num_workers);
         return -1;
     }
 
@@ -1636,6 +1640,26 @@ _PyGC_ParallelMoveUnreachable(
     young->_gc_next &= _PyGC_PREV_MASK;
     unreachable->_gc_next &= _PyGC_PREV_MASK;
 
+#ifdef Py_DEBUG
+    // Postcondition: verify young list is well-formed (doubly-linked)
+    {
+        PyGC_Head *check_prev = young;
+        PyGC_Head *check = _PyGCHead_NEXT(young);
+        while (check != young) {
+            PyGC_Head *check_prev_ptr = (PyGC_Head *)(check->_gc_prev & _PyGC_PREV_MASK);
+            assert(check_prev_ptr == check_prev &&
+                   "_PyGC_ParallelMoveUnreachable postcondition failed: "
+                   "young list _gc_prev linkage corrupted");
+            check_prev = check;
+            check = _PyGCHead_NEXT(check);
+        }
+        // Verify tail points back correctly
+        assert((PyGC_Head *)(young->_gc_prev) == check_prev &&
+               "_PyGC_ParallelMoveUnreachable postcondition failed: "
+               "young list tail linkage corrupted");
+    }
+#endif
+
     // Update success counter
     par_gc->parallel_collections_succeeded++;
 
@@ -1773,6 +1797,11 @@ _PyGC_ParallelSubtractRefs(PyInterpreterState *interp, PyGC_Head *base)
 
     // Need at least 2 split points (start and end)
     if (splits->count < 2) {
+#ifdef Py_DEBUG
+        fprintf(stderr, "[parallel_gc] _PyGC_ParallelSubtractRefs: "
+                "falling back to serial - split_vector.count=%zu (need >= 2)\n",
+                splits->count);
+#endif
         return 0;  // Not enough split points, fall back to serial
     }
 

@@ -28,7 +28,7 @@ extern "C" {
 // This tracks where atomic marking operations occur and their success rates.
 
 // Uncomment the line below to enable atomic instrumentation
-#define GC_DEBUG_ATOMICS 1
+#define GC_DEBUG_ATOMICS 0
 
 #ifdef GC_DEBUG_ATOMICS
 
@@ -434,29 +434,6 @@ PyAPI_FUNC(int) _PyGC_ParallelMarkHeapWithPool(
 
 // Pool-based parallel scan_heap
 PyAPI_FUNC(int) _PyGC_ParallelScanHeapWithPool(
-    PyInterpreterState *interp,
-    _PyGCFTParState *state,
-    struct _PyGCScanHeapResult *result);
-
-//-----------------------------------------------------------------------------
-// Ad-hoc thread versions (spawn threads per-collection instead of using pool)
-// These duplicate the pool-based functions but create threads on each call.
-// Retained for debugging and comparison with pool-based versions.
-//-----------------------------------------------------------------------------
-
-// Ad-hoc parallel update_refs (spawns its own threads)
-PyAPI_FUNC(Py_ssize_t) _PyGC_ParallelUpdateRefs(
-    PyInterpreterState *interp,
-    _PyGCFTParState *state);
-
-// Ad-hoc parallel mark_heap (spawns its own threads)
-PyAPI_FUNC(int) _PyGC_ParallelMarkHeap(
-    PyInterpreterState *interp,
-    _PyGCFTParState *state,
-    int skip_deferred_objects);
-
-// Ad-hoc parallel scan_heap (spawns its own threads)
-PyAPI_FUNC(int) _PyGC_ParallelScanHeap(
     PyInterpreterState *interp,
     _PyGCFTParState *state,
     struct _PyGCScanHeapResult *result);

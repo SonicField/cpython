@@ -1,5 +1,5 @@
-// Copyright (c) Meta Platforms, Inc. and affiliates.
-// Ported to CPython by Alex Turner
+// Parallel garbage collector for GIL-enabled Python.
+// This provides parallel marking support for gc.c.
 
 #ifndef Py_INTERNAL_GC_PARALLEL_H
 #define Py_INTERNAL_GC_PARALLEL_H
