@@ -1,0 +1,684 @@
+=== Running atomics analysis on ARM ===
+Meta authorized users only. Usage is subject to monitoring and recording.
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=11977, success=8377 (69.9%), already_done=3600
+  TOTAL           : attempts=11977, success=8377 (69.9%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=30284, success=26131 (86.3%), already_done=4153
+  TOTAL           : attempts=30284, success=26131 (86.3%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=50253, success=46099 (91.7%), already_done=4154
+  TOTAL           : attempts=50253, success=46099 (91.7%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=73804, success=69650 (94.4%), already_done=4154
+  TOTAL           : attempts=73804, success=69650 (94.4%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=109615, success=105462 (96.2%), already_done=4153
+  TOTAL           : attempts=109615, success=105462 (96.2%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=9615, success=5462 (56.8%), already_done=4153
+  TOTAL           : attempts=9615, success=5462 (56.8%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=9615, success=5462 (56.8%), already_done=4153
+  TOTAL           : attempts=9615, success=5462 (56.8%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=9615, success=5462 (56.8%), already_done=4153
+  TOTAL           : attempts=9615, success=5462 (56.8%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=93774, success=89618 (95.6%), already_done=4156
+  TOTAL           : attempts=93774, success=89618 (95.6%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=109615, success=105462 (96.2%), already_done=4153
+  TOTAL           : attempts=109615, success=105462 (96.2%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=9615, success=5462 (56.8%), already_done=4153
+  TOTAL           : attempts=9615, success=5462 (56.8%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=9616, success=5463 (56.8%), already_done=4153
+  TOTAL           : attempts=9616, success=5463 (56.8%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=9615, success=5462 (56.8%), already_done=4153
+  TOTAL           : attempts=9615, success=5462 (56.8%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=93771, success=89617 (95.6%), already_done=4154
+  TOTAL           : attempts=93771, success=89617 (95.6%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=109615, success=105462 (96.2%), already_done=4153
+  TOTAL           : attempts=109615, success=105462 (96.2%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=11852, success=7698 (65.0%), already_done=4154
+  TOTAL           : attempts=11852, success=7698 (65.0%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=95821, success=91667 (95.7%), already_done=4154
+  TOTAL           : attempts=95821, success=91667 (95.7%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=109616, success=105463 (96.2%), already_done=4153
+  TOTAL           : attempts=109616, success=105463 (96.2%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=9615, success=5462 (56.8%), already_done=4153
+  TOTAL           : attempts=9615, success=5462 (56.8%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=9615, success=5462 (56.8%), already_done=4153
+  TOTAL           : attempts=9615, success=5462 (56.8%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=9615, success=5462 (56.8%), already_done=4153
+  TOTAL           : attempts=9615, success=5462 (56.8%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=93772, success=89618 (95.6%), already_done=4154
+  TOTAL           : attempts=93772, success=89618 (95.6%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=109615, success=105462 (96.2%), already_done=4153
+  TOTAL           : attempts=109615, success=105462 (96.2%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=9615, success=5462 (56.8%), already_done=4153
+  TOTAL           : attempts=9615, success=5462 (56.8%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=9615, success=5462 (56.8%), already_done=4153
+  TOTAL           : attempts=9615, success=5462 (56.8%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=9615, success=5462 (56.8%), already_done=4153
+  TOTAL           : attempts=9615, success=5462 (56.8%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=93772, success=89618 (95.6%), already_done=4154
+  TOTAL           : attempts=93772, success=89618 (95.6%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=109616, success=105463 (96.2%), already_done=4153
+  TOTAL           : attempts=109616, success=105463 (96.2%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=11850, success=7697 (65.0%), already_done=4153
+  TOTAL           : attempts=11850, success=7697 (65.0%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=95821, success=91668 (95.7%), already_done=4153
+  TOTAL           : attempts=95821, success=91668 (95.7%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=207615, success=203462 (98.0%), already_done=4153
+  TOTAL           : attempts=207615, success=203462 (98.0%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=9615, success=5462 (56.8%), already_done=4153
+  TOTAL           : attempts=9615, success=5462 (56.8%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=9615, success=5462 (56.8%), already_done=4153
+  TOTAL           : attempts=9615, success=5462 (56.8%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=9618, success=5463 (56.8%), already_done=4155
+  TOTAL           : attempts=9618, success=5463 (56.8%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=93774, success=89618 (95.6%), already_done=4156
+  TOTAL           : attempts=93774, success=89618 (95.6%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=206411, success=202258 (98.0%), already_done=4153
+  TOTAL           : attempts=206411, success=202258 (98.0%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=207615, success=203462 (98.0%), already_done=4153
+  TOTAL           : attempts=207615, success=203462 (98.0%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=9615, success=5462 (56.8%), already_done=4153
+  TOTAL           : attempts=9615, success=5462 (56.8%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=9615, success=5462 (56.8%), already_done=4153
+  TOTAL           : attempts=9615, success=5462 (56.8%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=9615, success=5462 (56.8%), already_done=4153
+  TOTAL           : attempts=9615, success=5462 (56.8%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=93770, success=89617 (95.6%), already_done=4153
+  TOTAL           : attempts=93770, success=89617 (95.6%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=206411, success=202258 (98.0%), already_done=4153
+  TOTAL           : attempts=206411, success=202258 (98.0%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+[pool_propagate phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=207615, success=203462 (98.0%), already_done=4153
+  TOTAL           : attempts=207615, success=203462 (98.0%)
+===================================
+
+[mark_heap phase]
+
+=== GC Atomic Stats (8 workers) ===
+  pool_propagate  : attempts=49, success=49 (100.0%), already_done=0
+  mark_heap       : attempts=340, success=136 (40.0%), already_done=204
+  TOTAL           : attempts=389, success=185 (47.6%)
+===================================
+
+Parallel GC Atomic Pattern Analysis
+============================================================
+Python: 3.15.0a2+ free-threading build (heads/parallel-gc-dev-x86:37b1a76e449, Jan 23 2026, 07:48:53) [GCC 11.5.0 20240719 (Red Hat 11.5.0-14)]
+GIL disabled: True
+
+============================================================
+Heap type: independent (100,000 objects, 3 runs)
+============================================================
+
+--- Run 1 ---
+
+--- Run 2 ---
+
+--- Run 3 ---
+
+============================================================
+Heap type: chain (100,000 objects, 3 runs)
+============================================================
+
+--- Run 1 ---
+
+--- Run 2 ---
+
+--- Run 3 ---
+
+============================================================
+Heap type: web_server (100,000 objects, 3 runs)
+============================================================
+
+--- Run 1 ---
+
+--- Run 2 ---
+
+--- Run 3 ---
+
+============================================================
+Analysis complete
