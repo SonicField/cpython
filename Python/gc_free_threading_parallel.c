@@ -36,7 +36,7 @@
 // Atomic instrumentation support (only when GC_DEBUG_ATOMICS is enabled)
 //=============================================================================
 
-#ifdef GC_DEBUG_ATOMICS
+#if GC_DEBUG_ATOMICS
 
 // Thread-local storage for atomic instrumentation
 _Py_thread_local _PyGCAtomicPhase _PyGC_atomic_current_phase = GC_ATOMIC_PHASE_TRAVERSE;
@@ -1600,7 +1600,7 @@ thread_pool_do_work(_PyGCThreadPool *pool, int worker_id)
         return;  // No work to do
     }
 
-#ifdef GC_DEBUG_ATOMICS
+#if GC_DEBUG_ATOMICS
     // Reset TLS stats at start of work
     _PyGC_ATOMIC_RESET_STATS();
 #endif
@@ -1623,7 +1623,7 @@ thread_pool_do_work(_PyGCThreadPool *pool, int worker_id)
             break;
     }
 
-#ifdef GC_DEBUG_ATOMICS
+#if GC_DEBUG_ATOMICS
     // Copy TLS stats to worker state for aggregation after barrier
     pool->workers[worker_id].atomic_stats = _PyGC_atomic_worker_stats;
 #endif
@@ -1994,7 +1994,7 @@ _PyGC_ParallelPropagateAliveWithPool(PyInterpreterState *interp,
     // All work is complete
     pool->collections_completed++;
 
-#ifdef GC_DEBUG_ATOMICS
+#if GC_DEBUG_ATOMICS
     // Print aggregated atomic stats from all workers
     _PyGCAtomicWorkerStats all_stats[num_workers];
     for (int i = 0; i < num_workers; i++) {
@@ -2848,7 +2848,7 @@ _PyGC_ParallelMarkHeapWithPool(PyInterpreterState *interp,
     // Clear work descriptor
     pool->current_work = NULL;
 
-#ifdef GC_DEBUG_ATOMICS
+#if GC_DEBUG_ATOMICS
     // Print aggregated atomic stats from all workers for mark_heap phase
     int num_workers = pool->num_workers;
     _PyGCAtomicWorkerStats all_stats[num_workers];

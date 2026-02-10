@@ -30,7 +30,7 @@ extern "C" {
 // Uncomment the line below to enable atomic instrumentation
 #define GC_DEBUG_ATOMICS 0
 
-#ifdef GC_DEBUG_ATOMICS
+#if GC_DEBUG_ATOMICS
 
 #include <string.h>  // for memset
 
@@ -98,7 +98,7 @@ _PyGC_AtomicPhaseName(_PyGCAtomicPhase phase)
     }
 }
 
-#else  // !GC_DEBUG_ATOMICS
+#else  // GC_DEBUG_ATOMICS == 0
 
 // No-op macros when instrumentation is disabled
 #define _PyGC_ATOMIC_SET_PHASE(phase) ((void)0)
@@ -266,7 +266,7 @@ typedef struct _PyGCWorkerState {
     size_t objects_stolen;   // Objects stolen from other workers
     size_t steals_attempted; // Number of steal attempts
 
-#ifdef GC_DEBUG_ATOMICS
+#if GC_DEBUG_ATOMICS
     // Per-phase atomic stats - copied from TLS after work completes
     _PyGCAtomicWorkerStats atomic_stats;
 #endif
