@@ -11,6 +11,7 @@ to generate random inputs and check properties hold for all generated cases.
 """
 
 import gc
+import os
 import random
 import sys
 import threading
@@ -53,7 +54,10 @@ class PropertyTestBase(unittest.TestCase):
         self.was_enabled = gc.isenabled()
         gc.disable()
         gc.collect()  # Clean up before test
-        random.seed(42)  # Reproducible randomness
+        seed = int(os.environ.get('GC_TEST_SEED', '0')) or int.from_bytes(os.urandom(8), 'big')
+        self._seed = seed
+        random.seed(seed)
+        print(f"Random seed: {seed}", flush=True)
 
     def tearDown(self):
         """Restore GC state."""
