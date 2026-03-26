@@ -175,14 +175,15 @@ static inline int
 _PyGC_TryMarkAlive(PyObject *op)
 {
     // Relaxed read - filters most already-marked objects
-    if (_Py_atomic_load_uint8_relaxed(&op->ob_gc_bits) & _PyGC_BITS_ALIVE) {
+    uint8_t bits = _Py_atomic_load_uint8_relaxed(&op->ob_gc_bits);
+    if (bits & _PyGC_BITS_ALIVE) {
         _PyGC_ATOMIC_RECORD(0);  // Already marked
         return 0;
     }
     // Relaxed write - no atomic RMW needed during STW
     // Compute new bits: set ALIVE, clear UNREACHABLE
     // Use relaxed store for portability (byte-level atomicity on all architectures)
-    uint8_t new_bits = (op->ob_gc_bits | _PyGC_BITS_ALIVE) & ~_PyGC_BITS_UNREACHABLE;
+    uint8_t new_bits = (bits | _PyGC_BITS_ALIVE) & ~_PyGC_BITS_UNREACHABLE;
     _Py_atomic_store_uint8_relaxed(&op->ob_gc_bits, new_bits);
 
     // Acquire fence: ensure subsequent reads of object's fields (for traversal)
@@ -295,7 +296,7 @@ typedef struct {
     _PyGCWorkerState *workers;        // Now uses the full typedef
 
     // Result
-    volatile int error_flag;    // Set if any worker encounters an error
+    int error_flag;    // Set if any worker encounters an error (use atomics)
 
     // Statistics
     size_t *per_worker_marked;  // Per-worker objects marked (caller allocates)
@@ -331,7 +332,7 @@ typedef struct _PyGCThreadPool {
     _PyGCBarrier phase_barrier;    // For multi-phase operations
 
     // Worker control
-    volatile int shutdown;           // 1 = pool is shutting down
+    int shutdown;           // 1 = pool is shutting down (use atomics)
 
     // Debug/testing counters (for assertions)
     size_t threads_created;          // Total threads ever created (should equal num_workers-1)
@@ -370,8 +371,8 @@ typedef struct {
     _PyGCBarrier done_barrier;   // Sync at end of parallel work
 
     // Flags
-    volatile int error_flag;       // Set if any worker encounters an error
-    volatile int workers_done;     // Count of workers that finished
+    int error_flag;       // Set if any worker encounters an error (use atomics)
+    int workers_done;     // Count of workers that finished
 
     // Statistics
     size_t total_pages;

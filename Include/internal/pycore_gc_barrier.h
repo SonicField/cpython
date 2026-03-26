@@ -1,5 +1,4 @@
-// Copyright (c) Meta Platforms, Inc. and affiliates.
-// Ported to CPython by Alex Turner
+// Barrier synchronization for parallel GC worker threads.
 
 #ifndef Py_INTERNAL_GC_BARRIER_H
 #define Py_INTERNAL_GC_BARRIER_H

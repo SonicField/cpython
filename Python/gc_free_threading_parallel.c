@@ -559,7 +559,7 @@ block_to_object(void *block, Py_ssize_t offset)
     if (!_PyObject_GC_IS_TRACKED(op)) {
         return NULL;
     }
-    if (op->ob_gc_bits & _PyGC_BITS_FROZEN) {
+    if (_Py_atomic_load_uint8_relaxed(&op->ob_gc_bits) & _PyGC_BITS_FROZEN) {
         return NULL;
     }
     return op;
@@ -644,7 +644,7 @@ parallel_mark_visitproc(PyObject *child, void *arg)
     if (!_PyObject_GC_IS_TRACKED(child)) {
         return 0;
     }
-    if (child->ob_gc_bits & _PyGC_BITS_FROZEN) {
+    if (_Py_atomic_load_uint8_relaxed(&child->ob_gc_bits) & _PyGC_BITS_FROZEN) {
         return 0;
     }
 
@@ -862,7 +862,7 @@ _PyGC_ParallelMarkAlive(PyInterpreterState *interp,
     }
 
     // Initialize error flag and threads array
-    state->error_flag = 0;
+    _Py_atomic_store_int_relaxed(&state->error_flag, 0);
     state->threads = NULL;
 
     int result = 0;
@@ -906,7 +906,7 @@ _PyGC_ParallelMarkAlive(PyInterpreterState *interp,
         if (rc != 0) {
             // Failed to create thread - continue with fewer workers
             // but mark error so we know something went wrong
-            state->error_flag = 1;
+            _Py_atomic_store_int_relaxed(&state->error_flag, 1);
             break;
         }
         threads_created++;
@@ -914,7 +914,7 @@ _PyGC_ParallelMarkAlive(PyInterpreterState *interp,
 
     // Worker 0 runs on main thread
     if (parallel_worker_run(state, 0) < 0) {
-        state->error_flag = 1;
+        _Py_atomic_store_int_relaxed(&state->error_flag, 1);
     }
 
     // Wait for all spawned threads to complete
@@ -928,7 +928,7 @@ _PyGC_ParallelMarkAlive(PyInterpreterState *interp,
     state->threads = NULL;
 
     // Check for errors
-    if (state->error_flag) {
+    if (_Py_atomic_load_int_relaxed(&state->error_flag)) {
         result = -1;
     }
 
@@ -958,7 +958,7 @@ typedef struct {
     int num_workers;
     _PyGCWorkerState *workers;
     PyThread_handle_t *threads;
-    volatile int error_flag;
+    int error_flag;
     size_t total_marked;
 } _PyGCPropagateState;
 
@@ -983,7 +983,7 @@ propagate_visitproc(PyObject *child, void *arg)
     if (!_PyObject_GC_IS_TRACKED(child)) {
         return 0;
     }
-    if (child->ob_gc_bits & _PyGC_BITS_FROZEN) {
+    if (_Py_atomic_load_uint8_relaxed(&child->ob_gc_bits) & _PyGC_BITS_FROZEN) {
         return 0;
     }
 
@@ -1518,7 +1518,7 @@ update_refs_pool_work(_PyGCThreadPool *pool, int worker_id)
     for (size_t i = 0; i < bucket->num_pages; i++) {
         mi_page_t *page = bucket->pages[i];
         if (pool_update_refs_init_page(page, &args) < 0) {
-            work->error_flag = 1;
+            _Py_atomic_store_int_relaxed(&work->error_flag, 1);
             break;
         }
     }
@@ -1527,7 +1527,7 @@ update_refs_pool_work(_PyGCThreadPool *pool, int worker_id)
     _PyGCBarrier_Wait(&pool->phase_barrier);
 
     // Check for errors from other workers
-    if (work->error_flag) {
+    if (_Py_atomic_load_int_relaxed(&work->error_flag)) {
         return;
     }
 
@@ -1535,7 +1535,7 @@ update_refs_pool_work(_PyGCThreadPool *pool, int worker_id)
     for (size_t i = 0; i < bucket->num_pages; i++) {
         mi_page_t *page = bucket->pages[i];
         if (pool_update_refs_compute_page(page, &args) < 0) {
-            work->error_flag = 1;
+            _Py_atomic_store_int_relaxed(&work->error_flag, 1);
             break;
         }
     }
@@ -1574,7 +1574,7 @@ mark_heap_pool_work(_PyGCThreadPool *pool, int worker_id)
                             ? offset_pre : offset_base;
         if (pool_mark_heap_find_roots_page(page, worker, offset, work->skip_deferred,
                                            &roots_found) < 0) {
-            work->error_flag = 1;
+            _Py_atomic_store_int_relaxed(&work->error_flag, 1);
             return;
         }
     }
@@ -1595,7 +1595,7 @@ mark_heap_pool_work(_PyGCThreadPool *pool, int worker_id)
             made_progress = true;
             idle_rounds = 0;  // Reset idle counter on progress
             if (pool_mark_traverse_object(op, worker) < 0) {
-                work->error_flag = 1;
+                _Py_atomic_store_int_relaxed(&work->error_flag, 1);
                 return;
             }
         }
@@ -1608,7 +1608,7 @@ mark_heap_pool_work(_PyGCThreadPool *pool, int worker_id)
                 made_progress = true;
                 idle_rounds = 0;  // Reset idle counter on progress
                 if (pool_mark_traverse_object(op, worker) < 0) {
-                    work->error_flag = 1;
+                    _Py_atomic_store_int_relaxed(&work->error_flag, 1);
                     return;
                 }
                 break;
@@ -1720,7 +1720,7 @@ thread_pool_worker(void *arg)
         _PyGCBarrier_Wait(&pool->mark_barrier);
 
         // Check for shutdown after waking
-        if (pool->shutdown) {
+        if (_Py_atomic_load_int_relaxed(&pool->shutdown)) {
             break;
         }
 
@@ -1784,7 +1784,7 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
 
     pool->interp = interp;
     pool->num_workers = num_workers;
-    pool->shutdown = 0;
+    _Py_atomic_store_int_relaxed(&pool->shutdown, 0);
     pool->threads_created = 0;
     pool->collections_completed = 0;
 
@@ -1915,7 +1915,7 @@ _PyGC_ThreadPoolFini(PyInterpreterState *interp)
     }
 
     // Signal shutdown - workers will check this after mark_barrier
-    pool->shutdown = 1;
+    _Py_atomic_store_int_relaxed(&pool->shutdown, 1);
 
     // Release workers from mark_barrier so they can see shutdown flag
     // Main thread participates in barrier to release all workers
@@ -2095,14 +2095,14 @@ typedef struct {
 static inline int
 par_gc_is_frozen(PyObject *op)
 {
-    return (op->ob_gc_bits & _PyGC_BITS_FROZEN) != 0;
+    return (_Py_atomic_load_uint8_relaxed(&op->ob_gc_bits) & _PyGC_BITS_FROZEN) != 0;
 }
 
 // Check if object is alive (marked in mark_alive phase)
 static inline int
 par_gc_is_alive(PyObject *op)
 {
-    return (op->ob_gc_bits & _PyGC_BITS_ALIVE) != 0;
+    return (_Py_atomic_load_uint8_relaxed(&op->ob_gc_bits) & _PyGC_BITS_ALIVE) != 0;
 }
 
 // Atomic version of visit_decref for parallel update_refs.
@@ -2335,7 +2335,7 @@ par_mark_visitproc(PyObject *child, void *arg)
     if (!_PyObject_GC_IS_TRACKED(child)) {
         return 0;
     }
-    if (child->ob_gc_bits & _PyGC_BITS_FROZEN) {
+    if (_Py_atomic_load_uint8_relaxed(&child->ob_gc_bits) & _PyGC_BITS_FROZEN) {
         return 0;
     }
 
@@ -2386,7 +2386,7 @@ mark_heap_roots_visitor(const mi_heap_t *heap, const mi_heap_area_t *area,
 
     // Skip if already marked alive (by previous gc_mark_alive phase)
     // But ensure UNREACHABLE bit is cleared for consistency with scan_heap
-    if (op->ob_gc_bits & _PyGC_BITS_ALIVE) {
+    if (_Py_atomic_load_uint8_relaxed(&op->ob_gc_bits) & _PyGC_BITS_ALIVE) {
         _PyGC_TryClearBit(op, _PyGC_BITS_UNREACHABLE);
         return true;
     }
@@ -2848,7 +2848,7 @@ _PyGC_ParallelUpdateRefsWithPool(PyInterpreterState *interp,
 
     // Sum up candidates
     Py_ssize_t total_candidates = 0;
-    if (!work.error_flag) {
+    if (!_Py_atomic_load_int_relaxed(&work.error_flag)) {
         for (int i = 0; i < pool->num_workers; i++) {
             total_candidates += per_worker_refs[i];
         }
@@ -2856,7 +2856,7 @@ _PyGC_ParallelUpdateRefsWithPool(PyInterpreterState *interp,
 
     PyMem_RawFree(per_worker_refs);
 
-    return work.error_flag ? -1 : total_candidates;
+    return _Py_atomic_load_int_relaxed(&work.error_flag) ? -1 : total_candidates;
 }
 
 // Pool-based parallel mark_heap
@@ -2916,7 +2916,7 @@ _PyGC_ParallelMarkHeapWithPool(PyInterpreterState *interp,
     _PyGC_AtomicPrintStats(all_stats, num_workers);
 #endif
 
-    return work.error_flag ? -1 : 0;
+    return _Py_atomic_load_int_relaxed(&work.error_flag) ? -1 : 0;
 }
 
 // Context for scan page enumeration callback
@@ -3120,7 +3120,7 @@ _PyGC_ParallelScanHeapWithPool(PyInterpreterState *interp,
     PyMem_RawFree(page_array);
     PyMem_RawFree(scan_workers);
 
-    return work.error_flag ? -1 : 0;
+    return _Py_atomic_load_int_relaxed(&work.error_flag) ? -1 : 0;
 }
 
 //-----------------------------------------------------------------------------

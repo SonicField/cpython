@@ -1,5 +1,4 @@
-// Parallel Garbage Collection for CPython
-// Ported from CinderX ParallelGC by Alex Turner
+// Parallel Garbage Collection for CPython (GIL-enabled builds)
 
 #include "Python.h"
 
@@ -20,18 +19,18 @@
 // =============================================================================
 
 // Get gc_refs count from PyGC_Head
-// (Mirrors gc_get_refs() from Python/gc.c)
+// (Mirrors gc_get_refs() from Python/gc.c, atomic for TSAN correctness)
 static inline Py_ssize_t
 gc_get_refs(PyGC_Head *g)
 {
-    return (Py_ssize_t)(g->_gc_prev >> _PyGC_PREV_SHIFT);
+    return (Py_ssize_t)(_Py_atomic_load_uintptr_relaxed(&g->_gc_prev) >> _PyGC_PREV_SHIFT);
 }
 
-// Check if object has COLLECTING flag set (non-atomic version)
+// Check if object has COLLECTING flag set (atomic for TSAN correctness)
 static inline int
 gc_is_collecting(PyGC_Head *g)
 {
-    return (g->_gc_prev & _PyGC_PREV_MASK_COLLECTING) != 0;
+    return (_Py_atomic_load_uintptr_relaxed(&g->_gc_prev) & _PyGC_PREV_MASK_COLLECTING) != 0;
 }
 
 // =============================================================================
@@ -341,7 +340,9 @@ _parallel_gc_worker_thread(void *arg)
                     Py_ssize_t refs = gc_get_refs(gc);
                     if (refs > 0) {
                         // Mark as reachable and push to local buffer
-                        gc->_gc_prev &= ~_PyGC_PREV_MASK_COLLECTING;
+                        // Use atomic to match other accesses to _gc_prev (TSAN)
+                        _Py_atomic_and_uintptr(&gc->_gc_prev,
+                                               ~_PyGC_PREV_MASK_COLLECTING);
                         PyObject *op = _Py_FROM_GC(gc);
                         worker->roots_in_slice++;
 
@@ -1173,9 +1174,10 @@ _PyGCWorkQueue_Init(_PyGCWorkQueue *queue)
     queue->capacity = _PyGC_QUEUE_INITIAL_BLOCKS;
 
     // Reset indices and completion flag
-    queue->write_index = 0;
-    queue->read_index = 0;
-    queue->producer_done = 0;
+    // Use atomic stores for TSAN: these fields are accessed atomically by workers
+    _Py_atomic_store_ssize_relaxed(&queue->write_index, 0);
+    _Py_atomic_store_ssize_relaxed(&queue->read_index, 0);
+    _Py_atomic_store_int_relaxed(&queue->producer_done, 0);
 
     return 0;
 }
@@ -1197,9 +1199,10 @@ _PyGCWorkQueue_Reset(_PyGCWorkQueue *queue)
 {
     // Reset for new collection, keeping any allocated capacity
     queue->num_blocks = 0;
-    queue->write_index = 0;
-    queue->read_index = 0;
-    queue->producer_done = 0;
+    // Use atomic stores for TSAN: these fields are accessed atomically by workers
+    _Py_atomic_store_ssize_relaxed(&queue->write_index, 0);
+    _Py_atomic_store_ssize_relaxed(&queue->read_index, 0);
+    _Py_atomic_store_int_relaxed(&queue->producer_done, 0);
 }
 
 // Grow the block array when capacity is exceeded
@@ -1236,7 +1239,8 @@ int
 _PyGCWorkQueue_Push(_PyGCWorkQueue *queue, PyObject *obj)
 {
     // Calculate block and offset for current write position
-    Py_ssize_t idx = queue->write_index;
+    // Relaxed load: single producer, but must match atomic stores for TSAN
+    Py_ssize_t idx = _Py_atomic_load_ssize_relaxed(&queue->write_index);
     Py_ssize_t block = idx / _PyGC_QUEUE_BLOCK_SIZE;
     Py_ssize_t offset = idx % _PyGC_QUEUE_BLOCK_SIZE;
 

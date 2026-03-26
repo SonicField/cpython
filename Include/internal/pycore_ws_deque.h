@@ -1,5 +1,4 @@
-// Copyright (c) Meta Platforms, Inc. and affiliates.
-// Ported to CPython by Alex Turner
+// Chase-Lev work-stealing deque for parallel GC.
 
 #ifndef Py_INTERNAL_WS_DEQUE_H
 #define Py_INTERNAL_WS_DEQUE_H
