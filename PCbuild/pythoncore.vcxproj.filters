@@ -543,6 +543,9 @@
     <ClInclude Include="..\Include\internal\pycore_weakref.h">
       <Filter>Include\internal</Filter>
     </ClInclude>
+    <ClInclude Include="..\Include\internal\pycore_ws_deque.h">
+      <Filter>Include\internal</Filter>
+    </ClInclude>
     <ClInclude Include="..\Include\internal\pycore_abstract.h">
       <Filter>Include\internal</Filter>
     </ClInclude>
@@ -661,6 +664,15 @@
       <Filter>Include\internal</Filter>
     </ClInclude>
     <ClInclude Include="..\Include\internal\pycore_gc.h">
+      <Filter>Include\internal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\Include\internal\pycore_gc_barrier.h">
+      <Filter>Include\internal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\Include\internal\pycore_gc_ft_parallel.h">
+      <Filter>Include\internal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\Include\internal\pycore_gc_parallel.h">
       <Filter>Include\internal</Filter>
     </ClInclude>
     <ClInclude Include="..\Include\internal\pycore_genobject.h">
@@ -1409,7 +1421,13 @@
     <ClCompile Include="..\Python\gc_free_threading.c">
       <Filter>Python</Filter>
     </ClCompile>
+    <ClCompile Include="..\Python\gc_free_threading_parallel.c">
+      <Filter>Python</Filter>
+    </ClCompile>
     <ClCompile Include="..\Python\gc_gil.c">
+      <Filter>Python</Filter>
+    </ClCompile>
+    <ClCompile Include="..\Python\gc_parallel.c">
       <Filter>Python</Filter>
     </ClCompile>
     <ClCompile Include="..\Python\getargs.c">

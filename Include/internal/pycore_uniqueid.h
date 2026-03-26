@@ -33,6 +33,16 @@ extern Py_ssize_t _PyObject_AssignUniqueId(PyObject *obj);
 // Releases the allocated id back to the pool.
 extern void _PyObject_ReleaseUniqueId(Py_ssize_t unique_id);
 
+// Batch release unique IDs without locking.
+// MUST only be called during Stop-The-World when no other threads are running.
+extern void _PyObject_ReleaseUniqueIdBatch_NoLock(PyInterpreterState *interp,
+                                                   Py_ssize_t *ids,
+                                                   size_t count);
+
+// Clears the unique ID from the object and returns it without releasing.
+// The caller is responsible for batch-releasing collected IDs.
+extern Py_ssize_t _PyObject_ClearUniqueId(PyObject *obj);
+
 // Releases the allocated id back to the pool.
 extern void _PyObject_DisablePerThreadRefcounting(PyObject *obj);
 

@@ -25,6 +25,9 @@
 #include "pycore_time.h"          // _PyTime_Init()
 #include "pycore_uop.h"           // UOP_BUFFER_SIZE
 #include "pycore_uniqueid.h"      // _PyObject_FinalizePerThreadRefcounts()
+#ifdef Py_PARALLEL_GC
+#include "pycore_gc_parallel.h"   // _PyGC_ParallelFini()
+#endif
 
 
 /* --------------------------------------------------------------------------
@@ -732,6 +735,18 @@ interpreter_clear(PyInterpreterState *interp, PyThreadState *tstate)
     if (_PySys_Audit(tstate, "cpython.PyInterpreterState_Clear", NULL) < 0) {
         _PyErr_Clear(tstate);
     }
+
+#ifdef Py_PARALLEL_GC
+    /* Shutdown parallel GC workers before clearing thread states.
+       Workers have their own Python thread states, which must be cleaned up
+       by the worker threads themselves (correct order for Clear/Delete).
+       If we try to clear them here, the assertions in PyThreadState_Clear()
+       will fail because:
+       1. Workers may still be running (tstate still "current")
+       2. Workers may have already cleaned up their own tstate
+       This MUST happen before the _Py_FOR_EACH_TSTATE_BEGIN loop below. */
+    _PyGC_ParallelFini(interp);
+#endif
 
     // Clear the current/main thread state last.
     _Py_FOR_EACH_TSTATE_BEGIN(interp, p) {

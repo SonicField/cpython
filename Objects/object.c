@@ -372,9 +372,8 @@ is_dead(PyObject *o)
 static int
 _Py_DecRefSharedIsDead(PyObject *o, const char *filename, int lineno)
 {
-    // Should we queue the object for the owning thread to merge?
+    // Cross-thread decref: need CAS to set QUEUED flag on first access
     int should_queue;
-
     Py_ssize_t new_shared;
     Py_ssize_t shared = _Py_atomic_load_ssize_relaxed(&o->ob_ref_shared);
     do {

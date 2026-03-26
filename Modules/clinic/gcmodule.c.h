@@ -150,6 +150,30 @@ exit:
     return return_value;
 }
 
+PyDoc_STRVAR(gc_collect_async__doc__,
+"collect_async($module, /)\n"
+"--\n"
+"\n"
+"Schedule a garbage collection to run soon and return immediately.\n"
+"\n"
+"The collection runs asynchronously; this function does not wait for it\n"
+"to complete. This is useful when you want to hint to the garbage collector\n"
+"that now would be a good time to run, without blocking the current thread.\n"
+"\n"
+"Returns 0 (no objects have been collected yet when the function returns).");
+
+#define GC_COLLECT_ASYNC_METHODDEF    \
+    {"collect_async", (PyCFunction)gc_collect_async, METH_NOARGS, gc_collect_async__doc__},
+
+static PyObject *
+gc_collect_async_impl(PyObject *module);
+
+static PyObject *
+gc_collect_async(PyObject *module, PyObject *Py_UNUSED(ignored))
+{
+    return gc_collect_async_impl(module);
+}
+
 PyDoc_STRVAR(gc_set_debug__doc__,
 "set_debug($module, flags, /)\n"
 "--\n"
@@ -583,4 +607,148 @@ gc_get_freeze_count(PyObject *module, PyObject *Py_UNUSED(ignored))
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=19738854607938db input=a9049054013a1b77]*/
+
+PyDoc_STRVAR(gc_enable_parallel__doc__,
+"enable_parallel($module, /, num_workers)\n"
+"--\n"
+"\n"
+"Enable parallel garbage collection with the specified number of workers.\n"
+"\n"
+"num_workers must be >= 2 (one coordinator + workers).\n"
+"\n"
+"Only available in GIL-based builds compiled with --with-parallel-gc.");
+
+#define GC_ENABLE_PARALLEL_METHODDEF    \
+    {"enable_parallel", _PyCFunction_CAST(gc_enable_parallel), METH_FASTCALL|METH_KEYWORDS, gc_enable_parallel__doc__},
+
+static PyObject *
+gc_enable_parallel_impl(PyObject *module, int num_workers);
+
+static PyObject *
+gc_enable_parallel(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObject *kwnames)
+{
+    PyObject *return_value = NULL;
+    #if defined(Py_BUILD_CORE) && !defined(Py_BUILD_CORE_MODULE)
+
+    #define NUM_KEYWORDS 1
+    static struct {
+        PyGC_Head _this_is_not_used;
+        PyObject_VAR_HEAD
+        Py_hash_t ob_hash;
+        PyObject *ob_item[NUM_KEYWORDS];
+    } _kwtuple = {
+        .ob_base = PyVarObject_HEAD_INIT(&PyTuple_Type, NUM_KEYWORDS)
+        .ob_hash = -1,
+        .ob_item = { &_Py_ID(num_workers), },
+    };
+    #undef NUM_KEYWORDS
+    #define KWTUPLE (&_kwtuple.ob_base.ob_base)
+
+    #else  // !Py_BUILD_CORE
+    #  define KWTUPLE NULL
+    #endif  // !Py_BUILD_CORE
+
+    static const char * const _keywords[] = {"num_workers", NULL};
+    static _PyArg_Parser _parser = {
+        .keywords = _keywords,
+        .fname = "enable_parallel",
+        .kwtuple = KWTUPLE,
+    };
+    #undef KWTUPLE
+    PyObject *argsbuf[1];
+    int num_workers;
+
+    args = _PyArg_UnpackKeywords(args, nargs, NULL, kwnames, &_parser,
+            /*minpos*/ 1, /*maxpos*/ 1, /*minkw*/ 0, /*varpos*/ 0, argsbuf);
+    if (!args) {
+        goto exit;
+    }
+    num_workers = PyLong_AsInt(args[0]);
+    if (num_workers == -1 && PyErr_Occurred()) {
+        goto exit;
+    }
+    return_value = gc_enable_parallel_impl(module, num_workers);
+
+exit:
+    return return_value;
+}
+
+PyDoc_STRVAR(gc_disable_parallel__doc__,
+"disable_parallel($module, /)\n"
+"--\n"
+"\n"
+"Disable parallel garbage collection.\n"
+"\n"
+"Stops worker threads and switches back to incremental/serial GC.\n"
+"Can be re-enabled later with gc.enable_parallel().\n"
+"\n"
+"Only available in GIL-based builds compiled with --with-parallel-gc.");
+
+#define GC_DISABLE_PARALLEL_METHODDEF    \
+    {"disable_parallel", (PyCFunction)gc_disable_parallel, METH_NOARGS, gc_disable_parallel__doc__},
+
+static PyObject *
+gc_disable_parallel_impl(PyObject *module);
+
+static PyObject *
+gc_disable_parallel(PyObject *module, PyObject *Py_UNUSED(ignored))
+{
+    return gc_disable_parallel_impl(module);
+}
+
+PyDoc_STRVAR(gc_get_parallel_config__doc__,
+"get_parallel_config($module, /)\n"
+"--\n"
+"\n"
+"Return parallel GC configuration as a dictionary.\n"
+"\n"
+"Returns:\n"
+"    Dictionary with keys:\n"
+"    - \'available\': bool - True if parallel GC is available\n"
+"    - \'enabled\': bool - True if parallel GC is enabled\n"
+"    - \'num_workers\': int - Number of worker threads (or 0 if disabled)\n"
+"\n"
+"Only available in GIL-based builds compiled with --with-parallel-gc.");
+
+#define GC_GET_PARALLEL_CONFIG_METHODDEF    \
+    {"get_parallel_config", (PyCFunction)gc_get_parallel_config, METH_NOARGS, gc_get_parallel_config__doc__},
+
+static PyObject *
+gc_get_parallel_config_impl(PyObject *module);
+
+static PyObject *
+gc_get_parallel_config(PyObject *module, PyObject *Py_UNUSED(ignored))
+{
+    return gc_get_parallel_config_impl(module);
+}
+
+PyDoc_STRVAR(gc_get_parallel_stats__doc__,
+"get_parallel_stats($module, /)\n"
+"--\n"
+"\n"
+"Return parallel GC statistics as a dictionary.\n"
+"\n"
+"Returns:\n"
+"    Dictionary with keys:\n"
+"    - \'enabled\': bool - True if parallel GC is enabled\n"
+"    - \'num_workers\': int - Number of worker threads\n"
+"    - \'roots_found\': int - Number of roots identified in last collection\n"
+"    - \'roots_distributed\': int - Number of roots distributed to workers\n"
+"    - \'collections_attempted\': int - Times parallel marking was attempted\n"
+"    - \'collections_succeeded\': int - Times parallel marking succeeded (vs serial fallback)\n"
+"    - \'workers\': list - Per-worker statistics (objects_marked, steal_attempts, steal_successes)\n"
+"\n"
+"Only available in GIL-based builds compiled with --with-parallel-gc.");
+
+#define GC_GET_PARALLEL_STATS_METHODDEF    \
+    {"get_parallel_stats", (PyCFunction)gc_get_parallel_stats, METH_NOARGS, gc_get_parallel_stats__doc__},
+
+static PyObject *
+gc_get_parallel_stats_impl(PyObject *module);
+
+static PyObject *
+gc_get_parallel_stats(PyObject *module, PyObject *Py_UNUSED(ignored))
+{
+    return gc_get_parallel_stats_impl(module);
+}
+/*[clinic end generated code: output=ba2ec0c1ff049282 input=a9049054013a1b77]*/

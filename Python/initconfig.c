@@ -146,6 +146,9 @@ static const PyConfigSpec PYCONFIG_SPEC[] = {
     SPEC(enable_gil, INT, READ_ONLY, NO_SYS),
     SPEC(tlbc_enabled, INT, READ_ONLY, NO_SYS),
 #endif
+#if defined(Py_PARALLEL_GC) || defined(Py_GIL_DISABLED)
+    SPEC(parallel_gc, INT, READ_ONLY, NO_SYS),
+#endif
     SPEC(faulthandler, BOOL, READ_ONLY, NO_SYS),
     SPEC(filesystem_encoding, WSTR, READ_ONLY, NO_SYS),
     SPEC(filesystem_errors, WSTR, READ_ONLY, NO_SYS),
@@ -314,6 +317,10 @@ The following implementation-specific options are available:\n\
 #ifdef Py_GIL_DISABLED
 "-X gil=[0|1]: enable (1) or disable (0) the GIL; also PYTHON_GIL\n"
 #endif
+#if defined(Py_PARALLEL_GC) || defined(Py_GIL_DISABLED)
+"-X parallel_gc=N: enable parallel GC with N workers;\n\
+         also PYTHONPARALLELGC\n"
+#endif
 "\
 -X importtime[=2]: show how long each import takes; use -X importtime=2 to\n\
          log imports of already-loaded modules; also PYTHONPROFILEIMPORTTIME\n\
@@ -416,6 +423,9 @@ static const char usage_envvars[] =
 "                  (-X frozen_modules)\n"
 #ifdef Py_GIL_DISABLED
 "PYTHON_GIL      : when set to 0, disables the GIL (-X gil)\n"
+#endif
+#if defined(Py_PARALLEL_GC) || defined(Py_GIL_DISABLED)
+"PYTHONPARALLELGC: enable parallel GC with N workers (-X parallel_gc=N)\n"
 #endif
 "PYTHONINSPECT   : inspect interactively after running script (-i)\n"
 "PYTHONINTMAXSTRDIGITS: limit the size of int<->str conversions;\n"
@@ -1047,6 +1057,9 @@ _PyConfig_InitCompatConfig(PyConfig *config)
 #endif
     config->safe_path = 0;
     config->int_max_str_digits = -1;
+#if defined(Py_PARALLEL_GC) || defined(Py_GIL_DISABLED)
+    config->parallel_gc = 0;
+#endif
     config->_is_python_build = 0;
     config->code_debug_ranges = 1;
     config->cpu_count = -1;
@@ -2194,6 +2207,52 @@ config_init_int_max_str_digits(PyConfig *config)
     return _PyStatus_OK();
 }
 
+#if defined(Py_PARALLEL_GC) || defined(Py_GIL_DISABLED)
+static PyStatus
+config_init_parallel_gc(PyConfig *config)
+{
+    int num_workers;
+
+    const char *env = config_get_env(config, "PYTHONPARALLELGC");
+    if (env) {
+        if (!_Py_str_to_int(env, &num_workers)) {
+            if (num_workers < 0 || num_workers > 256) {
+                return _PyStatus_ERR(
+                    "PYTHONPARALLELGC: invalid number of workers; must be 0-256");
+            }
+            config->parallel_gc = num_workers;
+        }
+        else {
+            return _PyStatus_ERR(
+                "PYTHONPARALLELGC: invalid number of workers");
+        }
+    }
+
+    const wchar_t *xoption = config_get_xoption(config, L"parallel_gc");
+    if (xoption) {
+        const wchar_t *sep = wcschr(xoption, L'=');
+        if (sep) {
+            if (!config_wstr_to_int(sep + 1, &num_workers)) {
+                if (num_workers < 0 || num_workers > 256) {
+                    return _PyStatus_ERR(
+                        "-X parallel_gc: invalid number of workers; must be 0-256");
+                }
+                config->parallel_gc = num_workers;
+            }
+            else {
+                return _PyStatus_ERR(
+                    "-X parallel_gc: invalid number");
+            }
+        }
+        else {
+            return _PyStatus_ERR(
+                "-X parallel_gc: must specify number of workers (e.g. -X parallel_gc=4)");
+        }
+    }
+    return _PyStatus_OK();
+}
+#endif
+
 static PyStatus
 config_init_pycache_prefix(PyConfig *config)
 {
@@ -2334,6 +2393,13 @@ config_read_complex_options(PyConfig *config)
             return status;
         }
     }
+
+#if defined(Py_PARALLEL_GC) || defined(Py_GIL_DISABLED)
+    status = config_init_parallel_gc(config);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+#endif
 
     if (config->cpu_count < 0) {
         status = config_init_cpu_count(config);

@@ -911,6 +911,7 @@ def check_bolt_optimized():
 
 
 Py_GIL_DISABLED = bool(sysconfig.get_config_var('Py_GIL_DISABLED'))
+Py_PARALLEL_GC = bool(sysconfig.get_config_var('Py_PARALLEL_GC'))
 
 def requires_gil_enabled(msg="needs the GIL enabled"):
     """Decorator for skipping tests on the free-threaded build."""

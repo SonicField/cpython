@@ -5,10 +5,14 @@
 #include "pycore_dict.h"          // _PyInlineValuesSize()
 #include "pycore_frame.h"         // FRAME_CLEARED
 #include "pycore_freelist.h"      // _PyObject_ClearFreeLists()
+#ifdef Py_PARALLEL_GC
+#include "pycore_gc_ft_parallel.h" // Parallel GC support
+#endif
 #include "pycore_genobject.h"     // _PyGen_GetGeneratorFromFrame()
 #include "pycore_initconfig.h"    // _PyStatus_NO_MEMORY()
 #include "pycore_interp.h"        // PyInterpreterState.gc
 #include "pycore_interpframe.h"   // _PyFrame_GetLocalsArray()
+#include "pycore_lock.h"          // PyMutex_Lock/Unlock
 #include "pycore_object_alloc.h"  // _PyObject_MallocWithType()
 #include "pycore_pystate.h"       // _PyThreadState_GET()
 #include "pycore_tstate.h"        // _PyThreadStateImpl
@@ -137,6 +141,16 @@ worklist_pop(struct worklist *worklist)
     return op;
 }
 
+#ifdef Py_PARALLEL_GC
+// Clear a worklist without processing its elements.
+// Used after parallel processing has already handled all elements via an array.
+static void
+worklist_clear(struct worklist *worklist)
+{
+    worklist->head = 0;
+}
+#endif
+
 static void
 worklist_iter_init(struct worklist_iter *iter, uintptr_t *next)
 {
@@ -155,6 +169,48 @@ worklist_remove(struct worklist_iter *iter)
     op->ob_tid = 0;
     iter->next = iter->ptr;
 }
+
+#ifdef Py_PARALLEL_GC
+// Count objects in a worklist
+static Py_ssize_t
+worklist_count(struct worklist *worklist)
+{
+    Py_ssize_t count = 0;
+    PyObject *op;
+    WORKSTACK_FOR_EACH(worklist, op) {
+        count++;
+    }
+    return count;
+}
+
+// Convert worklist to array for parallel access
+// Returns allocated array and sets *out_count to number of elements
+// Caller must free the returned array with PyMem_RawFree
+static PyObject **
+worklist_to_array(struct worklist *worklist, Py_ssize_t *out_count)
+{
+    Py_ssize_t count = worklist_count(worklist);
+    if (count == 0) {
+        *out_count = 0;
+        return NULL;
+    }
+
+    PyObject **array = PyMem_RawMalloc(count * sizeof(PyObject *));
+    if (array == NULL) {
+        *out_count = 0;
+        return NULL;
+    }
+
+    Py_ssize_t i = 0;
+    PyObject *op;
+    WORKSTACK_FOR_EACH(worklist, op) {
+        array[i++] = op;
+    }
+
+    *out_count = count;
+    return array;
+}
+#endif
 
 static inline int
 gc_has_bit(PyObject *op, uint8_t bit)
@@ -209,6 +265,9 @@ static inline void
 gc_set_alive(PyObject *op)
 {
     gc_set_bit(op, _PyGC_BITS_ALIVE);
+    // Also clear UNREACHABLE to prevent mishandling if it was left set
+    // from a previous GC cycle
+    gc_clear_bit(op, _PyGC_BITS_UNREACHABLE);
 }
 #endif
 
@@ -248,6 +307,15 @@ gc_decref(PyObject *op)
 {
     op->ob_tid -= 1;
 }
+
+//-----------------------------------------------------------------------------
+// Atomic versions of gc_refs operations for parallel deduce_unreachable
+// These inline functions are now defined in pycore_gc_ft_parallel.h
+// The declarations there are used when multiple workers may be modifying
+// gc_refs concurrently.
+//-----------------------------------------------------------------------------
+
+// (Non-atomic versions for serial path remain below)
 
 static Py_ssize_t
 merge_refcount(PyObject *op, Py_ssize_t extra)
@@ -321,6 +389,40 @@ disable_deferred_refcounting(PyObject *op)
         frame_disable_deferred_refcounting(((PyFrameObject *)op)->f_frame);
     }
 }
+
+#ifdef Py_PARALLEL_GC
+// Version of disable_deferred_refcounting for objects already on worklists.
+// These objects have already been merged by par_merge_refcount, and their
+// ob_tid is used as the worklist next pointer. We must NOT clear ob_tid.
+static void
+disable_deferred_refcounting_on_worklist(PyObject *op)
+{
+    if (_PyObject_HasDeferredRefcount(op)) {
+        op->ob_gc_bits &= ~_PyGC_BITS_DEFERRED;
+        op->ob_ref_shared -= _Py_REF_SHARED(_Py_REF_DEFERRED, 0);
+        // NOTE: Do NOT call merge_refcount here! The object is already merged
+        // (by par_merge_refcount in parallel scan_heap), and ob_tid is used
+        // as the worklist next pointer. Calling merge_refcount would set
+        // ob_tid = 0, corrupting the worklist.
+
+        // Heap types and code objects also use per-thread refcounting, which
+        // should also be disabled when we turn off deferred refcounting.
+        _PyObject_DisablePerThreadRefcounting(op);
+    }
+
+    // Generators and frame objects may contain deferred references to other
+    // objects. If the pointed-to objects are part of cyclic trash, we may
+    // have disabled deferred refcounting on them and need to ensure that we
+    // use strong references, in case the generator or frame object is
+    // resurrected by a finalizer.
+    if (PyGen_CheckExact(op) || PyCoro_CheckExact(op) || PyAsyncGen_CheckExact(op)) {
+        frame_disable_deferred_refcounting(&((PyGenObject *)op)->gi_iframe);
+    }
+    else if (PyFrame_Check(op)) {
+        frame_disable_deferred_refcounting(((PyFrameObject *)op)->f_frame);
+    }
+}
+#endif  // Py_PARALLEL_GC
 
 static void
 gc_restore_tid(PyObject *op)
@@ -911,6 +1013,7 @@ static void
 merge_queued_objects(_PyThreadStateImpl *tstate, struct collection_state *state)
 {
     struct _brc_thread_state *brc = &tstate->brc;
+
     _PyObjectStack_Merge(&brc->local_objects_to_merge, &brc->objects_to_merge);
 
     PyObject *op;
@@ -1192,6 +1295,7 @@ scan_heap_visitor(const mi_heap_t *heap, const mi_heap_area_t *area,
     }
 
     struct collection_state *state = (struct collection_state *)args;
+
     if (gc_is_unreachable(op)) {
         // Disable deferred refcounting for unreachable objects so that they
         // are collected immediately after finalization.
@@ -1413,10 +1517,64 @@ gc_mark_alive_from_roots(PyInterpreterState *interp,
 #endif
     #undef MARK_ENQUEUE
 
-    // Use tp_traverse to find everything reachable from roots.
-    if (gc_propagate_alive(&mark_args) < 0) {
-        gc_abort_mark_alive(interp, state, &mark_args);
-        return -1;
+    // Count roots in stack and buffer first (needed for threshold check)
+    size_t num_roots = 0;
+    size_t buffer_count = gc_mark_buffer_len(&mark_args);
+    num_roots += buffer_count;
+
+    // Count objects in stack (linked list)
+    _PyObjectStackChunk *chunk = mark_args.stack.head;
+    while (chunk != NULL) {
+        num_roots += chunk->n;
+        chunk = chunk->prev;
+    }
+
+    // Check if parallel GC should be used
+#ifdef Py_PARALLEL_GC
+    int num_workers = _PyGC_ShouldUseParallel(interp);
+    if (num_workers > 1 && num_roots > 0) {
+        // Parallel propagation: drain stack into array and use parallel workers
+        PyObject **roots = PyMem_RawMalloc(num_roots * sizeof(PyObject *));
+        if (roots == NULL) {
+            gc_abort_mark_alive(interp, state, &mark_args);
+            return -1;
+        }
+
+        // Extract from buffer first, filtering out untracked objects.
+        size_t idx = 0;
+        while (!gc_mark_buffer_is_empty(&mark_args)) {
+            PyObject *op = gc_mark_buffer_pop(&mark_args);
+            if (gc_has_bit(op, _PyGC_BITS_TRACKED)) {
+                roots[idx++] = op;
+            }
+        }
+
+        // Extract from stack, also filtering untracked objects
+        PyObject *op;
+        while ((op = _PyObjectStack_Pop(&mark_args.stack)) != NULL) {
+            if (gc_has_bit(op, _PyGC_BITS_TRACKED)) {
+                roots[idx++] = op;
+            }
+        }
+        size_t actual_roots = idx;
+
+        assert(_PyGC_ThreadPoolIsActive(interp));
+        int err = _PyGC_ParallelPropagateAliveWithPool(interp, roots, actual_roots, num_workers);
+        PyMem_RawFree(roots);
+
+        if (err < 0) {
+            gc_abort_mark_alive(interp, state, &mark_args);
+            return -1;
+        }
+    }
+    else
+#endif // Py_PARALLEL_GC
+    {
+        // Serial propagation (original path)
+        if (gc_propagate_alive(&mark_args) < 0) {
+            gc_abort_mark_alive(interp, state, &mark_args);
+            return -1;
+        }
     }
 
     assert(mark_args.spans.size == 0);
@@ -1437,7 +1595,62 @@ deduce_unreachable_heap(PyInterpreterState *interp,
     // Identify objects that are directly reachable from outside the GC heap
     // by computing the difference between the refcount and the number of
     // incoming references.
-    gc_visit_heaps(interp, &update_refs, &state->base);
+
+    // Check if we should use parallel update_refs
+#ifdef Py_PARALLEL_GC
+    int num_workers = _PyGC_ShouldUseParallel(interp);
+    int using_parallel = 0;
+    _PyGCFTParState par_state = {0};
+#endif
+
+#ifdef Py_PARALLEL_GC
+    if (num_workers > 1) {
+        // Parallel path: use parallel update_refs and mark_heap
+        par_state.num_workers = num_workers;
+        par_state.buckets = NULL;
+        par_state.workers = NULL;
+        par_state.threads = NULL;
+        par_state.error_flag = 0;
+        par_state.workers_done = 0;
+        par_state.total_pages = 0;
+        par_state.total_objects = 0;
+        par_state.per_worker_marked = NULL;
+
+        // Assign pages to worker buckets
+        if (_PyGC_AssignPagesToBuckets(interp, &par_state) < 0) {
+            // Record bucket assignment end time (for fallback path)
+            PyTime_t bucket_assign_end;
+            (void)PyTime_PerfCounterRaw(&bucket_assign_end);
+            interp->gc.bucket_assign_end_ns = bucket_assign_end;
+            // Fallback to serial path on failure
+            gc_visit_heaps(interp, &update_refs, &state->base);
+        } else {
+            // Record bucket assignment end time
+            PyTime_t bucket_assign_end;
+            (void)PyTime_PerfCounterRaw(&bucket_assign_end);
+            interp->gc.bucket_assign_end_ns = bucket_assign_end;
+
+            using_parallel = 1;
+
+            // Run parallel update_refs on thread pages using thread pool
+            Py_ssize_t candidates = _PyGC_ParallelUpdateRefsWithPool(interp, &par_state);
+
+            if (candidates < 0) {
+                // Error - free buckets and fail
+                _PyGC_FreeBuckets(&par_state);
+                return -1;
+            }
+            state->candidates = candidates;
+
+            // Abandoned pool pages are now included in the parallel bucket
+            // assignment, so parallel workers will process them.
+        }
+    } else
+#endif
+    {
+        // Serial path
+        gc_visit_heaps(interp, &update_refs, &state->base);
+    }
 
 #ifdef GC_DEBUG
     // Check that all objects are marked as unreachable and that the computed
@@ -1450,7 +1663,24 @@ deduce_unreachable_heap(PyInterpreterState *interp,
 
     // Transitively mark reachable objects by clearing the
     // _PyGC_BITS_UNREACHABLE flag.
-    if (gc_visit_heaps(interp, &mark_heap_visitor, &state->base) < 0) {
+    int mark_result;
+#ifdef Py_PARALLEL_GC
+    if (using_parallel) {
+        // Parallel path for mark_heap_visitor
+        // Abandoned pool pages are now included in the parallel bucket
+        // assignment, so parallel workers will process them.
+        mark_result = _PyGC_ParallelMarkHeapWithPool(interp, &par_state,
+                                              state->skip_deferred_objects);
+
+        // Now free the buckets
+        _PyGC_FreeBuckets(&par_state);
+    } else
+#endif
+    {
+        mark_result = gc_visit_heaps(interp, &mark_heap_visitor, &state->base) < 0 ? -1 : 0;
+    }
+
+    if (mark_result < 0) {
         // On out-of-memory, restore the refcounts and bail out.
         gc_visit_heaps(interp, &restore_refs, &state->base);
         return -1;
@@ -1458,7 +1688,32 @@ deduce_unreachable_heap(PyInterpreterState *interp,
 
     // Identify remaining unreachable objects and push them onto a stack.
     // Restores ob_tid for reachable objects.
-    gc_visit_heaps(interp, &scan_heap_visitor, &state->base);
+    // Note: For shutdown, we use serial path because disable_deferred_refcounting
+    // must be called on ALL objects (not just unreachable), and that function
+    // uses internal locks that aren't safe for parallel access.
+#ifdef Py_PARALLEL_GC
+    if (using_parallel && state->reason != _Py_GC_REASON_SHUTDOWN) {
+        // Parallel path for scan_heap_visitor
+        struct _PyGCScanHeapResult scan_result = {
+            .unreachable_head = &state->unreachable.head,
+            .legacy_finalizers_head = &state->legacy_finalizers.head,
+            .long_lived_total = &state->long_lived_total,
+            .gc_reason = state->reason
+        };
+        int scan_ret = _PyGC_ParallelScanHeapWithPool(interp, &par_state, &scan_result);
+        if (scan_ret < 0) {
+            return -1;
+        }
+
+        PyTime_t scan_end;
+        (void)PyTime_PerfCounterRaw(&scan_end);
+        interp->gc.scan_heap_end_ns = scan_end;
+        interp->gc.disable_deferred_end_ns = scan_end;
+    } else
+#endif
+    {
+        gc_visit_heaps(interp, &scan_heap_visitor, &state->base);
+    }
 
     if (state->legacy_finalizers.head) {
         // There may be objects reachable from legacy finalizers that are in
@@ -2215,10 +2470,21 @@ record_deallocation(PyThreadState *tstate)
     }
 }
 
+
 static void
 gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, int generation)
 {
+    // Record GC start time
+    PyTime_t gc_start;
+    (void)PyTime_PerfCounterRaw(&gc_start);
+    interp->gc.gc_start_ns = gc_start;
+
     _PyEval_StopTheWorld(interp);
+
+    // Record STW0 end time
+    PyTime_t stw0_end;
+    (void)PyTime_PerfCounterRaw(&stw0_end);
+    interp->gc.stw0_end_ns = stw0_end;
 
     // update collection and allocation counters
     if (generation+1 < NUM_GENERATIONS) {
@@ -2249,7 +2515,17 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
     }
     _Py_FOR_EACH_TSTATE_END(interp);
 
+    // Record merge refs end time
+    PyTime_t merge_refs_end;
+    (void)PyTime_PerfCounterRaw(&merge_refs_end);
+    interp->gc.merge_refs_end_ns = merge_refs_end;
+
     process_delayed_frees(interp, state);
+
+    // Record delayed frees end time
+    PyTime_t delayed_frees_end;
+    (void)PyTime_PerfCounterRaw(&delayed_frees_end);
+    interp->gc.delayed_frees_end_ns = delayed_frees_end;
 
     #ifdef GC_ENABLE_MARK_ALIVE
     // If gc.freeze() was used, it seems likely that doing this "mark alive"
@@ -2270,9 +2546,17 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
     }
     #endif
 
+    // Record mark_alive end time
+    PyTime_t mark_alive_end;
+    (void)PyTime_PerfCounterRaw(&mark_alive_end);
+    interp->gc.mark_alive_end_ns = mark_alive_end;
+
     // Find unreachable objects
     int err = deduce_unreachable_heap(interp, state);
     if (err < 0) {
+        // Clean up alive bits that were set by gc_mark_alive_from_roots
+        // but not yet cleared by deduce_unreachable_heap
+        gc_visit_heaps(interp, &gc_clear_alive_bits, &state->base);
         _PyEval_StartTheWorld(interp);
         PyErr_NoMemory();
         return;
@@ -2296,25 +2580,81 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
 
     // Find weakref callbacks we will honor (but do not call them).
     find_weakref_callbacks(state);
+
+    // Record find_weakrefs end time
+    PyTime_t find_weakrefs_end;
+    (void)PyTime_PerfCounterRaw(&find_weakrefs_end);
+    interp->gc.find_weakrefs_end_ns = find_weakrefs_end;
+
     _PyEval_StartTheWorld(interp);
+
+    // Record STW #1 end time
+    PyTime_t stw1_end;
+    (void)PyTime_PerfCounterRaw(&stw1_end);
+    interp->gc.stw1_end_ns = stw1_end;
 
     // Deallocate any object from the refcount merge step
     cleanup_worklist(&state->objs_to_decref);
 
+    // Record objs_decref end time
+    PyTime_t objs_decref_end;
+    (void)PyTime_PerfCounterRaw(&objs_decref_end);
+    interp->gc.objs_decref_end_ns = objs_decref_end;
+
     // Call weakref callbacks and finalizers after unpausing other threads to
     // avoid potential deadlocks.
     call_weakref_callbacks(state);
+
+    // Record weakref_callbacks end time
+    PyTime_t weakref_callbacks_end;
+    (void)PyTime_PerfCounterRaw(&weakref_callbacks_end);
+    interp->gc.weakref_callbacks_end_ns = weakref_callbacks_end;
+
     finalize_garbage(state);
 
+    // Record finalize end time
+    PyTime_t finalize_end;
+    (void)PyTime_PerfCounterRaw(&finalize_end);
+    interp->gc.finalize_end_ns = finalize_end;
+
     _PyEval_StopTheWorld(interp);
+
+    // Record STW #2 end time
+    PyTime_t stw2_end;
+    (void)PyTime_PerfCounterRaw(&stw2_end);
+    interp->gc.stw2_end_ns = stw2_end;
+
     // Handle any objects that may have resurrected after the finalization.
     err = handle_resurrected_objects(state);
+
+    // Record resurrection end time
+    PyTime_t resurrection_end;
+    (void)PyTime_PerfCounterRaw(&resurrection_end);
+    interp->gc.resurrection_end_ns = resurrection_end;
+
     // Clear free lists in all threads
     _PyGC_ClearAllFreeLists(interp);
+
+    // Record freelists end time
+    PyTime_t freelists_end;
+    (void)PyTime_PerfCounterRaw(&freelists_end);
+    interp->gc.freelists_end_ns = freelists_end;
+
     if (err == 0) {
         clear_weakrefs(state);
     }
+
+    // Record clear_weakrefs end time
+    PyTime_t clear_weakrefs_end;
+    (void)PyTime_PerfCounterRaw(&clear_weakrefs_end);
+    interp->gc.clear_weakrefs_end_ns = clear_weakrefs_end;
+
     _PyEval_StartTheWorld(interp);
+
+    // Record STW #3 end time
+    PyTime_t stw3_end;
+    (void)PyTime_PerfCounterRaw(&stw3_end);
+    interp->gc.stw3_end_ns = stw3_end;
 
     if (err < 0) {
         cleanup_worklist(&state->unreachable);
@@ -2328,7 +2668,17 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
     // Call tp_clear on objects in the unreachable set. This will cause
     // the reference cycles to be broken. It may also cause some objects
     // to be freed.
+    // Record cleanup start time
+    PyTime_t cleanup_start;
+    (void)PyTime_PerfCounterRaw(&cleanup_start);
+    interp->gc.cleanup_start_ns = cleanup_start;
+
     delete_garbage(state);
+
+    // Record cleanup end time
+    PyTime_t cleanup_end;
+    (void)PyTime_PerfCounterRaw(&cleanup_end);
+    interp->gc.cleanup_end_ns = cleanup_end;
 
     // Store the current memory usage, can be smaller now if breaking cycles
     // freed some memory.
@@ -2353,9 +2703,10 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
     assert(gcstate->garbage != NULL);
     assert(!_PyErr_Occurred(tstate));
 
+    // The collecting flag serializes GC access.
     int expected = 0;
     if (!_Py_atomic_compare_exchange_int(&gcstate->collecting, &expected, 1)) {
-        // Don't start a garbage collection if one is already in progress.
+        // Another thread is running a collection - just return
         return 0;
     }
 
@@ -2392,6 +2743,9 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
     (void)PyTime_PerfCounterRaw(&start);
 
     PyInterpreterState *interp = tstate->interp;
+
+    // Reset cleanup timing for this collection
+    interp->gc.cleanup_end_ns = 0;
 
     struct collection_state state = {
         .interp = interp,

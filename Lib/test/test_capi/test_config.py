@@ -116,6 +116,8 @@ class CAPITests(unittest.TestCase):
             options.extend((
                 ("use_system_logger", bool, None),
             ))
+        if support.Py_PARALLEL_GC or support.Py_GIL_DISABLED:
+            options.append(("parallel_gc", int, None))
 
         for name, option_type, sys_attr in options:
             with self.subTest(name=name, option_type=option_type,

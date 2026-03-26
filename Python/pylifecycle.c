@@ -35,6 +35,12 @@
 #include "pycore_uniqueid.h"      // _PyObject_FinalizeUniqueIdPool()
 #include "pycore_warnings.h"      // _PyWarnings_InitState()
 #include "pycore_weakref.h"       // _PyWeakref_GET_REF()
+#ifdef Py_PARALLEL_GC
+#include "pycore_gc_parallel.h"   // _PyGC_ParallelFini()
+#endif
+#if defined(Py_GIL_DISABLED) && defined(Py_PARALLEL_GC)
+#include "pycore_gc_ft_parallel.h" // _PyGC_ThreadPoolInit()
+#endif
 
 #include "opcode.h"
 
@@ -1251,6 +1257,26 @@ init_interp_main(PyThreadState *tstate)
             }
         }
 
+#if defined(Py_GIL_DISABLED) && defined(Py_PARALLEL_GC)
+        if (config->parallel_gc > 0) {
+            if (_PyGC_ThreadPoolInit(tstate->interp, config->parallel_gc) < 0) {
+                return _PyStatus_ERR("can't initialize parallel GC thread pool");
+            }
+            tstate->interp->gc.parallel_gc_enabled = 1;
+            tstate->interp->gc.parallel_gc_num_workers = config->parallel_gc;
+        }
+#elif defined(Py_PARALLEL_GC)
+        if (config->parallel_gc > 0) {
+            if (_PyGC_ParallelInit(tstate->interp, config->parallel_gc) < 0) {
+                return _PyStatus_ERR("can't initialize parallel GC");
+            }
+            if (_PyGC_ParallelStart(tstate->interp) < 0) {
+                _PyGC_ParallelFini(tstate->interp);
+                return _PyStatus_ERR("can't start parallel GC workers");
+            }
+        }
+#endif
+
 #ifdef PY_HAVE_PERF_TRAMPOLINE
         if (config->perf_profiling) {
             _PyPerf_Callbacks *cur_cb;
@@ -2203,6 +2229,21 @@ _Py_Finalize(_PyRuntimeState *runtime)
 
     // XXX Call something like _PyImport_Disable() here?
 
+#if defined(Py_GIL_DISABLED) && defined(Py_PARALLEL_GC)
+    /* Stop FTP thread pool workers before removing thread states.
+       Workers have PyThreadState objects that must be cleaned up
+       before _PyThreadState_RemoveExcept(). */
+    _PyGC_ThreadPoolFini(tstate->interp);
+#elif defined(Py_PARALLEL_GC)
+    /* Stop parallel GC workers before removing thread states.
+       Workers have their own Python thread states which must be cleaned up
+       by the workers themselves BEFORE _PyThreadState_RemoveExcept() removes
+       them from the list and _PyThreadState_DeleteList() clears them.
+       If we don't do this, the workers will find their tstates already cleared
+       when they try to clean up, causing assertion failures. */
+    _PyGC_ParallelFini(tstate->interp);
+#endif
+
     /* Remove the state of all threads of the interpreter, except for the
        current thread. In practice, only daemon threads should still be alive,
        except if wait_for_thread_shutdown() has been cancelled by CTRL+C.
@@ -2583,6 +2624,12 @@ Py_EndInterpreter(PyThreadState *tstate)
     /* Remaining daemon threads will automatically exit
        when they attempt to take the GIL (ex: PyEval_RestoreThread()). */
     _PyInterpreterState_SetFinalizing(interp, tstate);
+
+#if defined(Py_GIL_DISABLED) && defined(Py_PARALLEL_GC)
+    _PyGC_ThreadPoolFini(interp);
+#elif defined(Py_PARALLEL_GC)
+    _PyGC_ParallelFini(interp);
+#endif
 
     PyThreadState *list = _PyThreadState_RemoveExcept(tstate);
     for (PyThreadState *p = list; p != NULL; p = p->next) {

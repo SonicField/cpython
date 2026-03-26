@@ -48,6 +48,19 @@ find_thread_state(struct _brc_bucket *bucket, uintptr_t thread_id)
     return NULL;
 }
 
+static void
+merge_queued_objects(_PyObjectStack *to_merge)
+{
+    PyObject *ob;
+    while ((ob = _PyObjectStack_Pop(to_merge)) != NULL) {
+        // Subtract one when merging because the queue had a reference.
+        Py_ssize_t refcount = _Py_ExplicitMergeRefcount(ob, -1);
+        if (refcount == 0) {
+            _Py_Dealloc(ob);
+        }
+    }
+}
+
 // Enqueue an object to be merged by the owning thread. This steals a
 // reference to the object.
 void
@@ -97,19 +110,6 @@ _Py_brc_queue_object(PyObject *ob)
     _Py_set_eval_breaker_bit(&tstate->base, _PY_EVAL_EXPLICIT_MERGE_BIT);
 
     PyMutex_Unlock(&bucket->mutex);
-}
-
-static void
-merge_queued_objects(_PyObjectStack *to_merge)
-{
-    PyObject *ob;
-    while ((ob = _PyObjectStack_Pop(to_merge)) != NULL) {
-        // Subtract one when merging because the queue had a reference.
-        Py_ssize_t refcount = _Py_ExplicitMergeRefcount(ob, -1);
-        if (refcount == 0) {
-            _Py_Dealloc(ob);
-        }
-    }
 }
 
 // Process this thread's queue of objects to merge.

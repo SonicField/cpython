@@ -1924,6 +1924,7 @@ _PyStaticObjects_CheckRefcnt(PyInterpreterState *interp) {
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(nstype));
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(nt));
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(null));
+    _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(num_workers));
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(number));
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(obj));
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(object));

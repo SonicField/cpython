@@ -116,6 +116,30 @@ _PyObject_ReleaseUniqueId(Py_ssize_t unique_id)
     UNLOCK_POOL(pool);
 }
 
+// Batch release unique IDs without locking.
+// MUST only be called during Stop-The-World when no other threads are running.
+// This is used by parallel GC to amortize lock overhead.
+void
+_PyObject_ReleaseUniqueIdBatch_NoLock(PyInterpreterState *interp,
+                                       Py_ssize_t *ids,
+                                       size_t count)
+{
+    if (count == 0) {
+        return;
+    }
+    struct _Py_unique_id_pool *pool = &interp->unique_ids;
+
+    // No locking - world is stopped
+    for (size_t i = 0; i < count; i++) {
+        Py_ssize_t unique_id = ids[i];
+        assert(unique_id > 0 && unique_id <= pool->size);
+        Py_ssize_t idx = unique_id - 1;
+        _Py_unique_id_entry *entry = &pool->table[idx];
+        entry->next = pool->freelist;
+        pool->freelist = entry;
+    }
+}
+
 static Py_ssize_t
 clear_unique_id(PyObject *obj)
 {
@@ -138,6 +162,15 @@ clear_unique_id(PyObject *obj)
         mp->_ma_watcher_tag &= ~(UINT64_MAX << DICT_UNIQUE_ID_SHIFT);
     }
     return id;
+}
+
+// Public version of clear_unique_id for parallel GC.
+// Clears the unique ID from the object and returns it without releasing.
+// The caller is responsible for batch-releasing collected IDs.
+Py_ssize_t
+_PyObject_ClearUniqueId(PyObject *obj)
+{
+    return clear_unique_id(obj);
 }
 
 void

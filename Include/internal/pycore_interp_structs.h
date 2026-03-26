@@ -259,6 +259,40 @@ struct _gc_runtime_state {
 
     /* Mutex held for gc_should_collect_mem_usage(). */
     PyMutex mutex;
+
+    /* Parallel GC configuration for FTP */
+    int parallel_gc_enabled;    /* 1 = enabled, 0 = disabled (default) */
+    int parallel_gc_num_workers; /* Number of workers, 0 = auto (based on CPU count) */
+    struct _PyGCThreadPool *thread_pool;  /* Persistent thread pool for parallel GC */
+
+    /* Phase timing for benchmarking (nanoseconds) */
+    int64_t gc_start_ns;              /* Start of gc_collect_internal */
+    int64_t stw0_end_ns;              /* After initial StopTheWorld */
+    int64_t merge_refs_end_ns;        /* After merging per-thread refcounts */
+    int64_t delayed_frees_end_ns;     /* After processing delayed frees */
+    int64_t mark_alive_end_ns;        /* After gc_mark_alive_from_roots */
+    int64_t bucket_assign_end_ns;     /* After assigning pages to buckets */
+    int64_t phase_start_ns;           /* Start of parallel GC (update_refs) */
+    int64_t update_refs_end_ns;       /* End of update_refs phase */
+    int64_t mark_heap_end_ns;         /* End of mark_heap phase */
+    int64_t scan_heap_end_ns;         /* End of scan_heap phase */
+    int64_t disable_deferred_end_ns;  /* End of disable_deferred_refcounting loop */
+    int64_t find_weakrefs_end_ns;     /* End of find_weakref_callbacks */
+    int64_t stw1_end_ns;              /* After StartTheWorld #1 */
+    int64_t objs_decref_end_ns;       /* After cleanup_worklist(objs_to_decref) */
+    int64_t weakref_callbacks_end_ns; /* After call_weakref_callbacks */
+    int64_t finalize_end_ns;          /* After finalize_garbage */
+    int64_t stw2_end_ns;              /* After StopTheWorld #2 */
+    int64_t resurrection_end_ns;      /* After handle_resurrected_objects */
+    int64_t freelists_end_ns;         /* After _PyGC_ClearAllFreeLists */
+    int64_t clear_weakrefs_end_ns;    /* After clear_weakrefs */
+    int64_t stw3_end_ns;              /* After StartTheWorld #3 */
+    int64_t cleanup_start_ns;         /* Start of cleanup phase (actual tp_clear work) */
+    int64_t cleanup_end_ns;           /* End of cleanup phase */
+#endif
+
+#ifdef Py_PARALLEL_GC
+    struct _PyParallelGCState *parallel_gc;
 #endif
 };
 
