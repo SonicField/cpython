@@ -35668,11 +35668,6 @@ if $ac_need_defaults; then
   test ${CONFIG_HEADERS+y} || CONFIG_HEADERS=$config_headers
 fi
 
-# Remove stale pyconfig.h so config.status regenerates it from scratch.
-# make clean does not remove pyconfig.h; a stale copy from a prior
-# configure run may have different #define/#undef values.
-rm -f pyconfig.h
-
 # Have a temporary directory for convenience.  Make it in the build tree
 # simply because there is no reason against having it here, and in addition,
 # creating and moving files from /tmp can sometimes cause problems.

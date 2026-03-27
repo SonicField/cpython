@@ -2613,7 +2613,7 @@ par_disable_deferred_refcounting(PyObject *op)
             frame->f_executable = PyStackRef_AsStrongReference(frame->f_executable);
             frame->f_funcobj = PyStackRef_AsStrongReference(frame->f_funcobj);
             for (_PyStackRef *ref = frame->localsplus; ref < frame->stackpointer; ref++) {
-                if (!PyStackRef_IsNullOrInt(*ref) && PyStackRef_IsDeferred(*ref)) {
+                if (!PyStackRef_IsNullOrInt(*ref) && !PyStackRef_RefcountOnObject(*ref)) {
                     *ref = PyStackRef_AsStrongReference(*ref);
                 }
             }
@@ -2625,7 +2625,7 @@ par_disable_deferred_refcounting(PyObject *op)
             frame->f_executable = PyStackRef_AsStrongReference(frame->f_executable);
             frame->f_funcobj = PyStackRef_AsStrongReference(frame->f_funcobj);
             for (_PyStackRef *ref = frame->localsplus; ref < frame->stackpointer; ref++) {
-                if (!PyStackRef_IsNullOrInt(*ref) && PyStackRef_IsDeferred(*ref)) {
+                if (!PyStackRef_IsNullOrInt(*ref) && !PyStackRef_RefcountOnObject(*ref)) {
                     *ref = PyStackRef_AsStrongReference(*ref);
                 }
             }
@@ -2683,7 +2683,7 @@ par_disable_deferred_collect_ids(PyObject *op, struct _PyGCScanWorkerState *work
             frame->f_executable = PyStackRef_AsStrongReference(frame->f_executable);
             frame->f_funcobj = PyStackRef_AsStrongReference(frame->f_funcobj);
             for (_PyStackRef *ref = frame->localsplus; ref < frame->stackpointer; ref++) {
-                if (!PyStackRef_IsNullOrInt(*ref) && PyStackRef_IsDeferred(*ref)) {
+                if (!PyStackRef_IsNullOrInt(*ref) && !PyStackRef_RefcountOnObject(*ref)) {
                     *ref = PyStackRef_AsStrongReference(*ref);
                 }
             }
@@ -2695,7 +2695,7 @@ par_disable_deferred_collect_ids(PyObject *op, struct _PyGCScanWorkerState *work
             frame->f_executable = PyStackRef_AsStrongReference(frame->f_executable);
             frame->f_funcobj = PyStackRef_AsStrongReference(frame->f_funcobj);
             for (_PyStackRef *ref = frame->localsplus; ref < frame->stackpointer; ref++) {
-                if (!PyStackRef_IsNullOrInt(*ref) && PyStackRef_IsDeferred(*ref)) {
+                if (!PyStackRef_IsNullOrInt(*ref) && !PyStackRef_RefcountOnObject(*ref)) {
                     *ref = PyStackRef_AsStrongReference(*ref);
                 }
             }
@@ -2738,7 +2738,13 @@ scan_heap_block_visitor(const mi_heap_t *heap, const mi_heap_area_t *area,
     struct scan_page_visitor_args *args = (struct scan_page_visitor_args *)arg;
     PyObject *op = (PyObject *)((char *)block + args->offset);
 
-    if (!_PyObject_GC_IS_TRACKED(op)) {
+    // The free-threaded GC cost is proportional to the number of objects in
+    // the mimalloc GC heap and so we should include the counts for untracked
+    // and frozen objects as well.  This is especially important if many
+    // tuples have been untracked.
+    args->worker->long_lived_total++;
+
+    if (!_PyObject_GC_IS_TRACKED(op) || par_gc_is_frozen(op)) {
         return true;
     }
 
@@ -2757,12 +2763,14 @@ scan_heap_block_visitor(const mi_heap_t *heap, const mi_heap_area_t *area,
         else {
             scan_worklist_push(&args->worker->unreachable, op);
         }
+        // It is possible this object will be resurrected but
+        // for now we assume it will be deallocated.
+        args->worker->long_lived_total--;
     }
     else {
         // Reachable object
         par_gc_restore_tid(op);
         par_gc_clear_alive(op);
-        args->worker->long_lived_total++;
     }
 
     return true;
