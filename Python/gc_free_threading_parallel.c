@@ -794,6 +794,8 @@ parallel_worker_thread(void *arg)
     if (tstate != NULL) {
         _Py_tss_tstate = tstate;
         _Py_tss_interp = args->interp;
+    } else {
+        fprintf(stderr, "Warning: GC worker %d has no tstate\n", worker_id);
     }
 
     // Run the worker loop
@@ -1768,6 +1770,7 @@ propagate_pool_visitproc(PyObject *obj, void *arg)
 int
 _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
 {
+    assert(interp != NULL);  // interp dereferenced for gc.thread_pool below
     // Require at least 1 worker (main thread only is valid, though not parallel)
     if (num_workers < 1) {
         return -1;
@@ -1902,6 +1905,10 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
     }
 
     interp->gc.thread_pool = pool;
+
+    // postcondition: pool fully initialized (worker 0 is main thread, not a created thread)
+    assert(pool->threads_created == pool->num_workers - 1);
+
     return 0;
 }
 
@@ -1909,6 +1916,7 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
 void
 _PyGC_ThreadPoolFini(PyInterpreterState *interp)
 {
+    assert(interp != NULL);  // interp dereferenced for gc.thread_pool below
     _PyGCThreadPool *pool = interp->gc.thread_pool;
     if (pool == NULL) {
         return;
@@ -2874,6 +2882,7 @@ _PyGC_ParallelMarkHeapWithPool(PyInterpreterState *interp,
                                 _PyGCFTParState *state,
                                 int skip_deferred_objects)
 {
+    assert(interp->stoptheworld.world_stopped);  // relaxed-ops marking is only safe during STW
     _PyGCThreadPool *pool = interp->gc.thread_pool;
     assert(pool != NULL);
     assert(pool->num_workers == state->num_workers);

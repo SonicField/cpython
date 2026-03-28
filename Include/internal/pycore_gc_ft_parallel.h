@@ -174,6 +174,7 @@ _PyGC_AtomicClearBit(PyObject *op, uint8_t bit)
 static inline int
 _PyGC_TryMarkAlive(PyObject *op)
 {
+    assert(op != NULL);  // NULL dereference on ob_gc_bits load below
     // Relaxed read - filters most already-marked objects
     uint8_t bits = _Py_atomic_load_uint8_relaxed(&op->ob_gc_bits);
     if (bits & _PyGC_BITS_ALIVE) {
@@ -215,6 +216,7 @@ _PyGC_IsUnreachable(PyObject *op)
 static inline int
 _PyGC_TryMarkReachable(PyObject *op)
 {
+    assert(op != NULL);  // NULL dereference on ob_gc_bits load below
     // Fast path: check if already reachable (relaxed load - very cheap)
     if (!(_Py_atomic_load_uint8_relaxed(&op->ob_gc_bits) & _PyGC_BITS_UNREACHABLE)) {
         _PyGC_ATOMIC_RECORD(0);  // Already reachable

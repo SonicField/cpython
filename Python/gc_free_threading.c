@@ -1666,7 +1666,11 @@ deduce_unreachable_heap(PyInterpreterState *interp,
             Py_ssize_t candidates = _PyGC_ParallelUpdateRefsWithPool(interp, &par_state);
 
             if (candidates < 0) {
-                // Error - free buckets and fail
+                // Error - free buckets and abort this GC cycle.
+                // Unlike GIL-mode (gc.c), there is no serial fallback here.
+                // FTP update_refs uses page-based distribution tied to mimalloc's
+                // heap structure; the serial path (gc_visit_heaps) uses a different
+                // traversal mechanism and cannot resume from a partial parallel run.
                 _PyGC_FreeBuckets(&par_state);
                 return -1;
             }

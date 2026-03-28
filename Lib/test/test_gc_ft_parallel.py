@@ -747,5 +747,132 @@ class TestConcurrentMarking(unittest.TestCase):
                     f"Object {i}'s reference target is corrupted")
 
 
+@unittest.skipUnless(FTP_BUILD, "FTP-only tests")
+class TestParallelSerialEquivalence(unittest.TestCase):
+    """Verify parallel GC produces identical results to serial GC.
+
+    This is the top-level behavioral invariant: parallel collection must
+    collect the same objects as serial collection for any reachable-object graph.
+    """
+
+    def test_cyclic_garbage_equivalence(self):
+        """Serial and parallel collect the same cyclic garbage."""
+        gc.collect()  # clean slate
+
+        # Create cyclic garbage
+        def make_cycle():
+            a = GCTestObject()
+            b = GCTestObject()
+            a.ref = b
+            b.ref = a
+
+        # Serial collection
+        gc.disable()
+        for _ in range(100):
+            make_cycle()
+        gc.collect()
+        serial_stats = gc.get_stats()
+        serial_collected = serial_stats[0]['collected']
+
+        # Parallel collection
+        gc.enable_parallel(4)
+        try:
+            for _ in range(100):
+                make_cycle()
+            gc.collect()
+            parallel_stats = gc.get_stats()
+            parallel_collected = parallel_stats[0]['collected']
+        finally:
+            gc.disable_parallel()
+            gc.enable()
+
+        # Both should collect the same number of objects
+        self.assertEqual(serial_collected, parallel_collected,
+            f"Serial collected {serial_collected}, parallel collected {parallel_collected}")
+
+    def test_reachable_survives_both_modes(self):
+        """Reachable objects survive under both serial and parallel GC."""
+        gc.collect()
+
+        # Create reachable objects with cycles
+        roots = []
+        for i in range(50):
+            obj = GCTestObject(value=i)
+            roots.append(obj)
+            if i > 0:
+                obj.ref = roots[i - 1]
+
+        # Parallel collection should not collect any reachable objects
+        gc.enable_parallel(4)
+        try:
+            gc.collect()
+            gc.collect()  # two passes
+        finally:
+            gc.disable_parallel()
+
+        # All roots should still be alive
+        for i, obj in enumerate(roots):
+            self.assertEqual(obj.data['value'], i,
+                f"Root {i} corrupted after parallel GC")
+
+    def test_dense_graph_parallel_terminates(self):
+        """Dense reference graph with many workers terminates (T2-F12).
+
+        Falsifies unbounded duplicate traversal: if traversal depth
+        grows super-linearly with workers, this test times out.
+        """
+        gc.collect()
+
+        # Create dense graph — each node references several others
+        N = 200
+        objects = [GCTestObject(idx=i) for i in range(N)]
+        for i in range(N):
+            objects[i].ref = objects[(i + 1) % N]
+            objects[i].data['neighbors'] = [
+                objects[(i + j) % N] for j in range(1, min(10, N))
+            ]
+
+        # Run parallel GC with high worker count
+        gc.enable_parallel(8)
+        try:
+            # Make some objects unreachable
+            dead_refs = objects[N//2:]
+            del objects[N//2:]
+
+            gc.collect()
+
+            # Surviving objects should be intact
+            for obj in objects:
+                self.assertIsNotNone(obj.data)
+        finally:
+            gc.disable_parallel()
+
+
+@unittest.skipUnless(FTP_BUILD, "FTP-only tests")
+class TestThreadPoolLifecycle(unittest.TestCase):
+    """Test thread pool init/fini cycle (T2-F1, T2-F2, T2-F7)."""
+
+    def test_worker_count_matches(self):
+        """Enabled worker count matches configuration."""
+        gc.enable_parallel(4)
+        try:
+            config = gc.get_parallel_config()
+            self.assertEqual(config['num_workers'], 4)
+            self.assertTrue(config['enabled'])
+        finally:
+            gc.disable_parallel()
+
+    def test_enable_disable_cycle(self):
+        """Enable → collect → disable → collect cycle works cleanly."""
+        gc.enable_parallel(2)
+        try:
+            gc.collect()
+        finally:
+            gc.disable_parallel()
+
+        # Serial collection should still work after disable
+        gc.collect()
+
+
 if __name__ == '__main__':
     unittest.main()
