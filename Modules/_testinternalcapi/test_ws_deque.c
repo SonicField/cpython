@@ -1,7 +1,8 @@
-// Test suite for work-stealing deque (_PyWSDeque)
+// Test suite for work-stealing deque (_PyWSDeque) and barrier (_PyGCBarrier)
 
 #include "parts.h"
-#include "pycore_ws_deque.h"      // _PyWSDeque
+#include "pycore_ws_deque.h"       // _PyWSDeque, _PyGCLocalBuffer
+#include "pycore_gc_barrier.h"     // _PyGCBarrier
 
 #include <pthread.h>                // pthread_create
 
@@ -518,6 +519,521 @@ test_ws_deque_concurrent_push_steal(PyObject *self, PyObject *Py_UNUSED(ignored)
 }
 
 // ============================================================================
+// Barrier Tests (T3-F1, T3-F9, invariants 1-4)
+// ============================================================================
+
+// T3-F1: Init with capacity=0 should trigger assertion
+static PyObject *
+test_barrier_capacity_zero(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    _PyGCBarrier barrier;
+    // This should trigger assert(capacity > 0) and abort
+    _PyGCBarrier_Init(&barrier, 0);
+    // If we reach here, the assertion didn't fire
+    _PyGCBarrier_Fini(&barrier);
+    PyErr_SetString(PyExc_AssertionError, "Init(capacity=0) should have aborted");
+    return NULL;
+}
+
+// Invariant 2: All N threads reach Wait, barrier lifts
+typedef struct {
+    _PyGCBarrier *barrier;
+    int arrived;
+} barrier_worker_args;
+
+static void *
+barrier_worker(void *arg)
+{
+    barrier_worker_args *args = (barrier_worker_args *)arg;
+    args->arrived = 1;
+    _PyGCBarrier_Wait(args->barrier);
+    return NULL;
+}
+
+static PyObject *
+test_barrier_basic(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    const int num_threads = 4;
+    _PyGCBarrier barrier;
+    _PyGCBarrier_Init(&barrier, num_threads);
+
+    pthread_t threads[num_threads - 1];
+    barrier_worker_args args[num_threads - 1];
+
+    for (int i = 0; i < num_threads - 1; i++) {
+        args[i].barrier = &barrier;
+        args[i].arrived = 0;
+        pthread_create(&threads[i], NULL, barrier_worker, &args[i]);
+    }
+
+    // Main thread is the Nth participant
+    _PyGCBarrier_Wait(&barrier);
+
+    for (int i = 0; i < num_threads - 1; i++) {
+        pthread_join(threads[i], NULL);
+        if (!args[i].arrived) {
+            _PyGCBarrier_Fini(&barrier);
+            PyErr_SetString(PyExc_AssertionError, "Worker did not arrive at barrier");
+            return NULL;
+        }
+    }
+
+    _PyGCBarrier_Fini(&barrier);
+    Py_RETURN_NONE;
+}
+
+// Invariant 3: Epoch increments once per cycle
+static PyObject *
+test_barrier_multiple_rounds(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    _PyGCBarrier barrier;
+    _PyGCBarrier_Init(&barrier, 1);  // Single-thread barrier for simplicity
+
+    unsigned int epoch_before = barrier.epoch;
+    _PyGCBarrier_Wait(&barrier);
+    if (barrier.epoch != epoch_before + 1) {
+        _PyGCBarrier_Fini(&barrier);
+        PyErr_SetString(PyExc_AssertionError, "Epoch should increment by 1 per cycle");
+        return NULL;
+    }
+
+    _PyGCBarrier_Wait(&barrier);
+    if (barrier.epoch != epoch_before + 2) {
+        _PyGCBarrier_Fini(&barrier);
+        PyErr_SetString(PyExc_AssertionError, "Epoch should increment by 1 per cycle (round 2)");
+        return NULL;
+    }
+
+    _PyGCBarrier_Fini(&barrier);
+    Py_RETURN_NONE;
+}
+
+// Invariant 3b: Epoch distinguishes barrier rounds (multi-threaded)
+typedef struct {
+    _PyGCBarrier *barrier;
+    unsigned int epoch_after_round1;
+    unsigned int epoch_after_round2;
+} epoch_worker_args;
+
+static void *
+epoch_worker(void *arg)
+{
+    epoch_worker_args *args = (epoch_worker_args *)arg;
+    _PyGCBarrier_Wait(args->barrier);
+    args->epoch_after_round1 = args->barrier->epoch;
+    _PyGCBarrier_Wait(args->barrier);
+    args->epoch_after_round2 = args->barrier->epoch;
+    return NULL;
+}
+
+static PyObject *
+test_barrier_epoch_distinguishes(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    _PyGCBarrier barrier;
+    _PyGCBarrier_Init(&barrier, 2);
+
+    epoch_worker_args args = { .barrier = &barrier };
+    pthread_t thread;
+    pthread_create(&thread, NULL, epoch_worker, &args);
+
+    unsigned int epoch_before = barrier.epoch;
+    _PyGCBarrier_Wait(&barrier);
+    _PyGCBarrier_Wait(&barrier);
+
+    pthread_join(thread, NULL);
+
+    if (args.epoch_after_round1 == epoch_before) {
+        _PyGCBarrier_Fini(&barrier);
+        PyErr_SetString(PyExc_AssertionError, "Epoch should differ after round 1");
+        return NULL;
+    }
+    if (args.epoch_after_round2 == args.epoch_after_round1) {
+        _PyGCBarrier_Fini(&barrier);
+        PyErr_SetString(PyExc_AssertionError, "Epoch should differ between rounds");
+        return NULL;
+    }
+
+    _PyGCBarrier_Fini(&barrier);
+    Py_RETURN_NONE;
+}
+
+// Invariant 4 (T3-F9): num_left resets after lift — postcondition
+static PyObject *
+test_barrier_postcondition(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    _PyGCBarrier barrier;
+    _PyGCBarrier_Init(&barrier, 1);
+
+    unsigned int epoch_before = barrier.epoch;
+    _PyGCBarrier_Wait(&barrier);
+
+    // After Wait returns, epoch must have advanced (T3-F9 assertion)
+    if (barrier.epoch == epoch_before) {
+        _PyGCBarrier_Fini(&barrier);
+        PyErr_SetString(PyExc_AssertionError, "Epoch did not advance after Wait");
+        return NULL;
+    }
+    // num_left should be reset to capacity
+    if (barrier.num_left != barrier.capacity) {
+        _PyGCBarrier_Fini(&barrier);
+        PyErr_SetString(PyExc_AssertionError, "num_left not reset after barrier lift");
+        return NULL;
+    }
+
+    _PyGCBarrier_Fini(&barrier);
+    Py_RETURN_NONE;
+}
+
+// ============================================================================
+// LocalBuffer Tests (T3-F2, T3-F3, T3-F4, invariants 10-13)
+// ============================================================================
+
+// Invariant 10/11: LocalBuffer push/pop basic operation
+static PyObject *
+test_localbuffer_push_pop(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    _PyGCLocalBuffer buf;
+    _PyGCLocalBuffer_Init(&buf);
+
+    if (!_PyGCLocalBuffer_IsEmpty(&buf)) {
+        PyErr_SetString(PyExc_AssertionError, "New buffer should be empty");
+        return NULL;
+    }
+
+    PyObject *obj = PyLong_FromLong(42);
+    if (obj == NULL) return NULL;
+
+    _PyGCLocalBuffer_Push(&buf, obj);
+    if (_PyGCLocalBuffer_IsEmpty(&buf)) {
+        Py_DECREF(obj);
+        PyErr_SetString(PyExc_AssertionError, "Buffer should not be empty after push");
+        return NULL;
+    }
+
+    PyObject *result = _PyGCLocalBuffer_Pop(&buf);
+    if (result != obj) {
+        Py_DECREF(obj);
+        PyErr_SetString(PyExc_AssertionError, "Pop should return pushed object");
+        return NULL;
+    }
+    if (!_PyGCLocalBuffer_IsEmpty(&buf)) {
+        Py_DECREF(obj);
+        PyErr_SetString(PyExc_AssertionError, "Buffer should be empty after pop");
+        return NULL;
+    }
+
+    Py_DECREF(obj);
+    Py_RETURN_NONE;
+}
+
+// Invariant 10: count <= max (T3-F2 assertion test — fill to capacity)
+static PyObject *
+test_localbuffer_push_full(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    _PyGCLocalBuffer buf;
+    _PyGCLocalBuffer_Init(&buf);
+
+    PyObject *obj = PyLong_FromLong(99);
+    if (obj == NULL) return NULL;
+
+    // Fill to capacity
+    for (int i = 0; i < _PyGC_LOCAL_BUFFER_SIZE; i++) {
+        Py_INCREF(obj);
+        _PyGCLocalBuffer_Push(&buf, obj);
+    }
+
+    if (!_PyGCLocalBuffer_IsFull(&buf)) {
+        Py_DECREF(obj);
+        PyErr_SetString(PyExc_AssertionError, "Buffer should be full after 1024 pushes");
+        return NULL;
+    }
+
+    // Drain
+    for (int i = 0; i < _PyGC_LOCAL_BUFFER_SIZE; i++) {
+        PyObject *r = _PyGCLocalBuffer_Pop(&buf);
+        Py_DECREF(r);
+    }
+
+    Py_DECREF(obj);
+    Py_RETURN_NONE;
+}
+
+// Invariant 11: count >= 0 (T3-F3 assertion test — pop from empty would underflow)
+static PyObject *
+test_localbuffer_pop_empty(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    _PyGCLocalBuffer buf;
+    _PyGCLocalBuffer_Init(&buf);
+
+    // Verify IsEmpty works
+    if (!_PyGCLocalBuffer_IsEmpty(&buf)) {
+        PyErr_SetString(PyExc_AssertionError, "New buffer should be empty");
+        return NULL;
+    }
+
+    // Push one, pop one — should be empty again
+    PyObject *obj = PyLong_FromLong(1);
+    if (obj == NULL) return NULL;
+
+    _PyGCLocalBuffer_Push(&buf, obj);
+    PyObject *r = _PyGCLocalBuffer_Pop(&buf);
+    if (r != obj) {
+        Py_DECREF(obj);
+        PyErr_SetString(PyExc_AssertionError, "Pop should return pushed object");
+        return NULL;
+    }
+
+    if (!_PyGCLocalBuffer_IsEmpty(&buf)) {
+        Py_DECREF(obj);
+        PyErr_SetString(PyExc_AssertionError, "Buffer should be empty after popping all");
+        return NULL;
+    }
+
+    Py_DECREF(obj);
+    Py_RETURN_NONE;
+}
+
+// Invariant 12: OverflowFlush precondition (T3-F4 — must be at least half full)
+static PyObject *
+test_overflow_flush_precondition(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    _PyGCLocalBuffer buf;
+    _PyGCLocalBuffer_Init(&buf);
+    _PyWSDeque deque;
+    _PyWSDeque_Init(&deque);
+
+    PyObject *obj = PyLong_FromLong(7);
+    if (obj == NULL) {
+        _PyWSDeque_Fini(&deque);
+        return NULL;
+    }
+
+    // Fill buffer to capacity (IsFull guard, as callers do)
+    for (int i = 0; i < _PyGC_LOCAL_BUFFER_SIZE; i++) {
+        Py_INCREF(obj);
+        _PyGCLocalBuffer_Push(&buf, obj);
+    }
+
+    // OverflowFlush should work — buffer is full (count=1024 >= 512)
+    _PyGC_OverflowFlush(&buf, &deque);
+
+    // After flush: half remains in buffer
+    if (buf.count != _PyGC_LOCAL_BUFFER_SIZE / 2) {
+        Py_DECREF(obj);
+        _PyWSDeque_Fini(&deque);
+        PyErr_Format(PyExc_AssertionError,
+                    "Expected %d items after flush, got %zu",
+                    _PyGC_LOCAL_BUFFER_SIZE / 2, buf.count);
+        return NULL;
+    }
+
+    // Deque should have the other half
+    size_t deque_size = _PyWSDeque_Size(&deque);
+    if (deque_size != _PyGC_LOCAL_BUFFER_SIZE / 2) {
+        Py_DECREF(obj);
+        _PyWSDeque_Fini(&deque);
+        PyErr_Format(PyExc_AssertionError,
+                    "Expected %d items in deque after flush, got %zu",
+                    _PyGC_LOCAL_BUFFER_SIZE / 2, deque_size);
+        return NULL;
+    }
+
+    // Drain buffer and deque
+    while (!_PyGCLocalBuffer_IsEmpty(&buf)) {
+        Py_DECREF(_PyGCLocalBuffer_Pop(&buf));
+    }
+    PyObject *r;
+    while ((r = _PyWSDeque_Take(&deque)) != NULL) {
+        Py_DECREF(r);
+    }
+
+    Py_DECREF(obj);
+    _PyWSDeque_Fini(&deque);
+    Py_RETURN_NONE;
+}
+
+// Invariant 13: OverflowFlush normal operation (fill, flush, continue)
+static PyObject *
+test_overflow_flush_normal(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    _PyGCLocalBuffer buf;
+    _PyGCLocalBuffer_Init(&buf);
+    _PyWSDeque deque;
+    _PyWSDeque_Init(&deque);
+
+    PyObject *obj = PyLong_FromLong(42);
+    if (obj == NULL) {
+        _PyWSDeque_Fini(&deque);
+        return NULL;
+    }
+
+    // Simulate the real pattern: push until full, flush, push more
+    int total_pushed = 0;
+    for (int round = 0; round < 3; round++) {
+        while (!_PyGCLocalBuffer_IsFull(&buf)) {
+            Py_INCREF(obj);
+            _PyGCLocalBuffer_Push(&buf, obj);
+            total_pushed++;
+        }
+        _PyGC_OverflowFlush(&buf, &deque);
+    }
+
+    // Count everything: buffer + deque should equal total_pushed
+    int counted = (int)buf.count;
+    PyObject *r;
+    while ((r = _PyWSDeque_Take(&deque)) != NULL) {
+        Py_DECREF(r);
+        counted++;
+    }
+    while (!_PyGCLocalBuffer_IsEmpty(&buf)) {
+        Py_DECREF(_PyGCLocalBuffer_Pop(&buf));
+        // already counted via buf.count
+    }
+
+    if (counted != total_pushed) {
+        Py_DECREF(obj);
+        _PyWSDeque_Fini(&deque);
+        PyErr_Format(PyExc_AssertionError,
+                    "Conservation violated: pushed %d, found %d",
+                    total_pushed, counted);
+        return NULL;
+    }
+
+    Py_DECREF(obj);
+    _PyWSDeque_Fini(&deque);
+    Py_RETURN_NONE;
+}
+
+// ============================================================================
+// Deque Invariant Tests (T3-F10, T3-F11)
+// ============================================================================
+
+// Invariant 6 (T3-F10): top/bot init to 1
+static PyObject *
+test_deque_init_values(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    _PyWSDeque deque;
+    _PyWSDeque_Init(&deque);
+
+    // T3-F10: verify init-to-1 (prevents Take wraparound bug)
+    size_t top = _Py_atomic_load_ssize_relaxed((Py_ssize_t *)&deque.top);
+    size_t bot = _Py_atomic_load_ssize_relaxed((Py_ssize_t *)&deque.bot);
+
+    if (top != 1 || bot != 1) {
+        _PyWSDeque_Fini(&deque);
+        PyErr_Format(PyExc_AssertionError,
+                    "Expected top=1, bot=1, got top=%zu, bot=%zu", top, bot);
+        return NULL;
+    }
+
+    _PyWSDeque_Fini(&deque);
+    Py_RETURN_NONE;
+}
+
+// Invariant 5 (T3-F11): top <= bot after operations complete
+static PyObject *
+test_deque_top_leq_bot(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    _PyWSDeque deque;
+    _PyWSDeque_Init(&deque);
+
+    PyObject *obj = PyLong_FromLong(42);
+    if (obj == NULL) {
+        _PyWSDeque_Fini(&deque);
+        return NULL;
+    }
+
+    // Push several, take some, verify top<=bot at each step
+    for (int i = 0; i < 100; i++) {
+        Py_INCREF(obj);
+        _PyWSDeque_Push(&deque, obj);
+
+        size_t top = _Py_atomic_load_ssize_relaxed((Py_ssize_t *)&deque.top);
+        size_t bot = _Py_atomic_load_ssize_relaxed((Py_ssize_t *)&deque.bot);
+        if (top > bot) {
+            Py_DECREF(obj);
+            _PyWSDeque_Fini(&deque);
+            PyErr_Format(PyExc_AssertionError,
+                        "top > bot after push %d: top=%zu, bot=%zu", i, top, bot);
+            return NULL;
+        }
+    }
+
+    // Take all and verify
+    for (int i = 0; i < 100; i++) {
+        PyObject *r = _PyWSDeque_Take(&deque);
+        Py_DECREF(r);
+
+        size_t top = _Py_atomic_load_ssize_relaxed((Py_ssize_t *)&deque.top);
+        size_t bot = _Py_atomic_load_ssize_relaxed((Py_ssize_t *)&deque.bot);
+        if (top > bot) {
+            Py_DECREF(obj);
+            _PyWSDeque_Fini(&deque);
+            PyErr_Format(PyExc_AssertionError,
+                        "top > bot after take %d: top=%zu, bot=%zu", i, top, bot);
+            return NULL;
+        }
+    }
+
+    // Take from empty — should still have top <= bot after
+    PyObject *r = _PyWSDeque_Take(&deque);
+    if (r != NULL) {
+        Py_DECREF(r);
+    }
+    size_t top = _Py_atomic_load_ssize_relaxed((Py_ssize_t *)&deque.top);
+    size_t bot = _Py_atomic_load_ssize_relaxed((Py_ssize_t *)&deque.bot);
+    if (top > bot) {
+        Py_DECREF(obj);
+        _PyWSDeque_Fini(&deque);
+        PyErr_Format(PyExc_AssertionError,
+                    "top > bot after empty take: top=%zu, bot=%zu", top, bot);
+        return NULL;
+    }
+
+    Py_DECREF(obj);
+    _PyWSDeque_Fini(&deque);
+    Py_RETURN_NONE;
+}
+
+// Grow chain Fini test (gatekeeper suggestion: D9 — old arrays freed)
+static PyObject *
+test_deque_grow_chain_fini(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    _PyWSDeque deque;
+    _PyWSDeque_Init(&deque);
+
+    PyObject *obj = PyLong_FromLong(42);
+    if (obj == NULL) {
+        _PyWSDeque_Fini(&deque);
+        return NULL;
+    }
+
+    // Push enough to trigger multiple resizes
+    const int count = 10000;  // Well above initial 4096
+    for (int i = 0; i < count; i++) {
+        Py_INCREF(obj);
+        _PyWSDeque_Push(&deque, obj);
+    }
+
+    int resizes = _PyWSDeque_GetNumResizes(&deque);
+    if (resizes < 1) {
+        Py_DECREF(obj);
+        _PyWSDeque_Fini(&deque);
+        PyErr_SetString(PyExc_AssertionError, "Expected at least 1 resize");
+        return NULL;
+    }
+
+    // Drain, then Fini (should free the entire array chain without leaking)
+    for (int i = 0; i < count; i++) {
+        Py_DECREF(_PyWSDeque_Take(&deque));
+    }
+
+    Py_DECREF(obj);
+    _PyWSDeque_Fini(&deque);  // Should free old + new arrays via linked list
+    Py_RETURN_NONE;
+}
+
+// ============================================================================
 // Module Registration
 // ============================================================================
 
@@ -538,6 +1054,25 @@ static PyMethodDef test_methods[] = {
 
     // Concurrent
     {"test_ws_deque_concurrent_push_steal", test_ws_deque_concurrent_push_steal, METH_NOARGS, NULL},
+
+    // Barrier tests (T3-F1, T3-F9)
+    {"test_barrier_capacity_zero", test_barrier_capacity_zero, METH_NOARGS, NULL},
+    {"test_barrier_basic", test_barrier_basic, METH_NOARGS, NULL},
+    {"test_barrier_multiple_rounds", test_barrier_multiple_rounds, METH_NOARGS, NULL},
+    {"test_barrier_epoch_distinguishes", test_barrier_epoch_distinguishes, METH_NOARGS, NULL},
+    {"test_barrier_postcondition", test_barrier_postcondition, METH_NOARGS, NULL},
+
+    // LocalBuffer tests (T3-F2, T3-F3, T3-F4)
+    {"test_localbuffer_push_pop", test_localbuffer_push_pop, METH_NOARGS, NULL},
+    {"test_localbuffer_push_full", test_localbuffer_push_full, METH_NOARGS, NULL},
+    {"test_localbuffer_pop_empty", test_localbuffer_pop_empty, METH_NOARGS, NULL},
+    {"test_overflow_flush_precondition", test_overflow_flush_precondition, METH_NOARGS, NULL},
+    {"test_overflow_flush_normal", test_overflow_flush_normal, METH_NOARGS, NULL},
+
+    // Deque invariant tests (T3-F10, T3-F11)
+    {"test_deque_init_values", test_deque_init_values, METH_NOARGS, NULL},
+    {"test_deque_top_leq_bot", test_deque_top_leq_bot, METH_NOARGS, NULL},
+    {"test_deque_grow_chain_fini", test_deque_grow_chain_fini, METH_NOARGS, NULL},
 
     {NULL, NULL, 0, NULL}
 };

@@ -206,6 +206,8 @@ _PyWSDeque_Init(_PyWSDeque *deque)
     _Py_atomic_store_ssize_relaxed((Py_ssize_t *)&deque->top, 1);
     _Py_atomic_store_ssize_relaxed((Py_ssize_t *)&deque->bot, 1);
     _Py_atomic_store_int_relaxed(&deque->num_resizes, 0);
+    // T3-F10: verify init-to-1 postcondition (prevents Take wraparound bug)
+    assert(deque->top == 1 && deque->bot == 1);
 }
 
 // Initialize deque with a pre-allocated buffer (for thread-local pools)
@@ -441,6 +443,7 @@ _PyGCLocalBuffer_IsFull(_PyGCLocalBuffer *buf)
 static inline void
 _PyGCLocalBuffer_Push(_PyGCLocalBuffer *buf, PyObject *obj)
 {
+    assert(buf->count < _PyGC_LOCAL_BUFFER_SIZE);  // T3-F2: bounds check
     buf->items[buf->count++] = obj;
 }
 
@@ -448,6 +451,7 @@ _PyGCLocalBuffer_Push(_PyGCLocalBuffer *buf, PyObject *obj)
 static inline PyObject *
 _PyGCLocalBuffer_Pop(_PyGCLocalBuffer *buf)
 {
+    assert(buf->count > 0);  // T3-F3: bounds check
     return buf->items[--buf->count];
 }
 
@@ -530,6 +534,7 @@ _PyGC_FlushLocalToDeque(_PyGCLocalBuffer *local, _PyWSDeque *deque)
 static inline void
 _PyGC_OverflowFlush(_PyGCLocalBuffer *local, _PyWSDeque *deque)
 {
+    assert(local->count >= _PyGC_LOCAL_BUFFER_SIZE / 2);  // T3-F4: must have enough to flush
     size_t flush_count = _PyGC_LOCAL_BUFFER_SIZE / 2;
     for (size_t i = 0; i < flush_count; i++) {
         PyObject *obj = _PyGCLocalBuffer_Pop(local);

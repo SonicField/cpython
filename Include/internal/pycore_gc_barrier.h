@@ -12,6 +12,7 @@ extern "C" {
 #endif
 
 #include "pycore_condvar.h"  // PyMUTEX_T, PyCOND_T
+#include <assert.h>          // assert
 
 // =============================================================================
 // Mutex/Condvar Operation Macros for Parallel GC
@@ -80,6 +81,7 @@ typedef struct {
 static inline void
 _PyGCBarrier_Init(_PyGCBarrier *barrier, unsigned int capacity)
 {
+    assert(capacity > 0);  // T3-F1: capacity=0 causes unsigned underflow in Wait
     barrier->capacity = capacity;
     barrier->num_left = capacity;
     barrier->epoch = 0;
@@ -116,6 +118,7 @@ _PyGCBarrier_Wait(_PyGCBarrier *barrier)
         }
     }
 
+    assert(barrier->epoch != current_epoch);  // T3-F9: barrier actually lifted
     _PyGC_MUTEX_UNLOCK(&barrier->lock);
 }
 
