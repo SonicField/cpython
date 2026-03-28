@@ -237,8 +237,11 @@ _parallel_gc_worker_thread(void *arg)
         _Py_tss_interp = par_gc->interp;
         worker->tstate = tstate;
     }
-    // If tstate creation failed, continue anyway - will crash on Py_INCREF
-    // in debug builds, but that's better than failing silently
+    // T1-F14: warn on tstate creation failure
+    if (tstate == NULL) {
+        fprintf(stderr, "Warning: GC worker %zu failed to create tstate\n",
+                worker->thread_id);
+    }
 
     // Signal that we're ready - this synchronizes with ParallelStart()
     // to ensure all workers are initialized before Start() returns
@@ -309,9 +312,6 @@ _parallel_gc_worker_thread(void *arg)
             }
             break;
 
-        case _PyGC_PHASE_MARK_ALIVE:
-            // Falls through to PHASE_MARK - uses local-only marking
-            // (PHASE_MARK_ALIVE is no longer used, but kept for compatibility)
         case _PyGC_PHASE_MARK:
         default:
             // =======================================================================
@@ -521,6 +521,10 @@ _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
     // Store in interpreter state
     interp->gc.parallel_gc = par_gc;
 
+    // T1-F10: postcondition — state is fully initialized
+    assert(par_gc->enabled == 1);
+    assert(par_gc->num_workers == num_workers);
+
     return 0;
 }
 
@@ -584,6 +588,7 @@ _PyGC_ParallelFini(PyInterpreterState *interp)
 int
 _PyGC_ParallelStart(PyInterpreterState *interp)
 {
+    assert(interp != NULL);  // interp dereferenced for par_gc below
     // Get from interpreter state
     _PyParallelGCState *par_gc = interp->gc.parallel_gc;
 
@@ -616,6 +621,9 @@ _PyGC_ParallelStart(PyInterpreterState *interp)
     // Wait for all workers to be ready before returning
     // This ensures ParallelStop won't race with worker initialization
     _PyGCBarrier_Wait(&par_gc->startup_barrier);
+
+    // T1-F11: postcondition — all workers started
+    assert(par_gc->num_workers_active == par_gc->num_workers);
 
     return 0;
 }
@@ -1100,6 +1108,7 @@ _PyGC_ParallelGetStats(PyInterpreterState *interp)
 int
 _PyGCSplitVector_Init(_PyGCSplitVector *vec)
 {
+    assert(vec != NULL);  // NULL dereference in calloc below
     vec->entries = (PyGC_Head **)PyMem_RawCalloc(
         _PyGC_SPLIT_VECTOR_INITIAL_CAPACITY, sizeof(PyGC_Head *));
     if (vec->entries == NULL) {
@@ -1131,6 +1140,8 @@ _PyGCSplitVector_Clear(_PyGCSplitVector *vec)
 int
 _PyGCSplitVector_Push(_PyGCSplitVector *vec, PyGC_Head *gc)
 {
+    assert(vec != NULL);  // NULL dereference on vec->count below
+    assert(gc != NULL);   // storing NULL entry corrupts split vector
     // Grow if needed
     if (vec->count >= vec->capacity) {
         size_t new_capacity = vec->capacity * 2;
@@ -1168,6 +1179,7 @@ _PyGCSplitVector_Push(_PyGCSplitVector *vec, PyGC_Head *gc)
 int
 _PyGCWorkQueue_Init(_PyGCWorkQueue *queue)
 {
+    assert(queue != NULL);  // NULL dereference on queue->blocks below
     // Point to pre-allocated initial blocks
     queue->blocks = queue->initial_blocks;
     queue->num_blocks = 0;
@@ -1238,6 +1250,8 @@ _PyGCWorkQueue_Grow(_PyGCWorkQueue *queue)
 int
 _PyGCWorkQueue_Push(_PyGCWorkQueue *queue, PyObject *obj)
 {
+    assert(queue != NULL);  // NULL dereference on queue->write_index below
+    assert(obj != NULL);    // pushing NULL corrupts queue (consumers expect valid objects)
     // Calculate block and offset for current write position
     // Relaxed load: single producer, but must match atomic stores for TSAN
     Py_ssize_t idx = _Py_atomic_load_ssize_relaxed(&queue->write_index);
@@ -1343,6 +1357,7 @@ _PyGCWorkQueue_ClaimBatch(_PyGCWorkQueue *queue, PyObject **out, Py_ssize_t max_
 int
 _PyGCSemaphore_Init(_PyGCSemaphore *sema)
 {
+    assert(sema != NULL);  // NULL dereference on sema->tokens below
     sema->tokens = 0;
     if (PyMUTEX_INIT(&sema->lock) != 0) {
         return -1;
@@ -1364,6 +1379,8 @@ _PyGCSemaphore_Fini(_PyGCSemaphore *sema)
 void
 _PyGCSemaphore_Post(_PyGCSemaphore *sema, Py_ssize_t n)
 {
+    assert(sema != NULL);  // NULL dereference on sema->lock below
+    assert(n > 0);         // posting 0 tokens wakes no waiters (likely caller bug)
     PyMUTEX_LOCK(&sema->lock);
     sema->tokens += n;
     // Wake up to n waiters
@@ -1376,6 +1393,7 @@ _PyGCSemaphore_Post(_PyGCSemaphore *sema, Py_ssize_t n)
 void
 _PyGCSemaphore_Wait(_PyGCSemaphore *sema)
 {
+    assert(sema != NULL);  // NULL dereference on sema->lock below
     PyMUTEX_LOCK(&sema->lock);
     while (sema->tokens <= 0) {
         PyCOND_WAIT(&sema->cond, &sema->lock);
@@ -1549,6 +1567,8 @@ _PyGC_ParallelMoveUnreachable(
             par_gc->workers[i].slice_end = NULL;
             par_gc->workers[i].phase = _PyGC_PHASE_IDLE;
         } else {
+            assert(start_idx < splits->count);  // OOB on splits->entries
+            assert(end_idx < splits->count);     // OOB on splits->entries
             par_gc->workers[i].slice_start = splits->entries[start_idx];
             par_gc->workers[i].slice_end = splits->entries[end_idx];
             par_gc->workers[i].phase = _PyGC_PHASE_MARK;
@@ -1844,6 +1864,8 @@ _PyGC_ParallelSubtractRefs(PyInterpreterState *interp, PyGC_Head *base)
             // No work for this worker
             par_gc->workers[i].phase = _PyGC_PHASE_IDLE;
         } else {
+            assert(start_idx < splits->count);  // OOB on splits->entries
+            assert(end_idx < splits->count);     // OOB on splits->entries
             par_gc->workers[i].slice_start = splits->entries[start_idx];
             par_gc->workers[i].slice_end = splits->entries[end_idx];
             par_gc->workers[i].phase = _PyGC_PHASE_SUBTRACT_REFS;
@@ -2165,7 +2187,7 @@ _PyGC_ParallelMarkAliveFromRoots(PyInterpreterState *interp, PyGC_Head *containe
 
     // Set phase for all workers
     for (size_t i = 0; i < par_gc->num_workers; i++) {
-        par_gc->workers[i].phase = _PyGC_PHASE_MARK_ALIVE;
+        par_gc->workers[i].phase = _PyGC_PHASE_MARK;
     }
 
     // Signal workers to start

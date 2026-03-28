@@ -443,7 +443,7 @@ _PyGCLocalBuffer_IsFull(_PyGCLocalBuffer *buf)
 static inline void
 _PyGCLocalBuffer_Push(_PyGCLocalBuffer *buf, PyObject *obj)
 {
-    assert(buf->count < _PyGC_LOCAL_BUFFER_SIZE);  // T3-F2: bounds check
+    assert(buf->count < _PyGC_LOCAL_BUFFER_SIZE);  // overflow writes past items[]
     buf->items[buf->count++] = obj;
 }
 
@@ -451,7 +451,7 @@ _PyGCLocalBuffer_Push(_PyGCLocalBuffer *buf, PyObject *obj)
 static inline PyObject *
 _PyGCLocalBuffer_Pop(_PyGCLocalBuffer *buf)
 {
-    assert(buf->count > 0);  // T3-F3: bounds check
+    assert(buf->count > 0);  // underflow wraps count to SIZE_MAX
     return buf->items[--buf->count];
 }
 

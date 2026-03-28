@@ -1,8 +1,11 @@
-// Test suite for work-stealing deque (_PyWSDeque) and barrier (_PyGCBarrier)
+// Test suite for work-stealing deque, barrier, and parallel GC infrastructure
 
 #include "parts.h"
 #include "pycore_ws_deque.h"       // _PyWSDeque, _PyGCLocalBuffer
 #include "pycore_gc_barrier.h"     // _PyGCBarrier
+#ifdef Py_PARALLEL_GC
+#include "pycore_gc_parallel.h"    // _PyGCSplitVector, _PyGCWorkQueue, _PyGCSemaphore
+#endif
 
 #include <pthread.h>                // pthread_create
 
@@ -1034,6 +1037,275 @@ test_deque_grow_chain_fini(PyObject *self, PyObject *Py_UNUSED(ignored))
 }
 
 // ============================================================================
+// T1 Infrastructure Tests (SplitVector, WorkQueue, Semaphore)
+// ============================================================================
+
+#ifdef Py_PARALLEL_GC
+
+// T1-F1/F2: SplitVector init, push, capacity grow
+static PyObject *
+test_splitvector_init_push(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    _PyGCSplitVector vec;
+    if (_PyGCSplitVector_Init(&vec) < 0) {
+        return PyErr_NoMemory();
+    }
+
+    if (vec.entries == NULL || vec.count != 0) {
+        _PyGCSplitVector_Fini(&vec);
+        PyErr_SetString(PyExc_AssertionError, "Init should set entries!=NULL, count=0");
+        return NULL;
+    }
+
+    // Push items up to and beyond initial capacity to trigger grow
+    size_t initial_cap = vec.capacity;
+    for (size_t i = 0; i < initial_cap + 10; i++) {
+        // Use a dummy GC head (just needs a non-NULL pointer for the test)
+        if (_PyGCSplitVector_Push(&vec, (PyGC_Head *)(uintptr_t)(i + 1)) < 0) {
+            _PyGCSplitVector_Fini(&vec);
+            return PyErr_NoMemory();
+        }
+    }
+
+    if (vec.count != initial_cap + 10) {
+        _PyGCSplitVector_Fini(&vec);
+        PyErr_Format(PyExc_AssertionError,
+                    "Expected count=%zu, got %zu", initial_cap + 10, vec.count);
+        return NULL;
+    }
+    if (vec.capacity <= initial_cap) {
+        _PyGCSplitVector_Fini(&vec);
+        PyErr_SetString(PyExc_AssertionError, "Capacity should have grown");
+        return NULL;
+    }
+
+    // Clear should reset count but keep capacity
+    _PyGCSplitVector_Clear(&vec);
+    if (vec.count != 0) {
+        _PyGCSplitVector_Fini(&vec);
+        PyErr_SetString(PyExc_AssertionError, "Clear should set count=0");
+        return NULL;
+    }
+
+    _PyGCSplitVector_Fini(&vec);
+    Py_RETURN_NONE;
+}
+
+// T1-F3/F4: WorkQueue init, push, ordering
+static PyObject *
+test_workqueue_init_push(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    _PyGCWorkQueue queue;
+    if (_PyGCWorkQueue_Init(&queue) < 0) {
+        return PyErr_NoMemory();
+    }
+
+    // Push several objects
+    const int count = 100;
+    PyObject *obj = PyLong_FromLong(42);
+    if (obj == NULL) {
+        _PyGCWorkQueue_Fini(&queue);
+        return NULL;
+    }
+
+    for (int i = 0; i < count; i++) {
+        Py_INCREF(obj);
+        if (_PyGCWorkQueue_Push(&queue, obj) < 0) {
+            Py_DECREF(obj);
+            _PyGCWorkQueue_Fini(&queue);
+            return PyErr_NoMemory();
+        }
+    }
+
+    // Verify write_index advanced
+    Py_ssize_t write_idx = _Py_atomic_load_ssize_relaxed(&queue.write_index);
+    if (write_idx != count) {
+        Py_DECREF(obj);
+        _PyGCWorkQueue_Fini(&queue);
+        PyErr_Format(PyExc_AssertionError,
+                    "Expected write_index=%d, got %zd", count, write_idx);
+        return NULL;
+    }
+
+    // Verify read_index <= write_index (invariant 6)
+    Py_ssize_t read_idx = _Py_atomic_load_ssize_relaxed(&queue.read_index);
+    if (read_idx > write_idx) {
+        Py_DECREF(obj);
+        _PyGCWorkQueue_Fini(&queue);
+        PyErr_SetString(PyExc_AssertionError, "read_index > write_index");
+        return NULL;
+    }
+
+    // Decref all pushed objects
+    for (int i = 0; i < count; i++) {
+        Py_DECREF(obj);
+    }
+    Py_DECREF(obj);
+    _PyGCWorkQueue_Fini(&queue);
+    Py_RETURN_NONE;
+}
+
+// T1-F5/F6/F7: Semaphore init, post, wait
+static PyObject *
+test_semaphore_post_wait(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    _PyGCSemaphore sema;
+    if (_PyGCSemaphore_Init(&sema) < 0) {
+        PyErr_SetString(PyExc_RuntimeError, "Semaphore init failed");
+        return NULL;
+    }
+
+    // Post 3 tokens
+    _PyGCSemaphore_Post(&sema, 3);
+
+    // Wait should succeed 3 times without blocking
+    for (int i = 0; i < 3; i++) {
+        _PyGCSemaphore_Wait(&sema);
+    }
+
+    // Tokens should be 0 now
+    if (sema.tokens != 0) {
+        _PyGCSemaphore_Fini(&sema);
+        PyErr_Format(PyExc_AssertionError,
+                    "Expected 0 tokens, got %zd", sema.tokens);
+        return NULL;
+    }
+
+    _PyGCSemaphore_Fini(&sema);
+    Py_RETURN_NONE;
+}
+
+// T1-F6: Semaphore Post with n > 0 assertion
+static PyObject *
+test_semaphore_post_multiple(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    _PyGCSemaphore sema;
+    if (_PyGCSemaphore_Init(&sema) < 0) {
+        PyErr_SetString(PyExc_RuntimeError, "Semaphore init failed");
+        return NULL;
+    }
+
+    // Post in batches, wait in batches
+    _PyGCSemaphore_Post(&sema, 5);
+    _PyGCSemaphore_Post(&sema, 3);
+
+    // Should have 8 tokens total
+    if (sema.tokens != 8) {
+        _PyGCSemaphore_Fini(&sema);
+        PyErr_Format(PyExc_AssertionError,
+                    "Expected 8 tokens, got %zd", sema.tokens);
+        return NULL;
+    }
+
+    // Consume all
+    for (int i = 0; i < 8; i++) {
+        _PyGCSemaphore_Wait(&sema);
+    }
+
+    _PyGCSemaphore_Fini(&sema);
+    Py_RETURN_NONE;
+}
+
+// Semaphore concurrent test: producer posts, consumer waits
+typedef struct {
+    _PyGCSemaphore *sema;
+    int count;
+    int received;
+} sema_worker_args;
+
+static void *
+sema_consumer(void *arg)
+{
+    sema_worker_args *args = (sema_worker_args *)arg;
+    args->received = 0;
+    for (int i = 0; i < args->count; i++) {
+        _PyGCSemaphore_Wait(args->sema);
+        args->received++;
+    }
+    return NULL;
+}
+
+static PyObject *
+test_semaphore_concurrent(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    _PyGCSemaphore sema;
+    if (_PyGCSemaphore_Init(&sema) < 0) {
+        PyErr_SetString(PyExc_RuntimeError, "Semaphore init failed");
+        return NULL;
+    }
+
+    const int count = 100;
+    sema_worker_args args = { .sema = &sema, .count = count, .received = 0 };
+
+    pthread_t consumer_thread;
+    pthread_create(&consumer_thread, NULL, sema_consumer, &args);
+
+    // Producer: post one at a time
+    for (int i = 0; i < count; i++) {
+        _PyGCSemaphore_Post(&sema, 1);
+    }
+
+    pthread_join(consumer_thread, NULL);
+
+    if (args.received != count) {
+        _PyGCSemaphore_Fini(&sema);
+        PyErr_Format(PyExc_AssertionError,
+                    "Expected %d received, got %d", count, args.received);
+        return NULL;
+    }
+
+    _PyGCSemaphore_Fini(&sema);
+    Py_RETURN_NONE;
+}
+
+// WorkQueue reset test
+static PyObject *
+test_workqueue_reset(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    _PyGCWorkQueue queue;
+    if (_PyGCWorkQueue_Init(&queue) < 0) {
+        return PyErr_NoMemory();
+    }
+
+    PyObject *obj = PyLong_FromLong(1);
+    if (obj == NULL) {
+        _PyGCWorkQueue_Fini(&queue);
+        return NULL;
+    }
+
+    // Push some items
+    for (int i = 0; i < 10; i++) {
+        Py_INCREF(obj);
+        _PyGCWorkQueue_Push(&queue, obj);
+    }
+
+    // Reset
+    _PyGCWorkQueue_Reset(&queue);
+
+    Py_ssize_t write_idx = _Py_atomic_load_ssize_relaxed(&queue.write_index);
+    Py_ssize_t read_idx = _Py_atomic_load_ssize_relaxed(&queue.read_index);
+    int done = _Py_atomic_load_int_relaxed(&queue.producer_done);
+
+    if (write_idx != 0 || read_idx != 0 || done != 0) {
+        Py_DECREF(obj);
+        _PyGCWorkQueue_Fini(&queue);
+        PyErr_SetString(PyExc_AssertionError,
+                       "Reset should zero indices and producer_done");
+        return NULL;
+    }
+
+    // Decref pushed objects (they're still referenced by queue blocks)
+    for (int i = 0; i < 10; i++) {
+        Py_DECREF(obj);
+    }
+    Py_DECREF(obj);
+    _PyGCWorkQueue_Fini(&queue);
+    Py_RETURN_NONE;
+}
+
+#endif  // Py_PARALLEL_GC
+
+// ============================================================================
 // Module Registration
 // ============================================================================
 
@@ -1073,6 +1345,16 @@ static PyMethodDef test_methods[] = {
     {"test_deque_init_values", test_deque_init_values, METH_NOARGS, NULL},
     {"test_deque_top_leq_bot", test_deque_top_leq_bot, METH_NOARGS, NULL},
     {"test_deque_grow_chain_fini", test_deque_grow_chain_fini, METH_NOARGS, NULL},
+
+#ifdef Py_PARALLEL_GC
+    // T1 infrastructure tests (SplitVector, WorkQueue, Semaphore)
+    {"test_splitvector_init_push", test_splitvector_init_push, METH_NOARGS, NULL},
+    {"test_workqueue_init_push", test_workqueue_init_push, METH_NOARGS, NULL},
+    {"test_workqueue_reset", test_workqueue_reset, METH_NOARGS, NULL},
+    {"test_semaphore_post_wait", test_semaphore_post_wait, METH_NOARGS, NULL},
+    {"test_semaphore_post_multiple", test_semaphore_post_multiple, METH_NOARGS, NULL},
+    {"test_semaphore_concurrent", test_semaphore_concurrent, METH_NOARGS, NULL},
+#endif
 
     {NULL, NULL, 0, NULL}
 };

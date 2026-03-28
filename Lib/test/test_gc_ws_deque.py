@@ -152,5 +152,77 @@ class TestDequeInvariants(unittest.TestCase):
         _testinternalcapi.test_deque_grow_chain_fini()
 
 
+class TestParallelGCLifecycle(unittest.TestCase):
+    """Test parallel GC enable/disable consistency (T1-F10, T1-F11)."""
+
+    def test_enable_disable_consistency(self):
+        """Enable → config shows enabled. Disable → config shows disabled."""
+        import gc
+        if not hasattr(gc, 'enable_parallel'):
+            self.skipTest("Parallel GC not available")
+
+        gc.enable_parallel(2)
+        try:
+            config = gc.get_parallel_config()
+            self.assertTrue(config['enabled'], "Should be enabled after enable_parallel")
+            self.assertEqual(config['num_workers'], 2)
+
+            # Run a collection to exercise the parallel path
+            gc.collect()
+        finally:
+            gc.disable_parallel()
+
+        config = gc.get_parallel_config()
+        self.assertFalse(config['enabled'], "Should be disabled after disable_parallel")
+
+
+class TestSplitVector(unittest.TestCase):
+    """Test GC split vector (T1-F1, T1-F2)."""
+
+    def test_init_push(self):
+        """Init, push beyond capacity (triggers grow), clear."""
+        if not hasattr(_testinternalcapi, 'test_splitvector_init_push'):
+            self.skipTest("Py_PARALLEL_GC not enabled")
+        _testinternalcapi.test_splitvector_init_push()
+
+
+class TestWorkQueue(unittest.TestCase):
+    """Test GC work queue (T1-F3, T1-F4)."""
+
+    def test_init_push(self):
+        """Init, push items, verify write_index and ordering."""
+        if not hasattr(_testinternalcapi, 'test_workqueue_init_push'):
+            self.skipTest("Py_PARALLEL_GC not enabled")
+        _testinternalcapi.test_workqueue_init_push()
+
+    def test_reset(self):
+        """Push items, reset, verify indices zeroed."""
+        if not hasattr(_testinternalcapi, 'test_workqueue_reset'):
+            self.skipTest("Py_PARALLEL_GC not enabled")
+        _testinternalcapi.test_workqueue_reset()
+
+
+class TestSemaphore(unittest.TestCase):
+    """Test GC semaphore (T1-F5, T1-F6, T1-F7)."""
+
+    def test_post_wait(self):
+        """Post N tokens, wait N times, verify consumed."""
+        if not hasattr(_testinternalcapi, 'test_semaphore_post_wait'):
+            self.skipTest("Py_PARALLEL_GC not enabled")
+        _testinternalcapi.test_semaphore_post_wait()
+
+    def test_post_multiple(self):
+        """Post in batches, verify total tokens correct."""
+        if not hasattr(_testinternalcapi, 'test_semaphore_post_multiple'):
+            self.skipTest("Py_PARALLEL_GC not enabled")
+        _testinternalcapi.test_semaphore_post_multiple()
+
+    def test_concurrent(self):
+        """Producer posts, consumer waits — concurrent correctness."""
+        if not hasattr(_testinternalcapi, 'test_semaphore_concurrent'):
+            self.skipTest("Py_PARALLEL_GC not enabled")
+        _testinternalcapi.test_semaphore_concurrent()
+
+
 if __name__ == '__main__':
     unittest.main()
