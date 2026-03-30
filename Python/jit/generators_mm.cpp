@@ -79,6 +79,10 @@ bool JitGenFreeList::fromThisArena(void* ptr) {
   return ptr >= &entries_ && ptr < &entries_[kGenFreeListEntries - 1] + 1;
 }
 
+bool JitGenFreeList::contains(void* ptr) const {
+  return ptr >= &entries_ && ptr < &entries_[kGenFreeListEntries - 1] + 1;
+}
+
 void JitGenFreeList::free(PyObject* ptr) {
   if (!fromThisArena(ptr)) {
     PyObject_GC_Del(ptr);

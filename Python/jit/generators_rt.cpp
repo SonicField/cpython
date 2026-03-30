@@ -43,15 +43,36 @@ void jitgen_dealloc(PyObject* self) {
     if (!deopt_jit_gen(self)) {
       JIT_ABORT("Tried to dealloc a running JIT generator");
     }
+    // After deopt, fall through to Cix_gen_dealloc_with_custom_free.
+    // The generator may have been allocated from the JitGenFreeList pool,
+    // so we must route through Ci_free_jit_list_gen which checks
+    // fromThisArena() and returns pool-allocated generators to the pool.
+    Cix_gen_dealloc_with_custom_free(self);
+    return;
   }
 
-  // Always use Cix_gen_dealloc_with_custom_free for ALL generators. This
-  // routes PyObject_GC_Del through Ci_free_jit_list_gen which checks
-  // fromThisArena() — returning free-list-allocated generators to the pool
-  // instead of calling PyMem_RawFree. This is critical for deopted JIT
-  // generators: deopt changes their type so JitGen_CheckAny returns false,
-  // but they may still be allocated from the JitGenFreeList pool.
-  Cix_gen_dealloc_with_custom_free(self);
+  // Not currently a JIT generator. Two cases:
+  // 1. Deopted JIT generator: gen_close/gen_throw changed its type before
+  //    dealloc, but it may still be allocated from JitGenFreeList pool.
+  //    Must use Cix_gen_dealloc_with_custom_free to return to pool.
+  // 2. Plain CPython generator: never JIT-compiled. Must use original
+  //    dealloc — the borrowed gen_dealloc corrupts memory under heavy
+  //    generator workloads (e.g. test_itertools).
+  auto* mod_state = cinderx::getModuleState();
+  if (mod_state != nullptr) {
+    auto* free_list = mod_state->jitGenFreeList();
+    if (free_list != nullptr && free_list->contains(self)) {
+      Cix_gen_dealloc_with_custom_free(self);
+      return;
+    }
+  }
+
+  // Plain CPython generator — use original dealloc.
+  if (PyCoro_CheckExact(self)) {
+    original_coro_dealloc(self);
+  } else {
+    original_gen_dealloc(self);
+  }
 }
 
 int jitgen_traverse(PyObject* obj, visitproc visit, void* arg) {
