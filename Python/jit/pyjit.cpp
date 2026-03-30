@@ -3721,10 +3721,20 @@ int initialize() {
 
   mod_state->setJitList(std::move(jit_list));
 
-  // Phoenix: skip auto-compilation scheduling for now — the vectorcall
-  // hooks need the full CinderX infrastructure to work correctly.
-  // JIT can still be triggered manually via cinderjit.force_compile().
-  fprintf(stderr, "  jit::init step 8: skipping auto-compilation (Phoenix)\n"); fflush(stderr);
+  // Auto-compilation: schedule functions for JIT compilation after N calls.
+  fprintf(stderr, "  jit::init step 8: auto-compilation setup\n"); fflush(stderr);
+  if (auto compile_n = getConfig().compile_after_n_calls;
+      compile_n.has_value()) {
+    if (compile_after_n_calls_impl(*compile_n) < 0) {
+      fprintf(stderr, "  jit::init step 8: auto-compilation FAILED\n"); fflush(stderr);
+      return -1;
+    }
+    fprintf(stderr, "  jit::init step 8: auto-compilation threshold=%u\n", *compile_n); fflush(stderr);
+  } else if (mod_state->jitList() != nullptr) {
+    if (rescheduleJitList() < 0) {
+      return -1;
+    }
+  }
 
   fprintf(stderr, "  jit::init step 9: complete, returning 0\n"); fflush(stderr);
   return 0;
