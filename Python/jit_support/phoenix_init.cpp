@@ -9,6 +9,7 @@
 #include "cinderx/module_state.h"
 #include "cinderx/Jit/pyjit.h"
 #include "cinderx/Jit/global_cache.h"
+#include "cinderx/Common/code.h"
 #include "cinderx/Common/log.h"
 #include "cinderx/Common/watchers.h"
 
@@ -59,8 +60,16 @@ static int phoenix_dict_watcher(
 static int phoenix_func_watcher(
     PyFunction_WatchEvent event, PyFunctionObject* func, PyObject* new_value) {
     switch (event) {
+        case PyFunction_EVENT_CREATE:
+            /* Schedule the new function for JIT compilation */
+            jit::scheduleJitCompile(func);
+            break;
         case PyFunction_EVENT_MODIFY_CODE:
             jit::funcModified(func);
+            /* Re-schedule with new code */
+            Py_INCREF(new_value);
+            Py_XSETREF(func->func_code, new_value);
+            jit::scheduleJitCompile(func);
             break;
         case PyFunction_EVENT_DESTROY:
             jit::funcDestroyed(func);
@@ -144,6 +153,11 @@ static int phoenix_exec(PyObject* m) {
         return -1;
     }
     fprintf(stderr, "Phoenix: builtin members initialized\n");
+
+    /* Initialize CodeExtra index — needed by the counting trampoline
+       and inline caches to store per-code-object JIT metadata */
+    initCodeExtraIndex();
+    fprintf(stderr, "Phoenix: CodeExtra initialized\n");
 
     fprintf(stderr, "Phoenix: calling jit::initialize()\n");
     fflush(stderr);
