@@ -3839,6 +3839,8 @@
             DEOPT_IF(!PyFunction_Check(callable), CALL);
             PyFunctionObject *func = (PyFunctionObject *)callable;
             DEOPT_IF(func->func_version != func_version, CALL);
+            // Phoenix: deopt if custom vectorcall installed
+            DEOPT_IF(func->vectorcall != _PyFunction_Vectorcall, CALL);
             PyCodeObject *code = (PyCodeObject *)func->func_code;
             DEOPT_IF(code->co_argcount != argcount, CALL);
             DEOPT_IF(!_PyThreadState_HasStackSpace(tstate, code->co_framesize), CALL);
@@ -3873,6 +3875,8 @@
             DEOPT_IF(!PyFunction_Check(callable), CALL);
             PyFunctionObject *func = (PyFunctionObject *)callable;
             DEOPT_IF(func->func_version != func_version, CALL);
+            // Phoenix: deopt if custom vectorcall installed
+            DEOPT_IF(func->vectorcall != _PyFunction_Vectorcall, CALL);
             PyCodeObject *code = (PyCodeObject *)func->func_code;
             assert(func->func_defaults);
             assert(PyTuple_CheckExact(func->func_defaults));
