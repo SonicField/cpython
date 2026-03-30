@@ -119,9 +119,7 @@ target_link_libraries(jit PRIVATE asmjit::asmjit interpreter fmt::fmt)
 # Top-level phoenix_jit library
 
 set(SUPPORT_SOURCES
-  ${JIT_ROOT}/jit_support/_cinderx.cpp
-  ${JIT_ROOT}/jit_support/_cinderx-lib.cpp
-  ${JIT_ROOT}/jit_support/async_lazy_value.cpp
+  ${JIT_ROOT}/jit_support/phoenix_init.cpp
   ${JIT_ROOT}/jit_support/module_state.cpp
   ${JIT_ROOT}/jit_support/module_c_state.cpp
   ${JIT_ROOT}/jit_support/python_runtime.cpp
