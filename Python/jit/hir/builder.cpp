@@ -713,17 +713,39 @@ void HIRBuilder::emitInlineExceptionMatch(
       TranslationContext match_tc{match_block, exc_tc.frame};
       match_tc.frame.cur_instr_offs = info.except_body;
 
+      // Push Py_None as the "previous exception" placeholder.
+      // In CPython's interpreter, PUSH_EXC_INFO pushes the old
+      // exc_info->exc_value onto the stack so POP_EXCEPT can restore
+      // it. The JIT skips PUSH_EXC_INFO but the handler body bytecodes
+      // (SWAP, POP_EXCEPT) still expect prev_exc on the stack. If the
+      // handler body hits an unsupported opcode and deopts, the
+      // interpreter must find a valid prev_exc here — otherwise
+      // POP_EXCEPT writes a garbage pointer into exc_info->exc_value,
+      // corrupting the exception context chain.
+      Register* prev_exc_reg = temps_.AllocateStack();
+      match_tc.emit<LoadConst>(prev_exc_reg, TNoneType);
+      match_tc.frame.stack.push(prev_exc_reg);
+
       BytecodeInstruction ebc{code_, info.except_body};
       bool emitted_terminator = false;
 
       while (!emitted_terminator) {
         switch (ebc.opcode()) {
           case POP_EXCEPT:
-            // No-op for B2: we never pushed exc_info in the JIT.
+            // Pop the prev_exc placeholder we pushed above.
+            // In CPython, POP_EXCEPT pops the saved exception and
+            // restores it to exc_info->exc_value. Our placeholder is
+            // Py_None, which is correct: there was no active exception
+            // before the JIT's inline handler.
+            match_tc.frame.stack.pop();
             break;
 
           case POP_TOP:
             match_tc.frame.stack.pop();
+            break;
+
+          case SWAP:
+            emitSwap(match_tc, ebc.oparg());
             break;
 
           case LOAD_FAST:
@@ -872,16 +894,28 @@ void HIRBuilder::emitCallExceptionHandler(
       TranslationContext match_tc{match_block, exc_tc.frame};
       match_tc.frame.cur_instr_offs = info.except_body;
 
+      // Push Py_None as "previous exception" placeholder — see comment
+      // in the first emitInlineExceptionMatch for full rationale.
+      Register* prev_exc_reg = temps_.AllocateStack();
+      match_tc.emit<LoadConst>(prev_exc_reg, TNoneType);
+      match_tc.frame.stack.push(prev_exc_reg);
+
       BytecodeInstruction ebc{code_, info.except_body};
       bool emitted_terminator = false;
 
       while (!emitted_terminator) {
         switch (ebc.opcode()) {
           case POP_EXCEPT:
+            // Pop the prev_exc placeholder.
+            match_tc.frame.stack.pop();
             break;
 
           case POP_TOP:
             match_tc.frame.stack.pop();
+            break;
+
+          case SWAP:
+            emitSwap(match_tc, ebc.oparg());
             break;
 
           case LOAD_FAST:
