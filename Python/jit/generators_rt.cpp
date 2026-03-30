@@ -878,14 +878,17 @@ void init_jit_genobject_type() {
   cinderx::getModuleState()->setJitGenFreeList(new JitGenFreeList());
 #endif
 
-  // Phoenix: Do NOT override PyGen_Type/PyCoro_Type.tp_dealloc.
-  // The jitgen_dealloc function uses a custom free-list (Ci_free_jit_list_gen)
-  // that crashes when applied to non-JIT generators during GC. Since
-  // force_compile creates regular PyGenObject (not JitGenObject), the stock
-  // dealloc is correct. The JIT heap types (from JitGen_Spec/JitCoro_Spec)
-  // already have jitgen_dealloc set via Py_tp_dealloc in their specs.
-  // PyGen_Type.tp_dealloc = reinterpret_cast<destructor>(jitgen_dealloc);
-  // PyCoro_Type.tp_dealloc = reinterpret_cast<destructor>(jitgen_dealloc);
+  // Override tp_dealloc so jitgen_dealloc handles ALL generators.
+  // The guard in jitgen_dealloc (line 44) routes non-JIT generators
+  // to original_gen_dealloc/original_coro_dealloc. This override is
+  // needed so that auto-compiled JIT generators are properly deopted
+  // during GC (gen_close → deopt_jit_gen) before deallocation.
+  JIT_CHECK(
+      PyGen_Type.tp_dealloc == original_gen_dealloc &&
+          PyCoro_Type.tp_dealloc == original_coro_dealloc,
+      "PyGen/Coro_Type already overridden");
+  PyGen_Type.tp_dealloc = reinterpret_cast<destructor>(jitgen_dealloc);
+  PyCoro_Type.tp_dealloc = reinterpret_cast<destructor>(jitgen_dealloc);
 
 #ifdef ENABLE_GENERATOR_AWAITER
   JIT_CHECK(
