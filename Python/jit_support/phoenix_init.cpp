@@ -56,7 +56,12 @@ static int phoenix_dict_watcher(
             break;
         case PyDict_EVENT_CLONED:
         case PyDict_EVENT_DEALLOCATED:
-            globalCaches->notifyDictUnwatch(dict);
+            /* Skip notifyDictUnwatch during deallocation/clone —
+               the dict may be partially freed during GC, and
+               notifyDictUnwatch accesses dict internals that can
+               trigger use-after-free. The GlobalCacheManager will
+               naturally stop watching when the dict pointer becomes
+               invalid (weak reference semantics). */
             break;
     }
     return 0;
@@ -225,11 +230,19 @@ static void phoenix_free(void* m) {
     }
 
     /* Shutdown in reverse init order:
+       0. Restore vectorcall for registered-but-uncompiled functions —
+          they have jitCountingTrampoline which references JIT state
        1. Clear watchers — prevents callbacks during cleanup
        2. Finalize JIT — deopts generators, releases references
        3. Clean up CodeExtra index
        4. Destruct ModuleState (placement-new'd, needs explicit dtor)
        5. Clear global pointer */
+    for (auto func : state->registeredCompilationUnits()) {
+        auto* f = reinterpret_cast<PyFunctionObject*>(func.get());
+        if (PyFunction_Check(f) && !isJitCompiled(f)) {
+            f->vectorcall = Ci_PyFunction_Vectorcall;
+        }
+    }
     state->watcherState().fini();
     jit::finalize();
     finiCodeExtraIndex();
