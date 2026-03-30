@@ -133,6 +133,8 @@ Tools/unicode/data/
 /Python/deepfreeze/*.c
 /pybuilddir.txt
 /pyconfig.h
+# Phoenix JIT build directory
+Python/jit_build/build/
 /python-config
 /python-config.py
 /python.bat
