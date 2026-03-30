@@ -257,9 +257,17 @@ void Context::deoptBackoffSuppressFunctions(CodeRuntime* code_runtime) {
   // PyCodeObject), and the current execution has already left the JIT
   // entry point via the deopt stub.
   for (auto func : to_deopt) {
-    JIT_LOG(
-        "Deopt backoff: detaching JIT from {}",
-        PyUnicode_AsUTF8(func->func_qualname));
+    // Guard: func_qualname may be freed during GC-triggered deopt.
+    const char* name = "<unknown>";
+    if (func->func_qualname != nullptr && PyUnicode_Check(func->func_qualname)) {
+      const char* tmp = PyUnicode_AsUTF8(func->func_qualname);
+      if (tmp != nullptr) {
+        name = tmp;
+      } else {
+        PyErr_Clear();
+      }
+    }
+    JIT_LOG("Deopt backoff: detaching JIT from {}", name);
     removeCompiledFunc(func);
     func->vectorcall = getInterpretedVectorcall(func.get());
     addDeoptedFunc(func);
