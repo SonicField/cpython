@@ -3679,8 +3679,10 @@ int initialize() {
     return -1;
   }
 
-  // Use a copy with slots cleared for PyModule_Create compatibility
-  PyModuleDef jit_module_noslotsdef = jit_module;
+  // Use a copy with slots cleared for PyModule_Create compatibility.
+  // Must be static: PyModule_Create stores a pointer to the PyModuleDef in
+  // the module object (md_def). A stack-local would be use-after-return.
+  static PyModuleDef jit_module_noslotsdef = jit_module;
   jit_module_noslotsdef.m_slots = nullptr;
   PyObject* mod = PyModule_Create(&jit_module_noslotsdef);
   if (mod == nullptr) {
