@@ -13,13 +13,36 @@ ModuleState* s_cinderx_state;
 } // namespace
 
 int ModuleState::traverse(visitproc visit, void* arg) {
+  Py_VISIT(coro_type_);
+  Py_VISIT(gen_type_);
+  Py_VISIT(anext_awaitable_type_);
+  Py_VISIT(sys_clear_caches_);
   Py_VISIT(builtin_next_);
+  Py_VISIT(orig_sys_monitoring_register_callback_);
+  Py_VISIT(orig_sys_setprofile_);
+  Py_VISIT(orig_sys_settrace_);
+#if PY_VERSION_HEX < 0x030E0000
+  Py_VISIT(frame_reifier_);
+#endif
+  for (auto& [type, members] : builtin_members_) {
+    Py_VISIT(members);
+  }
   return 0;
 }
 
 int ModuleState::clear() {
+  coro_type_.reset();
+  gen_type_.reset();
+  anext_awaitable_type_.reset();
   sys_clear_caches_.reset();
   builtin_next_.reset();
+  orig_sys_monitoring_register_callback_.reset();
+  orig_sys_setprofile_.reset();
+  orig_sys_settrace_.reset();
+#if PY_VERSION_HEX < 0x030E0000
+  frame_reifier_.reset();
+#endif
+  builtin_members_.clear();
   return 0;
 }
 

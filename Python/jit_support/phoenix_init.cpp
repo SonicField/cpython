@@ -96,6 +96,22 @@ static struct PyModuleDef_Slot phoenix_slots[] = {
     {0, nullptr},
 };
 
+static int phoenix_traverse(PyObject* mod, visitproc visit, void* arg) {
+    auto* state = cinderx::getModuleState(mod);
+    if (state != nullptr) {
+        return state->traverse(visit, arg);
+    }
+    return 0;
+}
+
+static int phoenix_clear(PyObject* mod) {
+    auto* state = cinderx::getModuleState(mod);
+    if (state != nullptr) {
+        return state->clear();
+    }
+    return 0;
+}
+
 static struct PyModuleDef phoenix_module_def = {
     PyModuleDef_HEAD_INIT,
     "_cinderx",
@@ -103,8 +119,8 @@ static struct PyModuleDef phoenix_module_def = {
     sizeof(cinderx::ModuleState),
     nullptr,  /* methods */
     phoenix_slots,
-    nullptr,  /* traverse */
-    nullptr,  /* clear */
+    phoenix_traverse,
+    phoenix_clear,
     phoenix_free,
 };
 
