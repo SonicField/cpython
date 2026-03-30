@@ -38,6 +38,18 @@ const destructor original_gen_dealloc = PyGen_Type.tp_dealloc;
 const destructor original_coro_dealloc = PyCoro_Type.tp_dealloc;
 
 void jitgen_dealloc(PyObject* self) {
+  // If this is NOT a JIT generator, use the original CPython dealloc.
+  // JitGen_CheckAny returns false for regular PyGenObject/PyCoroObject
+  // since their type differs from the JIT-specific gen/coro types.
+  if (!JitGen_CheckAny(self)) {
+    if (PyCoro_CheckExact(self)) {
+      original_coro_dealloc(self);
+    } else {
+      original_gen_dealloc(self);
+    }
+    return;
+  }
+
   if (!deopt_jit_gen(self)) {
     JIT_ABORT("Tried to dealloc a running JIT generator");
   }

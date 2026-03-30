@@ -9,6 +9,7 @@
 #include "cinderx/module_state.h"
 #include "cinderx/Jit/pyjit.h"
 #include "cinderx/Jit/global_cache.h"
+#include "cinderx/Jit/generators_rt.h"
 #include "cinderx/Common/code.h"
 #include "cinderx/Common/log.h"
 #include "cinderx/Common/watchers.h"
@@ -116,9 +117,24 @@ static int phoenix_exec(PyObject* m) {
     auto state = new (state_mem) cinderx::ModuleState();
     cinderx::setModuleState(m);
 
-    /* Set gen/coro types to stock CPython types */
-    state->setGenType(&PyGen_Type);
-    state->setCoroType(&PyCoro_Type);
+    /* Create JIT-specific generator/coroutine types from specs.
+       These are DISTINCT from PyGen_Type/PyCoro_Type — JitGen_CheckAny
+       uses them to distinguish JIT generators from regular ones.
+       Setting genType/coroType to PyGen_Type would cause jitgen_dealloc
+       to treat ALL generators as JIT generators, crashing on dealloc. */
+    PyTypeObject* gen_type = (PyTypeObject*)PyType_FromSpec(&jit::JitGen_Spec);
+    if (gen_type == nullptr) {
+        return -1;
+    }
+    state->setGenType(gen_type);
+    Py_DECREF(gen_type);
+
+    PyTypeObject* coro_type = (PyTypeObject*)PyType_FromSpec(&jit::JitCoro_Spec);
+    if (coro_type == nullptr) {
+        return -1;
+    }
+    state->setCoroType(coro_type);
+    Py_DECREF(coro_type);
 
     /* Create global cache manager — needed by the preloader for
        LOAD_GLOBAL resolution and dict watching */
