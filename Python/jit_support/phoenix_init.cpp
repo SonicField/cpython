@@ -8,11 +8,13 @@
 #include "cinderx/python.h"
 #include "cinderx/module_state.h"
 #include "cinderx/Jit/pyjit.h"
+#include "cinderx/Jit/config.h"
 #include "cinderx/Jit/global_cache.h"
 #include "cinderx/Jit/generators_rt.h"
 #include "cinderx/Common/code.h"
 #include "cinderx/Common/log.h"
 #include "cinderx/Common/watchers.h"
+#include "cinderx/module_c_state.h"
 
 /* Watcher callbacks — notify the JIT when types/dicts/funcs/code change */
 static int phoenix_code_watcher(PyCodeEvent event, PyCodeObject* co) {
@@ -64,7 +66,7 @@ static int phoenix_func_watcher(
     PyFunction_WatchEvent event, PyFunctionObject* func, PyObject* new_value) {
     switch (event) {
         case PyFunction_EVENT_CREATE:
-            /* Phoenix: don't auto-schedule — use force_compile instead */
+            jit::scheduleJitCompile(func);
             break;
         case PyFunction_EVENT_MODIFY_CODE:
             jit::funcModified(func);
@@ -115,6 +117,10 @@ static int phoenix_exec(PyObject* m) {
         return 0;
     }
     phoenix_initialized = true;
+
+    /* Save CPython's original function vectorcall — needed by
+       getInterpretedVectorcall() to delegate to the interpreter */
+    Ci_PyFunction_Vectorcall = _PyFunction_Vectorcall;
 
     /* Initialize module state in-place */
     void* state_mem = PyModule_GetState(m);
@@ -186,6 +192,12 @@ static int phoenix_exec(PyObject* m) {
         }
         return -1;
     }
+
+    /* Enable auto-compilation: newly created functions will be scheduled
+       for JIT compilation via the func watcher -> scheduleJitCompile.
+       The counting trampoline compiles after this many calls.
+       Does NOT stamp existing functions (safe for CPython internals). */
+    jit::getMutableConfig().compile_after_n_calls = 100;
 
     return 0;
 }
