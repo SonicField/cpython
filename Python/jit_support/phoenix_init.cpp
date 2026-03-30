@@ -8,6 +8,7 @@
 #include "cinderx/python.h"
 #include "cinderx/module_state.h"
 #include "cinderx/Jit/pyjit.h"
+#include "cinderx/Jit/global_cache.h"
 #include "cinderx/Common/log.h"
 #include "cinderx/Common/watchers.h"
 
@@ -114,6 +115,15 @@ static int phoenix_exec(PyObject* m) {
     /* Set gen/coro types to stock CPython types */
     state->setGenType(&PyGen_Type);
     state->setCoroType(&PyCoro_Type);
+
+    /* Create global cache manager — needed by the preloader for
+       LOAD_GLOBAL resolution and dict watching */
+    auto cache_manager = new (std::nothrow) jit::GlobalCacheManager();
+    if (cache_manager == nullptr) {
+        PyErr_SetString(PyExc_MemoryError, "Phoenix: failed to allocate GlobalCacheManager");
+        return -1;
+    }
+    state->setCacheManager(cache_manager);
 
     /* Initialize watchers — the JIT's inline caches need these to
        track type/dict/func/code changes */
