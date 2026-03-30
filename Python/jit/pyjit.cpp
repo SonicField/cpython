@@ -3699,6 +3699,12 @@ int initialize() {
   if (mod == nullptr) {
     return -1;
   }
+  // Register in sys.modules so 'import cinderjit' finds it
+  PyObject* modules = PyImport_GetModuleDict();
+  if (PyDict_SetItemString(modules, "cinderjit", mod) < 0) {
+    Py_DECREF(mod);
+    return -1;
+  }
 
   jitCtx()->setCinderJitModule(Ref<>::steal(mod));
 
