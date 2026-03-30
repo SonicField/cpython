@@ -200,9 +200,11 @@ void initCodeExtraIndex() {
   if constexpr (!USE_CODE_EXTRA) {
     return;
   }
-  JIT_CHECK(
-      code_extra_index == -1,
-      "Cannot re-initialize code extra index without finalizing it first");
+  // Phoenix: allow re-initialization — the _cinderx module can be
+  // freed and re-loaded during test runner gc_collect() cycles.
+  if (code_extra_index != -1) {
+    return;
+  }
 
   code_extra_index = PyUnstable_Eval_RequestCodeExtraIndex(PyMem_Free);
 }

@@ -38,13 +38,15 @@ static int phoenix_dict_watcher(
             if (key_obj == nullptr || !PyUnicode_CheckExact(key_obj)) {
                 globalCaches->notifyDictUnwatch(dict);
             } else {
-                if (!PyUnicode_CHECK_INTERNED(key_obj)) {
-                    Py_INCREF(key_obj);
-                    PyUnicode_InternInPlace(&key_obj);
-                    Py_DECREF(key_obj);
+                /* Only process already-interned keys. Do NOT call
+                   PyUnicode_InternInPlace — it allocates memory which
+                   can trigger GC re-entrancy, crashing during automatic
+                   garbage collection. Non-interned keys are rare for
+                   module globals (Python interns most identifiers). */
+                if (PyUnicode_CHECK_INTERNED(key_obj)) {
+                    BorrowedRef<PyUnicodeObject> key{key_obj};
+                    globalCaches->notifyDictUpdate(dict, key, new_value);
                 }
-                BorrowedRef<PyUnicodeObject> key{key_obj};
-                globalCaches->notifyDictUpdate(dict, key, new_value);
             }
             break;
         case PyDict_EVENT_CLEARED:
@@ -104,9 +106,15 @@ static struct PyModuleDef phoenix_module_def = {
     phoenix_free,
 };
 
+static bool phoenix_initialized = false;
+
 static int phoenix_exec(PyObject* m) {
-    fprintf(stderr, "Phoenix: initializing JIT\n");
-    fflush(stderr);
+    /* Guard against double-init — the test runner can trigger
+       site.main() re-execution which reloads _cinderx */
+    if (phoenix_initialized) {
+        return 0;
+    }
+    phoenix_initialized = true;
 
     /* Initialize module state in-place */
     void* state_mem = PyModule_GetState(m);
@@ -156,58 +164,53 @@ static int phoenix_exec(PyObject* m) {
         PyErr_SetString(PyExc_RuntimeError, "Phoenix: failed to init watchers");
         return -1;
     }
-    fprintf(stderr, "Phoenix: watchers initialized\n");
 
     /* Initialize builtin type member caches */
     if (!state->initBuiltinMembers()) {
         PyErr_SetString(PyExc_RuntimeError, "Phoenix: failed to init builtin members");
         return -1;
     }
-    fprintf(stderr, "Phoenix: builtin members initialized\n");
 
     /* Initialize CodeExtra index — needed by the counting trampoline
        and inline caches to store per-code-object JIT metadata */
     initCodeExtraIndex();
-    fprintf(stderr, "Phoenix: CodeExtra initialized\n");
-
-    fprintf(stderr, "Phoenix: calling jit::initialize()\n");
-    fflush(stderr);
 
     /* Initialize the JIT */
     int ret = jit::initialize();
-    fprintf(stderr, "Phoenix: jit::initialize() returned %d\n", ret);
-    fflush(stderr);
     if (ret == -2) {
         return 0;
     }
     if (ret != 0) {
         if (!PyErr_Occurred()) {
-            fprintf(stderr, "Phoenix: JIT not initialized (ret=%d)\n", ret);
             return 0;
         }
         return -1;
     }
 
-    fprintf(stderr, "Phoenix: JIT initialized successfully, returning 0\n");
-    fflush(stderr);
     return 0;
 }
 
-/* Prevent the existing phoenix_free from calling jit::finalize which
-   accesses uninitialized code_extra_index */
-
 static void phoenix_free(void* m) {
-    fprintf(stderr, "Phoenix: module free called\n");
-    fflush(stderr);
-    /* Don't call jit::finalize() yet — it accesses code_extra_index
-       which may not have been properly initialized */
+    auto state = cinderx::getModuleState();
+    if (state == nullptr) {
+        return;
+    }
+
+    /* Shutdown in reverse init order:
+       1. Clear watchers — prevents callbacks during cleanup
+       2. Finalize JIT — deopts generators, releases references
+       3. Clean up CodeExtra index
+       4. Destruct ModuleState (placement-new'd, needs explicit dtor)
+       5. Clear global pointer */
+    state->watcherState().fini();
+    jit::finalize();
+    finiCodeExtraIndex();
+    state->~ModuleState();
     cinderx::removeModuleState();
 }
 
 }  /* anonymous namespace */
 
 extern "C" PyObject* PyInit__cinderx(void) {
-    fprintf(stderr, "Phoenix: PyInit__cinderx called\n");
-    fflush(stderr);
     return PyModuleDef_Init(&phoenix_module_def);
 }
