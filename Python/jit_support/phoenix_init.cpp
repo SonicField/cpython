@@ -61,15 +61,10 @@ static int phoenix_func_watcher(
     PyFunction_WatchEvent event, PyFunctionObject* func, PyObject* new_value) {
     switch (event) {
         case PyFunction_EVENT_CREATE:
-            /* Schedule the new function for JIT compilation */
-            jit::scheduleJitCompile(func);
+            /* Phoenix: don't auto-schedule — use force_compile instead */
             break;
         case PyFunction_EVENT_MODIFY_CODE:
             jit::funcModified(func);
-            /* Re-schedule with new code */
-            Py_INCREF(new_value);
-            Py_XSETREF(func->func_code, new_value);
-            jit::scheduleJitCompile(func);
             break;
         case PyFunction_EVENT_DESTROY:
             jit::funcDestroyed(func);

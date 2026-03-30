@@ -3721,20 +3721,11 @@ int initialize() {
 
   mod_state->setJitList(std::move(jit_list));
 
-  // Auto-compilation: schedule functions for JIT compilation after N calls.
-  fprintf(stderr, "  jit::init step 8: auto-compilation setup\n"); fflush(stderr);
-  if (auto compile_n = getConfig().compile_after_n_calls;
-      compile_n.has_value()) {
-    if (compile_after_n_calls_impl(*compile_n) < 0) {
-      fprintf(stderr, "  jit::init step 8: auto-compilation FAILED\n"); fflush(stderr);
-      return -1;
-    }
-    fprintf(stderr, "  jit::init step 8: auto-compilation threshold=%u\n", *compile_n); fflush(stderr);
-  } else if (mod_state->jitList() != nullptr) {
-    if (rescheduleJitList() < 0) {
-      return -1;
-    }
-  }
+  // Phoenix: skip auto-compilation for now — the jitCountingTrampoline
+  // stamps all existing functions which crashes on internal CPython functions.
+  // Auto-compilation needs the full frame eval integration (Phase 2C).
+  // JIT is still usable via cinderjit.force_compile().
+  fprintf(stderr, "  jit::init step 8: auto-compilation skipped (Phoenix)\n"); fflush(stderr);
 
   fprintf(stderr, "  jit::init step 9: complete, returning 0\n"); fflush(stderr);
   return 0;
