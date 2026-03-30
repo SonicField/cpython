@@ -3606,6 +3606,7 @@ PyFrameObject* _PyJIT_GetFrame(PyThreadState* tstate) {
 namespace jit {
 
 int initialize() {
+  fprintf(stderr, "  jit::init step 1: config check\n"); fflush(stderr);
   JIT_CHECK(
       getConfig().state != State::kFinalizing,
       "Trying to re-initialize the JIT as it is finalizing");
@@ -3613,6 +3614,7 @@ int initialize() {
     return 0;
   }
 
+  fprintf(stderr, "  jit::init step 2: flag processor\n"); fflush(stderr);
   // Save the force_init field as it might have be set by test code before
   // jit::initialize() is called.
   auto force_init = getConfig().force_init;
@@ -3622,9 +3624,9 @@ int initialize() {
   }
 
   FlagProcessor flag_processor = initFlagProcessor();
+  fprintf(stderr, "  jit::init step 2b: flags parsed\n"); fflush(stderr);
   if (flag_processor.hasHandled("jit-help")) {
     std::cout << flag_processor.jitXOptionHelpMessage() << '\n';
-    // Return rather than exit here for arg printing test doesn't end early.
     return -2;
   }
 
@@ -3642,6 +3644,7 @@ int initialize() {
   return 0;
 #endif
 
+  fprintf(stderr, "  jit::init step 3: jit_list\n"); fflush(stderr);
   std::unique_ptr<JITList> jit_list;
   if (!getConfig().jit_list.filename.empty()) {
     if (getConfig().allow_jit_list_wildcards) {
@@ -3662,25 +3665,37 @@ int initialize() {
     }
   }
 
+  fprintf(stderr, "  jit::init step 4: gen/iter types\n"); fflush(stderr);
 #if PY_VERSION_HEX >= 0x030C0000
   jit::init_jit_genobject_type();
+  fprintf(stderr, "  jit::init step 4a: genobject done\n"); fflush(stderr);
   jit::init_iterator_types();
+  fprintf(stderr, "  jit::init step 4b: iterators done\n"); fflush(stderr);
 #endif
 
+  fprintf(stderr, "  jit::init step 5: code allocator\n"); fflush(stderr);
   // Create code allocator after jit::Config has been filled out.
   cinderx::ModuleState* mod_state = cinderx::getModuleState();
+  fprintf(stderr, "  jit::init step 5a: mod_state=%p\n", (void*)mod_state); fflush(stderr);
   mod_state->setCodeAllocator(CodeAllocator::make());
+  fprintf(stderr, "  jit::init step 5b: allocator done\n"); fflush(stderr);
 
   // Initialize the main compiler object and its context.  This will throw if
   // asmjit cannot initialize.
+  fprintf(stderr, "  jit::init step 6: compiler context\n"); fflush(stderr);
   try {
     cinderx::getModuleState()->setJitContext(new CompilerContext<Compiler>());
   } catch (const std::exception& exn) {
     PyErr_SetString(PyExc_RuntimeError, exn.what());
     return -1;
   }
+  fprintf(stderr, "  jit::init step 6b: compiler done\n"); fflush(stderr);
 
-  PyObject* mod = _Ci_CreateBuiltinModule(&jit_module, "cinderjit");
+  fprintf(stderr, "  jit::init step 7: cinderjit module\n"); fflush(stderr);
+  // Use a copy with slots cleared for PyModule_Create compatibility
+  PyModuleDef jit_module_noslotsdef = jit_module;
+  jit_module_noslotsdef.m_slots = nullptr;
+  PyObject* mod = PyModule_Create(&jit_module_noslotsdef);
   if (mod == nullptr) {
     return -1;
   }
@@ -3700,19 +3715,12 @@ int initialize() {
 
   mod_state->setJitList(std::move(jit_list));
 
-  // JIT is now fully initialized.  If it was configured to run automatically on
-  // startup, start scheduling functions for compilation now.
-  if (auto compile_n = getConfig().compile_after_n_calls;
-      compile_n.has_value()) {
-    if (compile_after_n_calls_impl(*compile_n) < 0) {
-      return -1;
-    }
-  } else if (mod_state->jitList() != nullptr) {
-    if (rescheduleJitList() < 0) {
-      return -1;
-    }
-  }
+  // Phoenix: skip auto-compilation scheduling for now — the vectorcall
+  // hooks need the full CinderX infrastructure to work correctly.
+  // JIT can still be triggered manually via cinderjit.force_compile().
+  fprintf(stderr, "  jit::init step 8: skipping auto-compilation (Phoenix)\n"); fflush(stderr);
 
+  fprintf(stderr, "  jit::init step 9: complete, returning 0\n"); fflush(stderr);
   return 0;
 }
 

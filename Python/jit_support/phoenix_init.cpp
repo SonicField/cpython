@@ -68,12 +68,19 @@ static int phoenix_exec(PyObject* m) {
         return -1;
     }
 
-    fprintf(stderr, "Phoenix: JIT initialized successfully\n");
+    fprintf(stderr, "Phoenix: JIT initialized successfully, returning 0\n");
+    fflush(stderr);
     return 0;
 }
 
+/* Prevent the existing phoenix_free from calling jit::finalize which
+   accesses uninitialized code_extra_index */
+
 static void phoenix_free(void* m) {
-    jit::finalize();
+    fprintf(stderr, "Phoenix: module free called\n");
+    fflush(stderr);
+    /* Don't call jit::finalize() yet — it accesses code_extra_index
+       which may not have been properly initialized */
     cinderx::removeModuleState();
 }
 
