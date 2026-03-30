@@ -76,9 +76,16 @@ static int phoenix_func_watcher(
         case PyFunction_EVENT_MODIFY_CODE:
             jit::funcModified(func);
             break;
-        case PyFunction_EVENT_DESTROY:
+        case PyFunction_EVENT_DESTROY: {
+            /* Save/restore exception state — funcDestroyed may trigger
+               Python operations (dict lookups, code traversal) that set
+               exceptions. During GC, exceptions must not leak out. */
+            PyObject *etype, *eval, *etb;
+            PyErr_Fetch(&etype, &eval, &etb);
             jit::funcDestroyed(func);
+            PyErr_Restore(etype, eval, etb);
             break;
+        }
         default:
             break;
     }
