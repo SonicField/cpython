@@ -38,23 +38,19 @@ const destructor original_gen_dealloc = PyGen_Type.tp_dealloc;
 const destructor original_coro_dealloc = PyCoro_Type.tp_dealloc;
 
 void jitgen_dealloc(PyObject* self) {
-  // If this is NOT a JIT generator, use the original CPython dealloc.
-  // JitGen_CheckAny returns false for regular PyGenObject/PyCoroObject
-  // since their type differs from the JIT-specific gen/coro types.
-  if (!JitGen_CheckAny(self)) {
-    if (PyCoro_CheckExact(self)) {
-      original_coro_dealloc(self);
-    } else {
-      original_gen_dealloc(self);
+  // If this IS a JIT generator, deopt it first (closes the JIT frame).
+  if (JitGen_CheckAny(self)) {
+    if (!deopt_jit_gen(self)) {
+      JIT_ABORT("Tried to dealloc a running JIT generator");
     }
-    return;
   }
 
-  if (!deopt_jit_gen(self)) {
-    JIT_ABORT("Tried to dealloc a running JIT generator");
-  }
-
-  // CPython deallocation modified to respect our free-list.
+  // Always use Cix_gen_dealloc_with_custom_free for ALL generators. This
+  // routes PyObject_GC_Del through Ci_free_jit_list_gen which checks
+  // fromThisArena() — returning free-list-allocated generators to the pool
+  // instead of calling PyMem_RawFree. This is critical for deopted JIT
+  // generators: deopt changes their type so JitGen_CheckAny returns false,
+  // but they may still be allocated from the JitGenFreeList pool.
   Cix_gen_dealloc_with_custom_free(self);
 }
 
