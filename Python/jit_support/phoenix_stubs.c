@@ -12,18 +12,14 @@
 
 /* ---- StrictModule stubs ---- */
 
-/* Use PyModule_Type as a stand-in so Ci_StrictModule_Check always returns 0 */
-PyTypeObject Ci_StrictModule_Type = {0};
-
-static int _phoenix_stub_init_strict_module_type = 0;
-
-static void _ensure_strict_module_type(void) {
-    if (!_phoenix_stub_init_strict_module_type) {
-        /* Copy PyModule_Type but give it a different address so
-           type checks against Ci_StrictModule_Type always fail */
-        _phoenix_stub_init_strict_module_type = 1;
-    }
-}
+/* Ci_StrictModule_Type: a type with a valid tp_name but different address
+   from PyModule_Type so Ci_StrictModule_Check always returns false. */
+PyTypeObject Ci_StrictModule_Type = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "phoenix.StrictModule",
+    .tp_basicsize = sizeof(PyObject),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+};
 
 PyObject* Ci_StrictModule_GetDict(PyObject* mod) {
     (void)mod;
@@ -100,23 +96,56 @@ PyObject* Ci_static_rand(PyObject* self, PyObject* args) {
 }
 
 /* Object key type — not meaningful without StaticPython */
-int _Ci_ObjectKeyType = 0;
+PyTypeObject _Ci_ObjectKeyType = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "phoenix.ObjectKeyType",
+    .tp_basicsize = sizeof(PyObject),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+};
 
 /* StaticPython exception type — alias to TypeError */
 PyObject* CiExc_StaticTypeError = NULL;  /* Set to PyExc_TypeError at init */
 
 /* ---- CachedProperties type stubs ---- */
 
-PyTypeObject PyCachedProperty_Type = {0};
-PyTypeObject PyCachedPropertyWithDescr_Type = {0};
-PyTypeObject PyAsyncCachedProperty_Type = {0};
-PyTypeObject PyAsyncCachedPropertyWithDescr_Type = {0};
-PyTypeObject PyAsyncCachedClassProperty_Type = {0};
+PyTypeObject PyCachedProperty_Type = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "phoenix.CachedProperty",
+    .tp_basicsize = sizeof(PyObject),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+};
+PyTypeObject PyCachedPropertyWithDescr_Type = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "phoenix.CachedPropertyWithDescr",
+    .tp_basicsize = sizeof(PyObject),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+};
+PyTypeObject PyAsyncCachedProperty_Type = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "phoenix.AsyncCachedProperty",
+    .tp_basicsize = sizeof(PyObject),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+};
+PyTypeObject PyAsyncCachedPropertyWithDescr_Type = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "phoenix.AsyncCachedPropertyWithDescr",
+    .tp_basicsize = sizeof(PyObject),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+};
+PyTypeObject PyAsyncCachedClassProperty_Type = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "phoenix.AsyncCachedClassProperty",
+    .tp_basicsize = sizeof(PyObject),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+};
+static PyType_Slot _PyCachedClassProperty_slots[] = {
+    {0, NULL},
+};
 PyType_Spec _PyCachedClassProperty_TypeSpec = {
     .name = "phoenix._CachedClassProperty",
     .basicsize = sizeof(PyObject),
     .flags = Py_TPFLAGS_DEFAULT,
-    .slots = NULL,
+    .slots = _PyCachedClassProperty_slots,
 };
 
 /* ---- CheckedDict/List cache stubs ---- */
@@ -238,14 +267,13 @@ PyObject* _PyClassLoader_ResolveType(PyObject* path) {
 }
 
 /* ---- AsyncGen stubs ---- */
-
-PyObject* _PyAsyncGenValueWrapperNew(PyObject* val) {
-    /* In stock CPython this wraps a value for async generators.
-       Return the value itself since we don't need the wrapper. */
-    Py_INCREF(val);
-    return val;
-}
+/* _PyAsyncGenValueWrapperNew is provided by CPython (Objects/genobject.c) */
 
 /* ---- StaticArray type stub ---- */
 
-PyTypeObject PyStaticArray_Type = {0};
+PyTypeObject PyStaticArray_Type = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "phoenix.StaticArray",
+    .tp_basicsize = sizeof(PyObject),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+};
