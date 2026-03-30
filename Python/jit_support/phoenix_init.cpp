@@ -197,7 +197,7 @@ static int phoenix_exec(PyObject* m) {
        for JIT compilation via the func watcher -> scheduleJitCompile.
        The counting trampoline compiles after this many calls.
        Does NOT stamp existing functions (safe for CPython internals). */
-    jit::getMutableConfig().compile_after_n_calls = 100;
+    jit::getMutableConfig().compile_after_n_calls = 1000;
 
     return 0;
 }
