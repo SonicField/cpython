@@ -1,0 +1,67 @@
+Phoenix JIT Macro-Benchmarks (auto-compilation, threshold=1000)
+======================================================================
+N iterations: 50000
+Warmup: 3 rounds, Measure: 5 rounds
+
+Benchmark                    Mean ms     Min ms   Stdev ms
+------------------------------------------------------------
+  fibonacci                   7042.9     6734.9      423.1
+  richards_full                 33.9       30.5        7.1
+  richards_slots               224.5      223.2        1.1
+  nqueens                      375.2      374.9        0.2
+  spectral_norm               2781.0     2771.6        9.3
+  float_arith                   13.9       13.9        0.0
+  gen_simple                     4.1        3.9        0.5
+  gen_nested                    10.5       10.1        0.8
+  list_comp                      2.8        2.8        0.0
+  dict_ops                       6.2        6.2        0.0
+  func_calls                    11.6       11.5        0.1
+  import_callee                 15.1       14.8        0.3
+  try_except_callee              5.7        5.7        0.0
+  store_subscr                   9.4        9.4        0.0
+  int_arith                     10.2        9.9        0.2
+  context_manager               20.7       20.3        0.7
+  kwargs_dispatch               18.6       18.5        0.1
+  positional_dispatch            9.5        9.5        0.1
+  dunder_protocol               26.1       26.0        0.2
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:bench_deep_class.<locals>.Layer.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:bench_deep_class.<locals>.Base.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:bench_deep_class.<locals>.Layer.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:bench_deep_class.<locals>.Base.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:bench_deep_class.<locals>.Network.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:bench_deep_class.<locals>.Layer.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:bench_deep_class.<locals>.Base.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:bench_deep_class.<locals>.Network.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:bench_deep_class.<locals>.Layer.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:bench_deep_class.<locals>.Base.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:bench_deep_class.<locals>.Network.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:bench_deep_class.<locals>.Layer.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:bench_deep_class.<locals>.Base.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:bench_deep_class.<locals>.Network.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:bench_deep_class.<locals>.Layer.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:bench_deep_class.<locals>.Base.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:bench_deep_class.<locals>.Network.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:bench_deep_class.<locals>.Layer.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:bench_deep_class.<locals>.Base.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:bench_deep_class.<locals>.Network.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:bench_deep_class.<locals>.Layer.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:bench_deep_class.<locals>.Base.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+  nn_module_forward              2.7        2.2        0.8
+  nbody                         37.2       36.9        0.2
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/context.cpp:237 -- Deopt backoff: _DecoratedCompute.class_op reached 1000 guard failures, suppressing
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/context.cpp:270 -- Deopt backoff: detaching JIT from _DecoratedCompute.class_op
+  decorator_chain               20.2       20.1        0.1
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:_DCLayer.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:_DCBase.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:_DCBlock.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:_DCModel.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:_DCNetwork.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+  deep_class_super              96.3       95.9        0.3
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:_ProfileScope.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of Tools.benchmark_phoenix_full:_Autocast.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+JIT: /data/users/alexturner/phoenix/cpython/Python/jit/pyjit.cpp:333 -- Skipping compilation of contextlib:_GeneratorContextManagerBase.__init__ (all STORE_ATTRs generic, no specialised LOAD_ATTRs)
+  pytorch_cm                    94.1       93.6        0.4
+
+DONE
+Exception ignored in tp_clear of: <class 'dict'>
+ValueError: Invalid dict watcher ID -1

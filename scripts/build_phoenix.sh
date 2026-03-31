@@ -35,13 +35,23 @@ cmake .. \
 echo "--- Building JIT library ---"
 cmake --build . -- -j"$(nproc)"
 
-# Step 4: Remove stale python binary and rebuild CPython
-echo "--- Building CPython ---"
+# Step 4: Create empty libasmjit.a stub (phoenix-asm replaces asmjit)
+mkdir -p "$BUILD_DIR/_deps/asmjit-build"
+if [ ! -f "$BUILD_DIR/_deps/asmjit-build/libasmjit.a" ]; then
+    llvm-ar rcs "$BUILD_DIR/_deps/asmjit-build/libasmjit.a"
+fi
+
+# Step 5: Configure CPython with LTO (hermetic — always reconfigure)
+echo "--- Configuring CPython with LTO ---"
 cd "$CPYTHON_ROOT"
+CC=clang CXX=clang++ ./configure --without-pydebug --with-lto > /dev/null 2>&1
+
+# Step 6: Remove stale python binary and rebuild CPython
+echo "--- Building CPython ---"
 rm -f python
 make -j"$(nproc)" 2>&1 | tail -3
 
-# Step 5: Verify binary exists
+# Step 7: Verify binary exists
 if [ ! -f "$CPYTHON_ROOT/python" ]; then
     echo "FAIL: python binary not built"
     exit 1

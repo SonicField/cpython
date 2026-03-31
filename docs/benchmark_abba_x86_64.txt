@@ -1,0 +1,49 @@
+Precondition checks: PASS
+WARNING: Running on x86_64, designed for aarch64. Results may differ.
+
+========================================================================
+ABBA Interleaved Benchmark — JIT vs Interpreter (in-process)
+========================================================================
+Python:       3.12.13 (heads/phoenix-asm-integration-dirty:acb0b5de07, Mar 31 2026, 04:37:44) [Clang 21.1.7 (CentOS 21.1.7-1.el9)]
+ABBA_BLOCKS:  5
+BENCH_ITERS:  10000
+INNER_ITERS:  100
+WARMUP_ITERS: 5000
+Compile mode: auto
+
+*** COMPARE LIKE WITH LIKE ***
+Results from --compile=auto and --compile=force are NOT comparable.
+  auto:  JIT compiles after adaptive interpreter specialises (production)
+  force: JIT compiles immediately via force_compile (dev/debug)
+Current: --compile=auto  --reps=1  --iters=10000  --blocks=5
+
+MODE: JIT vs Interpreter
+A = JIT-compiled function, B = interpreter-only duplicate.
+
+Benchmark             JIT ns/call Interp ns/call  Improv%  Signif                    IQR
+-------------------------------------------------------------------------------------
+  isinstance (A:JIT=Tr       52.5         52.3     -0.3%       no  [-0.175, +0.283] ms
+  issubclass (A:JIT=Tr       50.8         51.3     +1.0%       no  [-0.753, +0.579] ms
+  hasattr (A:JIT=True)       67.0         66.4     -0.9%       no  [-0.195, +0.585] ms
+  getattr (A:JIT=True)       58.0         58.5     +0.8%       no  [-0.880, +0.591] ms
+  next (A:JIT=True)          64.6         64.7     +0.2%       no  [-0.355, +1.086] ms
+  next_default (A:JIT=       66.6         66.4     -0.2%       no  [-0.059, +0.649] ms
+  divmod (A:JIT=True)       105.1        105.2     +0.1%       no  [-0.573, +0.008] ms
+
+Significant results: 0/7
+
+Interpretation:
+  Signif=YES: IQR of per-block deltas does not span zero.
+  Signif=no:  IQR spans zero. Cannot distinguish from noise.
+  Improv%:    Positive = A faster than B. Negative = B faster.
+
+Raw per-block deltas (ms) — inspect for drift patterns:
+  isinstance (A:JIT=Tr [-1.330, -0.175, +0.164, +0.283, +0.744]
+  issubclass (A:JIT=Tr [-0.785, -0.753, +0.055, +0.579, +1.341]
+  hasattr (A:JIT=True) [-0.649, -0.195, -0.181, +0.585, +0.722]
+  getattr (A:JIT=True) [-0.915, -0.880, -0.529, +0.591, +0.612]
+  next (A:JIT=True)    [-1.727, -0.355, +0.606, +1.086, +1.096]
+  next_default (A:JIT= [-0.061, -0.059, +0.228, +0.649, +1.151]
+  divmod (A:JIT=True)  [-0.921, -0.573, -0.056, +0.008, +0.381]
+
+========================================================================

@@ -1,0 +1,522 @@
+PHX finalize: 115 bytes → /tmp/jit_code.bin
+PHX finalize: 119 bytes → /tmp/jit_code.bin
+PHX compileFunction: calling compile_func
+PHX finalize: 1782 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f9550400108, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=118 offset=0, vectorcall id=119 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 634 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f95504007fe, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=39 offset=0, vectorcall id=40 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 1722 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f9550400a78, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=112 offset=0, vectorcall id=113 offset=6, reentry=-6
+PHX compileFunction: result=0
+Precondition checks: PASS
+WARNING: Running on x86_64, designed for aarch64. Results may differ.
+
+========================================================================
+CinderX JIT vs Vanilla Python — Per-Benchmark Subprocess ABBA
+========================================================================
+Platform:     x86_64
+Reps:         3 ABBA cycles per benchmark
+Compile mode: auto
+
+*** COMPARE LIKE WITH LIKE ***
+Results from --compile=auto and --compile=force are NOT comparable.
+  auto:  JIT compiles after adaptive interpreter specialises (production)
+  force: JIT compiles immediately via force_compile (dev/debug)
+Current: --compile=auto  --reps=3  --iters=50000  --blocks=15
+
+JIT ON:  /data/users/alexturner/phoenix/cpython/python
+JIT OFF: /data/users/alexturner/phoenix/cpython-vanilla/python -I
+
+Benchmarks:   24 (each in isolated subprocess)
+
+[1/24] fibonacci
+  Run 1/12: JIT_ON  (rep 1) ... 12759.89ms
+  Run 2/12: JIT_OFF (rep 1) ... 15087.14ms
+  Run 3/12: JIT_OFF (rep 1) ... 14940.59ms
+  Run 4/12: JIT_ON  (rep 1) ... PHX compileFunction: calling compile_func
+PHX finalize: 661 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f9550401132, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=44 offset=0, vectorcall id=45 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 1075 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f95504013c7, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=68 offset=0, vectorcall id=69 offset=6, reentry=-6
+PHX compileFunction: result=0
+12599.56ms
+  Run 5/12: JIT_ON  (rep 2) ... 12637.19ms
+  Run 6/12: JIT_OFF (rep 2) ... 15059.01ms
+  Run 7/12: JIT_OFF (rep 2) ... PHX compileFunction: calling compile_func
+PHX finalize: 1176 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f95504017fa, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=77 offset=0, vectorcall id=78 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 661 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f9550401c92, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=44 offset=0, vectorcall id=45 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 1267 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f9550401f27, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=92 offset=0, vectorcall id=93 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 1075 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f955040241a, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=68 offset=0, vectorcall id=69 offset=6, reentry=-6
+PHX compileFunction: result=0
+14874.45ms
+  Run 8/12: JIT_ON  (rep 2) ... 12747.70ms
+  Run 9/12: JIT_ON  (rep 3) ... 12754.35ms
+  Run 10/12: JIT_OFF (rep 3) ... 15264.02ms
+  Run 11/12: JIT_OFF (rep 3) ... 15631.42ms
+  Run 12/12: JIT_ON  (rep 3) ... 12713.19ms
+
+[2/24] richards_full
+  Run 1/12: JIT_ON  (rep 1) ... 57.83ms
+  Run 2/12: JIT_OFF (rep 1) ... PHX compileFunction: calling compile_func
+PHX finalize: 1176 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f955040284d, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=77 offset=0, vectorcall id=78 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 1228 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f9550402ce5, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=89 offset=0, vectorcall id=90 offset=6, reentry=-6
+PHX compileFunction: result=0
+87.00ms
+  Run 3/12: JIT_OFF (rep 1) ... 88.38ms
+  Run 4/12: JIT_ON  (rep 1) ... 56.88ms
+  Run 5/12: JIT_ON  (rep 2) ... 56.85ms
+  Run 6/12: JIT_OFF (rep 2) ... 87.17ms
+  Run 7/12: JIT_OFF (rep 2) ... 86.66ms
+  Run 8/12: JIT_ON  (rep 2) ... 55.61ms
+  Run 9/12: JIT_ON  (rep 3) ... 56.40ms
+  Run 10/12: JIT_OFF (rep 3) ... 88.67ms
+  Run 11/12: JIT_OFF (rep 3) ... 88.15ms
+  Run 12/12: JIT_ON  (rep 3) ... 56.68ms
+
+[3/24] richards_slots
+  Run 1/12: JIT_ON  (rep 1) ... 364.04ms
+  Run 2/12: JIT_OFF (rep 1) ... 390.81ms
+  Run 3/12: JIT_OFF (rep 1) ... 407.41ms
+  Run 4/12: JIT_ON  (rep 1) ... 359.93ms
+  Run 5/12: JIT_ON  (rep 2) ... 360.12ms
+  Run 6/12: JIT_OFF (rep 2) ... 412.06ms
+  Run 7/12: JIT_OFF (rep 2) ... 404.16ms
+  Run 8/12: JIT_ON  (rep 2) ... 369.56ms
+  Run 9/12: JIT_ON  (rep 3) ... 360.44ms
+  Run 10/12: JIT_OFF (rep 3) ... 407.09ms
+  Run 11/12: JIT_OFF (rep 3) ... 412.49ms
+  Run 12/12: JIT_ON  (rep 3) ... 363.84ms
+
+[4/24] nqueens
+  Run 1/12: JIT_ON  (rep 1) ... 633.46ms
+  Run 2/12: JIT_OFF (rep 1) ... 981.40ms
+  Run 3/12: JIT_OFF (rep 1) ... 984.80ms
+  Run 4/12: JIT_ON  (rep 1) ... 626.90ms
+  Run 5/12: JIT_ON  (rep 2) ... 630.30ms
+  Run 6/12: JIT_OFF (rep 2) ... 975.66ms
+  Run 7/12: JIT_OFF (rep 2) ... 972.29ms
+  Run 8/12: JIT_ON  (rep 2) ... 613.95ms
+  Run 9/12: JIT_ON  (rep 3) ... 615.10ms
+  Run 10/12: JIT_OFF (rep 3) ... 976.27ms
+  Run 11/12: JIT_OFF (rep 3) ... 983.31ms
+  Run 12/12: JIT_ON  (rep 3) ... PHX compileFunction: calling compile_func
+PHX finalize: 563 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f95504031b1, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=29 offset=0, vectorcall id=30 offset=6, reentry=-6
+PHX compileFunction: result=0
+621.39ms
+
+[5/24] spectral_norm
+  Run 1/12: JIT_ON  (rep 1) ... PHX compileFunction: calling compile_func
+PHX finalize: 324 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f95504033e4, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=19 offset=0, vectorcall id=20 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 534 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f9550403528, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=29 offset=0, vectorcall id=30 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 564 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f955040373e, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=34 offset=0, vectorcall id=35 offset=6, reentry=-6
+PHX compileFunction: result=0
+5000.72ms
+  Run 2/12: JIT_OFF (rep 1) ... 5786.78ms
+  Run 3/12: JIT_OFF (rep 1) ... 5781.78ms
+  Run 4/12: JIT_ON  (rep 1) ... PHX compileFunction: calling compile_func
+PHX finalize: 4130 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f9550403972, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=277 offset=0, vectorcall id=278 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 1555 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f9550404994, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=89 offset=0, vectorcall id=90 offset=6, reentry=-6
+PHX compileFunction: result=0
+5523.15ms
+  Run 5/12: JIT_ON  (rep 2) ... 5151.24ms
+  Run 6/12: JIT_OFF (rep 2) ... 6161.48ms
+  Run 7/12: JIT_OFF (rep 2) ... 5772.34ms
+  Run 8/12: JIT_ON  (rep 2) ... 5039.97ms
+  Run 9/12: JIT_ON  (rep 3) ... 5064.96ms
+  Run 10/12: JIT_OFF (rep 3) ... 5767.97ms
+  Run 11/12: JIT_OFF (rep 3) ... 5917.24ms
+  Run 12/12: JIT_ON  (rep 3) ... 5055.74ms
+
+[6/24] float_arith
+  Run 1/12: JIT_ON  (rep 1) ... 26.50ms
+  Run 2/12: JIT_OFF (rep 1) ... 25.84ms
+  Run 3/12: JIT_OFF (rep 1) ... 25.68ms
+  Run 4/12: JIT_ON  (rep 1) ... 25.06ms
+  Run 5/12: JIT_ON  (rep 2) ... 24.88ms
+  Run 6/12: JIT_OFF (rep 2) ... 26.51ms
+  Run 7/12: JIT_OFF (rep 2) ... 27.45ms
+  Run 8/12: JIT_ON  (rep 2) ... 27.42ms
+  Run 9/12: JIT_ON  (rep 3) ... 28.10ms
+  Run 10/12: JIT_OFF (rep 3) ... 27.03ms
+  Run 11/12: JIT_OFF (rep 3) ... 29.33ms
+  Run 12/12: JIT_ON  (rep 3) ... 33.74ms
+
+[7/24] gen_simple
+  Run 1/12: JIT_ON  (rep 1) ... 7.17ms
+  Run 2/12: JIT_OFF (rep 1) ... 5.70ms
+  Run 3/12: JIT_OFF (rep 1) ... 5.65ms
+  Run 4/12: JIT_ON  (rep 1) ... 7.01ms
+  Run 5/12: JIT_ON  (rep 2) ... 6.98ms
+  Run 6/12: JIT_OFF (rep 2) ... 5.53ms
+  Run 7/12: JIT_OFF (rep 2) ... 5.74ms
+  Run 8/12: JIT_ON  (rep 2) ... 7.52ms
+  Run 9/12: JIT_ON  (rep 3) ... 7.13ms
+  Run 10/12: JIT_OFF (rep 3) ... 5.64ms
+  Run 11/12: JIT_OFF (rep 3) ... 5.49ms
+  Run 12/12: JIT_ON  (rep 3) ... 7.71ms
+
+[8/24] gen_nested
+  Run 1/12: JIT_ON  (rep 1) ... 18.62ms
+  Run 2/12: JIT_OFF (rep 1) ... 16.03ms
+  Run 3/12: JIT_OFF (rep 1) ... 16.49ms
+  Run 4/12: JIT_ON  (rep 1) ... 18.18ms
+  Run 5/12: JIT_ON  (rep 2) ... 18.24ms
+  Run 6/12: JIT_OFF (rep 2) ... 17.02ms
+  Run 7/12: JIT_OFF (rep 2) ... 16.53ms
+  Run 8/12: JIT_ON  (rep 2) ... 18.49ms
+  Run 9/12: JIT_ON  (rep 3) ... 18.75ms
+  Run 10/12: JIT_OFF (rep 3) ... 16.56ms
+  Run 11/12: JIT_OFF (rep 3) ... 16.51ms
+  Run 12/12: JIT_ON  (rep 3) ... 18.60ms
+
+[9/24] list_comp
+  Run 1/12: JIT_ON  (rep 1) ... 4.71ms
+  Run 2/12: JIT_OFF (rep 1) ... 5.06ms
+  Run 3/12: JIT_OFF (rep 1) ... 5.14ms
+  Run 4/12: JIT_ON  (rep 1) ... 4.89ms
+  Run 5/12: JIT_ON  (rep 2) ... 5.02ms
+  Run 6/12: JIT_OFF (rep 2) ... 5.00ms
+  Run 7/12: JIT_OFF (rep 2) ... 5.00ms
+  Run 8/12: JIT_ON  (rep 2) ... 4.89ms
+  Run 9/12: JIT_ON  (rep 3) ... 4.91ms
+  Run 10/12: JIT_OFF (rep 3) ... 5.09ms
+  Run 11/12: JIT_OFF (rep 3) ... 6.63ms
+  Run 12/12: JIT_ON  (rep 3) ... 4.85ms
+
+[10/24] dict_ops
+  Run 1/12: JIT_ON  (rep 1) ... 10.68ms
+  Run 2/12: JIT_OFF (rep 1) ... 11.42ms
+  Run 3/12: JIT_OFF (rep 1) ... 11.65ms
+  Run 4/12: JIT_ON  (rep 1) ... 10.60ms
+  Run 5/12: JIT_ON  (rep 2) ... 10.47ms
+  Run 6/12: JIT_OFF (rep 2) ... 11.44ms
+  Run 7/12: JIT_OFF (rep 2) ... 11.41ms
+  Run 8/12: JIT_ON  (rep 2) ... 10.86ms
+  Run 9/12: JIT_ON  (rep 3) ... PHX compileFunction: calling compile_func
+PHX finalize: 563 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f9550404fa7, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=29 offset=0, vectorcall id=30 offset=6, reentry=-6
+PHX compileFunction: result=0
+10.82ms
+  Run 10/12: JIT_OFF (rep 3) ... 11.30ms
+  Run 11/12: JIT_OFF (rep 3) ... 11.75ms
+  Run 12/12: JIT_ON  (rep 3) ... 10.42ms
+
+[11/24] func_calls
+  Run 1/12: JIT_ON  (rep 1) ... 18.65ms
+  Run 2/12: JIT_OFF (rep 1) ... 18.07ms
+  Run 3/12: JIT_OFF (rep 1) ... 18.43ms
+  Run 4/12: JIT_ON  (rep 1) ... 19.42ms
+  Run 5/12: JIT_ON  (rep 2) ... 19.38ms
+  Run 6/12: JIT_OFF (rep 2) ... 18.79ms
+  Run 7/12: JIT_OFF (rep 2) ... 17.88ms
+  Run 8/12: JIT_ON  (rep 2) ... 19.61ms
+  Run 9/12: JIT_ON  (rep 3) ... PHX compileFunction: calling compile_func
+PHX finalize: 311 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f95504051da, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=16 offset=0, vectorcall id=17 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 555 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f9550405311, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=32 offset=0, vectorcall id=33 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 529 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f955040553c, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=31 offset=0, vectorcall id=32 offset=6, reentry=-6
+PHX compileFunction: result=0
+18.80ms
+  Run 10/12: JIT_OFF (rep 3) ... 17.75ms
+  Run 11/12: JIT_OFF (rep 3) ... 17.76ms
+  Run 12/12: JIT_ON  (rep 3) ... 19.11ms
+
+[12/24] import_callee
+  Run 1/12: JIT_ON  (rep 1) ... 21.40ms
+  Run 2/12: JIT_OFF (rep 1) ... 28.60ms
+  Run 3/12: JIT_OFF (rep 1) ... 28.98ms
+  Run 4/12: JIT_ON  (rep 1) ... 30.20ms
+  Run 5/12: JIT_ON  (rep 2) ... 20.83ms
+  Run 6/12: JIT_OFF (rep 2) ... 28.55ms
+  Run 7/12: JIT_OFF (rep 2) ... 28.64ms
+  Run 8/12: JIT_ON  (rep 2) ... 21.47ms
+  Run 9/12: JIT_ON  (rep 3) ... 21.23ms
+  Run 10/12: JIT_OFF (rep 3) ... 28.91ms
+  Run 11/12: JIT_OFF (rep 3) ... 28.76ms
+  Run 12/12: JIT_ON  (rep 3) ... PHX compileFunction: calling compile_func
+PHX finalize: 4074 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f955040574d, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=272 offset=0, vectorcall id=273 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 1555 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f9550406737, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=89 offset=0, vectorcall id=90 offset=6, reentry=-6
+PHX compileFunction: result=0
+21.58ms
+
+[13/24] try_except_callee
+  Run 1/12: JIT_ON  (rep 1) ... 9.31ms
+  Run 2/12: JIT_OFF (rep 1) ... 7.89ms
+  Run 3/12: JIT_OFF (rep 1) ... 7.76ms
+  Run 4/12: JIT_ON  (rep 1) ... 9.30ms
+  Run 5/12: JIT_ON  (rep 2) ... 9.79ms
+  Run 6/12: JIT_OFF (rep 2) ... 7.73ms
+  Run 7/12: JIT_OFF (rep 2) ... 8.01ms
+  Run 8/12: JIT_ON  (rep 2) ... 8.97ms
+  Run 9/12: JIT_ON  (rep 3) ... 9.16ms
+  Run 10/12: JIT_OFF (rep 3) ... 7.67ms
+  Run 11/12: JIT_OFF (rep 3) ... 7.91ms
+  Run 12/12: JIT_ON  (rep 3) ... 9.04ms
+
+[14/24] store_subscr
+  Run 1/12: JIT_ON  (rep 1) ... 14.04ms
+  Run 2/12: JIT_OFF (rep 1) ... 18.33ms
+  Run 3/12: JIT_OFF (rep 1) ... 17.30ms
+  Run 4/12: JIT_ON  (rep 1) ... 14.38ms
+  Run 5/12: JIT_ON  (rep 2) ... 14.22ms
+  Run 6/12: JIT_OFF (rep 2) ... 16.47ms
+  Run 7/12: JIT_OFF (rep 2) ... 16.59ms
+  Run 8/12: JIT_ON  (rep 2) ... 13.77ms
+  Run 9/12: JIT_ON  (rep 3) ... 13.87ms
+  Run 10/12: JIT_OFF (rep 3) ... 16.25ms
+  Run 11/12: JIT_OFF (rep 3) ... 16.35ms
+  Run 12/12: JIT_ON  (rep 3) ... 14.56ms
+
+[15/24] int_arith
+  Run 1/12: JIT_ON  (rep 1) ... 14.42ms
+  Run 2/12: JIT_OFF (rep 1) ... 18.37ms
+  Run 3/12: JIT_OFF (rep 1) ... 18.33ms
+  Run 4/12: JIT_ON  (rep 1) ... 14.34ms
+  Run 5/12: JIT_ON  (rep 2) ... 14.50ms
+  Run 6/12: JIT_OFF (rep 2) ... 18.35ms
+  Run 7/12: JIT_OFF (rep 2) ... 18.35ms
+  Run 8/12: JIT_ON  (rep 2) ... 14.44ms
+  Run 9/12: JIT_ON  (rep 3) ... 14.35ms
+  Run 10/12: JIT_OFF (rep 3) ... 18.19ms
+  Run 11/12: JIT_OFF (rep 3) ... 18.42ms
+  Run 12/12: JIT_ON  (rep 3) ... 14.55ms
+
+[16/24] context_manager
+  Run 1/12: JIT_ON  (rep 1) ... 33.28ms
+  Run 2/12: JIT_OFF (rep 1) ... 38.53ms
+  Run 3/12: JIT_OFF (rep 1) ... 37.80ms
+  Run 4/12: JIT_ON  (rep 1) ... 33.38ms
+  Run 5/12: JIT_ON  (rep 2) ... 33.66ms
+  Run 6/12: JIT_OFF (rep 2) ... 37.67ms
+  Run 7/12: JIT_OFF (rep 2) ... 38.01ms
+  Run 8/12: JIT_ON  (rep 2) ... 33.69ms
+  Run 9/12: JIT_ON  (rep 3) ... 33.79ms
+  Run 10/12: JIT_OFF (rep 3) ... 38.26ms
+  Run 11/12: JIT_OFF (rep 3) ... 37.49ms
+  Run 12/12: JIT_ON  (rep 3) ... 33.65ms
+
+[17/24] kwargs_dispatch
+  Run 1/12: JIT_ON  (rep 1) ... 27.51ms
+  Run 2/12: JIT_OFF (rep 1) ... 33.66ms
+  Run 3/12: JIT_OFF (rep 1) ... 33.19ms
+  Run 4/12: JIT_ON  (rep 1) ... 28.60ms
+  Run 5/12: JIT_ON  (rep 2) ... 28.08ms
+  Run 6/12: JIT_OFF (rep 2) ... 32.86ms
+  Run 7/12: JIT_OFF (rep 2) ... 33.18ms
+  Run 8/12: JIT_ON  (rep 2) ... 28.39ms
+  Run 9/12: JIT_ON  (rep 3) ... 27.75ms
+  Run 10/12: JIT_OFF (rep 3) ... 32.90ms
+  Run 11/12: JIT_OFF (rep 3) ... 33.96ms
+  Run 12/12: JIT_ON  (rep 3) ... 28.71ms
+
+[18/24] positional_dispatch
+  Run 1/12: JIT_ON  (rep 1) ... 17.18ms
+  Run 2/12: JIT_OFF (rep 1) ... 16.42ms
+  Run 3/12: JIT_OFF (rep 1) ... 16.84ms
+  Run 4/12: JIT_ON  (rep 1) ... 16.87ms
+  Run 5/12: JIT_ON  (rep 2) ... 18.11ms
+  Run 6/12: JIT_OFF (rep 2) ... 16.18ms
+  Run 7/12: JIT_OFF (rep 2) ... 16.41ms
+  Run 8/12: JIT_ON  (rep 2) ... 18.14ms
+  Run 9/12: JIT_ON  (rep 3) ... 17.17ms
+  Run 10/12: JIT_OFF (rep 3) ... 16.20ms
+  Run 11/12: JIT_OFF (rep 3) ... 16.37ms
+  Run 12/12: JIT_ON  (rep 3) ... 17.31ms
+
+[19/24] dunder_protocol
+  Run 1/12: JIT_ON  (rep 1) ... 40.48ms
+  Run 2/12: JIT_OFF (rep 1) ... 51.65ms
+  Run 3/12: JIT_OFF (rep 1) ... 50.95ms
+  Run 4/12: JIT_ON  (rep 1) ... 39.82ms
+  Run 5/12: JIT_ON  (rep 2) ... 40.59ms
+  Run 6/12: JIT_OFF (rep 2) ... 53.26ms
+  Run 7/12: JIT_OFF (rep 2) ... 52.35ms
+  Run 8/12: JIT_ON  (rep 2) ... 40.53ms
+  Run 9/12: JIT_ON  (rep 3) ... 40.63ms
+  Run 10/12: JIT_OFF (rep 3) ... 52.54ms
+  Run 11/12: JIT_OFF (rep 3) ... 52.46ms
+  Run 12/12: JIT_ON  (rep 3) ... 40.89ms
+
+[20/24] nn_module_forward
+  Run 1/12: JIT_ON  (rep 1) ... 3.55ms
+  Run 2/12: JIT_OFF (rep 1) ... 3.47ms
+  Run 3/12: JIT_OFF (rep 1) ... 3.49ms
+  Run 4/12: JIT_ON  (rep 1) ... 3.51ms
+  Run 5/12: JIT_ON  (rep 2) ... 3.55ms
+  Run 6/12: JIT_OFF (rep 2) ... 3.48ms
+  Run 7/12: JIT_OFF (rep 2) ... 4.96ms
+  Run 8/12: JIT_ON  (rep 2) ... 3.45ms
+  Run 9/12: JIT_ON  (rep 3) ... 3.46ms
+  Run 10/12: JIT_OFF (rep 3) ... 3.47ms
+  Run 11/12: JIT_OFF (rep 3) ... 3.52ms
+  Run 12/12: JIT_ON  (rep 3) ... 3.50ms
+
+[21/24] nbody
+  Run 1/12: JIT_ON  (rep 1) ... 63.03ms
+  Run 2/12: JIT_OFF (rep 1) ... 74.33ms
+  Run 3/12: JIT_OFF (rep 1) ... 77.02ms
+  Run 4/12: JIT_ON  (rep 1) ... 62.27ms
+  Run 5/12: JIT_ON  (rep 2) ... 63.85ms
+  Run 6/12: JIT_OFF (rep 2) ... 75.59ms
+  Run 7/12: JIT_OFF (rep 2) ... 75.22ms
+  Run 8/12: JIT_ON  (rep 2) ... 62.75ms
+  Run 9/12: JIT_ON  (rep 3) ... 63.57ms
+  Run 10/12: JIT_OFF (rep 3) ... PHX compileFunction: calling compile_func
+PHX finalize: 475 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f9550406d4a, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=26 offset=0, vectorcall id=27 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 1164 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f9550406f25, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=67 offset=0, vectorcall id=68 offset=6, reentry=-6
+PHX compileFunction: result=0
+77.13ms
+  Run 11/12: JIT_OFF (rep 3) ... 76.89ms
+  Run 12/12: JIT_ON  (rep 3) ... 63.02ms
+
+[22/24] decorator_chain
+  Run 1/12: JIT_ON  (rep 1) ... 32.70ms
+  Run 2/12: JIT_OFF (rep 1) ... 34.42ms
+  Run 3/12: JIT_OFF (rep 1) ... 33.23ms
+  Run 4/12: JIT_ON  (rep 1) ... 31.75ms
+  Run 5/12: JIT_ON  (rep 2) ... 32.00ms
+  Run 6/12: JIT_OFF (rep 2) ... 33.48ms
+  Run 7/12: JIT_OFF (rep 2) ... 34.12ms
+  Run 8/12: JIT_ON  (rep 2) ... 33.47ms
+  Run 9/12: JIT_ON  (rep 3) ... 32.16ms
+  Run 10/12: JIT_OFF (rep 3) ... 33.43ms
+  Run 11/12: JIT_OFF (rep 3) ... 34.84ms
+  Run 12/12: JIT_ON  (rep 3) ... 31.88ms
+
+[23/24] deep_class_super
+  Run 1/12: JIT_ON  (rep 1) ... 152.37ms
+  Run 2/12: JIT_OFF (rep 1) ... 162.99ms
+  Run 3/12: JIT_OFF (rep 1) ... 163.37ms
+  Run 4/12: JIT_ON  (rep 1) ... 150.62ms
+  Run 5/12: JIT_ON  (rep 2) ... 158.34ms
+  Run 6/12: JIT_OFF (rep 2) ... 158.96ms
+  Run 7/12: JIT_OFF (rep 2) ... 166.27ms
+  Run 8/12: JIT_ON  (rep 2) ... 150.01ms
+  Run 9/12: JIT_ON  (rep 3) ... 151.44ms
+  Run 10/12: JIT_OFF (rep 3) ... 165.78ms
+  Run 11/12: JIT_OFF (rep 3) ... 162.29ms
+  Run 12/12: JIT_ON  (rep 3) ... 152.77ms
+
+[24/24] pytorch_cm
+  Run 1/12: JIT_ON  (rep 1) ... 140.02ms
+  Run 2/12: JIT_OFF (rep 1) ... 170.70ms
+  Run 3/12: JIT_OFF (rep 1) ... 171.99ms
+  Run 4/12: JIT_ON  (rep 1) ... 141.40ms
+  Run 5/12: JIT_ON  (rep 2) ... 149.29ms
+  Run 6/12: JIT_OFF (rep 2) ... 166.50ms
+  Run 7/12: JIT_OFF (rep 2) ... 168.25ms
+  Run 8/12: JIT_ON  (rep 2) ... 138.98ms
+  Run 9/12: JIT_ON  (rep 3) ... 139.98ms
+  Run 10/12: JIT_OFF (rep 3) ... 172.53ms
+  Run 11/12: JIT_OFF (rep 3) ... 170.02ms
+  Run 12/12: JIT_ON  (rep 3) ... 136.09ms
+
+===========================================================================
+CinderX JIT Performance Comparison (aarch64)
+===========================================================================
+
+Benchmark                 Vanilla    CinderX   Speedup      Δ%
+-----------------------------------------------------------------
+  fibonacci            15142.77ms 12701.98ms     1.19x   16.1% **
+  richards_full           87.67ms    56.71ms     1.55x   35.3% **
+  richards_slots         405.67ms   362.99ms     1.12x   10.5% **
+  nqueens                978.96ms   623.52ms     1.57x   36.3% **
+  spectral_norm         5864.60ms  5139.30ms     1.14x   12.4% **
+  float_arith             26.97ms    27.62ms     0.98x   -2.4%   
+  gen_simple               5.62ms     7.25ms     0.78x  -29.0% !!
+  gen_nested              16.52ms    18.48ms     0.89x  -11.8% !!
+  list_comp                5.32ms     4.88ms     1.09x    8.3% **
+  dict_ops                11.50ms    10.64ms     1.08x    7.4% **
+  func_calls              18.12ms    19.16ms     0.95x   -5.8% !!
+  import_callee           28.74ms    22.79ms     1.26x   20.7% **
+  try_except_callee        7.83ms     9.26ms     0.85x  -18.3% !!
+  store_subscr            16.88ms    14.14ms     1.19x   16.2% **
+  int_arith               18.34ms    14.43ms     1.27x   21.3% **
+  context_manager         37.96ms    33.58ms     1.13x   11.5% **
+  kwargs_dispatch         33.29ms    28.17ms     1.18x   15.4% **
+  positional_dispatch     16.40ms    17.47ms     0.94x   -6.5% !!
+  dunder_protocol         52.20ms    40.49ms     1.29x   22.4% **
+  nn_module_forward        3.73ms     3.50ms     1.07x    6.2% **
+  nbody                   76.03ms    63.08ms     1.21x   17.0% **
+  decorator_chain         33.92ms    32.33ms     1.05x    4.7%   
+  deep_class_super       163.28ms   152.59ms     1.07x    6.5% **
+  pytorch_cm             170.00ms   140.96ms     1.21x   17.1% **
+-----------------------------------------------------------------
+  TOTAL                23222.32ms 19545.31ms     1.19x   15.8%
+===========================================================================
+
+** = JIT >5% faster   !! = JIT >5% slower
+
+Exception ignored in tp_clear of: <class 'dict'>
+ValueError: Invalid dict watcher ID -1
