@@ -23,7 +23,7 @@ fi
 
 cd "$VANILLA_DIR"
 
-# Step 2: Configure with LTO+PGO, matching Phoenix compiler
+# Step 2: Configure with LTO, matching Phoenix compiler
 echo "--- Configuring with LTO (clang) ---"
 ./configure \
     --without-pydebug \
