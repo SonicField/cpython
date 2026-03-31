@@ -201,7 +201,10 @@ struct Utils {
 } /* namespace arm */
 
 /* a64::CondCode alias — must come after arm namespace is defined */
-namespace a64 { namespace CondCode = arm::CondCode; }
+namespace a64 {
+  namespace CondCode = arm::CondCode;
+  using VecD = phx::Gp;  /* ARM64 D-register type */
+}
 
 #endif /* architecture */
 

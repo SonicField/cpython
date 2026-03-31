@@ -70,6 +70,7 @@ class Gp {
   constexpr bool isGpX() const { return gp_.size == 8; }
   constexpr bool isGpq() const { return gp_.size == 8; }
   constexpr bool isVec() const { return gp_.size > 8; }
+  constexpr bool isVecD() const { return gp_.size == 8; } /* ARM64 D-register check */
   constexpr bool isXmm() const { return gp_.size == 16; }
 
   /* Size conversion — asmjit compatibility */
@@ -119,6 +120,8 @@ class Mem {
   constexpr explicit Mem(PhxMem m) : mem_(m) {}
   /* Absolute offset memory operand (used for TLS access via FS segment) */
   explicit Mem(int32_t offset) : mem_{} { mem_.offset = offset; mem_.size = 8; }
+  /* Base + offset constructor (ARM64 arm::Mem(Xn, offset) compatibility) */
+  Mem(const Gp& base, int32_t offset) : mem_(phx_ptr(base, offset)) {}
 
   /* Base register */
   constexpr Gp baseReg() const { return Gp(mem_.base); }
@@ -280,7 +283,7 @@ class Xmm : public Gp {
   constexpr Xmm(const Gp& gp) : Gp(gp.id(), 16) {}
 };
 
-/* Vec is an alias for Xmm (ARM64 uses Vec, x86 uses Xmm) */
+/* Vec is an alias for Xmm (x86_64 uses XMM for FP; ARM64 Vec is in a64 namespace) */
 using Vec = Xmm;
 
 /* Factory function */
@@ -991,6 +994,11 @@ class EmitterExplicitT {
   Error b_ls(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_LS, t); return kErrorOk; }
   Error b_cs(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_CS, t); return kErrorOk; }
   Error b_cc(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_CC, t); return kErrorOk; }
+  Error b_lo(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_CC, t); return kErrorOk; } /* LO = CC */
+  Error b_hs(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_CS, t); return kErrorOk; } /* HS = CS */
+  Error b_vs(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_VS, t); return kErrorOk; }
+  Error b_vc(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_VC, t); return kErrorOk; }
+  Error b_pl(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_PL, t); return kErrorOk; }
   Error cbz(const Gp& s, const Label& t)  { phx_a64_cbz(b_(), s, t); return kErrorOk; }
   Error cbnz(const Gp& s, const Label& t) { phx_a64_cbnz(b_(), s, t); return kErrorOk; }
   /* -- Sign/Zero extend -- */
@@ -1013,11 +1021,25 @@ class EmitterExplicitT {
   Error stxr(const Gp& st, const Gp& s, const Gp& base)  { phx_a64_stxr(b_(), st, s, base); return kErrorOk; }
   /* -- MRS -- */
   Error mrs(const Gp& d, uint16_t sysreg) { phx_a64_mrs(b_(), d, sysreg); return kErrorOk; }
-  /* -- FP arithmetic (VecD = Gp for ARM64 D registers) -- */
-  Error fadd(const Gp& d, const Gp& a, const Gp& c) { phx_a64_fadd(b_(), d, a, c); return kErrorOk; }
-  Error fsub(const Gp& d, const Gp& a, const Gp& c) { phx_a64_fsub(b_(), d, a, c); return kErrorOk; }
-  Error fmul(const Gp& d, const Gp& a, const Gp& c) { phx_a64_fmul(b_(), d, a, c); return kErrorOk; }
-  Error fdiv(const Gp& d, const Gp& a, const Gp& c) { phx_a64_fdiv(b_(), d, a, c); return kErrorOk; }
+  /* -- FP arithmetic (Vec/VecD overloads for CRTP resolution) -- */
+  Error fadd(const Vec& d, const Vec& a, const Vec& c) { phx_a64_fadd(b_(), d, a, c); return kErrorOk; }
+  Error fsub(const Vec& d, const Vec& a, const Vec& c) { phx_a64_fsub(b_(), d, a, c); return kErrorOk; }
+  Error fmul(const Vec& d, const Vec& a, const Vec& c) { phx_a64_fmul(b_(), d, a, c); return kErrorOk; }
+  Error fdiv(const Vec& d, const Vec& a, const Vec& c) { phx_a64_fdiv(b_(), d, a, c); return kErrorOk; }
+  /* fmov overloads: Vec↔Vec, Vec↔Gp, Gp↔Vec */
+  Error fmov(const Vec& d, const Vec& s) { phx_a64_fmov(b_(), d, s); return kErrorOk; }
+  Error fmov(const Vec& d, const Gp& s) { phx_a64_fmov(b_(), d, s); return kErrorOk; }
+  Error fmov(const Gp& d, const Vec& s) { phx_a64_fmov(b_(), d, s); return kErrorOk; }
+  Error fmov(const Vec& d, double imm) {
+    /* FMOV Dd, #imm8 — only a limited set of float immediates are encodable.
+       For simplicity, encode as movz+fmov from GP register. */
+    union { double d; uint64_t u; } val;
+    val.d = imm;
+    Gp scratch(12, 8); /* x12 = scratch register */
+    phx_a64_mov_ri(b_(), scratch, (int64_t)val.u);
+    phx_a64_fmov(b_(), d, scratch);
+    return kErrorOk;
+  }
 };
 
 class Builder : public EmitterExplicitT<Builder> {
