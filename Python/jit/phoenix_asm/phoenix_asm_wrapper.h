@@ -820,18 +820,8 @@ class Builder : public EmitterExplicitT<Builder> {
     phx_builder_embed(impl_, data, size); return kErrorOk;
   }
   Error finalize() {
-    if (!impl_ || !impl_->code) { fprintf(stderr, "PHX finalize: null impl/code\n"); return 1; }
-    int rc = phx_x86_finalize(impl_);
-    if (rc != 0) {
-      fprintf(stderr, "PHX finalize error=%d nodes=%p labels=%u fixups=%u\n",
-          rc, (void*)impl_->head, impl_->next_label_id, impl_->fixup_count);
-    } else if (impl_->code->buffer_size > 30) {
-      /* Dump per-function compiled code (skip small trampolines) */
-      FILE* df = fopen("/tmp/jit_code.bin", "wb");
-      if (df) { fwrite(impl_->code->buffer, 1, impl_->code->buffer_size, df); fclose(df); }
-      fprintf(stderr, "PHX finalize: %zu bytes → /tmp/jit_code.bin\n", impl_->code->buffer_size);
-    }
-    return rc;
+    if (!impl_ || !impl_->code) return 1;
+    return phx_x86_finalize(impl_);
   }
 
   /* Section stub — phoenix-asm uses single code section */

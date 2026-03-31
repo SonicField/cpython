@@ -3862,23 +3862,18 @@ bool scheduleJitCompile(BorrowedRef<PyFunctionObject> func) {
 
 _PyJIT_Result compileFunction(BorrowedRef<PyFunctionObject> func) {
   if (!isJitInitialized()) {
-    fprintf(stderr, "PHX compileFunction: not initialized\n");
     return PYJIT_NOT_INITIALIZED;
   }
   if (isJitPaused()) {
-    fprintf(stderr, "PHX compileFunction: paused\n");
     return PYJIT_RESULT_PAUSED;
   }
   if (!isJitUsable()) {
-    fprintf(stderr, "PHX compileFunction: not usable\n");
     return PYJIT_RESULT_UNKNOWN_ERROR;
   }
 
   auto& jit_reg_units = cinderx::getModuleState()->registeredCompilationUnits();
   jit_reg_units.erase(func);
-  fprintf(stderr, "PHX compileFunction: calling compile_func\n");
   auto result = compile_func(func);
-  fprintf(stderr, "PHX compileFunction: result=%d\n", (int)result);
   return result;
 }
 
@@ -4125,7 +4120,6 @@ _PyJIT_Result compilePreloaderImpl(
     compiled_func = jit_ctx->compiler().Compile(preloader);
   } catch (const std::exception& exn) {
     JIT_DLOG("{}", exn.what());
-    fprintf(stderr, "PHX: Compile exception: %s\n", exn.what());
   }
 
   ThreadedCompileSerialize guard;
