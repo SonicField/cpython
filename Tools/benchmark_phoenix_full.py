@@ -1850,7 +1850,7 @@ def cmd_jit(args):
 
     # Comparison table
     print("=" * 75)
-    print("CinderX JIT Performance Comparison (aarch64)")
+    print(f"CinderX JIT Performance Comparison ({platform.machine()})")
     print("=" * 75)
     print()
 
@@ -1980,7 +1980,7 @@ def cmd_spec(args):
     # Comparison
     print()
     print("=" * 75)
-    print("Specialisation Effect (aarch64)")
+    print(f"Specialisation Effect ({platform.machine()})")
     print("=" * 75)
     print()
 
@@ -2045,7 +2045,7 @@ def cmd_all(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Consolidated CinderX benchmark suite for aarch64.",
+        description=f"Consolidated CinderX benchmark suite for {platform.machine()}.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
