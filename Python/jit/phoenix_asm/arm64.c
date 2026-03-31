@@ -638,6 +638,18 @@ static uint32_t encode_ldst(uint32_t size_bits, int v, uint32_t opc,
     uint32_t rn = hw_reg(mem.base);
     int32_t off = mem.offset;
 
+    /* Pre-indexed: [base, #off]!  idx_type=11 */
+    if (mem.is_pre_index) {
+        assert(off >= -256 && off <= 255);
+        return encode_ldst_signed(size_bits, v, opc, rt, rn, off, 0x3u);
+    }
+
+    /* Post-indexed: [base], #off  idx_type=01 */
+    if (mem.is_post_index) {
+        assert(off >= -256 && off <= 255);
+        return encode_ldst_signed(size_bits, v, opc, rt, rn, off, 0x1u);
+    }
+
     if (mem.has_index) {
         /* Register offset form */
         return encode_ldst_reg_off(size_bits, v, opc, rt, rn,
@@ -925,6 +937,16 @@ void phx_a64_ldrsw(PhxBuilder *b, PhxGp dst, PhxMem mem) {
 }
 
 void phx_a64_ldp(PhxBuilder *b, PhxGp rt1, PhxGp rt2, PhxMem mem) {
+    /* Dispatch to pre/post-indexed variants if flags are set */
+    if (mem.is_pre_index) {
+        phx_a64_ldp_pre(b, rt1, rt2, mem.base, mem.offset);
+        return;
+    }
+    if (mem.is_post_index) {
+        phx_a64_ldp_post(b, rt1, rt2, mem.base, mem.offset);
+        return;
+    }
+
     assert(rt1.size == rt2.size);
     PhxNode *n = emit_node(b, PHX_A64_LDP);
     if (!n) return;
@@ -1046,6 +1068,16 @@ void phx_a64_strh(PhxBuilder *b, PhxGp src, PhxMem mem) {
 }
 
 void phx_a64_stp(PhxBuilder *b, PhxGp rt1, PhxGp rt2, PhxMem mem) {
+    /* Dispatch to pre/post-indexed variants if flags are set */
+    if (mem.is_pre_index) {
+        phx_a64_stp_pre(b, rt1, rt2, mem.base, mem.offset);
+        return;
+    }
+    if (mem.is_post_index) {
+        phx_a64_stp_post(b, rt1, rt2, mem.base, mem.offset);
+        return;
+    }
+
     assert(rt1.size == rt2.size);
     PhxNode *n = emit_node(b, PHX_A64_STP);
     if (!n) return;

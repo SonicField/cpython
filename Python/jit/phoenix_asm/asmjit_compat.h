@@ -107,11 +107,15 @@ inline phx::Mem ptr(const phx::Gp& base, const phx::Gp& index) {
 /* Pre/post-indexed addressing modes */
 inline phx::Mem ptr_pre(const phx::Gp& base, int32_t offset) {
   /* Pre-indexed: [base, #offset]! — base updated before access */
-  return phx::ptr(base, offset);  /* TODO: encode pre-index mode */
+  phx::Mem m = phx::ptr(base, offset);
+  m.mem().is_pre_index = 1;
+  return m;
 }
 inline phx::Mem ptr_post(const phx::Gp& base, int32_t offset) {
   /* Post-indexed: [base], #offset — base updated after access */
-  return phx::ptr(base, offset);  /* TODO: encode post-index mode */
+  phx::Mem m = phx::ptr(base, offset);
+  m.mem().is_post_index = 1;
+  return m;
 }
 
 /* SIMD/FP register factory + constants — Vec = Gp on ARM64 (needs id+size) */

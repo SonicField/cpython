@@ -143,6 +143,10 @@ class Mem {
   /* Implicit conversion to PhxMem for C API calls */
   constexpr operator PhxMem() const { return mem_; }
 
+  /* Mutable access for setting flags (pre/post-index) */
+  PhxMem& mem() { return mem_; }
+  constexpr const PhxMem& mem() const { return mem_; }
+
  private:
   PhxMem mem_;
 };

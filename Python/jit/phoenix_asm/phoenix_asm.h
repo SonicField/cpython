@@ -40,6 +40,8 @@ typedef struct {
     uint8_t  is_label_rel;/* nonzero for RIP-relative label addressing */
     uint8_t  segment;     /* segment override: 0=none, 4=FS, 5=GS */
     uint8_t  is_abs_addr; /* nonzero for absolute 64-bit address */
+    uint8_t  is_pre_index;  /* ARM64: pre-indexed writeback [base, #off]! */
+    uint8_t  is_post_index; /* ARM64: post-indexed writeback [base], #off */
     uint32_t label_id;    /* target label (when is_label_rel != 0) */
     uint64_t abs_addr;    /* target address (when is_abs_addr != 0) */
 } PhxMem;
