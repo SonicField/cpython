@@ -36,10 +36,9 @@ echo "--- Building JIT library ---"
 cmake --build . -- -j"$(nproc)"
 
 # Step 4: Create empty libasmjit.a stub (phoenix-asm replaces asmjit)
+# Always recreate — PGO's internal `make clean` deletes the stub
 mkdir -p "$BUILD_DIR/_deps/asmjit-build"
-if [ ! -f "$BUILD_DIR/_deps/asmjit-build/libasmjit.a" ]; then
-    llvm-ar rcs "$BUILD_DIR/_deps/asmjit-build/libasmjit.a"
-fi
+llvm-ar rcs "$BUILD_DIR/_deps/asmjit-build/libasmjit.a"
 
 # Step 5: Configure CPython with LTO (hermetic — always reconfigure)
 echo "--- Configuring CPython with LTO ---"
