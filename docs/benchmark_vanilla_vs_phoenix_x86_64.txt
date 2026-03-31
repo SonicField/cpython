@@ -31,8 +31,8 @@ Results from --compile=auto and --compile=force are NOT comparable.
   force: JIT compiles immediately via force_compile (dev/debug)
 Current: --compile=auto  --reps=3  --iters=50000  --blocks=15
 
-JIT ON:  /data/users/alexturner/phoenix/cpython/python
-JIT OFF: /data/users/alexturner/phoenix/cpython-vanilla/python -I
+JIT ON:  $CPYTHON_ROOT/python
+JIT OFF: $CPYTHON_ROOT-vanilla/python -I
 
 Benchmarks:   24 (each in isolated subprocess)
 

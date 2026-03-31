@@ -1783,10 +1783,11 @@ def cmd_jit(args):
         print(f"FATAL: CinderX not available at {venv_python}")
         print("Set CINDERX_PYTHON or CINDERX_VENV to point to a CinderX venv.")
         return
-    vanilla_python = os.environ.get(
-        "VANILLA_PYTHON",
-        "/usr/local/fbcode/platform010-aarch64/bin/python3.12",
-    )
+    vanilla_python = os.environ.get("VANILLA_PYTHON")
+    if not vanilla_python:
+        print("FATAL: VANILLA_PYTHON not set. Point it at a vanilla CPython 3.12 binary.")
+        print("  e.g. VANILLA_PYTHON=/path/to/cpython-vanilla/python")
+        return
 
     venv_cmd = [venv_python]
     vanilla_cmd = [vanilla_python, "-I"]
