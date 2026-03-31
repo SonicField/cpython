@@ -114,9 +114,14 @@ inline phx::Mem ptr_post(const phx::Gp& base, int32_t offset) {
   return phx::ptr(base, offset);  /* TODO: encode post-index mode */
 }
 
-/* SIMD/FP register factory + constants */
+/* SIMD/FP register factory + constants — Vec = Gp on ARM64 (needs id+size) */
+#ifdef CINDER_AARCH64
+inline phx::Vec d(uint8_t id) { return phx::Vec(id, 8); }
+constexpr phx::Vec d0{0,8}, d1{1,8}, d2{2,8}, d3{3,8}, d4{4,8}, d5{5,8}, d6{6,8}, d7{7,8};
+#else
 inline phx::Vec d(uint8_t id) { return phx::Vec(id); }
 constexpr phx::Vec d0{0}, d1{1}, d2{2}, d3{3}, d4{4}, d5{5}, d6{6}, d7{7};
+#endif
 
 /* Shift specification */
 using phx::lsl;

@@ -556,10 +556,16 @@ constexpr Gp x29{29, 8};
 constexpr Gp x30{30, 8};
 constexpr Gp sp{31, 8};
 
-/* FP/SIMD registers */
+/* FP/SIMD registers — Vec = Gp on ARM64 (needs id+size), Vec = Xmm on x86 */
+#ifdef CINDER_AARCH64
+constexpr Vec d0{0, 8};
+constexpr Vec d1{1, 8};
+constexpr Vec d2{2, 8};
+#else
 constexpr Vec d0{0};
 constexpr Vec d1{1};
 constexpr Vec d2{2};
+#endif
 
 }} /* namespace phx::a64 */
 
