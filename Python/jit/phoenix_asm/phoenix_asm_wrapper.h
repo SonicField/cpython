@@ -66,11 +66,8 @@ class Gp {
   constexpr uint8_t id() const { return gp_.id; }
   constexpr uint32_t size() const { return gp_.size; }
   constexpr bool isGp() const { return gp_.size <= 8; }
-  constexpr bool isGpW() const { return gp_.size == 4; }
-  constexpr bool isGpX() const { return gp_.size == 8; }
   constexpr bool isGpq() const { return gp_.size == 8; }
   constexpr bool isVec() const { return gp_.size > 8; }
-  constexpr bool isVecD() const { return gp_.size == 8; } /* ARM64 D-register check */
   constexpr bool isXmm() const { return gp_.size == 16; }
 
   /* Size conversion — asmjit compatibility */
@@ -106,10 +103,6 @@ constexpr Gp gpq(uint8_t id) { return Gp(id, 8); }
 constexpr Gp w(uint8_t id) { return Gp(id, 4); }
 constexpr Gp x(uint8_t id) { return Gp(id, 8); }
 
-/* VecD — floating-point D register (ARM64) / XMM register (x86_64).
- * Type alias for Gp since phoenix-asm uses the same register type for both. */
-using VecD = Gp;
-
 /* ================================================================== */
 /*  Mem — Memory Operand                                               */
 /* ================================================================== */
@@ -120,8 +113,6 @@ class Mem {
   constexpr explicit Mem(PhxMem m) : mem_(m) {}
   /* Absolute offset memory operand (used for TLS access via FS segment) */
   explicit Mem(int32_t offset) : mem_{} { mem_.offset = offset; mem_.size = 8; }
-  /* Base + offset constructor (ARM64 arm::Mem(Xn, offset) compatibility) */
-  Mem(const Gp& base, int32_t offset) : mem_(phx_ptr(base, offset)) {}
 
   /* Base register */
   constexpr Gp baseReg() const { return Gp(mem_.base); }
@@ -283,7 +274,7 @@ class Xmm : public Gp {
   constexpr Xmm(const Gp& gp) : Gp(gp.id(), 16) {}
 };
 
-/* Vec is an alias for Xmm (x86_64 uses XMM for FP; ARM64 Vec is in a64 namespace) */
+/* Vec is an alias for Xmm (ARM64 uses Vec, x86 uses Xmm) */
 using Vec = Xmm;
 
 /* Factory function */
@@ -329,7 +320,13 @@ class CodeHolder {
   CodeHolder& operator=(const CodeHolder&) = delete;
 
   PhxCodeHolder* get() const { return code_; }
-  uint64_t baseAddress() const { return code_ ? reinterpret_cast<uint64_t>(code_->buffer) : 0; }
+  uint64_t baseAddress() const {
+    if (!code_) return 0;
+    /* After relocateToBase(), return the relocated address (where the code
+       will actually execute). Before relocation, fall back to buffer address. */
+    return code_->base_address ? code_->base_address
+                               : reinterpret_cast<uint64_t>(code_->buffer);
+  }
   bool hasBaseAddress() const { return code_ && code_->buffer != nullptr; }
   size_t codeSize() const { return code_ ? code_->buffer_size : 0; }
 
@@ -925,11 +922,6 @@ class EmitterExplicitT {
   Error sub(const Gp& d, const Gp& a, const Imm& i)     { phx_a64_sub_rri(b_(), d, a, i.value()); return kErrorOk; }
   Error subs(const Gp& d, const Gp& a, const Gp& c)    { phx_a64_subs_rrr(b_(), d, a, c); return kErrorOk; }
   Error subs(const Gp& d, const Gp& a, uint64_t v)      { phx_a64_subs_rri(b_(), d, a, (int64_t)v); return kErrorOk; }
-  /* NEG Xd, Xn = SUB Xd, XZR, Xn */
-  Error neg(const Gp& d, const Gp& src) {
-    Gp zr(31, src.size()); /* XZR or WZR */
-    phx_a64_sub_rrr(b_(), d, zr, src); return kErrorOk;
-  }
   /* -- LDP/STP pre/post indexed -- */
   Error ldp_pre(const Gp& r1, const Gp& r2, const Gp& base, int32_t off) {
     phx_a64_ldp_pre(b_(), r1, r2, base, off); return kErrorOk;
@@ -994,11 +986,6 @@ class EmitterExplicitT {
   Error b_ls(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_LS, t); return kErrorOk; }
   Error b_cs(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_CS, t); return kErrorOk; }
   Error b_cc(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_CC, t); return kErrorOk; }
-  Error b_lo(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_CC, t); return kErrorOk; } /* LO = CC */
-  Error b_hs(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_CS, t); return kErrorOk; } /* HS = CS */
-  Error b_vs(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_VS, t); return kErrorOk; }
-  Error b_vc(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_VC, t); return kErrorOk; }
-  Error b_pl(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_PL, t); return kErrorOk; }
   Error cbz(const Gp& s, const Label& t)  { phx_a64_cbz(b_(), s, t); return kErrorOk; }
   Error cbnz(const Gp& s, const Label& t) { phx_a64_cbnz(b_(), s, t); return kErrorOk; }
   /* -- Sign/Zero extend -- */
@@ -1021,25 +1008,11 @@ class EmitterExplicitT {
   Error stxr(const Gp& st, const Gp& s, const Gp& base)  { phx_a64_stxr(b_(), st, s, base); return kErrorOk; }
   /* -- MRS -- */
   Error mrs(const Gp& d, uint16_t sysreg) { phx_a64_mrs(b_(), d, sysreg); return kErrorOk; }
-  /* -- FP arithmetic (Vec/VecD overloads for CRTP resolution) -- */
+  /* -- FP arithmetic -- */
   Error fadd(const Vec& d, const Vec& a, const Vec& c) { phx_a64_fadd(b_(), d, a, c); return kErrorOk; }
   Error fsub(const Vec& d, const Vec& a, const Vec& c) { phx_a64_fsub(b_(), d, a, c); return kErrorOk; }
   Error fmul(const Vec& d, const Vec& a, const Vec& c) { phx_a64_fmul(b_(), d, a, c); return kErrorOk; }
   Error fdiv(const Vec& d, const Vec& a, const Vec& c) { phx_a64_fdiv(b_(), d, a, c); return kErrorOk; }
-  /* fmov overloads: Vec↔Vec, Vec↔Gp, Gp↔Vec */
-  Error fmov(const Vec& d, const Vec& s) { phx_a64_fmov(b_(), d, s); return kErrorOk; }
-  Error fmov(const Vec& d, const Gp& s) { phx_a64_fmov(b_(), d, s); return kErrorOk; }
-  Error fmov(const Gp& d, const Vec& s) { phx_a64_fmov(b_(), d, s); return kErrorOk; }
-  Error fmov(const Vec& d, double imm) {
-    /* FMOV Dd, #imm8 — only a limited set of float immediates are encodable.
-       For simplicity, encode as movz+fmov from GP register. */
-    union { double d; uint64_t u; } val;
-    val.d = imm;
-    Gp scratch(12, 8); /* x12 = scratch register */
-    phx_a64_mov_ri(b_(), scratch, (int64_t)val.u);
-    phx_a64_fmov(b_(), d, scratch);
-    return kErrorOk;
-  }
 };
 
 class Builder : public EmitterExplicitT<Builder> {
