@@ -279,8 +279,15 @@ class Xmm : public Gp {
   constexpr Xmm(const Gp& gp) : Gp(gp.id(), 16) {}
 };
 
-/* Vec is an alias for Xmm (ARM64 uses Vec, x86 uses Xmm) */
+/* Vec type: on ARM64 the same physical register file serves GP and SIMD —
+ * the instruction determines the register interpretation, not the operand
+ * type. So Vec = Gp on ARM64, avoiding CRTP type collisions where codegen
+ * passes Vec to methods expecting const Gp&. On x86, Vec = Xmm as usual. */
+#ifdef CINDER_AARCH64
+using Vec = Gp;
+#else
 using Vec = Xmm;
+#endif
 
 /* Factory function */
 constexpr Xmm xmm(uint8_t id) { return Xmm(id); }
