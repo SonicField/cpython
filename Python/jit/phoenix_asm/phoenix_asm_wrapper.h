@@ -66,8 +66,11 @@ class Gp {
   constexpr uint8_t id() const { return gp_.id; }
   constexpr uint32_t size() const { return gp_.size; }
   constexpr bool isGp() const { return gp_.size <= 8; }
+  constexpr bool isGpW() const { return gp_.size == 4; }
+  constexpr bool isGpX() const { return gp_.size == 8; }
   constexpr bool isGpq() const { return gp_.size == 8; }
   constexpr bool isVec() const { return gp_.size > 8; }
+  constexpr bool isVecD() const { return gp_.size == 8; }
   constexpr bool isXmm() const { return gp_.size == 16; }
 
   /* Size conversion — asmjit compatibility */

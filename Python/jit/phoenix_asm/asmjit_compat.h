@@ -142,9 +142,6 @@ namespace Predicate { namespace SysReg {
 constexpr uint16_t kTPIDR_EL0 = 0xDE82; /* Thread pointer EL0 */
 }}
 
-/* Condition codes (also accessible as a64::CondCode) */
-namespace CondCode = arm::CondCode;
-
 /* Register constants */
 using namespace phx::a64;
 
@@ -171,6 +168,12 @@ struct Utils {
   }
 };
 } /* namespace arm */
+
+/* a64::CondCode and a64::VecD aliases — must come after arm namespace */
+namespace a64 {
+  namespace CondCode = arm::CondCode;
+  using VecD = phx::Gp;
+}
 
 #endif /* architecture */
 
