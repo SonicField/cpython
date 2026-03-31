@@ -13,6 +13,8 @@
 #include "arm64.h"
 
 #include <assert.h>
+#include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -131,6 +133,7 @@ void phx_builder_destroy(PhxBuilder *builder) {
     }
 
     free(builder->fixups);
+    free(builder->abs_fixups);
     free(builder->label_nodes);
 
     /* Free all node blocks */
@@ -305,6 +308,62 @@ void phx_builder_add_fixup(PhxBuilder *b, PhxNode *node,
     f->node = node;
     f->label_id = label_id;
     f->operand_idx = operand_idx;
+}
+
+void phx_builder_add_abs_fixup(PhxBuilder *b, PhxNode *node,
+                               uint64_t target_addr) {
+    assert(b != NULL);
+    assert(node != NULL);
+
+    /* Grow abs_fixup array if needed */
+    if (b->abs_fixup_count >= b->abs_fixup_capacity) {
+        uint32_t new_cap = b->abs_fixup_capacity ? b->abs_fixup_capacity * 2 : 16;
+        PhxAbsFixup *new_arr = (PhxAbsFixup *)realloc(
+            b->abs_fixups, (size_t)new_cap * sizeof(PhxAbsFixup));
+        if (!new_arr) {
+            return;
+        }
+        b->abs_fixups = new_arr;
+        b->abs_fixup_capacity = new_cap;
+    }
+
+    PhxAbsFixup *f = &b->abs_fixups[b->abs_fixup_count++];
+    f->node = node;
+    f->target_addr = target_addr;
+}
+
+int phx_relocate_to_base(PhxBuilder *b, uint64_t base_addr) {
+    assert(b != NULL);
+    PhxCodeHolder *code = b->code;
+    assert(code != NULL);
+
+    code->base_address = base_addr;
+
+    /* Patch all absolute address fixups.
+       Each fixup node has a RIP-relative disp32 placeholder (last 4 bytes).
+       disp32 = target_addr - (base_addr + node_offset + node_encoded_size) */
+    for (uint32_t i = 0; i < b->abs_fixup_count; i++) {
+        PhxAbsFixup *f = &b->abs_fixups[i];
+        PhxNode *n = f->node;
+        uint64_t instr_end = base_addr + (uint64_t)n->offset + (uint64_t)n->encoded_size;
+        int64_t disp = (int64_t)f->target_addr - (int64_t)instr_end;
+        if (disp < (int64_t)INT32_MIN || disp > (int64_t)INT32_MAX) {
+            fprintf(stderr, "PHX: abs fixup out of range: target=%lx instr_end=%lx disp=%ld\n",
+                    (unsigned long)f->target_addr, (unsigned long)instr_end, (long)disp);
+            return -1;
+        }
+        /* Patch last 4 bytes of the instruction (RIP-relative disp32) */
+        uint32_t patch_off = n->encoded_size - 4;
+        int32_t d32 = (int32_t)disp;
+        n->encoded[patch_off + 0] = (uint8_t)(d32);
+        n->encoded[patch_off + 1] = (uint8_t)(d32 >> 8);
+        n->encoded[patch_off + 2] = (uint8_t)(d32 >> 16);
+        n->encoded[patch_off + 3] = (uint8_t)(d32 >> 24);
+        /* Also patch the output buffer */
+        memcpy(code->buffer + n->offset + patch_off, n->encoded + patch_off, 4);
+    }
+
+    return 0;
 }
 
 /* ------------------------------------------------------------------ */

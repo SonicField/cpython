@@ -82,8 +82,10 @@ static uint8_t make_rex_mem(int w, PhxGp reg, PhxMem mem) {
     uint8_t rex = 0x40;
     if (w) rex |= 0x08;
     if (reg_ext(reg))      rex |= 0x04;  /* REX.R */
-    if (mem.has_index && reg_ext(mem.index)) rex |= 0x02;  /* REX.X */
-    if (reg_ext(mem.base)) rex |= 0x01;  /* REX.B */
+    if (!mem.is_abs_addr && !mem.is_label_rel) {
+        if (mem.has_index && reg_ext(mem.index)) rex |= 0x02;  /* REX.X */
+        if (reg_ext(mem.base)) rex |= 0x01;  /* REX.B */
+    }
     return (rex != 0x40) ? rex : 0;
 }
 
@@ -171,6 +173,18 @@ static int encode_modrm_mem(uint8_t *out, uint8_t reg_field, PhxMem mem) {
     /* Label-relative → RIP-relative encoding */
     if (mem.is_label_rel) {
         return encode_modrm_rip_rel(out, reg_field, mem);
+    }
+
+    /* Absolute address → SIB disp32 encoding: [disp32] with no base/index.
+       ModR/M: mod=00, r/m=100 (SIB follows)
+       SIB: scale=00, index=100 (none), base=101 (disp32 only)
+       This works for addresses that fit in signed 32-bit. */
+    if (mem.is_abs_addr) {
+        int32_t addr32 = (int32_t)(mem.abs_addr & 0xFFFFFFFF);
+        out[0] = 0x00 | (reg_field << 3) | 0x04; /* ModR/M: mod=00, r/m=100 */
+        out[1] = 0x25; /* SIB: scale=00, index=100(none), base=101(disp32) */
+        memcpy(out + 2, &addr32, 4);
+        return 6;
     }
 
     int pos = 0;

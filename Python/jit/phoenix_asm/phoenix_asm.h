@@ -39,7 +39,9 @@ typedef struct {
     uint8_t  has_index;   /* nonzero if index register is used */
     uint8_t  is_label_rel;/* nonzero for RIP-relative label addressing */
     uint8_t  segment;     /* segment override: 0=none, 4=FS, 5=GS */
+    uint8_t  is_abs_addr; /* nonzero for absolute 64-bit address */
     uint32_t label_id;    /* target label (when is_label_rel != 0) */
+    uint64_t abs_addr;    /* target address (when is_abs_addr != 0) */
 } PhxMem;
 
 /* Label (opaque handle) */
@@ -121,6 +123,13 @@ typedef struct {
     uint8_t   operand_idx;  /* which operand holds the label ref */
 } PhxFixup;
 
+/* Absolute address fixup: RIP-relative reference to external data.
+   Resolved in phx_relocate_to_base() once the final code address is known. */
+typedef struct {
+    PhxNode  *node;         /* instruction node containing the reference */
+    uint64_t  target_addr;  /* absolute address to resolve to */
+} PhxAbsFixup;
+
 /* ------------------------------------------------------------------ */
 /*  Code holder (output buffer)                                        */
 /* ------------------------------------------------------------------ */
@@ -130,6 +139,7 @@ typedef struct {
     uint8_t  *buffer;          /* finalized code bytes */
     size_t    buffer_size;
     size_t    buffer_capacity;
+    uint64_t  base_address;    /* set by phx_relocate_to_base */
 } PhxCodeHolder;
 
 /* ------------------------------------------------------------------ */
@@ -149,10 +159,15 @@ typedef struct {
     PhxNode **label_nodes;     /* array indexed by label_id */
     uint32_t  label_capacity;
 
-    /* Forward-reference fixups */
+    /* Forward-reference fixups (label-relative) */
     PhxFixup *fixups;
     uint32_t  fixup_count;
     uint32_t  fixup_capacity;
+
+    /* Absolute address fixups (resolved in phx_relocate_to_base) */
+    PhxAbsFixup *abs_fixups;
+    uint32_t     abs_fixup_count;
+    uint32_t     abs_fixup_capacity;
 
     /* Node block allocator (stable addresses -- never realloc) */
     struct PhxNodeBlock *node_blocks;  /* linked list of blocks */
@@ -202,6 +217,13 @@ PhxNode *phx_builder_alloc_node(PhxBuilder *b);
 PhxNode *phx_builder_append_node(PhxBuilder *b, PhxNode *node);
 void     phx_builder_add_fixup(PhxBuilder *b, PhxNode *node,
                                uint32_t label_id, uint8_t operand_idx);
+void     phx_builder_add_abs_fixup(PhxBuilder *b, PhxNode *node,
+                                   uint64_t target_addr);
+
+/* Relocate absolute address references after code is placed at base_addr.
+   Must be called after finalize and before the code buffer is copied to
+   executable memory. */
+int      phx_relocate_to_base(PhxBuilder *b, uint64_t base_addr);
 
 /* ------------------------------------------------------------------ */
 /*  Finalize (common entry point)                                      */

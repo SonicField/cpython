@@ -165,11 +165,14 @@ inline Mem ptr(const Gp& base, const Gp& index, uint8_t shift, int32_t offset) {
   return Mem(phx_ptr_index(base, index, 1u << shift, offset));
 }
 
-/* Absolute address memory operand (used by autogen for memory operands) */
+/* Absolute address memory operand — encoded as RIP-relative, patched
+   by phx_relocate_to_base once the final code address is known. */
 inline Mem ptr(uint64_t addr) {
   PhxMem m = {};
-  m.offset = static_cast<int32_t>(addr); /* truncated — abs addresses need RIP-relative */
+  m.offset = 0; /* placeholder — patched during relocation */
   m.size = 8;
+  m.is_abs_addr = 1;
+  m.abs_addr = addr;
   return Mem(m);
 }
 
@@ -382,7 +385,16 @@ class CodeHolder {
   SectionVec sections() { return _sections; }
   Error flatten() { return kErrorOk; }
   Error resolveUnresolvedLinks() { return kErrorOk; }
-  Error relocateToBase(uint64_t) { return kErrorOk; }
+  Error relocateToBase(uint64_t base) {
+    if (code_) {
+      code_->base_address = base;
+    }
+    if (builder_) {
+      int rc = phx_relocate_to_base(builder_, base);
+      if (rc != 0) return static_cast<Error>(rc);
+    }
+    return kErrorOk;
+  }
 
   /* Init — create the PhxCodeHolder if not already created.
    * In asmjit, CodeHolder::init(env) sets up the code buffer.

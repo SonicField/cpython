@@ -169,7 +169,6 @@ AllocateResult CodeAllocatorCinder::addCode(asmjit::CodeHolder* code) {
 
     JIT_CHECK(
         offset + buffer_size <= actual_code_size, "Inconsistent code size");
-    fprintf(stderr, "PHX section copy: offset=%zu size=%zu data=%p\n", offset, buffer_size, (void*)section->data());
     std::memcpy(current_alloc_ + offset, section->data(), buffer_size);
 
     if (virtual_size > buffer_size) {
