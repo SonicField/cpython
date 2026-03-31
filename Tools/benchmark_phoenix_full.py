@@ -1633,7 +1633,10 @@ def _run_worker(python_cmd, condition, compile_mode, only=None):
             if result.returncode < 0:
                 import signal
                 sig = -result.returncode
-                sig_name = signal.Signals(sig).name if sig in signal._value2member_map_ else f"signal {sig}"
+                try:
+                    sig_name = signal.Signals(sig).name
+                except (ValueError, AttributeError):
+                    sig_name = f"signal {sig}"
                 print(f"CRASHED ({sig_name})")
             else:
                 print(f"ERROR (exit {result.returncode}): {result.stderr[:200]}")
