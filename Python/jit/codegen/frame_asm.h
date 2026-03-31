@@ -8,7 +8,11 @@
 #include "cinderx/Jit/hir/function.h"
 #include "cinderx/Jit/hir/hir.h"
 
+#ifdef PHOENIX_ASM
+#include "jit/phoenix_asm/asmjit_compat.h"
+#else
 #include <asmjit/asmjit.h>
+#endif
 
 #include <vector>
 

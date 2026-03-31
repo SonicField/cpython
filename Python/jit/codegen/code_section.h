@@ -5,7 +5,11 @@
 #include "cinderx/Jit/codegen/arch.h"
 #include "cinderx/Jit/config.h"
 
+#ifdef PHOENIX_ASM
+#include "jit/phoenix_asm/asmjit_compat.h"
+#else
 #include <asmjit/asmjit.h>
+#endif
 
 #include <cstring>
 #include <vector>

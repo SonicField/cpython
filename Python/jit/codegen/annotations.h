@@ -6,7 +6,11 @@
 #include "cinderx/Jit/codegen/code_section.h"
 #include "cinderx/Jit/lir/instruction.h"
 
+#ifdef PHOENIX_ASM
+#include "jit/phoenix_asm/asmjit_compat.h"
+#else
 #include <asmjit/asmjit.h>
+#endif
 
 #include <string>
 #include <vector>

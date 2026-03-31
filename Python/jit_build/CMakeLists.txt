@@ -18,9 +18,12 @@ file(MAKE_DIRECTORY ${GENERATED_HEADER_DIR})
 ##############################################################################
 # Dependencies
 
-# asmjit
-set(ASMJIT_STATIC TRUE)
-add_subdirectory(${JIT_ROOT}/jit_deps/asmjit ${CMAKE_BINARY_DIR}/_deps/asmjit-build)
+# asmjit (or phoenix-asm replacement)
+option(PHOENIX_ASM "Use phoenix-asm instead of asmjit" OFF)
+if(NOT PHOENIX_ASM)
+  set(ASMJIT_STATIC TRUE)
+  add_subdirectory(${JIT_ROOT}/jit_deps/asmjit ${CMAKE_BINARY_DIR}/_deps/asmjit-build)
+endif()
 
 # fmt
 add_subdirectory(${JIT_ROOT}/jit_deps/fmt ${CMAKE_BINARY_DIR}/_deps/fmt-build)
@@ -65,7 +68,11 @@ endforeach()
 
 file(GLOB_RECURSE COMMON_SOURCES ${JIT_ROOT}/jit_common/*.cpp)
 add_library(common ${COMMON_SOURCES})
-target_link_libraries(common PRIVATE asmjit::asmjit fmt::fmt)
+if(NOT PHOENIX_ASM)
+  target_link_libraries(common PRIVATE asmjit::asmjit fmt::fmt)
+else()
+  target_link_libraries(common PRIVATE fmt::fmt)
+endif()
 if(ZLIB_FOUND)
   target_link_libraries(common PRIVATE ZLIB::ZLIB)
 endif()
@@ -111,9 +118,19 @@ list(FILTER JIT_SOURCES EXCLUDE REGEX ".*/jit_common/.*")
 list(FILTER JIT_SOURCES EXCLUDE REGEX ".*/jit_stubs/.*")
 list(FILTER JIT_SOURCES EXCLUDE REGEX ".*/jit_interp/.*")
 list(FILTER JIT_SOURCES EXCLUDE REGEX ".*/jit_support/.*")
+# Exclude phoenix-asm test harness (uses real asmjit for comparison)
+list(FILTER JIT_SOURCES EXCLUDE REGEX ".*/phoenix_asm/test_.*")
+# When not using phoenix-asm, exclude its C sources
+if(NOT PHOENIX_ASM)
+  list(FILTER JIT_SOURCES EXCLUDE REGEX ".*/phoenix_asm/.*")
+endif()
 
 add_library(jit ${JIT_SOURCES})
-target_link_libraries(jit PRIVATE asmjit::asmjit interpreter fmt::fmt)
+if(NOT PHOENIX_ASM)
+  target_link_libraries(jit PRIVATE asmjit::asmjit interpreter fmt::fmt)
+else()
+  target_link_libraries(jit PRIVATE interpreter fmt::fmt)
+endif()
 
 ##############################################################################
 # Top-level phoenix_jit library
@@ -127,6 +144,12 @@ set(SUPPORT_SOURCES
 )
 
 add_library(${PROJECT_NAME} STATIC ${SUPPORT_SOURCES})
-target_link_libraries(${PROJECT_NAME} PRIVATE
-  borrowed common interpreter jit
-  asmjit::asmjit fmt::fmt)
+if(NOT PHOENIX_ASM)
+  target_link_libraries(${PROJECT_NAME} PRIVATE
+    borrowed common interpreter jit
+    asmjit::asmjit fmt::fmt)
+else()
+  target_link_libraries(${PROJECT_NAME} PRIVATE
+    borrowed common interpreter jit
+    fmt::fmt)
+endif()

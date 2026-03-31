@@ -7,7 +7,11 @@
 #include "cinderx/Jit/debug_info.h"
 #include "cinderx/Jit/lir/instruction.h"
 
+#ifdef PHOENIX_ASM
+#include "jit/phoenix_asm/asmjit_compat.h"
+#else
 #include <asmjit/asmjit.h>
+#endif
 
 namespace jit::codegen {
 

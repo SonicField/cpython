@@ -6,7 +6,12 @@
 #include "cinderx/Jit/codegen/arch/detection.h"
 #include "fmt/ostream.h"
 
+#ifdef PHOENIX_ASM
+// Phoenix assembler — pure C replacement for asmjit
+#include "jit/phoenix_asm/asmjit_compat.h"
+#else
 #include <asmjit/asmjit.h>
+#endif
 
 #include <iosfwd>
 
@@ -14,9 +19,11 @@
 
 #include "cinderx/Jit/codegen/arch/x86_64.h"
 
+#ifndef PHOENIX_ASM
 #include <asmjit/x86/x86builder.h>
 #include <asmjit/x86/x86emitter.h>
 #include <asmjit/x86/x86operand.h>
+#endif
 
 namespace jit::codegen::arch {
 
@@ -49,10 +56,12 @@ constexpr auto reg_stack_pointer_loc = RSP;
 
 #include "cinderx/Jit/codegen/arch/aarch64.h"
 
+#ifndef PHOENIX_ASM
 #include <asmjit/arm/a64builder.h>
 #include <asmjit/arm/a64emitter.h>
 #include <asmjit/arm/a64operand.h>
 #include <asmjit/arm/armutils.h>
+#endif
 
 namespace jit::codegen::arch {
 
