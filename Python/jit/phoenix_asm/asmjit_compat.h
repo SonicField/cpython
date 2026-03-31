@@ -99,6 +99,52 @@ using phx::w;
 using phx::x;
 using phx::ptr;
 
+/* ARM64 ptr overloads */
+inline phx::Mem ptr(const phx::Gp& base, const phx::Gp& index) {
+  return phx::Mem(phx_ptr_index(base, index, 1, 0));
+}
+
+/* Pre/post-indexed addressing modes */
+inline phx::Mem ptr_pre(const phx::Gp& base, int32_t offset) {
+  /* Pre-indexed: [base, #offset]! — base updated before access */
+  return phx::ptr(base, offset);  /* TODO: encode pre-index mode */
+}
+inline phx::Mem ptr_post(const phx::Gp& base, int32_t offset) {
+  /* Post-indexed: [base], #offset — base updated after access */
+  return phx::ptr(base, offset);  /* TODO: encode post-index mode */
+}
+
+/* SIMD/FP register factory + constants */
+inline phx::Vec d(uint8_t id) { return phx::Vec(id); }
+constexpr phx::Vec d0{0}, d1{1}, d2{2}, d3{3}, d4{4}, d5{5}, d6{6}, d7{7};
+
+/* Shift specification */
+using phx::lsl;
+using phx::lsr;
+using phx::asr;
+
+/* 32-bit register constants */
+constexpr phx::Gp w0{0,4}, w1{1,4}, w2{2,4}, w3{3,4}, w4{4,4};
+constexpr phx::Gp w8{8,4}, w9{9,4}, w10{10,4};
+
+/* Special registers */
+constexpr phx::Gp xzr{31, 8};  /* zero register (reads as 0, writes discarded) */
+
+/* ARM64 Utils (for immediate range checks) */
+struct Utils {
+  static bool isAddSubImm(uint64_t val) {
+    return val <= 0xFFF || (val <= 0xFFF000 && (val & 0xFFF) == 0);
+  }
+};
+
+/* System register constants */
+namespace Predicate { namespace SysReg {
+constexpr uint16_t kTPIDR_EL0 = 0xDE82; /* Thread pointer EL0 */
+}}
+
+/* Condition codes (also accessible as a64::CondCode) */
+namespace CondCode = arm::CondCode;
+
 /* Register constants */
 using namespace phx::a64;
 
@@ -106,6 +152,24 @@ using namespace phx::a64;
 
 namespace arm {
 using Mem = phx::Mem;
+using Shift = phx::Shift;
+
+/* Condition codes for ARM64.
+ * Used as arm::CondCode::kEQ etc. in autogen.cpp.
+ * Must be implicitly convertible to uint32_t for csel/cset. */
+namespace CondCode {
+  constexpr uint32_t kEQ = 0, kNE = 1, kCS = 2, kHS = 2, kCC = 3, kLO = 3;
+  constexpr uint32_t kMI = 4, kPL = 5, kVS = 6, kVC = 7, kHI = 8, kLS = 9;
+  constexpr uint32_t kGE = 10, kLT = 11, kGT = 12, kLE = 13, kAL = 14;
+}
+
+struct Utils {
+  /* Check if an unsigned immediate fits in ARM64 ADD/SUB immediate field
+   * (12-bit unsigned, optionally shifted left by 12) */
+  static bool isAddSubImm(uint64_t val) {
+    return val <= 0xFFF || (val <= 0xFFF000 && (val & 0xFFF) == 0);
+  }
+};
 } /* namespace arm */
 
 #endif /* architecture */

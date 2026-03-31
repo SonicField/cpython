@@ -22,6 +22,10 @@
 #include "internal/pycore_shadow_frame.h"
 #endif
 
+/* phoenix-asm C API headers */
+#include "jit/phoenix_asm/x86_64.h"
+#include "jit/phoenix_asm/arm64.h"
+
 using namespace asmjit;
 using namespace jit::hir;
 
@@ -151,21 +155,22 @@ void FrameAsm::loadTState(const arch::Gp& dst_reg) {
   if (tstate_offset != -1) {
     asmjit::x86::Mem tls(tstate_offset);
     tls.setSegment(x86::fs);
-    as_->mov(dst_reg, tls);
+    phx_x86_mov_rm(as_->impl(), dst_reg, tls);
   } else {
-    as_->call(_PyThreadState_GetCurrent);
-    as_->mov(dst_reg, x86::rax);
+    phx_x86_mov_ri(as_->impl(), PHX_R11, (int64_t)(uintptr_t)_PyThreadState_GetCurrent);
+    phx_x86_call_r(as_->impl(), PHX_R11);
+    phx_x86_mov_rr(as_->impl(), dst_reg, x86::rax);
   }
 #elif defined(CINDER_AARCH64)
   if (tstate_offset != -1) {
-    as_->mrs(dst_reg, a64::Predicate::SysReg::kTPIDR_EL0);
-    as_->ldr(
-        dst_reg,
+    phx_a64_mrs(as_->impl(), dst_reg, PHX_SYSREG_TPIDR_EL0);
+    phx_a64_ldr(
+        as_->impl(), dst_reg,
         arch::ptr_resolve(as_, dst_reg, tstate_offset, arch::reg_scratch_0));
   } else {
-    as_->mov(arch::reg_scratch_br, _PyThreadState_GetCurrent);
-    as_->blr(arch::reg_scratch_br);
-    as_->mov(dst_reg, a64::x0);
+    phx_a64_mov_ri(as_->impl(), arch::reg_scratch_br, (uint64_t)(uintptr_t)_PyThreadState_GetCurrent);
+    phx_a64_blr(as_->impl(), arch::reg_scratch_br);
+    phx_a64_mov_rr(as_->impl(), dst_reg, a64::x0);
   }
 #else
   CINDER_UNSUPPORTED
@@ -181,33 +186,34 @@ void FrameAsm::linkNormalGeneratorFrame(
 #if defined(CINDER_X86_64)
   uint64_t full_words = env_.shadow_frames_and_spill_size / kPointerSize;
 
-  as_->mov(x86::rsi, full_words);
-  as_->mov(x86::rdx, reinterpret_cast<intptr_t>(codeRuntime()));
-  as_->lea(x86::rcx, x86::ptr(env_.gen_resume_entry_label));
-  as_->mov(x86::r8, x86::rbp);
-  as_->call(
-      reinterpret_cast<uint64_t>(JITRT_AllocateAndLinkGenAndInterpreterFrame));
-  as_->mov(tstate_reg, x86::rax);
+  phx_x86_mov_ri(as_->impl(), x86::rsi, (int64_t)full_words);
+  phx_x86_mov_ri(as_->impl(), x86::rdx, reinterpret_cast<intptr_t>(codeRuntime()));
+  phx_x86_lea(as_->impl(), x86::rcx, x86::ptr(env_.gen_resume_entry_label));
+  phx_x86_mov_rr(as_->impl(), x86::r8, x86::rbp);
+  phx_x86_mov_ri(as_->impl(), PHX_R11,
+      (int64_t)(uintptr_t)reinterpret_cast<uint64_t>(JITRT_AllocateAndLinkGenAndInterpreterFrame));
+  phx_x86_call_r(as_->impl(), PHX_R11);
+  phx_x86_mov_rr(as_->impl(), tstate_reg, x86::rax);
   // tstate is now in RAX and GenDataFooter* in RDX. Swap RBP over to the
   // generator data so spilled data starts getting stored there. There
   // shouldn't have been any other data stored in the spilled area so far
   // so no need to copy things over.
-  as_->mov(x86::rbp, x86::rdx);
+  phx_x86_mov_rr(as_->impl(), x86::rbp, x86::rdx);
 #elif defined(CINDER_AARCH64)
   uint64_t full_words = env_.shadow_frames_and_spill_size / kPointerSize;
 
-  as_->mov(a64::x1, full_words);
-  as_->mov(a64::x2, reinterpret_cast<intptr_t>(codeRuntime()));
-  as_->adr(a64::x3, env_.gen_resume_entry_label);
-  as_->mov(a64::x4, arch::fp);
-  as_->mov(arch::reg_scratch_br, JITRT_AllocateAndLinkGenAndInterpreterFrame);
-  as_->blr(arch::reg_scratch_br);
-  as_->mov(tstate_reg, a64::x0);
+  phx_a64_mov_ri(as_->impl(), a64::x1, full_words);
+  phx_a64_mov_ri(as_->impl(), a64::x2, (uint64_t)reinterpret_cast<intptr_t>(codeRuntime()));
+  phx_a64_adr(as_->impl(), a64::x3, env_.gen_resume_entry_label);
+  phx_a64_mov_rr(as_->impl(), a64::x4, arch::fp);
+  phx_a64_mov_ri(as_->impl(), arch::reg_scratch_br, (uint64_t)(uintptr_t)JITRT_AllocateAndLinkGenAndInterpreterFrame);
+  phx_a64_blr(as_->impl(), arch::reg_scratch_br);
+  phx_a64_mov_rr(as_->impl(), tstate_reg, a64::x0);
   // tstate is now in x0 and GenDataFooter* in x1. Swap fp over to the
   // generator data so spilled data starts getting stored there. There
   // shouldn't have been any other data stored in the spilled area so far
   // so no need to copy things over.
-  as_->mov(arch::fp, a64::x1);
+  phx_a64_mov_rr(as_->impl(), arch::fp, a64::x1);
 #else
   CINDER_UNSUPPORTED
 #endif
@@ -237,13 +243,14 @@ void inc_ref_nogil(
   // For free-threaded Python, check immortality via ob_ref_local.
   // Load ob_ref_local (32-bit). Note this load should be atomic with relaxed
   // memory semantics, which is default on x86.
-  as->mov(
+  phx_x86_mov_rm(
+      as->impl(),
       scratch_reg.r32(), x86::dword_ptr(reg, offsetof(PyObject, ob_ref_local)));
   // Add 1 - if result is zero, object was immortal (UINT32_MAX + 1 overflows
   // to 0)
-  as->inc(scratch_reg.r32());
+  phx_x86_inc_r(as->impl(), scratch_reg.r32());
   Label immortal = as->newLabel();
-  as->jz(immortal);
+  phx_x86_jz(as->impl(), immortal);
 
   // Check if object is owned by current thread by comparing ob_tid with
   // the current thread ID. This is equivalent to _Py_IsOwnedByCurrentThread.
@@ -252,40 +259,43 @@ void inc_ref_nogil(
   // register we have for now plus the stack. Should still be pretty fast on
   // x86.
   Label not_owned = as->newLabel();
-  as->push(scratch_reg);
-  as->mov(scratch_reg, x86::ptr(reg, offsetof(PyObject, ob_tid)));
+  phx_x86_push_r(as->impl(), scratch_reg);
+  phx_x86_mov_rm(as->impl(), scratch_reg, x86::ptr(reg, offsetof(PyObject, ob_tid)));
   x86::Mem tid_mem;
   tid_mem.setOffset(0);
   tid_mem.setSize(sizeof(uintptr_t));
   tid_mem.setSegment(x86::fs);
-  as->cmp(scratch_reg, tid_mem);
-  as->pop(scratch_reg);
-  as->jne(not_owned);
+  phx_x86_cmp_rm(as->impl(), scratch_reg, tid_mem);
+  phx_x86_pop_r(as->impl(), scratch_reg);
+  phx_x86_jne(as->impl(), not_owned);
 
   // Owned by current thread - store directly to ob_ref_local (fast path).
   // Note this store should be atomic with relaxed memory semantics, which is
   // default on x86.
-  as->mov(
+  phx_x86_mov_mr(
+      as->impl(),
       x86::dword_ptr(reg, offsetof(PyObject, ob_ref_local)), scratch_reg.r32());
   Label done_incref = as->newLabel();
-  as->jmp(done_incref);
+  phx_x86_jmp_label(as->impl(), done_incref);
 
   // Not owned - use atomic add to ob_ref_shared (slow path)
-  as->bind(not_owned);
+  phx_builder_bind(as->impl(), not_owned);
+  // LOCK ADD - no direct C API, use wrapper
   as->lock().add(
       x86::qword_ptr(reg, offsetof(PyObject, ob_ref_shared)),
       1 << _Py_REF_SHARED_SHIFT);
-  as->bind(done_incref);
+  phx_builder_bind(as->impl(), done_incref);
 
 #ifdef Py_REF_DEBUG
-  as->inc(
+  phx_x86_inc_m(
+      as->impl(),
       x86::ptr(
           tstate_reg,
           offsetof(_PyThreadStateImpl, reftotal),
           sizeof(Py_ssize_t)));
 #endif
 
-  as->bind(immortal);
+  phx_builder_bind(as->impl(), immortal);
 }
 
 #else
@@ -295,23 +305,23 @@ void inc_ref_gil(
     const arch::Gp& reg,
     const arch::Gp& scratch_reg) {
   Label immortal = as->newLabel();
-  as->mov(scratch_reg.r32(), x86::ptr(reg, offsetof(PyObject, ob_refcnt)));
-  as->inc(scratch_reg.r32());
+  phx_x86_mov_rm(as->impl(), scratch_reg.r32(), x86::ptr(reg, offsetof(PyObject, ob_refcnt)));
+  phx_x86_inc_r(as->impl(), scratch_reg.r32());
 #if PY_VERSION_HEX >= 0x030E0000
-  as->js(immortal);
+  phx_x86_js(as->impl(), immortal);
 #else
-  as->je(immortal);
+  phx_x86_je(as->impl(), immortal);
 #endif
   // mortal
-  as->mov(x86::ptr(reg, offsetof(PyObject, ob_refcnt)), scratch_reg.r32());
+  phx_x86_mov_mr(as->impl(), x86::ptr(reg, offsetof(PyObject, ob_refcnt)), scratch_reg.r32());
 
 #ifdef Py_REF_DEBUG
   Py_ssize_t* ref_total = &getPyInterpreterState()->object_state.reftotal;
-  as->mov(scratch_reg, ref_total);
-  as->inc(x86::ptr(scratch_reg, 0, sizeof(void*)));
+  phx_x86_mov_ri(as->impl(), scratch_reg, (int64_t)(uintptr_t)ref_total);
+  phx_x86_inc_m(as->impl(), x86::ptr(scratch_reg, 0, sizeof(void*)));
 #endif
 
-  as->bind(immortal);
+  phx_builder_bind(as->impl(), immortal);
 }
 #endif // Py_GIL_DISABLED
 
@@ -337,60 +347,66 @@ void FrameAsm::incRef(
   // For free-threaded Python, check immortality via ob_ref_local.
   // Load ob_ref_local (32-bit). Note this load should be atomic with relaxed
   // memory semantics, which is default on aarch64 for regular loads.
-  as_->ldr(
+  phx_a64_ldr(
+      as_->impl(),
       scratch_reg0,
       arch::ptr_offset(
           reg, offsetof(PyObject, ob_ref_local), arch::AccessSize::k32));
   // Add 1 - if result is zero, object was immortal (UINT32_MAX + 1 overflows
   // to 0)
-  as_->adds(scratch_reg0, scratch_reg0, 1);
-  as_->b_eq(immortal);
+  phx_a64_adds_rri(as_->impl(), scratch_reg0, scratch_reg0, 1);
+  phx_a64_b_eq(as_->impl(), immortal);
 
   // Check if object is owned by current thread by comparing ob_tid with
   // the current thread ID. This is equivalent to _Py_IsOwnedByCurrentThread.
   // On aarch64, the thread ID is stored at offset 0 from TPIDR_EL0.
   Label not_owned = as_->newLabel();
-  as_->ldr(
+  phx_a64_ldr(
+      as_->impl(),
       scratch_reg1.x(),
       arch::ptr_offset(reg, offsetof(PyObject, ob_tid), arch::AccessSize::k64));
-  as_->mrs(arch::reg_scratch_0, a64::Predicate::SysReg::kTPIDR_EL0);
-  as_->cmp(scratch_reg1.x(), arch::reg_scratch_0);
-  as_->b_ne(not_owned);
+  phx_a64_mrs(as_->impl(), arch::reg_scratch_0, PHX_SYSREG_TPIDR_EL0);
+  phx_a64_cmp_rr(as_->impl(), scratch_reg1.x(), arch::reg_scratch_0);
+  phx_a64_b_ne(as_->impl(), not_owned);
 
   // Owned by current thread - store directly to ob_ref_local (fast path).
   // Note this store should be atomic with relaxed memory semantics, which is
   // default on aarch64 for regular stores.
-  as_->str(
+  phx_a64_str(
+      as_->impl(),
       scratch_reg0,
       arch::ptr_offset(
           reg, offsetof(PyObject, ob_ref_local), arch::AccessSize::k32));
   Label done_incref = as_->newLabel();
-  as_->b(done_incref);
+  phx_a64_b(as_->impl(), done_incref);
 
   // Not owned - use atomic add to ob_ref_shared (slow path)
   // On aarch64, we use ldxr/stxr loop for atomic operations
-  as_->bind(not_owned);
-  as_->add(
+  phx_builder_bind(as_->impl(), not_owned);
+  phx_a64_add_rri(
+      as_->impl(),
       scratch_reg1.x(),
       reg,
       static_cast<int32_t>(offsetof(PyObject, ob_ref_shared)));
   Label retry = as_->newLabel();
-  as_->bind(retry);
-  as_->ldxr(scratch_reg0, a64::ptr(scratch_reg1.x()));
-  as_->add(scratch_reg0, scratch_reg0, 1 << _Py_REF_SHARED_SHIFT);
-  as_->stxr(arch::reg_scratch_0.w(), scratch_reg0, a64::ptr(scratch_reg1));
-  as_->cbnz(arch::reg_scratch_0.w(), retry);
-  as_->bind(done_incref);
+  phx_builder_bind(as_->impl(), retry);
+  phx_a64_ldxr(as_->impl(), scratch_reg0, scratch_reg1.x());
+  phx_a64_add_rri(as_->impl(), scratch_reg0, scratch_reg0, 1 << _Py_REF_SHARED_SHIFT);
+  phx_a64_stxr(as_->impl(), arch::reg_scratch_0.w(), scratch_reg0, scratch_reg1);
+  phx_a64_cbnz(as_->impl(), arch::reg_scratch_0.w(), retry);
+  phx_builder_bind(as_->impl(), done_incref);
 
 #ifdef Py_REF_DEBUG
-  as_->ldr(
+  phx_a64_ldr(
+      as_->impl(),
       scratch_reg0,
       arch::ptr_offset(
           tstate_reg,
           offsetof(_PyThreadStateImpl, reftotal),
           arch::AccessSize::k64));
-  as_->add(scratch_reg0, scratch_reg0, 1);
-  as_->str(
+  phx_a64_add_rri(as_->impl(), scratch_reg0, scratch_reg0, 1);
+  phx_a64_str(
+      as_->impl(),
       scratch_reg0,
       arch::ptr_offset(
           tstate_reg,
@@ -398,31 +414,33 @@ void FrameAsm::incRef(
           arch::AccessSize::k64));
 #endif
 #else
-  as_->ldr(
+  phx_a64_ldr(
+      as_->impl(),
       scratch_reg0,
       arch::ptr_offset(
           reg, offsetof(PyObject, ob_refcnt), arch::AccessSize::k32));
-  as_->adds(scratch_reg0, scratch_reg0, 1);
+  phx_a64_adds_rri(as_->impl(), scratch_reg0, scratch_reg0, 1);
 #if PY_VERSION_HEX >= 0x030E0000
-  as_->b_mi(immortal);
+  phx_a64_b_mi(as_->impl(), immortal);
 #else
-  as_->b_eq(immortal);
+  phx_a64_b_eq(as_->impl(), immortal);
 #endif
   // mortal
-  as_->str(
+  phx_a64_str(
+      as_->impl(),
       scratch_reg0,
       arch::ptr_offset(
           reg, offsetof(PyObject, ob_refcnt), arch::AccessSize::k32));
 
 #ifdef Py_REF_DEBUG
   Py_ssize_t* ref_total = &getPyInterpreterState()->object_state.reftotal;
-  as_->mov(scratch_reg0.x(), reinterpret_cast<intptr_t>(ref_total));
-  as_->ldr(scratch_reg1.x(), a64::ptr(scratch_reg0.x()));
-  as_->add(scratch_reg1.x(), scratch_reg1.x(), 1);
-  as_->str(scratch_reg1.x(), a64::ptr(scratch_reg0.x()));
+  phx_a64_mov_ri(as_->impl(), scratch_reg0.x(), (uint64_t)reinterpret_cast<intptr_t>(ref_total));
+  phx_a64_ldr(as_->impl(), scratch_reg1.x(), a64::ptr(scratch_reg0.x()));
+  phx_a64_add_rri(as_->impl(), scratch_reg1.x(), scratch_reg1.x(), 1);
+  phx_a64_str(as_->impl(), scratch_reg1.x(), a64::ptr(scratch_reg0.x()));
 #endif
 #endif
-  as_->bind(immortal);
+  phx_builder_bind(as_->impl(), immortal);
 }
 #else
 CINDER_UNSUPPORTED
@@ -439,11 +457,11 @@ bool FrameAsm::storeConst(
   if (fitsSignedInt<32>(value)) {
     // the value fits in the register, let the caller know we didn't
     // populate scratch.
-    as_->mov(dest, static_cast<uint32_t>(value));
+    phx_x86_mov_mi(as_->impl(), dest, static_cast<uint32_t>(value));
     return true;
   }
-  as_->mov(scratch, value);
-  as_->mov(dest, scratch);
+  phx_x86_mov_ri(as_->impl(), scratch, value);
+  phx_x86_mov_mr(as_->impl(), dest, scratch);
   return false;
 }
 #elif defined(CINDER_AARCH64)
@@ -455,8 +473,8 @@ bool FrameAsm::storeConst(
     const arch::Gp& scratch0,
     const arch::Gp& scratch1) {
   int64_t value = reinterpret_cast<int64_t>(val);
-  as_->mov(scratch0, value);
-  as_->str(scratch0, arch::ptr_resolve(as, reg, offset, scratch1));
+  phx_a64_mov_ri(as_->impl(), scratch0, (uint64_t)value);
+  phx_a64_str(as_->impl(), scratch0, arch::ptr_resolve(as, reg, offset, scratch1));
   return false;
 }
 #else
@@ -498,7 +516,7 @@ void FrameAsm::linkLightWeightFunctionFrame(
     preserver.restore();
     // and here's where we need to preserve the initial extra args reg
     // too.
-    as_->push(scratch);
+    phx_x86_push_r(as_->impl(), scratch);
   }
   env_.addAnnotation("Load tstate", load_tstate_cursor);
 
@@ -515,12 +533,12 @@ void FrameAsm::linkLightWeightFunctionFrame(
 
   asmjit::BaseNode* store_func_cursor = as_->cursor();
 #if PY_VERSION_HEX >= 0x030E0000
-  as_->mov(x86::ptr(x86::rbp, -frame_header_size, sizeof(void*)), 0);
+  phx_x86_mov_mi(as_->impl(), x86::ptr(x86::rbp, -frame_header_size, sizeof(void*)), 0);
   env_.addAnnotation("Store rtfs state to 0", store_func_cursor);
 #else
   // Initialize the fields minus previous.
   // Store func before the header
-  as_->mov(x86::ptr(x86::rbp, -frame_header_size), func_reg);
+  phx_x86_mov_mr(as_->impl(), x86::ptr(x86::rbp, -frame_header_size), func_reg);
   incRef(func_reg, ref_cnt, tstate_reg);
   env_.addAnnotation("Store func before frame header", store_func_cursor);
 #endif
@@ -536,7 +554,7 @@ void FrameAsm::linkLightWeightFunctionFrame(
   if (!_Py_IsImmortal(executable)) {
     if (needs_load) {
       // if this fit into a 32-bit value we didn't spill it into scratch
-      as_->mov(scratch, reinterpret_cast<uint64_t>(executable));
+      phx_x86_mov_ri(as_->impl(), scratch, (int64_t)reinterpret_cast<uint64_t>(executable));
     }
     incRef(scratch, ref_cnt, tstate_reg);
   }
@@ -546,7 +564,7 @@ void FrameAsm::linkLightWeightFunctionFrame(
   // Store f_funcobj as our helper frame reifier object
   asmjit::BaseNode* store_f_funcobj_cursor = as_->cursor();
 #if PY_VERSION_HEX >= 0x030E0000
-  as_->mov(x86::ptr(x86::rbp, FRAME_OFFSET(f_funcobj)), func_reg);
+  phx_x86_mov_mr(as_->impl(), x86::ptr(x86::rbp, FRAME_OFFSET(f_funcobj)), func_reg);
   incRef(func_reg, ref_cnt, tstate_reg);
 #else
   storeConst(x86::rbp, FRAME_OFFSET(f_funcobj), frame_reifier, scratch);
@@ -567,13 +585,14 @@ void FrameAsm::linkLightWeightFunctionFrame(
       "Set _PyInterpreterFrame::prev_instr", store_prev_instr_cursor);
 #ifdef Py_GIL_DISABLED
   asmjit::BaseNode* tlbc_index_cursor = as_->cursor();
-  as_->mov(x86::dword_ptr(x86::rbp, FRAME_OFFSET(tlbc_index)), 0);
+  phx_x86_mov_mi(as_->impl(), x86::dword_ptr(x86::rbp, FRAME_OFFSET(tlbc_index)), 0);
   env_.addAnnotation("Set TLBC index to 0", tlbc_index_cursor);
 #endif
 
   // Store owner
   asmjit::BaseNode* store_owner_cursor = as_->cursor();
-  as_->mov(
+  phx_x86_mov_mi(
+      as_->impl(),
       x86::ptr(x86::rbp, FRAME_OFFSET(owner), sizeof(char)),
       FRAME_OWNED_BY_THREAD);
   env_.addAnnotation("Set _PyInterpreterFrame::owner", store_owner_cursor);
@@ -585,50 +604,52 @@ void FrameAsm::linkLightWeightFunctionFrame(
   // 3.14+ - current_frame is stored in PyThreadState.current_frame
   const arch::Gp& frame_holder = tstate_reg;
   // cur_frame->previous = PyThreadState.current_frame
-  as_->mov(
+  phx_x86_mov_rm(
+      as_->impl(),
       scratch, x86::ptr(tstate_reg, offsetof(PyThreadState, current_frame)));
 #else
   // 3.12 - current_frame is stored in PyThreadState.cframe
   const arch::Gp& frame_holder =
       x86::rax; // return value, we can freely use this as scratch
-  as_->mov(frame_holder, x86::ptr(tstate_reg, offsetof(PyThreadState, cframe)));
-  as_->mov(scratch, x86::ptr(frame_holder, offsetof(_PyCFrame, current_frame)));
+  phx_x86_mov_rm(as_->impl(), frame_holder, x86::ptr(tstate_reg, offsetof(PyThreadState, cframe)));
+  phx_x86_mov_rm(as_->impl(), scratch, x86::ptr(frame_holder, offsetof(_PyCFrame, current_frame)));
 #endif
   env_.addAnnotation("Get topmost frame", get_tos_cursor);
 
   asmjit::BaseNode* store_prev_cursor = as_->cursor();
   // cur_frame->previous = PyThreadState.cframe.current_frame
-  as_->mov(x86::ptr(x86::rbp, FRAME_OFFSET(previous)), scratch);
+  phx_x86_mov_mr(as_->impl(), x86::ptr(x86::rbp, FRAME_OFFSET(previous)), scratch);
   env_.addAnnotation("Set _PyInterpreterFrame::previous", store_prev_cursor);
 
 #if PY_VERSION_HEX >= 0x030E0000
   asmjit::BaseNode* stack_pointer_cursor = as_->cursor();
-  as_->lea(scratch, x86::ptr(x86::rbp, FRAME_OFFSET(localsplus)));
-  as_->mov(x86::ptr(x86::rbp, FRAME_OFFSET(stackpointer)), scratch);
+  phx_x86_lea(as_->impl(), scratch, x86::ptr(x86::rbp, FRAME_OFFSET(localsplus)));
+  phx_x86_mov_mr(as_->impl(), x86::ptr(x86::rbp, FRAME_OFFSET(stackpointer)), scratch);
   env_.addAnnotation(
       "Set _PyInterpreterFrame::stackpointer", stack_pointer_cursor);
 
   asmjit::BaseNode* locals_cursor = as_->cursor();
-  as_->mov(x86::qword_ptr(x86::rbp, FRAME_OFFSET(f_locals)), 0);
+  phx_x86_mov_mi(as_->impl(), x86::qword_ptr(x86::rbp, FRAME_OFFSET(f_locals)), 0);
   env_.addAnnotation("Set _PyInterpreterFrame::f_locals", locals_cursor);
 #endif
 
   // Then finally link in our frame to thread state
   asmjit::BaseNode* update_linkage_cursor = as_->cursor();
-  as_->lea(scratch, x86::ptr(x86::rbp, -frame_header_size + sizeof(PyObject*)));
+  phx_x86_lea(as_->impl(), scratch, x86::ptr(x86::rbp, -frame_header_size + sizeof(PyObject*)));
 #if PY_VERSION_HEX >= 0x030D0000
   // (PyThreadState.cframe|PyThreadState).current_frame = &cur_frame
-  as_->mov(
+  phx_x86_mov_mr(
+      as_->impl(),
       x86::ptr(frame_holder, offsetof(PyThreadState, current_frame)), scratch);
 #else
   // (PyThreadState.cframe|PyThreadState).current_frame = &cur_frame
-  as_->mov(x86::ptr(frame_holder, offsetof(_PyCFrame, current_frame)), scratch);
+  phx_x86_mov_mr(as_->impl(), x86::ptr(frame_holder, offsetof(_PyCFrame, current_frame)), scratch);
 #endif
   env_.addAnnotation(
       "Set _PyInterpreterFrame as topmost frame", update_linkage_cursor);
 
   if (tstate_offset == -1) {
-    as_->pop(scratch);
+    phx_x86_pop_r(as_->impl(), scratch);
   } else {
     preserver.remap();
   }
@@ -660,7 +681,7 @@ void FrameAsm::linkLightWeightFunctionFrame(
     preserver.restore();
     // and here's where we need to preserve the initial extra args reg
     // too.
-    as_->str(scratch, a64::ptr_pre(a64::sp, -16));
+    phx_a64_str(as_->impl(), scratch, a64::ptr_pre(a64::sp, -16));
   }
   env_.addAnnotation("Load tstate", load_tstate_cursor);
 
@@ -678,14 +699,14 @@ void FrameAsm::linkLightWeightFunctionFrame(
 
   asmjit::BaseNode* store_func_cursor = as_->cursor();
 #if PY_VERSION_HEX >= 0x030E0000
-  as_->sub(arch::reg_scratch_0, arch::fp, frame_header_size);
-  as_->str(a64::xzr, a64::ptr(arch::reg_scratch_0));
+  phx_a64_sub_rri(as_->impl(), arch::reg_scratch_0, arch::fp, frame_header_size);
+  phx_a64_str(as_->impl(), a64::xzr, a64::ptr(arch::reg_scratch_0));
   env_.addAnnotation("Store rtfs state to 0", store_func_cursor);
 #else
   // Initialize the fields minus previous.
   // Store func before the header
-  as_->sub(arch::reg_scratch_0, arch::fp, frame_header_size);
-  as_->str(func_reg, a64::ptr(arch::reg_scratch_0));
+  phx_a64_sub_rri(as_->impl(), arch::reg_scratch_0, arch::fp, frame_header_size);
+  phx_a64_str(as_->impl(), func_reg, a64::ptr(arch::reg_scratch_0));
   incRef(func_reg, ref_cnt, ref_cnt_scratch, tstate_reg);
   env_.addAnnotation("Store func before frame header", store_func_cursor);
 #endif
@@ -711,7 +732,8 @@ void FrameAsm::linkLightWeightFunctionFrame(
   // Store f_funcobj as our helper frame reifier object
   asmjit::BaseNode* store_f_funcobj_cursor = as_->cursor();
 #if PY_VERSION_HEX >= 0x030E0000
-  as_->str(
+  phx_a64_str(
+      as_->impl(),
       func_reg,
       arch::ptr_resolve(
           as_, arch::fp, FRAME_OFFSET(f_funcobj), arch::reg_scratch_0));
@@ -747,14 +769,15 @@ void FrameAsm::linkLightWeightFunctionFrame(
       "Set _PyInterpreterFrame::prev_instr", store_prev_instr_cursor);
 #ifdef Py_GIL_DISABLED
   asmjit::BaseNode* tlbc_index_cursor = as_->cursor();
-  as_->str(a64::xzr, arch::ptr_offset(arch::fp, FRAME_OFFSET(tlbc_index)));
+  phx_a64_str(as_->impl(), a64::xzr, arch::ptr_offset(arch::fp, FRAME_OFFSET(tlbc_index)));
   env_.addAnnotation("Set TLBC index to 0", tlbc_index_cursor);
 #endif
 
   // Store owner
   asmjit::BaseNode* store_owner_cursor = as_->cursor();
-  as_->mov(a64::w12, FRAME_OWNED_BY_THREAD);
-  as_->strb(
+  phx_a64_mov_ri(as_->impl(), a64::w12, FRAME_OWNED_BY_THREAD);
+  phx_a64_strb(
+      as_->impl(),
       a64::w12,
       arch::ptr_resolve(
           as_,
@@ -771,16 +794,19 @@ void FrameAsm::linkLightWeightFunctionFrame(
   // 3.14+ - current_frame is stored in PyThreadState.current_frame
   const arch::Gp& frame_holder = tstate_reg;
   // cur_frame->previous = PyThreadState.current_frame
-  as_->ldr(
+  phx_a64_ldr(
+      as_->impl(),
       scratch,
       arch::ptr_offset(tstate_reg, offsetof(PyThreadState, current_frame)));
 #else
   // 3.12 - current_frame is stored in PyThreadState.cframe
   const arch::Gp& frame_holder = arch::reg_scratch_0;
-  as_->ldr(
+  phx_a64_ldr(
+      as_->impl(),
       frame_holder,
       arch::ptr_offset(tstate_reg, offsetof(PyThreadState, cframe)));
-  as_->ldr(
+  phx_a64_ldr(
+      as_->impl(),
       scratch,
       arch::ptr_offset(frame_holder, offsetof(_PyCFrame, current_frame)));
 #endif
@@ -788,7 +814,8 @@ void FrameAsm::linkLightWeightFunctionFrame(
 
   asmjit::BaseNode* store_prev_cursor = as_->cursor();
   // cur_frame->previous = PyThreadState.cframe.current_frame
-  as_->str(
+  phx_a64_str(
+      as_->impl(),
       scratch,
       arch::ptr_resolve(
           as_, arch::fp, FRAME_OFFSET(previous), arch::reg_scratch_1));
@@ -797,12 +824,13 @@ void FrameAsm::linkLightWeightFunctionFrame(
 #if PY_VERSION_HEX >= 0x030E0000
   asmjit::BaseNode* stack_pointer_cursor = as_->cursor();
   if (arm::Utils::isAddSubImm(-FRAME_OFFSET(localsplus))) {
-    as_->sub(scratch, arch::fp, -FRAME_OFFSET(localsplus));
+    phx_a64_sub_rri(as_->impl(), scratch, arch::fp, -FRAME_OFFSET(localsplus));
   } else {
-    as_->mov(scratch, -FRAME_OFFSET(localsplus));
-    as_->sub(scratch, arch::fp, scratch);
+    phx_a64_mov_ri(as_->impl(), scratch, (uint64_t)(-FRAME_OFFSET(localsplus)));
+    phx_a64_sub_rrr(as_->impl(), scratch, arch::fp, scratch);
   }
-  as_->str(
+  phx_a64_str(
+      as_->impl(),
       scratch,
       arch::ptr_resolve(
           as_, arch::fp, FRAME_OFFSET(stackpointer), arch::reg_scratch_1));
@@ -810,7 +838,8 @@ void FrameAsm::linkLightWeightFunctionFrame(
       "Set _PyInterpreterFrame::stackpointer", stack_pointer_cursor);
 
   asmjit::BaseNode* locals_cursor = as_->cursor();
-  as_->str(
+  phx_a64_str(
+      as_->impl(),
       a64::xzr,
       arch::ptr_resolve(
           as_, arch::fp, FRAME_OFFSET(f_locals), arch::reg_scratch_1));
@@ -821,19 +850,21 @@ void FrameAsm::linkLightWeightFunctionFrame(
   asmjit::BaseNode* update_linkage_cursor = as_->cursor();
   int size = -frame_header_size + sizeof(PyObject*);
   if (size > 0) {
-    as_->add(scratch, arch::fp, size);
+    phx_a64_add_rri(as_->impl(), scratch, arch::fp, size);
   } else {
-    as_->sub(scratch, arch::fp, -size);
+    phx_a64_sub_rri(as_->impl(), scratch, arch::fp, -size);
   }
 
 #if PY_VERSION_HEX >= 0x030D0000
   // (PyThreadState.cframe|PyThreadState).current_frame = &cur_frame
-  as_->str(
+  phx_a64_str(
+      as_->impl(),
       scratch,
       arch::ptr_offset(frame_holder, offsetof(PyThreadState, current_frame)));
 #else
   // (PyThreadState.cframe|PyThreadState).current_frame = &cur_frame
-  as_->str(
+  phx_a64_str(
+      as_->impl(),
       scratch,
       arch::ptr_offset(frame_holder, offsetof(_PyCFrame, current_frame)));
 #endif
@@ -841,7 +872,7 @@ void FrameAsm::linkLightWeightFunctionFrame(
       "Set _PyInterpreterFrame as topmost frame", update_linkage_cursor);
 
   if (tstate_offset == -1) {
-    as_->ldr(scratch, a64::ptr_post(a64::sp, 16));
+    phx_a64_ldr(as_->impl(), scratch, a64::ptr_post(a64::sp, 16));
   } else {
     preserver.remap();
   }
@@ -862,28 +893,30 @@ void FrameAsm::linkNormalFunctionFrame(
 
 #if defined(CINDER_X86_64)
   if (kPyDebug) {
-    as_->mov(x86::rsi, reinterpret_cast<intptr_t>(GetFunction()->code.get()));
-    as_->call(
-        reinterpret_cast<uint64_t>(
+    phx_x86_mov_ri(as_->impl(), x86::rsi, reinterpret_cast<intptr_t>(GetFunction()->code.get()));
+    phx_x86_mov_ri(as_->impl(), PHX_R11,
+        (int64_t)(uintptr_t)reinterpret_cast<uint64_t>(
             JITRT_AllocateAndLinkInterpreterFrame_Debug));
+    phx_x86_call_r(as_->impl(), PHX_R11);
   } else {
-    as_->call(
-        reinterpret_cast<uint64_t>(
+    phx_x86_mov_ri(as_->impl(), PHX_R11,
+        (int64_t)(uintptr_t)reinterpret_cast<uint64_t>(
             JITRT_AllocateAndLinkInterpreterFrame_Release));
+    phx_x86_call_r(as_->impl(), PHX_R11);
   }
 
-  as_->mov(tstate_reg, x86::rax);
+  phx_x86_mov_rr(as_->impl(), tstate_reg, x86::rax);
 #elif defined(CINDER_AARCH64)
   if (kPyDebug) {
-    as_->mov(a64::x1, reinterpret_cast<intptr_t>(GetFunction()->code.get()));
-    as_->mov(arch::reg_scratch_br, JITRT_AllocateAndLinkInterpreterFrame_Debug);
+    phx_a64_mov_ri(as_->impl(), a64::x1, (uint64_t)reinterpret_cast<intptr_t>(GetFunction()->code.get()));
+    phx_a64_mov_ri(as_->impl(), arch::reg_scratch_br, (uint64_t)(uintptr_t)JITRT_AllocateAndLinkInterpreterFrame_Debug);
   } else {
-    as_->mov(
-        arch::reg_scratch_br, JITRT_AllocateAndLinkInterpreterFrame_Release);
+    phx_a64_mov_ri(
+        as_->impl(), arch::reg_scratch_br, (uint64_t)(uintptr_t)JITRT_AllocateAndLinkInterpreterFrame_Release);
   }
 
-  as_->blr(arch::reg_scratch_br);
-  as_->mov(tstate_reg, a64::x0);
+  phx_a64_blr(as_->impl(), arch::reg_scratch_br);
+  phx_a64_mov_rr(as_->impl(), tstate_reg, a64::x0);
 #else
   CINDER_UNSUPPORTED
 #endif
@@ -922,34 +955,35 @@ void FrameAsm::linkNormalFrame(
   preserver.preserve();
 
 #if defined(CINDER_X86_64)
-  as_->mov(
-      x86::rdi,
+  phx_x86_mov_ri(
+      as_->impl(), x86::rdi,
       reinterpret_cast<intptr_t>(codeRuntime()->frameState()->code().get()));
-  as_->mov(
-      x86::rsi,
+  phx_x86_mov_ri(
+      as_->impl(), x86::rsi,
       reinterpret_cast<intptr_t>(
           codeRuntime()->frameState()->builtins().get()));
-  as_->mov(
-      x86::rdx,
+  phx_x86_mov_ri(
+      as_->impl(), x86::rdx,
       reinterpret_cast<intptr_t>(codeRuntime()->frameState()->globals().get()));
 
-  as_->call(reinterpret_cast<uint64_t>(JITRT_AllocateAndLinkFrame));
-  as_->mov(tstate_reg, x86::rax);
+  phx_x86_mov_ri(as_->impl(), PHX_R11, (int64_t)(uintptr_t)reinterpret_cast<uint64_t>(JITRT_AllocateAndLinkFrame));
+  phx_x86_call_r(as_->impl(), PHX_R11);
+  phx_x86_mov_rr(as_->impl(), tstate_reg, x86::rax);
 #elif defined(CINDER_AARCH64)
-  as_->mov(
-      a64::x0,
-      reinterpret_cast<intptr_t>(codeRuntime()->frameState()->code().get()));
-  as_->mov(
-      a64::x1,
-      reinterpret_cast<intptr_t>(
+  phx_a64_mov_ri(
+      as_->impl(), a64::x0,
+      (uint64_t)reinterpret_cast<intptr_t>(codeRuntime()->frameState()->code().get()));
+  phx_a64_mov_ri(
+      as_->impl(), a64::x1,
+      (uint64_t)reinterpret_cast<intptr_t>(
           codeRuntime()->frameState()->builtins().get()));
-  as_->mov(
-      a64::x2,
-      reinterpret_cast<intptr_t>(codeRuntime()->frameState()->globals().get()));
+  phx_a64_mov_ri(
+      as_->impl(), a64::x2,
+      (uint64_t)reinterpret_cast<intptr_t>(codeRuntime()->frameState()->globals().get()));
 
-  as_->mov(arch::reg_scratch_br, JITRT_AllocateAndLinkFrame);
-  as_->blr(arch::reg_scratch_br);
-  as_->mov(tstate_reg, a64::x0);
+  phx_a64_mov_ri(as_->impl(), arch::reg_scratch_br, (uint64_t)(uintptr_t)JITRT_AllocateAndLinkFrame);
+  phx_a64_blr(as_->impl(), arch::reg_scratch_br);
+  phx_a64_mov_rr(as_->impl(), tstate_reg, a64::x0);
 #else
   CINDER_UNSUPPORTED
 #endif
@@ -966,17 +1000,17 @@ void FrameAsm::loadTState(const arch::Gp& dst_reg) {
       reinterpret_cast<uint64_t>(&_PyRuntime.gilstate.tstate_current);
 
   if (fitsSignedInt<32>(tstate)) {
-    as_->mov(dst_reg, x86::ptr(tstate));
+    phx_x86_mov_rm(as_->impl(), dst_reg, x86::ptr(tstate));
   } else {
-    as_->mov(dst_reg, tstate);
-    as_->mov(dst_reg, x86::ptr(dst_reg));
+    phx_x86_mov_ri(as_->impl(), dst_reg, (int64_t)tstate);
+    phx_x86_mov_rm(as_->impl(), dst_reg, x86::ptr(dst_reg));
   }
 #elif defined(CINDER_AARCH64)
   uint64_t tstate =
       reinterpret_cast<uint64_t>(&_PyRuntime.gilstate.tstate_current);
 
-  as_->mov(dst_reg, tstate);
-  as_->ldr(dst_reg, a64::ptr(dst_reg));
+  phx_a64_mov_ri(as_->impl(), dst_reg, tstate);
+  phx_a64_ldr(as_->impl(), dst_reg, a64::ptr(dst_reg));
 #else
   CINDER_UNSUPPORTED
 #endif
@@ -1035,7 +1069,7 @@ void FrameAsm::generateUnlinkFrame([[maybe_unused]] bool is_generator) {
 #ifdef ENABLE_SHADOW_FRAMES
   // Unlink shadow frame? The send implementation handles unlinking these for
   // generators.
-  as_->mov(x86::rdi, is_generator ? 0 : 1);
+  phx_x86_mov_ri(as_->impl(), x86::rdi, (int64_t)(is_generator ? 0 : 1));
   auto saved_rax_ptr = x86::ptr(x86::rbp, -8);
 #else
   auto saved_rax_ptr = x86::ptr(x86::rbp, -frameHeaderSize());
@@ -1043,15 +1077,16 @@ void FrameAsm::generateUnlinkFrame([[maybe_unused]] bool is_generator) {
 
   hir::Type ret_type = func_->return_type;
   if (ret_type <= TCDouble) {
-    as_->movsd(saved_rax_ptr, x86::xmm0);
+    phx_x86_movsd_mr(as_->impl(), saved_rax_ptr, x86::xmm0);
   } else {
-    as_->mov(saved_rax_ptr, x86::rax);
+    phx_x86_mov_mr(as_->impl(), saved_rax_ptr, x86::rax);
   }
-  as_->call(reinterpret_cast<uint64_t>(JITRT_UnlinkFrame));
+  phx_x86_mov_ri(as_->impl(), PHX_R11, (int64_t)(uintptr_t)reinterpret_cast<uint64_t>(JITRT_UnlinkFrame));
+  phx_x86_call_r(as_->impl(), PHX_R11);
   if (ret_type <= TCDouble) {
-    as_->movsd(x86::xmm0, saved_rax_ptr);
+    phx_x86_movsd_rm(as_->impl(), x86::xmm0, saved_rax_ptr);
   } else {
-    as_->mov(x86::rax, saved_rax_ptr);
+    phx_x86_mov_rm(as_->impl(), x86::rax, saved_rax_ptr);
   }
 #elif defined(CINDER_AARCH64)
 #ifdef ENABLE_SHADOW_FRAMES
@@ -1062,12 +1097,12 @@ void FrameAsm::generateUnlinkFrame([[maybe_unused]] bool is_generator) {
 
   hir::Type ret_type = func_->return_type;
   if (ret_type <= TCDouble) {
-    as_->str(a64::d0, saved_x0_ptr);
+    phx_a64_str(as_->impl(), a64::d0, saved_x0_ptr);
   } else {
-    as_->str(a64::x0, saved_x0_ptr);
+    phx_a64_str(as_->impl(), a64::x0, saved_x0_ptr);
   }
-  as_->mov(arch::reg_scratch_br, JITRT_UnlinkFrame);
-  as_->blr(arch::reg_scratch_br);
+  phx_a64_mov_ri(as_->impl(), arch::reg_scratch_br, (uint64_t)(uintptr_t)JITRT_UnlinkFrame);
+  phx_a64_blr(as_->impl(), arch::reg_scratch_br);
 
   // It is possible that the scratch register used to compute the pointer was
   // clobbered by the call. If so, we need to reload it. This only happens if
@@ -1076,9 +1111,9 @@ void FrameAsm::generateUnlinkFrame([[maybe_unused]] bool is_generator) {
       arch::ptr_resolve(as_, arch::fp, -frameHeaderSize(), arch::reg_scratch_0);
 
   if (ret_type <= TCDouble) {
-    as_->ldr(a64::d0, saved_x0_ptr);
+    phx_a64_ldr(as_->impl(), a64::d0, saved_x0_ptr);
   } else {
-    as_->ldr(a64::x0, saved_x0_ptr);
+    phx_a64_ldr(as_->impl(), a64::x0, saved_x0_ptr);
   }
 #endif
 #else
@@ -1098,30 +1133,31 @@ void FrameAsm::linkOnStackShadowFrame(
   uintptr_t data =
       _PyShadowFrame_MakeData(env_.code_rt, PYSF_CODE_RT, PYSF_JIT);
   // Save old top of shadow stack
-  as_->mov(scratch_reg, shadow_stack_top_ptr);
-  as_->mov(kInFramePrevPtr, scratch_reg);
+  phx_x86_mov_rm(as_->impl(), scratch_reg, shadow_stack_top_ptr);
+  phx_x86_mov_mr(as_->impl(), kInFramePrevPtr, scratch_reg);
   // Set data
   if (frame_mode == FrameMode::kNormal) {
-    as_->mov(scratch_reg, x86::ptr(tstate_reg, offsetof(PyThreadState, frame)));
+    phx_x86_mov_rm(as_->impl(), scratch_reg, x86::ptr(tstate_reg, offsetof(PyThreadState, frame)));
     static_assert(
         PYSF_PYFRAME == 1 && _PyShadowFrame_NumPtrKindBits == 2,
         "Unexpected constant");
+    // BTS - no direct C API available, use wrapper
     as_->bts(scratch_reg, 0);
   } else {
-    as_->mov(scratch_reg, data);
+    phx_x86_mov_ri(as_->impl(), scratch_reg, (int64_t)data);
   }
-  as_->mov(kInFrameDataPtr, scratch_reg);
+  phx_x86_mov_mr(as_->impl(), kInFrameDataPtr, scratch_reg);
   // Set orig_data
   // This is only necessary when in normal-frame mode because the frame is
   // already materialized on function entry. It is lazily filled when the frame
   // is materialized in shadow-frame mode.
   if (frame_mode == FrameMode::kNormal) {
-    as_->mov(scratch_reg, data);
-    as_->mov(shadow_frame::kInFrameOrigDataPtr, scratch_reg);
+    phx_x86_mov_ri(as_->impl(), scratch_reg, (int64_t)data);
+    phx_x86_mov_mr(as_->impl(), shadow_frame::kInFrameOrigDataPtr, scratch_reg);
   }
   // Set our shadow frame as top of shadow stack
-  as_->lea(scratch_reg, kFramePtr);
-  as_->mov(shadow_stack_top_ptr, scratch_reg);
+  phx_x86_lea(as_->impl(), scratch_reg, kFramePtr);
+  phx_x86_mov_mr(as_->impl(), shadow_stack_top_ptr, scratch_reg);
 #else
   CINDER_UNSUPPORTED
 #endif
@@ -1132,9 +1168,9 @@ void FrameAsm::initializeFrameHeader(
     arch::Gp scratch_reg) {
 #if defined(CINDER_X86_64)
   if (!isGen()) {
-    as_->push(scratch_reg);
+    phx_x86_push_r(as_->impl(), scratch_reg);
     linkOnStackShadowFrame(tstate_reg, scratch_reg);
-    as_->pop(scratch_reg);
+    phx_x86_pop_r(as_->impl(), scratch_reg);
   }
 #else
   CINDER_UNSUPPORTED

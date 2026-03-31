@@ -25,6 +25,7 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
+#include <type_traits>
 
 /* ================================================================== */
 /*  Forward declarations                                               */
@@ -799,8 +800,17 @@ class EmitterExplicitT {
   /* -- MOV -- */
   Error mov(const Gp& d, const Gp& s)   { phx_a64_mov_rr(b_(), d, s); return kErrorOk; }
   Error mov(const Gp& d, uint64_t v)    { phx_a64_mov_ri(b_(), d, v); return kErrorOk; }
-  Error mov(const Gp& d, const void* p) { phx_a64_mov_ri(b_(), d, (uint64_t)(uintptr_t)p); return kErrorOk; }
   Error mov(const Gp& d, const Imm& i)  { phx_a64_mov_ri(b_(), d, (uint64_t)i.value()); return kErrorOk; }
+  /* mov(Gp, any_non_integer) — catches function pointers, object pointers, etc. */
+  template <typename T>
+  typename std::enable_if<!std::is_integral<T>::value && !std::is_same<typename std::decay<T>::type, Imm>::value
+      && !std::is_same<typename std::decay<T>::type, Gp>::value, Error>::type
+  mov(const Gp& d, T val) {
+    uint64_t addr;
+    memcpy(&addr, &val, sizeof(addr));
+    phx_a64_mov_ri(b_(), d, addr);
+    return kErrorOk;
+  }
   /* -- LDR / STR -- */
   Error ldr(const Gp& d, const Mem& m)  { phx_a64_ldr(b_(), d, m); return kErrorOk; }
   Error ldrb(const Gp& d, const Mem& m) { phx_a64_ldrb(b_(), d, m); return kErrorOk; }
@@ -820,8 +830,7 @@ class EmitterExplicitT {
   Error adr(const Gp& d, const Label& l) { phx_a64_adr(b_(), d, l); return kErrorOk; }
   /* -- ADD / SUB -- */
   Error add(const Gp& d, const Gp& a, const Gp& c)    { phx_a64_add_rrr(b_(), d, a, c); return kErrorOk; }
-  Error add(const Gp& d, const Gp& a, uint64_t v)      { phx_a64_add_rri(b_(), d, a, (int64_t)v); return kErrorOk; }
-  Error add(const Gp& d, const Gp& a, int32_t v)       { phx_a64_add_rri(b_(), d, a, v); return kErrorOk; }
+  Error add(const Gp& d, const Gp& a, int64_t v)        { phx_a64_add_rri(b_(), d, a, v); return kErrorOk; }
   Error add(const Gp& d, const Gp& a, const Imm& i)    { phx_a64_add_rri(b_(), d, a, i.value()); return kErrorOk; }
   Error adds(const Gp& d, const Gp& a, const Gp& c)    { phx_a64_adds_rrr(b_(), d, a, c); return kErrorOk; }
   Error adds(const Gp& d, const Gp& a, uint64_t v)      { phx_a64_adds_rri(b_(), d, a, (int64_t)v); return kErrorOk; }
@@ -833,8 +842,7 @@ class EmitterExplicitT {
     phx_a64_sub_rrr_shifted(b_(), d, a, c, s.type, s.amount); return kErrorOk;
   }
   Error sub(const Gp& d, const Gp& a, const Gp& c)     { phx_a64_sub_rrr(b_(), d, a, c); return kErrorOk; }
-  Error sub(const Gp& d, const Gp& a, uint64_t v)       { phx_a64_sub_rri(b_(), d, a, (int64_t)v); return kErrorOk; }
-  Error sub(const Gp& d, const Gp& a, int32_t v)        { phx_a64_sub_rri(b_(), d, a, v); return kErrorOk; }
+  Error sub(const Gp& d, const Gp& a, int64_t v)         { phx_a64_sub_rri(b_(), d, a, v); return kErrorOk; }
   Error sub(const Gp& d, const Gp& a, const Imm& i)     { phx_a64_sub_rri(b_(), d, a, i.value()); return kErrorOk; }
   Error subs(const Gp& d, const Gp& a, const Gp& c)    { phx_a64_subs_rrr(b_(), d, a, c); return kErrorOk; }
   Error subs(const Gp& d, const Gp& a, uint64_t v)      { phx_a64_subs_rri(b_(), d, a, (int64_t)v); return kErrorOk; }
@@ -913,6 +921,12 @@ class EmitterExplicitT {
   /* -- RET -- */
   Error ret()                { phx_a64_ret(b_()); return kErrorOk; }
   Error ret(const Gp& t)    { phx_a64_ret_reg(b_(), t); return kErrorOk; }
+  /* -- TBNZ (test bit and branch if nonzero) -- */
+  Error tbnz(const Gp& s, uint32_t bit, const Label& t) {
+    /* TODO: implement tbnz encoding in arm64.c */
+    fprintf(stderr, "FATAL: tbnz not implemented\n"); abort();
+    return kErrorOk;
+  }
   /* -- UDF -- */
   Error udf(uint16_t v)     { phx_a64_udf(b_(), v); return kErrorOk; }
   /* -- Exclusive load/store -- */
@@ -929,7 +943,13 @@ class EmitterExplicitT {
 
 class Builder : public EmitterExplicitT<Builder> {
  public:
-  explicit Builder(PhxCodeHolder* code) : impl_(phx_builder_create(code)) {}
+  explicit Builder(PhxCodeHolder* code) : impl_(phx_builder_create(code)), code_(nullptr) {}
+  explicit Builder(CodeHolder* code) : impl_(nullptr), code_(code) {
+    if (code) {
+      if (!code->get()) code->init();
+      impl_ = phx_builder_create(code->get());
+    }
+  }
   ~Builder() { if (impl_) phx_builder_destroy(impl_); }
 
   Builder(const Builder&) = delete;
@@ -949,10 +969,16 @@ class Builder : public EmitterExplicitT<Builder> {
   Error embed(const void* data, size_t size) {
     phx_builder_embed(impl_, data, size); return kErrorOk;
   }
-  Error finalize() { return phx_a64_finalize(impl_); }
+  Error finalize() { return (impl_ && impl_->code) ? phx_a64_finalize(impl_) : 1; }
+
+  Error section(void*) { return kErrorOk; }
+  Builder& short_() { return *this; }
+  Builder& long_() { return *this; }
+  CodeHolder* code() const { return code_; }
 
  private:
   PhxBuilder* impl_;
+  CodeHolder* code_;
 };
 
 } /* namespace phx */

@@ -2,6 +2,9 @@
 
 #include "cinderx/Jit/codegen/register_preserver.h"
 
+#include "jit/phoenix_asm/x86_64.h"
+#include "jit/phoenix_asm/arm64.h"
+
 namespace jit::codegen {
 
 #if defined(CINDER_X86_64)
@@ -24,12 +27,11 @@ void RegisterPreserver::preserve() {
   size_t rsp_offset = 0;
   for (const auto& pair : save_regs_) {
     if (pair.first.isGpq()) {
-      as_->push((asmjit::x86::Gpq&)pair.first);
+      phx_x86_push_r(as_->impl(), pair.first);
     } else if (pair.first.isXmm()) {
-      as_->sub(asmjit::x86::rsp, pair.first.size());
-      as_->movdqu(
-          asmjit::x86::dqword_ptr(asmjit::x86::rsp),
-          (asmjit::x86::Xmm&)pair.first);
+      phx_x86_sub_ri(as_->impl(), PHX_RSP, pair.first.size());
+      phx_x86_movdqu_mr(
+          as_->impl(), phx_dqword_ptr(PHX_RSP, 0), pair.first);
     } else {
       JIT_ABORT("unsupported saved register type");
     }
@@ -37,24 +39,24 @@ void RegisterPreserver::preserve() {
   }
   align_stack_ = rsp_offset % kConstStackAlignmentRequirement;
   if (align_stack_) {
-    as_->push(asmjit::x86::rax);
+    phx_x86_push_r(as_->impl(), PHX_RAX);
   }
 #elif defined(CINDER_AARCH64)
   for (const auto& [idx, kind] : registerGroups()) {
     switch (kind) {
       case RegisterGroup::kGpPair:
-        as_->stp(
-            static_cast<const asmjit::a64::Gp&>(save_regs_[idx].first),
-            static_cast<const asmjit::a64::Gp&>(save_regs_[idx + 1].first),
-            asmjit::a64::ptr_pre(
-                asmjit::a64::sp, -kConstStackAlignmentRequirement));
+        phx_a64_stp_pre(
+            as_->impl(),
+            save_regs_[idx].first,
+            save_regs_[idx + 1].first,
+            PHX_SP, -kConstStackAlignmentRequirement);
         break;
       case RegisterGroup::kVecDPair:
-        as_->stp(
-            static_cast<const asmjit::a64::VecD&>(save_regs_[idx].first),
-            static_cast<const asmjit::a64::VecD&>(save_regs_[idx + 1].first),
-            asmjit::a64::ptr_pre(
-                asmjit::a64::sp, -kConstStackAlignmentRequirement));
+        phx_a64_stp_pre(
+            as_->impl(),
+            save_regs_[idx].first,
+            save_regs_[idx + 1].first,
+            PHX_SP, -kConstStackAlignmentRequirement);
         break;
       case RegisterGroup::kGp:
         as_->str(
@@ -81,14 +83,10 @@ void RegisterPreserver::remap() {
     if (pair.first != pair.second) {
       if (pair.first.isGpq()) {
         JIT_DCHECK(pair.second.isGpq(), "can't mix and match register types");
-        as_->mov(
-            static_cast<const asmjit::x86::Gpq&>(pair.second),
-            static_cast<const asmjit::x86::Gpq&>(pair.first));
+        phx_x86_mov_rr(as_->impl(), pair.second, pair.first);
       } else if (pair.first.isXmm()) {
         JIT_DCHECK(pair.second.isXmm(), "can't mix and match register types");
-        as_->movsd(
-            static_cast<const asmjit::x86::Xmm&>(pair.second),
-            static_cast<const asmjit::x86::Xmm&>(pair.first));
+        phx_x86_movsd_rr(as_->impl(), pair.second, pair.first);
       }
     }
   }
@@ -97,14 +95,10 @@ void RegisterPreserver::remap() {
     if (pair.first != pair.second) {
       if (pair.first.isGpX()) {
         JIT_DCHECK(pair.second.isGpX(), "can't mix and match register types");
-        as_->mov(
-            static_cast<const asmjit::a64::Gp&>(pair.second),
-            static_cast<const asmjit::a64::Gp&>(pair.first));
+        phx_a64_mov_rr(as_->impl(), pair.second, pair.first);
       } else if (pair.first.isVecD()) {
         JIT_DCHECK(pair.second.isVecD(), "can't mix and match register types");
-        as_->fmov(
-            static_cast<const asmjit::a64::VecD&>(pair.second),
-            static_cast<const asmjit::a64::VecD&>(pair.first));
+        phx_a64_fmov(as_->impl(), pair.second, pair.first);
       }
     }
   }
@@ -116,16 +110,16 @@ void RegisterPreserver::remap() {
 void RegisterPreserver::restore() {
 #if defined(CINDER_X86_64)
   if (align_stack_) {
-    as_->add(asmjit::x86::rsp, 8);
+    phx_x86_add_ri(as_->impl(), PHX_RSP, 8);
   }
   for (auto iter = save_regs_.rbegin(); iter != save_regs_.rend(); ++iter) {
     if (iter->second.isGpq()) {
-      as_->pop((asmjit::x86::Gpq&)iter->second);
+      phx_x86_pop_r(as_->impl(), iter->second);
     } else if (iter->second.isXmm()) {
-      as_->movdqu(
-          (asmjit::x86::Xmm&)iter->second,
-          asmjit::x86::dqword_ptr(asmjit::x86::rsp));
-      as_->add(asmjit::x86::rsp, 16);
+      phx_x86_movdqu_rm(
+          as_->impl(), iter->second,
+          phx_dqword_ptr(PHX_RSP, 0));
+      phx_x86_add_ri(as_->impl(), PHX_RSP, 16);
     } else {
       JIT_ABORT("unsupported saved register type");
     }
@@ -137,18 +131,18 @@ void RegisterPreserver::restore() {
 
     switch (kind) {
       case RegisterGroup::kGpPair:
-        as_->ldp(
-            static_cast<const asmjit::a64::Gp&>(save_regs_[idx].second),
-            static_cast<const asmjit::a64::Gp&>(save_regs_[idx + 1].second),
-            asmjit::a64::ptr_post(
-                asmjit::a64::sp, kConstStackAlignmentRequirement));
+        phx_a64_ldp_post(
+            as_->impl(),
+            save_regs_[idx].second,
+            save_regs_[idx + 1].second,
+            PHX_SP, kConstStackAlignmentRequirement);
         break;
       case RegisterGroup::kVecDPair:
-        as_->ldp(
-            static_cast<const asmjit::a64::VecD&>(save_regs_[idx].second),
-            static_cast<const asmjit::a64::VecD&>(save_regs_[idx + 1].second),
-            asmjit::a64::ptr_post(
-                asmjit::a64::sp, kConstStackAlignmentRequirement));
+        phx_a64_ldp_post(
+            as_->impl(),
+            save_regs_[idx].second,
+            save_regs_[idx + 1].second,
+            PHX_SP, kConstStackAlignmentRequirement);
         break;
       case RegisterGroup::kGp:
         as_->ldr(

@@ -2,6 +2,9 @@
 
 #include "cinderx/Jit/codegen/gen_asm.h"
 
+#include "jit/phoenix_asm/x86_64.h"
+#include "jit/phoenix_asm/arm64.h"
+
 #include "internal/pycore_pystate.h"
 
 #if PY_VERSION_HEX < 0x030C0000
@@ -1414,11 +1417,11 @@ int NativeGenerator::GetCompiledFunctionSpillStackSize() const {
 
 void NativeGenerator::generateFunctionEntry() {
 #if defined(CINDER_X86_64)
-  as_->push(x86::rbp);
-  as_->mov(x86::rbp, x86::rsp);
+  phx_x86_push_r(as_->impl(), x86::rbp);
+  phx_x86_mov_rr(as_->impl(), x86::rbp, x86::rsp);
 #elif defined(CINDER_AARCH64)
-  as_->stp(arch::fp, arch::lr, a64::ptr_pre(a64::sp, -16));
-  as_->mov(arch::fp, a64::sp);
+  phx_a64_stp_pre(as_->impl(), arch::fp, arch::lr, a64::sp, -16);
+  phx_a64_mov_rr(as_->impl(), arch::fp, a64::sp);
 #else
   CINDER_UNSUPPORTED
 #endif
@@ -1426,12 +1429,12 @@ void NativeGenerator::generateFunctionEntry() {
 
 void NativeGenerator::generateFunctionExit() {
 #if defined(CINDER_X86_64)
-  as_->leave();
-  as_->ret();
+  phx_x86_leave(as_->impl());
+  phx_x86_ret(as_->impl());
 #elif defined(CINDER_AARCH64)
-  as_->mov(a64::sp, arch::fp);
-  as_->ldp(arch::fp, arch::lr, a64::ptr_post(a64::sp, 16));
-  as_->ret(arch::lr);
+  phx_a64_mov_rr(as_->impl(), a64::sp, arch::fp);
+  phx_a64_ldp_post(as_->impl(), arch::fp, arch::lr, a64::sp, 16);
+  phx_a64_ret_reg(as_->impl(), arch::lr);
 #else
   CINDER_UNSUPPORTED
 #endif
@@ -1507,7 +1510,7 @@ NativeGenerator::FrameInfo NativeGenerator::computeFrameInfo() {
 int NativeGenerator::allocateHeaderAndSpillSpace(const FrameInfo& frame_info) {
 #if defined(CINDER_X86_64)
   int padding = frame_info.header_and_spill_size % kStackAlign;
-  as_->sub(x86::rsp, frame_info.header_and_spill_size + padding);
+  phx_x86_sub_ri(as_->impl(), x86::rsp, frame_info.header_and_spill_size + padding);
   return padding;
 #elif defined(CINDER_AARCH64)
   int modulo = frame_info.header_and_spill_size % kStackAlign;
@@ -1515,10 +1518,10 @@ int NativeGenerator::allocateHeaderAndSpillSpace(const FrameInfo& frame_info) {
   {
     int alloc_size = frame_info.header_and_spill_size + padding;
     if (arm::Utils::isAddSubImm(static_cast<uint64_t>(alloc_size))) {
-      as_->sub(a64::sp, a64::sp, alloc_size);
+      phx_a64_sub_rri(as_->impl(), a64::sp, a64::sp, alloc_size);
     } else {
-      as_->mov(arch::reg_scratch_0, alloc_size);
-      as_->sub(a64::sp, a64::sp, arch::reg_scratch_0);
+      phx_a64_mov_ri(as_->impl(), arch::reg_scratch_0, alloc_size);
+      phx_a64_sub_rrr(as_->impl(), a64::sp, a64::sp, arch::reg_scratch_0);
     }
   }
 
@@ -1543,12 +1546,12 @@ void NativeGenerator::saveCallerRegisters(
   // Push used callee-saved registers.
   auto saved_regs = frame_info.saved_regs;
   while (!saved_regs.Empty()) {
-    as_->push(x86::gpq(saved_regs.GetFirst().loc));
+    phx_x86_push_r(as_->impl(), x86::gpq(saved_regs.GetFirst().loc));
     saved_regs.RemoveFirst();
   }
 
   if (frame_info.arg_buffer_size > 0) {
-    as_->sub(x86::rsp, frame_info.arg_buffer_size);
+    phx_x86_sub_ri(as_->impl(), x86::rsp, frame_info.arg_buffer_size);
   }
 #elif defined(CINDER_AARCH64)
 #ifdef ENABLE_SHADOW_FRAMES
@@ -1560,10 +1563,10 @@ void NativeGenerator::saveCallerRegisters(
   if (frame_info.arg_buffer_size > 0) {
     JIT_CHECK(frame_info.arg_buffer_size % kStackAlign == 0, "unaligned");
     if (arm::Utils::isAddSubImm(static_cast<uint64_t>(frame_info.arg_buffer_size))) {
-      as_->sub(a64::sp, a64::sp, frame_info.arg_buffer_size);
+      phx_a64_sub_rri(as_->impl(), a64::sp, a64::sp, frame_info.arg_buffer_size);
     } else {
-      as_->mov(arch::reg_scratch_0, frame_info.arg_buffer_size);
-      as_->sub(a64::sp, a64::sp, arch::reg_scratch_0);
+      phx_a64_mov_ri(as_->impl(), arch::reg_scratch_0, frame_info.arg_buffer_size);
+      phx_a64_sub_rrr(as_->impl(), a64::sp, a64::sp, arch::reg_scratch_0);
     }
   }
   // Zero-init the saved-IP slot at FP + saved_ip_fp_offset.
@@ -1573,7 +1576,7 @@ void NativeGenerator::saveCallerRegisters(
   // Writing at saved_ip_fp_offset (a negative FP offset) would clobber the
   // GenDataFooter** pointer in the generator object's localsplus area.
   if (!env_.is_generator) {
-    as_->str(
+    phx_a64_str(as_->impl(),
         a64::xzr,
         arch::ptr_resolve(
             as_, arch::fp, env_.saved_ip_fp_offset, arch::reg_scratch_0));
@@ -1587,14 +1590,14 @@ void NativeGenerator::setupFrameAndSaveCallerRegisters(
     const FrameInfo& frame_info,
     arch::Gp tstate_reg) {
 #if defined(CINDER_X86_64)
-  as_->sub(x86::rsp, frame_info.header_and_spill_size);
+  phx_x86_sub_ri(as_->impl(), x86::rsp, frame_info.header_and_spill_size);
 #elif defined(CINDER_AARCH64)
   JIT_CHECK(frame_info.header_and_spill_size % kStackAlign == 0, "unaligned");
   if (arm::Utils::isAddSubImm(static_cast<uint64_t>(frame_info.header_and_spill_size))) {
-    as_->sub(a64::sp, a64::sp, frame_info.header_and_spill_size);
+    phx_a64_sub_rri(as_->impl(), a64::sp, a64::sp, frame_info.header_and_spill_size);
   } else {
-    as_->mov(arch::reg_scratch_0, frame_info.header_and_spill_size);
-    as_->sub(a64::sp, a64::sp, arch::reg_scratch_0);
+    phx_a64_mov_ri(as_->impl(), arch::reg_scratch_0, frame_info.header_and_spill_size);
+    phx_a64_sub_rrr(as_->impl(), a64::sp, a64::sp, arch::reg_scratch_0);
   }
 #else
   CINDER_UNSUPPORTED
@@ -1652,7 +1655,7 @@ void NativeGenerator::generatePrologue(
   } else {
     generateArgcountCheckPrologue(correct_arg_count, correct_args_entry);
   }
-  as_->bind(correct_arg_count);
+  phx_builder_bind(as_->impl(), correct_arg_count);
 
   Label setup_frame = as_->newLabel();
 
@@ -1662,7 +1665,7 @@ void NativeGenerator::generatePrologue(
       // fixed offsets.  Validate that the arguments are correctly typed.
       generateStaticMethodTypeChecks(setup_frame);
     } else if (func_->has_primitive_first_arg) {
-      as_->mov(x86::rdx, 0);
+      phx_x86_mov_ri(as_->impl(), x86::rdx, (int64_t)0);
     }
   }
 
@@ -1679,7 +1682,7 @@ void NativeGenerator::generatePrologue(
   constexpr auto kArgsPastSixReg = kArgsReg;
 
   asmjit::BaseNode* frame_cursor = as_->cursor();
-  as_->bind(setup_frame);
+  phx_builder_bind(as_->impl(), setup_frame);
   std::vector<std::pair<const arch::Reg&, const arch::Reg&>> save_regs;
 
   save_regs.emplace_back(x86::rsi, kArgsReg);
@@ -1709,15 +1712,15 @@ void NativeGenerator::generatePrologue(
       continue;
     }
     if (arg.is_gp_register()) {
-      as_->mov(x86::gpq(arg.loc), x86::ptr(kArgsReg, i * sizeof(void*)));
+      phx_x86_mov_rm(as_->impl(), x86::gpq(arg.loc), x86::ptr(kArgsReg, i * sizeof(void*)));
     } else {
-      as_->movsd(x86::xmm(arg.loc), x86::ptr(kArgsReg, i * sizeof(void*)));
+      phx_x86_movsd_rm(as_->impl(), x86::xmm(arg.loc), x86::ptr(kArgsReg, i * sizeof(void*)));
     }
   }
   if (has_extra_args) {
     // Load the location of the remaining args, the backend will deal with
     // loading them from here...
-    as_->lea(
+    phx_x86_lea(as_->impl(),
         kArgsPastSixReg,
         x86::ptr(kArgsReg, (ARGUMENT_REGS.size() - 1) * sizeof(void*)));
   }
@@ -1726,12 +1729,12 @@ void NativeGenerator::generatePrologue(
   // We already allocated stack space for the header and spill data, clean
   // up any alignment padding we added
   if (padding) {
-    as_->add(x86::rsp, padding);
+    phx_x86_add_ri(as_->impl(), x86::rsp, padding);
   }
 
   // Finally allocate the saved space required for the actual function.
   auto finish_frame_setup_cursor = as_->cursor();
-  as_->bind(finish_frame_setup);
+  phx_builder_bind(as_->impl(), finish_frame_setup);
   saveCallerRegisters(frame_info, x86::r11);
 
   env_.addAnnotation("Finish frame setup", finish_frame_setup_cursor);
@@ -1747,7 +1750,7 @@ void NativeGenerator::generatePrologue(
   } else {
     generateArgcountCheckPrologue(correct_arg_count, correct_args_entry);
   }
-  as_->bind(correct_arg_count);
+  phx_builder_bind(as_->impl(), correct_arg_count);
 
   Label setup_frame = as_->newLabel();
 
@@ -1757,7 +1760,7 @@ void NativeGenerator::generatePrologue(
       // fixed offsets.  Validate that the arguments are correctly typed.
       generateStaticMethodTypeChecks(setup_frame);
     } else if (func_->has_primitive_first_arg) {
-      as_->mov(a64::x2, 0);
+      phx_a64_mov_ri(as_->impl(), a64::x2, 0);
     }
   }
 
@@ -1774,7 +1777,7 @@ void NativeGenerator::generatePrologue(
   constexpr auto kArgsPastEightReg = kArgsReg;
 
   asmjit::BaseNode* frame_cursor = as_->cursor();
-  as_->bind(setup_frame);
+  phx_builder_bind(as_->impl(), setup_frame);
   std::vector<std::pair<const arch::Reg&, const arch::Reg&>> save_regs;
 
   save_regs.emplace_back(a64::x1, kArgsReg);
@@ -1805,12 +1808,12 @@ void NativeGenerator::generatePrologue(
       continue;
     }
     if (arg.is_gp_register()) {
-      as_->ldr(
+      phx_a64_ldr(as_->impl(),
           a64::x(arg.loc),
           arch::ptr_resolve(
               as_, kArgsReg, i * sizeof(void*), arch::reg_scratch_0));
     } else {
-      as_->ldr(
+      phx_a64_ldr(as_->impl(),
           a64::d(arg.loc),
           arch::ptr_resolve(
               as_, kArgsReg, i * sizeof(void*), arch::reg_scratch_0));
@@ -1823,7 +1826,7 @@ void NativeGenerator::generatePrologue(
     // On aarch64, all args are in the args array starting at kArgsReg+0,
     // so we must NOT adjust kArgsReg. The LIR body computes offsets from
     // kArgsReg directly: arg[i] = [kArgsReg + i*8].
-    as_->add(
+    phx_a64_add_rri(as_->impl(),
         kArgsPastEightReg,
         kArgsReg,
         (ARGUMENT_REGS.size() - 1) * sizeof(void*));
@@ -1833,7 +1836,7 @@ void NativeGenerator::generatePrologue(
 
   // Finally allocate the saved space required for the actual function.
   auto finish_frame_setup_cursor = as_->cursor();
-  as_->bind(finish_frame_setup);
+  phx_builder_bind(as_->impl(), finish_frame_setup);
   saveCallerRegisters(frame_info, a64::x11);
 
   env_.addAnnotation("Finish frame setup", finish_frame_setup_cursor);
@@ -1889,12 +1892,12 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
   // ..., setup_frame] which will have |checks| + 1 elements, and the
   // first_check label will precede the first check.
   auto table_label = as_->newLabel();
-  as_->lea(x86::r8, x86::ptr(table_label));
-  as_->lea(x86::r8, x86::ptr(x86::r8, x86::rcx, 3));
-  as_->jmp(x86::r8);
+  phx_x86_lea(as_->impl(), x86::r8, x86::ptr(table_label));
+  phx_x86_lea(as_->impl(), x86::r8, x86::ptr(x86::r8, x86::rcx, 3));
+  phx_x86_jmp_r(as_->impl(), x86::r8);
   auto jump_table_cursor = as_->cursor();
   as_->align(AlignMode::kCode, 8);
-  as_->bind(table_label);
+  phx_builder_bind(as_->impl(), table_label);
   std::vector<Label> arg_labels;
   int defaulted_arg_count = 0;
   Py_ssize_t check_index = checks.size() - 1;
@@ -1904,7 +1907,7 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
   arg_labels.emplace_back(next_arg);
   while (defaulted_arg_count < GetFunction()->numArgs()) {
     as_->align(AlignMode::kCode, 8);
-    as_->jmp(next_arg);
+    phx_x86_jmp_label(as_->impl(), next_arg);
 
     if (check_index >= 0) {
       long local = checks.at(check_index).locals_idx;
@@ -1925,25 +1928,25 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
       fmt::format("Jump to first non-defaulted argument"), jump_table_cursor);
 
   as_->align(AlignMode::kCode, 8);
-  as_->bind(arg_labels[0]);
+  phx_builder_bind(as_->impl(), arg_labels[0]);
   for (Py_ssize_t i = checks.size() - 1; i >= 0; i--) {
     auto check_cursor = as_->cursor();
     const TypedArgument& arg = checks.at(i);
     env_.code_rt->addReference(BorrowedRef(arg.pytype));
     next_arg = arg_labels[checks.size() - i];
 
-    as_->mov(x86::r8, x86::ptr(x86::rsi, arg.locals_idx * 8)); // load local
-    as_->mov(
+    phx_x86_mov_rm(as_->impl(), x86::r8, x86::ptr(x86::rsi, arg.locals_idx * 8)); // load local
+    phx_x86_mov_rm(as_->impl(),
         x86::r8, x86::ptr(x86::r8, offsetof(PyObject, ob_type))); // load type
     if (arg.optional) {
       // check if the value is None
       emitCompare(as_, x86::r8, Py_TYPE(Py_None), x86::rax);
-      as_->je(next_arg);
+      phx_x86_je(as_->impl(), next_arg);
     }
 
     // common case: check if we have the exact right type
     emitCompare(as_, x86::r8, arg.pytype, x86::rax);
-    as_->je(next_arg);
+    phx_x86_je(as_->impl(), next_arg);
 
     if (!arg.exact && (arg.threadSafeTpFlags() & Py_TPFLAGS_BASETYPE)) {
       // We need to check the object's MRO and see if the declared type
@@ -1951,30 +1954,30 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
       // entry that will be object but the code gen is a little bit simpler
       // if we include it.
       Label arg_loop = as_->newLabel();
-      as_->mov(x86::r10, reinterpret_cast<uint64_t>(arg.pytype.get()));
+      phx_x86_mov_ri(as_->impl(), x86::r10, (int64_t)reinterpret_cast<uint64_t>(arg.pytype.get()));
 
       // PyObject *r8 = r8->tp_mro;
-      as_->mov(x86::r8, x86::ptr(x86::r8, offsetof(PyTypeObject, tp_mro)));
+      phx_x86_mov_rm(as_->impl(), x86::r8, x86::ptr(x86::r8, offsetof(PyTypeObject, tp_mro)));
       // Py_ssize_t r11 = r8->ob_size;
-      as_->mov(x86::r11, x86::ptr(x86::r8, offsetof(PyVarObject, ob_size)));
+      phx_x86_mov_rm(as_->impl(), x86::r11, x86::ptr(x86::r8, offsetof(PyVarObject, ob_size)));
       // PyObject *r8 = &r8->ob_item[0];
-      as_->add(x86::r8, offsetof(PyTupleObject, ob_item));
+      phx_x86_add_ri(as_->impl(), x86::r8, offsetof(PyTupleObject, ob_item));
       // PyObject *r11 = &r8->ob_item[r11];
-      as_->lea(x86::r11, x86::ptr(x86::r8, x86::r11, 3));
+      phx_x86_lea(as_->impl(), x86::r11, x86::ptr(x86::r8, x86::r11, 3));
 
-      as_->bind(arg_loop);
-      as_->cmp(x86::ptr(x86::r8), x86::r10);
-      as_->je(next_arg);
-      as_->add(x86::r8, sizeof(PyObject*));
-      as_->cmp(x86::r8, x86::r11);
-      as_->jne(arg_loop);
+      phx_builder_bind(as_->impl(), arg_loop);
+      phx_x86_cmp_mr(as_->impl(), x86::ptr(x86::r8), x86::r10);
+      phx_x86_je(as_->impl(), next_arg);
+      phx_x86_add_ri(as_->impl(), x86::r8, sizeof(PyObject*));
+      phx_x86_cmp_rr(as_->impl(), x86::r8, x86::r11);
+      phx_x86_jne(as_->impl(), arg_loop);
     }
 
     // no args match, bail to normal vector call to report error
-    as_->jmp(env_.static_arg_typecheck_failed_label);
+    phx_x86_jmp_label(as_->impl(), env_.static_arg_typecheck_failed_label);
     bool last_check = i == 0;
     if (!last_check) {
-      as_->bind(next_arg);
+      phx_builder_bind(as_->impl(), next_arg);
     }
     env_.addAnnotation(
         fmt::format("StaticTypeCheck[{}]", arg.pytype->tp_name), check_cursor);
@@ -1984,12 +1987,12 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
   // ..., setup_frame] which will have |checks| + 1 elements, and the
   // first_check label will precede the first check.
   auto table_label = as_->newLabel();
-  as_->adr(a64::x8, table_label);
-  as_->add(a64::x8, a64::x8, a64::x3, a64::lsl(2));
-  as_->br(a64::x8);
+  phx_a64_adr(as_->impl(), a64::x8, table_label);
+  phx_a64_add_rrr_shifted(as_->impl(), a64::x8, a64::x8, a64::x3, 0/*LSL*/, 2);
+  phx_a64_br(as_->impl(), a64::x8);
   auto jump_table_cursor = as_->cursor();
   as_->align(AlignMode::kCode, 8);
-  as_->bind(table_label);
+  phx_builder_bind(as_->impl(), table_label);
   std::vector<Label> arg_labels;
   int defaulted_arg_count = 0;
   Py_ssize_t check_index = checks.size() - 1;
@@ -1998,7 +2001,7 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
   auto next_arg = as_->newLabel();
   arg_labels.emplace_back(next_arg);
   while (defaulted_arg_count < GetFunction()->numArgs()) {
-    as_->b(next_arg);
+    phx_a64_b(as_->impl(), next_arg);
 
     if (check_index >= 0) {
       long local = checks.at(check_index).locals_idx;
@@ -2019,21 +2022,21 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
       fmt::format("Jump to first non-defaulted argument"), jump_table_cursor);
 
   as_->align(AlignMode::kCode, 8);
-  as_->bind(arg_labels[0]);
+  phx_builder_bind(as_->impl(), arg_labels[0]);
   for (Py_ssize_t i = checks.size() - 1; i >= 0; i--) {
     auto check_cursor = as_->cursor();
     const TypedArgument& arg = checks.at(i);
     env_.code_rt->addReference(BorrowedRef(arg.pytype));
     next_arg = arg_labels[checks.size() - i];
 
-    as_->ldr(
+    phx_a64_ldr(as_->impl(),
         a64::x8,
         arch::ptr_resolve(
             as_,
             a64::x1,
             arg.locals_idx * 8,
             arch::reg_scratch_0)); // load local
-    as_->ldr(
+    phx_a64_ldr(as_->impl(),
         a64::x8,
         arch::ptr_resolve(
             as_,
@@ -2043,12 +2046,12 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
     if (arg.optional) {
       // check if the value is None
       emitCompare(as_, a64::x8, Py_TYPE(Py_None), arch::reg_scratch_0);
-      as_->b_eq(next_arg);
+      phx_a64_b_eq(as_->impl(), next_arg);
     }
 
     // common case: check if we have the exact right type
     emitCompare(as_, a64::x8, arg.pytype, arch::reg_scratch_0);
-    as_->b_eq(next_arg);
+    phx_a64_b_eq(as_->impl(), next_arg);
 
     if (!arg.exact && (arg.threadSafeTpFlags() & Py_TPFLAGS_BASETYPE)) {
       // We need to check the object's MRO and see if the declared type
@@ -2056,10 +2059,10 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
       // entry that will be object but the code gen is a little bit simpler
       // if we include it.
       Label arg_loop = as_->newLabel();
-      as_->mov(a64::x10, reinterpret_cast<uint64_t>(arg.pytype.get()));
+      phx_a64_mov_ri(as_->impl(), a64::x10, reinterpret_cast<uint64_t>(arg.pytype.get()));
 
       // PyObject *r8 = r8->tp_mro;
-      as_->ldr(
+      phx_a64_ldr(as_->impl(),
           a64::x8,
           arch::ptr_resolve(
               as_,
@@ -2067,7 +2070,7 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
               offsetof(PyTypeObject, tp_mro),
               arch::reg_scratch_0));
       // Py_ssize_t r11 = r8->ob_size;
-      as_->ldr(
+      phx_a64_ldr(as_->impl(),
           a64::x11,
           arch::ptr_resolve(
               as_,
@@ -2075,24 +2078,24 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
               offsetof(PyVarObject, ob_size),
               arch::reg_scratch_0));
       // PyObject *r8 = &r8->ob_item[0];
-      as_->add(a64::x8, a64::x8, offsetof(PyTupleObject, ob_item));
+      phx_a64_add_rri(as_->impl(), a64::x8, a64::x8, offsetof(PyTupleObject, ob_item));
       // PyObject *r11 = &r8->ob_item[r11];
-      as_->add(a64::x11, a64::x8, a64::x11, a64::lsl(3));
+      phx_a64_add_rrr_shifted(as_->impl(), a64::x11, a64::x8, a64::x11, 0/*LSL*/, 3);
 
-      as_->bind(arg_loop);
-      as_->ldr(arch::reg_scratch_0, a64::ptr(a64::x8));
-      as_->cmp(arch::reg_scratch_0, a64::x10);
-      as_->b_eq(next_arg);
-      as_->add(a64::x8, a64::x8, sizeof(PyObject*));
-      as_->cmp(a64::x8, a64::x11);
-      as_->b_ne(arg_loop);
+      phx_builder_bind(as_->impl(), arg_loop);
+      phx_a64_ldr(as_->impl(), arch::reg_scratch_0, a64::ptr(a64::x8));
+      phx_a64_cmp_rr(as_->impl(), arch::reg_scratch_0, a64::x10);
+      phx_a64_b_eq(as_->impl(), next_arg);
+      phx_a64_add_rri(as_->impl(), a64::x8, a64::x8, sizeof(PyObject*));
+      phx_a64_cmp_rr(as_->impl(), a64::x8, a64::x11);
+      phx_a64_b_ne(as_->impl(), arg_loop);
     }
 
     // no args match, bail to normal vector call to report error
-    as_->b(env_.static_arg_typecheck_failed_label);
+    phx_a64_b(as_->impl(), env_.static_arg_typecheck_failed_label);
     bool last_check = i == 0;
     if (!last_check) {
-      as_->bind(next_arg);
+      phx_builder_bind(as_->impl(), next_arg);
     }
     env_.addAnnotation(
         fmt::format("StaticTypeCheck[{}]", arg.pytype->tp_name), check_cursor);
@@ -2106,7 +2109,7 @@ void NativeGenerator::generateEpilogue(BaseNode* epilogue_cursor) {
   as_->setCursor(epilogue_cursor);
 
   // now we can use all the caller save registers except for RAX
-  as_->bind(env_.exit_label);
+  phx_builder_bind(as_->impl(), env_.exit_label);
 
 #if defined(CINDER_X86_64)
   bool is_gen = GetFunction()->code->co_flags & kCoFlagsAnyGenerator;
@@ -2115,15 +2118,15 @@ void NativeGenerator::generateEpilogue(BaseNode* epilogue_cursor) {
     // Set generator state to "completed". We access the state via RBP which
     // points to the of spill data and bottom of GenDataFooter.
     auto state_offs = offsetof(GenDataFooter, state);
-    as_->mov(
+    phx_x86_mov_mi(as_->impl(),
         x86::ptr(x86::rbp, state_offs, sizeof(GenDataFooter::state)),
         Ci_JITGenState_Completed);
 #else
     // ((GenDataFooter*)rbp)->gen->gi_frame_state = FRAME_COMPLETED
     // RDX is an arbitrary scratch register - any caller saved reg is fine.
     auto gen_offs = offsetof(GenDataFooter, gen);
-    as_->mov(x86::rdx, x86::ptr(x86::rbp, gen_offs));
-    as_->mov(
+    phx_x86_mov_rm(as_->impl(), x86::rdx, x86::ptr(x86::rbp, gen_offs));
+    phx_x86_mov_mi(as_->impl(),
         x86::ptr(
             x86::rdx,
             offsetof(PyGenObject, gi_frame_state),
@@ -2134,7 +2137,7 @@ void NativeGenerator::generateEpilogue(BaseNode* epilogue_cursor) {
         FRAME_COMPLETED);
 #endif
 #endif
-    as_->bind(env_.exit_for_yield_label);
+    phx_builder_bind(as_->impl(), env_.exit_for_yield_label);
     RestoreOriginalGeneratorFramePointer(as_);
   }
 
@@ -2162,14 +2165,14 @@ void NativeGenerator::generateEpilogue(BaseNode* epilogue_cursor) {
       // Loads an *integer* 1 in XMM1.. value doesn't matter,
       // but it needs to be non-zero. See pg 124,
       // https://www.agner.org/optimize/optimizing_assembly.pdf
-      as_->pcmpeqw(x86::xmm1, x86::xmm1);
-      as_->psrlq(x86::xmm1, 63);
+      phx_x86_pcmpeqw_rr(as_->impl(), x86::xmm1, x86::xmm1);
+      phx_x86_psrlq_ri(as_->impl(), x86::xmm1, 63);
     } else {
-      as_->mov(x86::edx, 1);
+      phx_x86_mov_ri(as_->impl(), x86::edx, (int64_t)1);
     }
   }
 
-  as_->bind(env_.hard_exit_label);
+  phx_builder_bind(as_->impl(), env_.hard_exit_label);
   asmjit::BaseNode* epilogue_error_cursor = as_->cursor();
 
   auto saved_regs = env_.changed_regs & CALLEE_SAVE_REGS;
@@ -2178,10 +2181,10 @@ void NativeGenerator::generateEpilogue(BaseNode* epilogue_cursor) {
     JIT_CHECK(
         env_.last_callee_saved_reg_off != -1,
         "offset to callee saved regs not initialized");
-    as_->lea(x86::rsp, x86::ptr(x86::rbp, -env_.last_callee_saved_reg_off));
+    phx_x86_lea(as_->impl(), x86::rsp, x86::ptr(x86::rbp, -env_.last_callee_saved_reg_off));
 
     while (!saved_regs.Empty()) {
-      as_->pop(x86::gpq(saved_regs.GetLast().loc));
+      phx_x86_pop_r(as_->impl(), x86::gpq(saved_regs.GetLast().loc));
       saved_regs.RemoveLast();
     }
   }
@@ -2196,9 +2199,10 @@ void NativeGenerator::generateEpilogue(BaseNode* epilogue_cursor) {
     auto jit_helpers = as_->cursor();
     for (auto& x : env_.function_indirections) {
       Label trampoline = as_->newLabel();
-      as_->bind(trampoline);
-      as_->mov(x86::r10, reinterpret_cast<uint64_t>(x.first));
-      as_->jmp(reinterpret_cast<uint64_t>(failed_deferred_compile_trampoline_));
+      phx_builder_bind(as_->impl(), trampoline);
+      phx_x86_mov_ri(as_->impl(), x86::r10, (int64_t)reinterpret_cast<uint64_t>(x.first));
+      phx_x86_mov_ri(as_->impl(), PHX_R11, (int64_t)reinterpret_cast<uint64_t>(failed_deferred_compile_trampoline_));
+      phx_x86_jmp_r(as_->impl(), PHX_R11);
       x.second.trampoline = trampoline;
     }
     env_.addAnnotation("JitHelpers", jit_helpers);
@@ -2212,10 +2216,10 @@ void NativeGenerator::generateEpilogue(BaseNode* epilogue_cursor) {
     // ((GenDataFooter*) fp)->gen->gi_frame_state = FRAME_COMPLETED
     // X2 is an arbitrary scratch register - any caller saved reg is fine.
     auto gen_offs = offsetof(GenDataFooter, gen);
-    as_->ldr(
+    phx_a64_ldr(as_->impl(),
         a64::x2,
         arch::ptr_resolve(as_, arch::fp, gen_offs, arch::reg_scratch_0));
-    as_->mov(
+    phx_a64_mov_ri(as_->impl(),
         arch::reg_scratch_0,
 #if PY_VERSION_HEX >= 0x030F0000
         FRAME_CLEARED
@@ -2225,7 +2229,7 @@ void NativeGenerator::generateEpilogue(BaseNode* epilogue_cursor) {
     );
 
     static_assert(sizeof(PyGenObject::gi_frame_state) == 1);
-    as_->strb(
+    phx_a64_strb(as_->impl(),
         arch::reg_scratch_0.w(),
         arch::ptr_resolve(
             as_,
@@ -2234,7 +2238,7 @@ void NativeGenerator::generateEpilogue(BaseNode* epilogue_cursor) {
             arch::reg_scratch_1,
             arch::AccessSize::k8));
 #endif
-    as_->bind(env_.exit_for_yield_label);
+    phx_builder_bind(as_->impl(), env_.exit_for_yield_label);
     RestoreOriginalGeneratorFramePointer(as_);
   }
 
@@ -2257,13 +2261,13 @@ void NativeGenerator::generateEpilogue(BaseNode* epilogue_cursor) {
     if (func_->returnsPrimitiveDouble()) {
       // Loads an *integer* 1 in D0.. value doesn't matter,
       // but it needs to be non-zero.
-      as_->fmov(a64::d1, 1.0);
+      as_->fmov(a64::d1, 1.0); // float immediate -- no C API, keep wrapper
     } else {
-      as_->mov(a64::w1, 1);
+      phx_a64_mov_ri(as_->impl(), a64::w1, 1);
     }
   }
 
-  as_->bind(env_.hard_exit_label);
+  phx_builder_bind(as_->impl(), env_.hard_exit_label);
   asmjit::BaseNode* epilogue_error_cursor = as_->cursor();
 
   auto saved_regs = env_.changed_regs & CALLEE_SAVE_REGS;
@@ -2278,17 +2282,17 @@ void NativeGenerator::generateEpilogue(BaseNode* epilogue_cursor) {
 
     if (env_.last_callee_saved_reg_off >= 0) {
       if (arm::Utils::isAddSubImm(static_cast<uint64_t>(env_.last_callee_saved_reg_off))) {
-        as_->sub(a64::sp, arch::fp, env_.last_callee_saved_reg_off);
+        phx_a64_sub_rri(as_->impl(), a64::sp, arch::fp, env_.last_callee_saved_reg_off);
       } else {
-        as_->mov(arch::reg_scratch_0, env_.last_callee_saved_reg_off);
-        as_->sub(a64::sp, arch::fp, arch::reg_scratch_0);
+        phx_a64_mov_ri(as_->impl(), arch::reg_scratch_0, env_.last_callee_saved_reg_off);
+        phx_a64_sub_rrr(as_->impl(), a64::sp, arch::fp, arch::reg_scratch_0);
       }
     } else {
       if (arm::Utils::isAddSubImm(static_cast<uint64_t>(-env_.last_callee_saved_reg_off))) {
-        as_->add(a64::sp, arch::fp, -env_.last_callee_saved_reg_off);
+        phx_a64_add_rri(as_->impl(), a64::sp, arch::fp, -env_.last_callee_saved_reg_off);
       } else {
-        as_->mov(arch::reg_scratch_0, -env_.last_callee_saved_reg_off);
-        as_->add(a64::sp, arch::fp, arch::reg_scratch_0);
+        phx_a64_mov_ri(as_->impl(), arch::reg_scratch_0, -env_.last_callee_saved_reg_off);
+        phx_a64_add_rrr(as_->impl(), a64::sp, arch::fp, arch::reg_scratch_0);
       }
     }
 
@@ -2305,10 +2309,10 @@ void NativeGenerator::generateEpilogue(BaseNode* epilogue_cursor) {
     auto jit_helpers = as_->cursor();
     for (auto& x : env_.function_indirections) {
       Label trampoline = as_->newLabel();
-      as_->bind(trampoline);
-      as_->mov(a64::x10, reinterpret_cast<uint64_t>(x.first));
-      as_->mov(arch::reg_scratch_br, failed_deferred_compile_trampoline_);
-      as_->blr(arch::reg_scratch_br);
+      phx_builder_bind(as_->impl(), trampoline);
+      phx_a64_mov_ri(as_->impl(), a64::x10, reinterpret_cast<uint64_t>(x.first));
+      phx_a64_mov_ri(as_->impl(), arch::reg_scratch_br, (uint64_t)(uintptr_t)failed_deferred_compile_trampoline_);
+      phx_a64_blr(as_->impl(), arch::reg_scratch_br);
       x.second.trampoline = trampoline;
     }
     env_.addAnnotation("JitHelpers", jit_helpers);
@@ -2338,8 +2342,8 @@ void NativeGenerator::generateDeoptExits(const asmjit::CodeHolder& code) {
   // Generate stage 1 trampolines (one per guard). These push the index of the
   // appropriate `DeoptMetadata` and then jump to the stage 2 trampoline.
   for (const auto& exit : deopt_exits) {
-    as_->bind(exit.label);
-    as_->push(exit.deopt_meta_index);
+    phx_builder_bind(as_->impl(), exit.label);
+    phx_x86_push_i(as_->impl(), exit.deopt_meta_index);
     emitCall(env_, deopt_exit, exit.instr);
   }
   // Generate the stage 2 trampoline (one per function). This saves the address
@@ -2374,35 +2378,35 @@ void NativeGenerator::generateDeoptExits(const asmjit::CodeHolder& code) {
   // after it, forming a contiguous array of all registers.
   //
   // If you change this make sure you update that code!
-  as_->bind(deopt_exit);
+  phx_builder_bind(as_->impl(), deopt_exit);
 
   // Two slots for padding.  One of them will get the deopt metadata index
   // shuffled in, making space to save RBP before calling prepareForDeopt.
-  as_->push(deopt_scratch_reg);
-  as_->push(deopt_scratch_reg);
+  phx_x86_push_r(as_->impl(), deopt_scratch_reg);
+  phx_x86_push_r(as_->impl(), deopt_scratch_reg);
 
   // Save space for the CodeRuntime.
-  as_->push(deopt_scratch_reg);
+  phx_x86_push_r(as_->impl(), deopt_scratch_reg);
 
   // Save space for the epilogue.
-  as_->push(deopt_scratch_reg);
+  phx_x86_push_r(as_->impl(), deopt_scratch_reg);
 
   // Save our scratch register.
-  as_->push(deopt_scratch_reg);
+  phx_x86_push_r(as_->impl(), deopt_scratch_reg);
 
   // Save the address of the CodeRuntime.
-  as_->mov(deopt_scratch_reg, reinterpret_cast<uintptr_t>(env_.code_rt));
-  as_->mov(x86::ptr(x86::rsp, kPointerSize * 2), deopt_scratch_reg);
+  phx_x86_mov_ri(as_->impl(), deopt_scratch_reg, (int64_t)reinterpret_cast<uintptr_t>(env_.code_rt));
+  phx_x86_mov_mr(as_->impl(), x86::ptr(x86::rsp, kPointerSize * 2), deopt_scratch_reg);
 
   // Save the address of the epilogue.
-  as_->lea(deopt_scratch_reg, x86::ptr(env_.hard_exit_label));
-  as_->mov(x86::ptr(x86::rsp, kPointerSize), deopt_scratch_reg);
+  phx_x86_lea(as_->impl(), deopt_scratch_reg, x86::ptr(env_.hard_exit_label));
+  phx_x86_mov_mr(as_->impl(), x86::ptr(x86::rsp, kPointerSize), deopt_scratch_reg);
 
   auto trampoline = GetFunction()->code->co_flags & kCoFlagsAnyGenerator
       ? deopt_trampoline_generators_
       : deopt_trampoline_;
-  as_->mov(deopt_scratch_reg, reinterpret_cast<uint64_t>(trampoline));
-  as_->jmp(deopt_scratch_reg);
+  phx_x86_mov_ri(as_->impl(), deopt_scratch_reg, (int64_t)reinterpret_cast<uint64_t>(trampoline));
+  phx_x86_jmp_r(as_->impl(), deopt_scratch_reg);
 
   env_.addAnnotation("Deoptimization exits", deopt_cursor);
 #elif defined(CINDER_AARCH64)
@@ -2426,13 +2430,13 @@ void NativeGenerator::generateDeoptExits(const asmjit::CodeHolder& code) {
     // aarch64, we manually add a label and use adr to determine its offset.
     auto after = as_->newLabel();
 
-    as_->bind(exit.label);
-    as_->mov(arch::reg_scratch_0, exit.deopt_meta_index);
-    as_->adr(arch::reg_scratch_1, after);
-    as_->stp(
-        arch::reg_scratch_1, arch::reg_scratch_0, a64::ptr_pre(a64::sp, -16));
+    phx_builder_bind(as_->impl(), exit.label);
+    phx_a64_mov_ri(as_->impl(), arch::reg_scratch_0, exit.deopt_meta_index);
+    phx_a64_adr(as_->impl(), arch::reg_scratch_1, after);
+    phx_a64_stp_pre(as_->impl(),
+        arch::reg_scratch_1, arch::reg_scratch_0, a64::sp, -16);
     emitCall(env_, deopt_exit, exit.instr);
-    as_->bind(after);
+    phx_builder_bind(as_->impl(), after);
   }
   // Generate the stage 2 trampoline (one per function). This saves the address
   // of the final part of the JIT-epilogue that is responsible for restoring
@@ -2467,31 +2471,31 @@ void NativeGenerator::generateDeoptExits(const asmjit::CodeHolder& code) {
   // after it, forming a contiguous array of all registers.
   //
   // If you change this make sure you update that code!
-  as_->bind(deopt_exit);
+  phx_builder_bind(as_->impl(), deopt_exit);
 
   // Two slots for padding, then the address of the CodeRuntime and the address
   // of the epilogue, then the first of the registers to get stored (fp and
   // x28). One of the slots of padding will get the deopt metadata index
   // shuffled in, making space to save fp before calling prepareForDeopt.
-  as_->stp(deopt_scratch_reg, arch::fp, a64::ptr_pre(a64::sp, -0x30));
+  phx_a64_stp_pre(as_->impl(), deopt_scratch_reg, arch::fp, a64::sp, -0x30);
 
   // Save the address of the CodeRuntime.
-  as_->mov(deopt_scratch_reg, reinterpret_cast<uintptr_t>(env_.code_rt));
-  as_->str(
+  phx_a64_mov_ri(as_->impl(), deopt_scratch_reg, reinterpret_cast<uintptr_t>(env_.code_rt));
+  phx_a64_str(as_->impl(),
       deopt_scratch_reg,
       arch::ptr_resolve(as_, a64::sp, kPointerSize * 3, arch::reg_scratch_0));
 
   // Save the address of the epilogue.
-  as_->adr(deopt_scratch_reg, env_.hard_exit_label);
-  as_->str(
+  phx_a64_adr(as_->impl(), deopt_scratch_reg, env_.hard_exit_label);
+  phx_a64_str(as_->impl(),
       deopt_scratch_reg,
       arch::ptr_resolve(as_, a64::sp, kPointerSize * 2, arch::reg_scratch_0));
 
   auto trampoline = GetFunction()->code->co_flags & kCoFlagsAnyGenerator
       ? deopt_trampoline_generators_
       : deopt_trampoline_;
-  as_->mov(deopt_scratch_reg, trampoline);
-  as_->br(deopt_scratch_reg);
+  phx_a64_mov_ri(as_->impl(), deopt_scratch_reg, (uint64_t)(uintptr_t)trampoline);
+  phx_a64_br(as_->impl(), deopt_scratch_reg);
 
   env_.addAnnotation("Deoptimization exits", deopt_cursor);
 #else
@@ -2553,7 +2557,7 @@ void NativeGenerator::generateResumeEntry(const FrameInfo& frame_info) {
   // arg #4 - rcx = tstate
   // Arg regs must not be modified as they may be used by the next resume stage.
   auto cursor = as_->cursor();
-  as_->bind(env_.gen_resume_entry_label);
+  phx_builder_bind(as_->impl(), env_.gen_resume_entry_label);
 
   generateFunctionEntry();
   setupFrameAndSaveCallerRegisters(frame_info, x86::rcx);
@@ -2564,33 +2568,33 @@ void NativeGenerator::generateResumeEntry(const FrameInfo& frame_info) {
   const auto jit_data_r = x86::r9;
 
   // jit_data_r = gen->gi_jit_data
-  as_->mov(jit_data_r, x86::ptr(x86::rdi, giJITDataOffset()));
+  phx_x86_mov_rm(as_->impl(), jit_data_r, x86::ptr(x86::rdi, giJITDataOffset()));
 
   // Store linked frame address
   size_t link_address_offset = offsetof(GenDataFooter, linkAddress);
-  as_->mov(scratch_r, x86::ptr(x86::rbp));
-  as_->mov(x86::ptr(jit_data_r, link_address_offset), scratch_r);
+  phx_x86_mov_rm(as_->impl(), scratch_r, x86::ptr(x86::rbp));
+  phx_x86_mov_mr(as_->impl(), x86::ptr(jit_data_r, link_address_offset), scratch_r);
 
   // Store return address
   size_t return_address_offset = offsetof(GenDataFooter, returnAddress);
-  as_->mov(scratch_r, x86::ptr(x86::rbp, 8));
-  as_->mov(x86::ptr(jit_data_r, return_address_offset), scratch_r);
+  phx_x86_mov_rm(as_->impl(), scratch_r, x86::ptr(x86::rbp, 8));
+  phx_x86_mov_mr(as_->impl(), x86::ptr(jit_data_r, return_address_offset), scratch_r);
 
   // Store "original" RBP
   size_t original_frame_pointer_offset =
       offsetof(GenDataFooter, originalFramePointer);
-  as_->mov(x86::ptr(jit_data_r, original_frame_pointer_offset), x86::rbp);
+  phx_x86_mov_mr(as_->impl(), x86::ptr(jit_data_r, original_frame_pointer_offset), x86::rbp);
 
   // RBP = gen->gi_jit_data
-  as_->mov(x86::rbp, jit_data_r);
+  phx_x86_mov_rr(as_->impl(), x86::rbp, jit_data_r);
 
   // Resume generator execution: load and clear yieldPoint, then jump to the
   // resume target.
   size_t yield_point_offset = offsetof(GenDataFooter, yieldPoint);
-  as_->mov(scratch_r, x86::ptr(x86::rbp, yield_point_offset));
-  as_->mov(x86::qword_ptr(x86::rbp, yield_point_offset), 0);
+  phx_x86_mov_rm(as_->impl(), scratch_r, x86::ptr(x86::rbp, yield_point_offset));
+  phx_x86_mov_mi(as_->impl(), x86::qword_ptr(x86::rbp, yield_point_offset), 0);
   size_t resume_target_offset = GenYieldPoint::resumeTargetOffset();
-  as_->jmp(x86::ptr(scratch_r, resume_target_offset));
+  phx_x86_jmp_m(as_->impl(), x86::ptr(scratch_r, resume_target_offset));
 
   env_.addAnnotation("Resume entry point", cursor);
 #elif defined(CINDER_AARCH64)
@@ -2605,7 +2609,7 @@ void NativeGenerator::generateResumeEntry(const FrameInfo& frame_info) {
   // arg #4 - x3 = tstate
   // Arg regs must not be modified as they may be used by the next resume stage.
   auto cursor = as_->cursor();
-  as_->bind(env_.gen_resume_entry_label);
+  phx_builder_bind(as_->impl(), env_.gen_resume_entry_label);
 
   generateFunctionEntry();
   setupFrameAndSaveCallerRegisters(frame_info, a64::x3);
@@ -2642,21 +2646,21 @@ void NativeGenerator::generateResumeEntry(const FrameInfo& frame_info) {
     size_t gen_size = _PyObject_VAR_SIZE(gen_type, total_slots);
     Py_ssize_t footer_offset =
         static_cast<Py_ssize_t>(gen_size - sizeof(GenDataFooter));
-    as_->add(jit_data_r, a64::x0, footer_offset);
+    phx_a64_add_rri(as_->impl(), jit_data_r, a64::x0, footer_offset);
   }
 
   // Store linked frame address
   size_t link_address_offset = offsetof(GenDataFooter, linkAddress);
-  as_->ldr(scratch_r, a64::ptr(arch::fp));
-  as_->str(
+  phx_a64_ldr(as_->impl(), scratch_r, a64::ptr(arch::fp));
+  phx_a64_str(as_->impl(),
       scratch_r,
       arch::ptr_resolve(
           as_, jit_data_r, link_address_offset, arch::reg_scratch_0));
 
   // Store return address
   size_t return_address_offset = offsetof(GenDataFooter, returnAddress);
-  as_->ldr(scratch_r, arch::ptr_resolve(as_, arch::fp, 8, arch::reg_scratch_0));
-  as_->str(
+  phx_a64_ldr(as_->impl(), scratch_r, arch::ptr_resolve(as_, arch::fp, 8, arch::reg_scratch_0));
+  phx_a64_str(as_->impl(),
       scratch_r,
       arch::ptr_resolve(
           as_, jit_data_r, return_address_offset, arch::reg_scratch_0));
@@ -2664,31 +2668,31 @@ void NativeGenerator::generateResumeEntry(const FrameInfo& frame_info) {
   // Store "original" X29 (FP)
   size_t original_frame_pointer_offset =
       offsetof(GenDataFooter, originalFramePointer);
-  as_->str(
+  phx_a64_str(as_->impl(),
       arch::fp,
       arch::ptr_resolve(
           as_, jit_data_r, original_frame_pointer_offset, arch::reg_scratch_0));
 
   // X29 = gen->gi_jit_data
-  as_->mov(arch::fp, jit_data_r);
+  phx_a64_mov_rr(as_->impl(), arch::fp, jit_data_r);
 
   // Resume generator execution: load and clear yieldPoint, then jump to the
   // resume target.
   size_t yield_point_offset = offsetof(GenDataFooter, yieldPoint);
-  as_->ldr(
+  phx_a64_ldr(as_->impl(),
       scratch_r,
       arch::ptr_resolve(
           as_, arch::fp, yield_point_offset, arch::reg_scratch_0));
-  as_->str(
+  phx_a64_str(as_->impl(),
       a64::xzr,
       arch::ptr_resolve(
           as_, arch::fp, yield_point_offset, arch::reg_scratch_0));
   size_t resume_target_offset = GenYieldPoint::resumeTargetOffset();
-  as_->ldr(
+  phx_a64_ldr(as_->impl(),
       arch::reg_scratch_br,
       arch::ptr_resolve(
           as_, scratch_r, resume_target_offset, arch::reg_scratch_0));
-  as_->br(arch::reg_scratch_br);
+  phx_a64_br(as_->impl(), arch::reg_scratch_br);
 
   env_.addAnnotation("Resume entry point", cursor);
 #else
@@ -2705,7 +2709,7 @@ void NativeGenerator::generateStaticEntryPoint(
   // jump back to hit it so that we have a fixed offset to jump from
   auto static_link_cursor = as_->cursor();
   Label static_entry_point = as_->newLabel();
-  as_->bind(static_entry_point);
+  phx_builder_bind(as_->impl(), static_entry_point);
 
   generateFunctionEntry();
 
@@ -2790,7 +2794,7 @@ void NativeGenerator::generateStaticEntryPoint(
       // into the generator object when we link the frame. We need to
       // capture the incoming arguments first, which will mean we'll
       // need to save and restore the register.
-      as_->lea(x86::r10, x86::ptr(x86::rbp, 16));
+      phx_x86_lea(as_->impl(), x86::r10, x86::ptr(x86::rbp, 16));
       save_regs.emplace_back(x86::r10, x86::r10);
       need_extra_args_load = false;
     }
@@ -2810,27 +2814,27 @@ void NativeGenerator::generateStaticEntryPoint(
   // We already allocated stack space for the header and spill data, clean
   // up any alignment padding we added
   if (padding) {
-    as_->add(x86::rsp, padding);
+    phx_x86_add_ri(as_->impl(), x86::rsp, padding);
   }
 
   if (need_extra_args_load) {
-    as_->lea(x86::r10, x86::ptr(x86::rbp, 16));
+    phx_x86_lea(as_->impl(), x86::r10, x86::ptr(x86::rbp, 16));
   }
-  as_->jmp(finish_frame_setup);
+  phx_x86_jmp_label(as_->impl(), finish_frame_setup);
   env_.addAnnotation("StaticLinkFrame", static_link_cursor);
   auto static_entry_point_cursor = as_->cursor();
 
-  as_->bind(static_jmp_location);
+  phx_builder_bind(as_->impl(), static_jmp_location);
   // force a long jump even if the static entry point is small so that we get
   // a consistent offset for the static entry point from the normal entry point.
-  as_->long_().jmp(static_entry_point);
+  as_->long_().jmp(static_entry_point); // keep wrapper: long_() prefix
   env_.addAnnotation("StaticEntryPoint", static_entry_point_cursor);
 #elif defined(CINDER_AARCH64)
   // Static entry point is the first thing in the method, we'll
   // jump back to hit it so that we have a fixed offset to jump from
   auto static_link_cursor = as_->cursor();
   Label static_entry_point = as_->newLabel();
-  as_->bind(static_entry_point);
+  phx_builder_bind(as_->impl(), static_entry_point);
 
   generateFunctionEntry();
 
@@ -2921,7 +2925,7 @@ void NativeGenerator::generateStaticEntryPoint(
       // into the generator object when we link the frame. We need to
       // capture the incoming arguments first, which will mean we'll
       // need to save and restore the register.
-      as_->add(a64::x10, arch::fp, 16);
+      phx_a64_add_rri(as_->impl(), a64::x10, arch::fp, 16);
       save_regs.emplace_back(a64::x10, a64::x10);
       need_extra_args_load = false;
     }
@@ -2937,14 +2941,14 @@ void NativeGenerator::generateStaticEntryPoint(
       a64::x(INITIAL_FUNC_REG.loc), a64::x(INITIAL_TSTATE_REG.loc), save_regs);
 
   if (need_extra_args_load) {
-    as_->add(a64::x10, arch::fp, 16);
+    phx_a64_add_rri(as_->impl(), a64::x10, arch::fp, 16);
   }
-  as_->b(finish_frame_setup);
+  phx_a64_b(as_->impl(), finish_frame_setup);
   env_.addAnnotation("StaticLinkFrame", static_link_cursor);
   auto static_entry_point_cursor = as_->cursor();
 
-  as_->bind(static_jmp_location);
-  as_->b(static_entry_point);
+  phx_builder_bind(as_->impl(), static_jmp_location);
+  phx_a64_b(as_->impl(), static_entry_point);
   env_.addAnnotation("StaticEntryPoint", static_entry_point_cursor);
 #else
   CINDER_UNSUPPORTED
@@ -2985,13 +2989,13 @@ void NativeGenerator::generateCode(CodeHolder& codeholder) {
   // argument binding.
   auto arg_reentry_cursor = as_->cursor();
   Label correct_args_entry = as_->newLabel();
-  as_->bind(correct_args_entry);
+  phx_builder_bind(as_->impl(), correct_args_entry);
   generateFunctionEntry();
 
 #if defined(CINDER_X86_64)
-  as_->short_().jmp(correct_arg_count);
+  as_->short_().jmp(correct_arg_count); // keep wrapper: short_() prefix
 #elif defined(CINDER_AARCH64)
-  as_->b(correct_arg_count);
+  phx_a64_b(as_->impl(), correct_arg_count);
 #else
   CINDER_UNSUPPORTED
 #endif
@@ -3001,7 +3005,7 @@ void NativeGenerator::generateCode(CodeHolder& codeholder) {
   // Setup the normal entry point that expects that implements the
   // vectorcall convention
   Label vectorcall_entry_label = as_->newLabel();
-  as_->bind(vectorcall_entry_label);
+  phx_builder_bind(as_->impl(), vectorcall_entry_label);
   generatePrologue(frame_info, correct_arg_count, finish_frame_setup, correct_args_entry);
 
   generateEpilogue(epilogue_cursor);
@@ -3012,45 +3016,45 @@ void NativeGenerator::generateCode(CodeHolder& codeholder) {
 
   if (env_.static_arg_typecheck_failed_label.isValid()) {
     auto static_typecheck_cursor = as_->cursor();
-    as_->bind(env_.static_arg_typecheck_failed_label);
+    phx_builder_bind(as_->impl(), env_.static_arg_typecheck_failed_label);
 
 #if defined(CINDER_X86_64)
     if (GetFunction()->returnsPrimitive()) {
       if (GetFunction()->returnsPrimitiveDouble()) {
-        as_->call(
-            reinterpret_cast<uint64_t>(
+        phx_x86_mov_ri(as_->impl(), PHX_R11, (int64_t)reinterpret_cast<uint64_t>(
                 JITRT_ReportStaticArgTypecheckErrorsWithDoubleReturn));
+        phx_x86_call_r(as_->impl(), PHX_R11);
       } else {
-        as_->call(
-            reinterpret_cast<uint64_t>(
+        phx_x86_mov_ri(as_->impl(), PHX_R11, (int64_t)reinterpret_cast<uint64_t>(
                 JITRT_ReportStaticArgTypecheckErrorsWithPrimitiveReturn));
+        phx_x86_call_r(as_->impl(), PHX_R11);
       }
     } else {
-      as_->call(
-          reinterpret_cast<uint64_t>(JITRT_ReportStaticArgTypecheckErrors));
+      phx_x86_mov_ri(as_->impl(), PHX_R11, (int64_t)reinterpret_cast<uint64_t>(JITRT_ReportStaticArgTypecheckErrors));
+      phx_x86_call_r(as_->impl(), PHX_R11);
     }
-    as_->leave();
-    as_->ret();
+    phx_x86_leave(as_->impl());
+    phx_x86_ret(as_->impl());
 #elif defined(CINDER_AARCH64)
     if (GetFunction()->returnsPrimitive()) {
       if (GetFunction()->returnsPrimitiveDouble()) {
-        as_->mov(
+        phx_a64_mov_ri(as_->impl(),
             arch::reg_scratch_br,
-            JITRT_ReportStaticArgTypecheckErrorsWithDoubleReturn);
+            (uint64_t)(uintptr_t)JITRT_ReportStaticArgTypecheckErrorsWithDoubleReturn);
       } else {
-        as_->mov(
+        phx_a64_mov_ri(as_->impl(),
             arch::reg_scratch_br,
-            JITRT_ReportStaticArgTypecheckErrorsWithPrimitiveReturn);
+            (uint64_t)(uintptr_t)JITRT_ReportStaticArgTypecheckErrorsWithPrimitiveReturn);
       }
     } else {
-      as_->mov(arch::reg_scratch_br, JITRT_ReportStaticArgTypecheckErrors);
+      phx_a64_mov_ri(as_->impl(), arch::reg_scratch_br, (uint64_t)(uintptr_t)JITRT_ReportStaticArgTypecheckErrors);
     }
-    as_->blr(arch::reg_scratch_br);
+    phx_a64_blr(as_->impl(), arch::reg_scratch_br);
 
     // leave + ret equivalent on aarch64
-    as_->mov(a64::sp, arch::fp);
-    as_->ldp(arch::fp, arch::lr, a64::ptr_post(a64::sp, 16));
-    as_->ret(arch::lr);
+    phx_a64_mov_rr(as_->impl(), a64::sp, arch::fp);
+    phx_a64_ldp_post(as_->impl(), arch::fp, arch::lr, a64::sp, 16);
+    phx_a64_ret_reg(as_->impl(), arch::lr);
 #else
     CINDER_UNSUPPORTED
 #endif
@@ -3179,22 +3183,23 @@ void NativeGenerator::generatePrimitiveArgsPrologue() {
 #if defined(CINDER_X86_64)
   BorrowedRef<_PyTypedArgsInfo> info = func_->prim_args_info;
   env_.code_rt->addReference(info);
-  as_->mov(x86::r8, reinterpret_cast<uint64_t>(info.get()));
+  phx_x86_mov_ri(as_->impl(), x86::r8, (int64_t)reinterpret_cast<uint64_t>(info.get()));
   auto helper = func_->returnsPrimitiveDouble()
       ? reinterpret_cast<uint64_t>(JITRT_CallStaticallyWithPrimitiveSignatureFP)
       : reinterpret_cast<uint64_t>(JITRT_CallStaticallyWithPrimitiveSignature);
-  as_->call(helper);
+  phx_x86_mov_ri(as_->impl(), PHX_R11, (int64_t)helper);
+  phx_x86_call_r(as_->impl(), PHX_R11);
 #elif defined(CINDER_AARCH64)
   BorrowedRef<_PyTypedArgsInfo> info = func_->prim_args_info;
   env_.code_rt->addReference(info);
-  as_->mov(arch::reg_scratch_0, reinterpret_cast<uint64_t>(info.get()));
+  phx_a64_mov_ri(as_->impl(), arch::reg_scratch_0, reinterpret_cast<uint64_t>(info.get()));
   if (func_->returnsPrimitiveDouble()) {
-    as_->mov(
-        arch::reg_scratch_br, JITRT_CallStaticallyWithPrimitiveSignatureFP);
+    phx_a64_mov_ri(as_->impl(),
+        arch::reg_scratch_br, (uint64_t)(uintptr_t)JITRT_CallStaticallyWithPrimitiveSignatureFP);
   } else {
-    as_->mov(arch::reg_scratch_br, JITRT_CallStaticallyWithPrimitiveSignature);
+    phx_a64_mov_ri(as_->impl(), arch::reg_scratch_br, (uint64_t)(uintptr_t)JITRT_CallStaticallyWithPrimitiveSignature);
   }
-  as_->blr(arch::reg_scratch_br);
+  phx_a64_blr(as_->impl(), arch::reg_scratch_br);
 #else
   CINDER_UNSUPPORTED
 #endif
@@ -3219,44 +3224,44 @@ NativeGenerator::generateBoxedReturnWrapper() {
   uint64_t box_func;
 
   generateFunctionEntry();
-  as_->call(generic_entry);
+  phx_x86_call_label(as_->impl(), generic_entry);
 
   // If there was an error, there's nothing to box.
   bool returns_double = func_->returnsPrimitiveDouble();
   if (returns_double) {
-    as_->ptest(x86::xmm1, x86::xmm1);
-    as_->je(error);
+    phx_x86_ptest_rr(as_->impl(), x86::xmm1, x86::xmm1);
+    phx_x86_je(as_->impl(), error);
   } else {
-    as_->test(x86::edx, x86::edx);
-    as_->je(box_done);
+    phx_x86_test_rr(as_->impl(), x86::edx, x86::edx);
+    phx_x86_je(as_->impl(), box_done);
   }
 
   if (ret_type <= TCBool) {
-    as_->movzx(x86::edi, x86::al);
+    phx_x86_movzx_rr(as_->impl(), x86::edi, x86::al);
     box_func = reinterpret_cast<uint64_t>(JITRT_BoxBool);
   } else if (ret_type <= TCInt8) {
-    as_->movsx(x86::edi, x86::al);
+    phx_x86_movsx_rr(as_->impl(), x86::edi, x86::al);
     box_func = reinterpret_cast<uint64_t>(JITRT_BoxI32);
   } else if (ret_type <= TCUInt8) {
-    as_->movzx(x86::edi, x86::al);
+    phx_x86_movzx_rr(as_->impl(), x86::edi, x86::al);
     box_func = reinterpret_cast<uint64_t>(JITRT_BoxU32);
   } else if (ret_type <= TCInt16) {
-    as_->movsx(x86::edi, x86::ax);
+    phx_x86_movsx_rr(as_->impl(), x86::edi, x86::ax);
     box_func = reinterpret_cast<uint64_t>(JITRT_BoxI32);
   } else if (ret_type <= TCUInt16) {
-    as_->movzx(x86::edi, x86::ax);
+    phx_x86_movzx_rr(as_->impl(), x86::edi, x86::ax);
     box_func = reinterpret_cast<uint64_t>(JITRT_BoxU32);
   } else if (ret_type <= TCInt32) {
-    as_->mov(x86::edi, x86::eax);
+    phx_x86_mov_rr(as_->impl(), x86::edi, x86::eax);
     box_func = reinterpret_cast<uint64_t>(JITRT_BoxI32);
   } else if (ret_type <= TCUInt32) {
-    as_->mov(x86::edi, x86::eax);
+    phx_x86_mov_rr(as_->impl(), x86::edi, x86::eax);
     box_func = reinterpret_cast<uint64_t>(JITRT_BoxU32);
   } else if (ret_type <= TCInt64) {
-    as_->mov(x86::rdi, x86::rax);
+    phx_x86_mov_rr(as_->impl(), x86::rdi, x86::rax);
     box_func = reinterpret_cast<uint64_t>(JITRT_BoxI64);
   } else if (ret_type <= TCUInt64) {
-    as_->mov(x86::rdi, x86::rax);
+    phx_x86_mov_rr(as_->impl(), x86::rdi, x86::rax);
     box_func = reinterpret_cast<uint64_t>(JITRT_BoxU64);
   } else if (returns_double) {
     // xmm0 already contains the return value
@@ -3265,16 +3270,17 @@ NativeGenerator::generateBoxedReturnWrapper() {
     JIT_ABORT("Unsupported primitive return type {}", ret_type.toString());
   }
 
-  as_->call(box_func);
+  phx_x86_mov_ri(as_->impl(), PHX_R11, (int64_t)box_func);
+  phx_x86_call_r(as_->impl(), PHX_R11);
 
-  as_->bind(box_done);
+  phx_builder_bind(as_->impl(), box_done);
   generateFunctionExit();
 
   if (returns_double) {
-    as_->bind(error);
-    as_->xor_(x86::rax, x86::rax);
-    as_->leave();
-    as_->ret();
+    phx_builder_bind(as_->impl(), error);
+    phx_x86_xor_rr(as_->impl(), x86::rax, x86::rax);
+    phx_x86_leave(as_->impl());
+    phx_x86_ret(as_->impl());
   }
 #elif defined(CINDER_AARCH64)
   Label box_done = as_->newLabel();
@@ -3283,32 +3289,32 @@ NativeGenerator::generateBoxedReturnWrapper() {
   uint64_t box_func;
 
   generateFunctionEntry();
-  as_->bl(generic_entry);
+  phx_a64_bl(as_->impl(), generic_entry);
 
   // If there was an error, there's nothing to box.
   bool returns_double = func_->returnsPrimitiveDouble();
   if (returns_double) {
-    as_->fmov(arch::reg_scratch_0, a64::d1);
-    as_->cbz(arch::reg_scratch_0, error);
+    phx_a64_fmov(as_->impl(), arch::reg_scratch_0, a64::d1);
+    phx_a64_cbz(as_->impl(), arch::reg_scratch_0, error);
   } else {
-    as_->cmp(a64::w1, 0);
-    as_->b_eq(box_done);
+    phx_a64_cmp_ri(as_->impl(), a64::w1, 0);
+    phx_a64_b_eq(as_->impl(), box_done);
   }
 
   if (ret_type <= TCBool) {
-    as_->uxtb(a64::w0, a64::w0);
+    phx_a64_uxtb(as_->impl(), a64::w0, a64::w0);
     box_func = reinterpret_cast<uint64_t>(JITRT_BoxBool);
   } else if (ret_type <= TCInt8) {
-    as_->sxtb(a64::w0, a64::w0);
+    phx_a64_sxtb(as_->impl(), a64::w0, a64::w0);
     box_func = reinterpret_cast<uint64_t>(JITRT_BoxI32);
   } else if (ret_type <= TCUInt8) {
-    as_->uxtb(a64::w0, a64::w0);
+    phx_a64_uxtb(as_->impl(), a64::w0, a64::w0);
     box_func = reinterpret_cast<uint64_t>(JITRT_BoxU32);
   } else if (ret_type <= TCInt16) {
-    as_->sxth(a64::w0, a64::w0);
+    phx_a64_sxth(as_->impl(), a64::w0, a64::w0);
     box_func = reinterpret_cast<uint64_t>(JITRT_BoxI32);
   } else if (ret_type <= TCUInt16) {
-    as_->uxth(a64::w0, a64::w0);
+    phx_a64_uxth(as_->impl(), a64::w0, a64::w0);
     box_func = reinterpret_cast<uint64_t>(JITRT_BoxU32);
   } else if (ret_type <= TCInt32) {
     box_func = reinterpret_cast<uint64_t>(JITRT_BoxI32);
@@ -3324,25 +3330,25 @@ NativeGenerator::generateBoxedReturnWrapper() {
     JIT_ABORT("Unsupported primitive return type {}", ret_type.toString());
   }
 
-  as_->mov(arch::reg_scratch_br, box_func);
-  as_->blr(arch::reg_scratch_br);
+  phx_a64_mov_ri(as_->impl(), arch::reg_scratch_br, box_func);
+  phx_a64_blr(as_->impl(), arch::reg_scratch_br);
 
-  as_->bind(box_done);
+  phx_builder_bind(as_->impl(), box_done);
   generateFunctionExit();
 
   if (returns_double) {
-    as_->bind(error);
-    as_->mov(a64::x0, 0);
-    as_->mov(a64::sp, arch::fp);
-    as_->ldp(arch::fp, arch::lr, a64::ptr_post(a64::sp, 16));
-    as_->ret(arch::lr);
+    phx_builder_bind(as_->impl(), error);
+    phx_a64_mov_ri(as_->impl(), a64::x0, 0);
+    phx_a64_mov_rr(as_->impl(), a64::sp, arch::fp);
+    phx_a64_ldp_post(as_->impl(), arch::fp, arch::lr, a64::sp, 16);
+    phx_a64_ret_reg(as_->impl(), arch::lr);
   }
 #else
   CINDER_UNSUPPORTED
 #endif
 
   // New generic entry is after the boxed wrapper.
-  as_->bind(generic_entry);
+  phx_builder_bind(as_->impl(), generic_entry);
   return {as_->cursor(), entry_cursor};
 }
 
@@ -3367,8 +3373,8 @@ void NativeGenerator::generateArgcountCheckPrologue(
   // potentially a lot of room for optimization here.
   bool will_check_argcount = !have_varargs && code->co_kwonlyargcount == 0;
   if (will_check_argcount) {
-    as_->test(x86::rcx, x86::rcx);
-    as_->je(arg_check);
+    phx_x86_test_rr(as_->impl(), x86::rcx, x86::rcx);
+    phx_x86_je(as_->impl(), arg_check);
   }
 
   // We don't check the length of the kwnames tuple here, normal callers will
@@ -3377,26 +3383,28 @@ void NativeGenerator::generateArgcountCheckPrologue(
   // path.
   // Pass the correct_args_entry address as 5th arg (r8) so
   // JITRT_CallWithKeywordArgs can re-enter the JIT without a hash map lookup.
-  as_->lea(x86::r8, x86::ptr(correct_args_entry));
-  as_->call(reinterpret_cast<uint64_t>(JITRT_CallWithKeywordArgs));
+  phx_x86_lea(as_->impl(), x86::r8, x86::ptr(correct_args_entry));
+  phx_x86_mov_ri(as_->impl(), PHX_R11, (int64_t)reinterpret_cast<uint64_t>(JITRT_CallWithKeywordArgs));
+  phx_x86_call_r(as_->impl(), PHX_R11);
   generateFunctionExit();
 
   // Check that we have a valid number of args.
   if (will_check_argcount) {
-    as_->bind(arg_check);
+    phx_builder_bind(as_->impl(), arg_check);
     asmjit::BaseNode* arg_check_cursor = as_->cursor();
-    as_->cmp(x86::edx, GetFunction()->numArgs());
+    phx_x86_cmp_ri(as_->impl(), x86::edx, GetFunction()->numArgs());
 
     // We don't have the correct number of arguments. Call a helper to either
     // fix them up with defaults or raise an approprate exception.
-    as_->jz(correct_arg_count);
-    as_->mov(x86::rcx, GetFunction()->numArgs());
+    phx_x86_jz(as_->impl(), correct_arg_count);
+    phx_x86_mov_ri(as_->impl(), x86::rcx, (int64_t)GetFunction()->numArgs());
     auto helper = func_->returnsPrimitiveDouble()
         ? reinterpret_cast<uint64_t>(JITRT_CallWithIncorrectArgcountFPReturn)
         : reinterpret_cast<uint64_t>(JITRT_CallWithIncorrectArgcount);
-    as_->call(helper);
-    as_->leave();
-    as_->ret();
+    phx_x86_mov_ri(as_->impl(), PHX_R11, (int64_t)helper);
+    phx_x86_call_r(as_->impl(), PHX_R11);
+    phx_x86_leave(as_->impl());
+    phx_x86_ret(as_->impl());
     env_.addAnnotation(
         "Check if called with correct argcount", arg_check_cursor);
   }
@@ -3418,7 +3426,7 @@ void NativeGenerator::generateArgcountCheckPrologue(
   // potentially a lot of room for optimization here.
   bool will_check_argcount = !have_varargs && code->co_kwonlyargcount == 0;
   if (will_check_argcount) {
-    as_->cbz(a64::x3, arg_check);
+    phx_a64_cbz(as_->impl(), a64::x3, arg_check);
   }
 
   // We don't check the length of the kwnames tuple here, normal callers will
@@ -3427,30 +3435,30 @@ void NativeGenerator::generateArgcountCheckPrologue(
   // path.
   // Pass the correct_args_entry address as 5th arg (x4) so
   // JITRT_CallWithKeywordArgs can re-enter the JIT without a hash map lookup.
-  as_->adr(a64::x4, correct_args_entry);
-  as_->mov(arch::reg_scratch_br, JITRT_CallWithKeywordArgs);
-  as_->blr(arch::reg_scratch_br);
+  phx_a64_adr(as_->impl(), a64::x4, correct_args_entry);
+  phx_a64_mov_ri(as_->impl(), arch::reg_scratch_br, (uint64_t)(uintptr_t)JITRT_CallWithKeywordArgs);
+  phx_a64_blr(as_->impl(), arch::reg_scratch_br);
   generateFunctionExit();
 
   // Check that we have a valid number of args.
   if (will_check_argcount) {
-    as_->bind(arg_check);
+    phx_builder_bind(as_->impl(), arg_check);
     asmjit::BaseNode* arg_check_cursor = as_->cursor();
-    as_->cmp(a64::w2, GetFunction()->numArgs());
+    phx_a64_cmp_ri(as_->impl(), a64::w2, GetFunction()->numArgs());
 
     // We don't have the correct number of arguments. Call a helper to either
     // fix them up with defaults or raise an approprate exception.
-    as_->b_eq(correct_arg_count);
-    as_->mov(a64::x3, GetFunction()->numArgs());
+    phx_a64_b_eq(as_->impl(), correct_arg_count);
+    phx_a64_mov_ri(as_->impl(), a64::x3, GetFunction()->numArgs());
     if (func_->returnsPrimitiveDouble()) {
-      as_->mov(arch::reg_scratch_br, JITRT_CallWithIncorrectArgcountFPReturn);
+      phx_a64_mov_ri(as_->impl(), arch::reg_scratch_br, (uint64_t)(uintptr_t)JITRT_CallWithIncorrectArgcountFPReturn);
     } else {
-      as_->mov(arch::reg_scratch_br, JITRT_CallWithIncorrectArgcount);
+      phx_a64_mov_ri(as_->impl(), arch::reg_scratch_br, (uint64_t)(uintptr_t)JITRT_CallWithIncorrectArgcount);
     }
-    as_->blr(arch::reg_scratch_br);
-    as_->mov(a64::sp, arch::fp);
-    as_->ldp(arch::fp, arch::lr, a64::ptr_post(a64::sp, 16));
-    as_->ret(arch::lr);
+    phx_a64_blr(as_->impl(), arch::reg_scratch_br);
+    phx_a64_mov_rr(as_->impl(), a64::sp, arch::fp);
+    phx_a64_ldp_post(as_->impl(), arch::fp, arch::lr, a64::sp, 16);
+    phx_a64_ret_reg(as_->impl(), arch::lr);
     env_.addAnnotation(
         "Check if called with correct argcount", arg_check_cursor);
   }
