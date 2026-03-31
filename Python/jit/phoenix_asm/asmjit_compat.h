@@ -161,10 +161,24 @@ namespace CondCode {
 }
 
 struct Utils {
-  /* Check if an unsigned immediate fits in ARM64 ADD/SUB immediate field
-   * (12-bit unsigned, optionally shifted left by 12) */
   static bool isAddSubImm(uint64_t val) {
     return val <= 0xFFF || (val <= 0xFFF000 && (val & 0xFFF) == 0);
+  }
+  static bool isLogicalImm(uint64_t val, uint32_t width) {
+    if (val == 0) return false;
+    if (width == 32) val = (val & 0xFFFFFFFF) | (val << 32);
+    if (val == ~(uint64_t)0) return false;
+    for (uint32_t size = 2; size <= 64; size <<= 1) {
+      uint64_t mask = (~(uint64_t)0) >> (64 - size);
+      uint64_t elem = val & mask;
+      uint64_t rep = 0;
+      for (uint32_t i = 0; i < 64; i += size) rep |= (elem << i);
+      if (rep != val) continue;
+      if (elem == 0 || elem == mask) continue;
+      uint64_t transitions = elem ^ ((elem >> 1) | ((elem & 1) << (size - 1)));
+      if (__builtin_popcountll(transitions) == 2) return true;
+    }
+    return false;
   }
 };
 } /* namespace arm */

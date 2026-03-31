@@ -116,6 +116,8 @@ class Mem {
   constexpr explicit Mem(PhxMem m) : mem_(m) {}
   /* Absolute offset memory operand (used for TLS access via FS segment) */
   explicit Mem(int32_t offset) : mem_{} { mem_.offset = offset; mem_.size = 8; }
+  /* Base + offset constructor (ARM64 arm::Mem(Xn, offset) compatibility) */
+  Mem(const Gp& base, int32_t offset) : mem_(phx_ptr(base, offset)) {}
 
   /* Base register */
   constexpr Gp baseReg() const { return Gp(mem_.base); }
@@ -925,6 +927,11 @@ class EmitterExplicitT {
   Error sub(const Gp& d, const Gp& a, const Imm& i)     { phx_a64_sub_rri(b_(), d, a, i.value()); return kErrorOk; }
   Error subs(const Gp& d, const Gp& a, const Gp& c)    { phx_a64_subs_rrr(b_(), d, a, c); return kErrorOk; }
   Error subs(const Gp& d, const Gp& a, uint64_t v)      { phx_a64_subs_rri(b_(), d, a, (int64_t)v); return kErrorOk; }
+  /* NEG Xd, Xn = SUB Xd, XZR, Xn */
+  Error neg(const Gp& d, const Gp& src) {
+    Gp zr(31, src.size());
+    phx_a64_sub_rrr(b_(), d, zr, src); return kErrorOk;
+  }
   /* -- LDP/STP pre/post indexed -- */
   Error ldp_pre(const Gp& r1, const Gp& r2, const Gp& base, int32_t off) {
     phx_a64_ldp_pre(b_(), r1, r2, base, off); return kErrorOk;
@@ -989,6 +996,11 @@ class EmitterExplicitT {
   Error b_ls(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_LS, t); return kErrorOk; }
   Error b_cs(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_CS, t); return kErrorOk; }
   Error b_cc(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_CC, t); return kErrorOk; }
+  Error b_lo(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_CC, t); return kErrorOk; }
+  Error b_hs(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_CS, t); return kErrorOk; }
+  Error b_vs(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_VS, t); return kErrorOk; }
+  Error b_vc(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_VC, t); return kErrorOk; }
+  Error b_pl(const Label& t) { phx_a64_b_cond(b_(), PHX_COND_PL, t); return kErrorOk; }
   Error cbz(const Gp& s, const Label& t)  { phx_a64_cbz(b_(), s, t); return kErrorOk; }
   Error cbnz(const Gp& s, const Label& t) { phx_a64_cbnz(b_(), s, t); return kErrorOk; }
   /* -- Sign/Zero extend -- */
@@ -1011,11 +1023,13 @@ class EmitterExplicitT {
   Error stxr(const Gp& st, const Gp& s, const Gp& base)  { phx_a64_stxr(b_(), st, s, base); return kErrorOk; }
   /* -- MRS -- */
   Error mrs(const Gp& d, uint16_t sysreg) { phx_a64_mrs(b_(), d, sysreg); return kErrorOk; }
-  /* -- FP arithmetic -- */
-  Error fadd(const Vec& d, const Vec& a, const Vec& c) { phx_a64_fadd(b_(), d, a, c); return kErrorOk; }
-  Error fsub(const Vec& d, const Vec& a, const Vec& c) { phx_a64_fsub(b_(), d, a, c); return kErrorOk; }
-  Error fmul(const Vec& d, const Vec& a, const Vec& c) { phx_a64_fmul(b_(), d, a, c); return kErrorOk; }
-  Error fdiv(const Vec& d, const Vec& a, const Vec& c) { phx_a64_fdiv(b_(), d, a, c); return kErrorOk; }
+  /* -- FP arithmetic (Gp overloads for CRTP VecD resolution) -- */
+  Error fadd(const Gp& d, const Gp& a, const Gp& c) { phx_a64_fadd(b_(), d, a, c); return kErrorOk; }
+  Error fsub(const Gp& d, const Gp& a, const Gp& c) { phx_a64_fsub(b_(), d, a, c); return kErrorOk; }
+  Error fmul(const Gp& d, const Gp& a, const Gp& c) { phx_a64_fmul(b_(), d, a, c); return kErrorOk; }
+  Error fdiv(const Gp& d, const Gp& a, const Gp& c) { phx_a64_fdiv(b_(), d, a, c); return kErrorOk; }
+  /* fmov with float immediate — in Builder class only (not in EmitterExplicitT
+     to avoid ambiguity with fmov(Gp,Gp) for CRTP member function pointer resolution) */
 };
 
 class Builder : public EmitterExplicitT<Builder> {
@@ -1029,6 +1043,17 @@ class Builder : public EmitterExplicitT<Builder> {
     }
   }
   ~Builder() { if (impl_) phx_builder_destroy(impl_); }
+
+  /* fmov with float immediate — in Builder (not EmitterExplicitT)
+     to avoid overload ambiguity in CRTP member function pointer resolution */
+  Error fmov(const Gp& d, double imm) {
+    union { double dv; uint64_t u; } val; val.dv = imm;
+    Gp scratch(12, 8);
+    phx_a64_mov_ri(impl_, scratch, (int64_t)val.u);
+    phx_a64_fmov(impl_, d, scratch);
+    return kErrorOk;
+  }
+  using EmitterExplicitT<Builder>::fmov; /* inherit fmov(Gp,Gp) */
 
   Builder(const Builder&) = delete;
   Builder& operator=(const Builder&) = delete;
