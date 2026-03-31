@@ -598,6 +598,30 @@ static uint32_t encode_fp_dp2(int ftype, uint32_t fp_op,
 /* ------------------------------------------------------------------ */
 
 /*
+ * Materialise an absolute address into X16 (IP0) via MOVZ/MOVK, then
+ * rewrite mem to [X16] with offset=0.  ARM64 has no disp32-absolute
+ * addressing mode, so this is required for any `ptr(uint64_t)` operand.
+ *
+ * X16 (IP0) is the intra-procedure-call scratch register — the linker
+ * and veneers may clobber it, so it is safe for the JIT to use as a
+ * temporary between instructions.
+ */
+static PhxMem resolve_abs_addr(PhxBuilder *b, PhxMem mem) {
+    if (!mem.is_abs_addr) return mem;
+
+    /* Emit MOVZ/MOVK sequence to load abs_addr into X16 */
+    PhxGp x16 = PHX_X16;
+    phx_a64_mov_ri(b, x16, mem.abs_addr);
+
+    /* Rewrite mem to [X16, #0] */
+    PhxMem resolved = {};
+    resolved.base = x16;
+    resolved.offset = 0;
+    resolved.size = mem.size;
+    return resolved;
+}
+
+/*
  * Compute the load/store encoding for a memory operand.  Returns the
  * full 32-bit instruction word.
  *
@@ -802,6 +826,8 @@ void phx_a64_mov_ri(PhxBuilder *b, PhxGp dst, uint64_t imm) {
 }
 
 void phx_a64_ldr(PhxBuilder *b, PhxGp dst, PhxMem mem) {
+    mem = resolve_abs_addr(b, mem);
+
     PhxNode *n = emit_node(b, PHX_A64_LDR);
     if (!n) return;
 
@@ -820,6 +846,8 @@ void phx_a64_ldr(PhxBuilder *b, PhxGp dst, PhxMem mem) {
 }
 
 void phx_a64_ldrb(PhxBuilder *b, PhxGp dst, PhxMem mem) {
+    mem = resolve_abs_addr(b, mem);
+
     PhxNode *n = emit_node(b, PHX_A64_LDRB);
     if (!n) return;
 
@@ -833,6 +861,8 @@ void phx_a64_ldrb(PhxBuilder *b, PhxGp dst, PhxMem mem) {
 }
 
 void phx_a64_ldrh(PhxBuilder *b, PhxGp dst, PhxMem mem) {
+    mem = resolve_abs_addr(b, mem);
+
     PhxNode *n = emit_node(b, PHX_A64_LDRH);
     if (!n) return;
 
@@ -846,6 +876,8 @@ void phx_a64_ldrh(PhxBuilder *b, PhxGp dst, PhxMem mem) {
 }
 
 void phx_a64_ldrsb(PhxBuilder *b, PhxGp dst, PhxMem mem) {
+    mem = resolve_abs_addr(b, mem);
+
     PhxNode *n = emit_node(b, PHX_A64_LDRSB);
     if (!n) return;
 
@@ -862,6 +894,8 @@ void phx_a64_ldrsb(PhxBuilder *b, PhxGp dst, PhxMem mem) {
 }
 
 void phx_a64_ldrsh(PhxBuilder *b, PhxGp dst, PhxMem mem) {
+    mem = resolve_abs_addr(b, mem);
+
     PhxNode *n = emit_node(b, PHX_A64_LDRSH);
     if (!n) return;
 
@@ -876,6 +910,8 @@ void phx_a64_ldrsh(PhxBuilder *b, PhxGp dst, PhxMem mem) {
 }
 
 void phx_a64_ldrsw(PhxBuilder *b, PhxGp dst, PhxMem mem) {
+    mem = resolve_abs_addr(b, mem);
+
     PhxNode *n = emit_node(b, PHX_A64_LDRSW);
     if (!n) return;
 
@@ -961,6 +997,8 @@ void phx_a64_ldp_post(PhxBuilder *b, PhxGp rt1, PhxGp rt2, PhxGp base, int32_t o
 }
 
 void phx_a64_str(PhxBuilder *b, PhxGp src, PhxMem mem) {
+    mem = resolve_abs_addr(b, mem);
+
     PhxNode *n = emit_node(b, PHX_A64_STR);
     if (!n) return;
 
@@ -978,6 +1016,8 @@ void phx_a64_str(PhxBuilder *b, PhxGp src, PhxMem mem) {
 }
 
 void phx_a64_strb(PhxBuilder *b, PhxGp src, PhxMem mem) {
+    mem = resolve_abs_addr(b, mem);
+
     PhxNode *n = emit_node(b, PHX_A64_STRB);
     if (!n) return;
 
@@ -991,6 +1031,8 @@ void phx_a64_strb(PhxBuilder *b, PhxGp src, PhxMem mem) {
 }
 
 void phx_a64_strh(PhxBuilder *b, PhxGp src, PhxMem mem) {
+    mem = resolve_abs_addr(b, mem);
+
     PhxNode *n = emit_node(b, PHX_A64_STRH);
     if (!n) return;
 
