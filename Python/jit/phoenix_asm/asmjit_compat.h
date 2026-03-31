@@ -166,6 +166,37 @@ struct Utils {
   static bool isAddSubImm(uint64_t val) {
     return val <= 0xFFF || (val <= 0xFFF000 && (val & 0xFFF) == 0);
   }
+
+  /* Check if a value can be encoded as an ARM64 logical immediate.
+   * ARM64 logical immediates use a repeating bitmask pattern encoded as
+   * N:immr:imms fields. Not all 64-bit values are representable. */
+  static bool isLogicalImm(uint64_t val, uint32_t width) {
+    if (val == 0 || (width == 64 && val == ~(uint64_t)0)) return false;
+    if (width == 32) {
+      val = (val & 0xFFFFFFFF) | (val << 32);
+    }
+    if (val == ~(uint64_t)0) return false;
+    /* Try each element size: 2, 4, 8, 16, 32, 64 */
+    for (uint32_t size = 2; size <= 64; size <<= 1) {
+      uint64_t mask = (~(uint64_t)0) >> (64 - size);
+      uint64_t elem = val & mask;
+      /* Check if val is just elem repeated */
+      uint64_t rep = 0;
+      for (uint32_t i = 0; i < 64; i += size) rep |= (elem << i);
+      if (rep != val) continue;
+      /* Check if elem is a contiguous run of 1s (possibly rotated) */
+      if (elem == 0 || elem == mask) continue;
+      uint64_t rot = (elem | (elem << size)) >> 1;
+      uint64_t run = elem ^ rot;
+      if ((run & (run - 1)) == 0 || ((run >> (size-1)) && ((run & ((1ULL<<(size-1))-1)) & (((run & ((1ULL<<(size-1))-1))) - 1)) == 0))
+        return true;
+      /* Simpler check: count transitions 0→1 and 1→0 */
+      uint64_t transitions = elem ^ ((elem >> 1) | ((elem & 1) << (size - 1)));
+      uint32_t count = __builtin_popcountll(transitions);
+      if (count == 2) return true;
+    }
+    return false;
+  }
 };
 } /* namespace arm */
 

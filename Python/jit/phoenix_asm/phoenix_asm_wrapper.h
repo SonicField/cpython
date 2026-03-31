@@ -66,6 +66,8 @@ class Gp {
   constexpr uint8_t id() const { return gp_.id; }
   constexpr uint32_t size() const { return gp_.size; }
   constexpr bool isGp() const { return gp_.size <= 8; }
+  constexpr bool isGpW() const { return gp_.size == 4; }
+  constexpr bool isGpX() const { return gp_.size == 8; }
   constexpr bool isGpq() const { return gp_.size == 8; }
   constexpr bool isVec() const { return gp_.size > 8; }
   constexpr bool isXmm() const { return gp_.size == 16; }
@@ -102,6 +104,10 @@ constexpr Gp gpq(uint8_t id) { return Gp(id, 8); }
 /* ARM64 factory functions */
 constexpr Gp w(uint8_t id) { return Gp(id, 4); }
 constexpr Gp x(uint8_t id) { return Gp(id, 8); }
+
+/* VecD — floating-point D register (ARM64) / XMM register (x86_64).
+ * Type alias for Gp since phoenix-asm uses the same register type for both. */
+using VecD = Gp;
 
 /* ================================================================== */
 /*  Mem — Memory Operand                                               */
@@ -916,6 +922,11 @@ class EmitterExplicitT {
   Error sub(const Gp& d, const Gp& a, const Imm& i)     { phx_a64_sub_rri(b_(), d, a, i.value()); return kErrorOk; }
   Error subs(const Gp& d, const Gp& a, const Gp& c)    { phx_a64_subs_rrr(b_(), d, a, c); return kErrorOk; }
   Error subs(const Gp& d, const Gp& a, uint64_t v)      { phx_a64_subs_rri(b_(), d, a, (int64_t)v); return kErrorOk; }
+  /* NEG Xd, Xn = SUB Xd, XZR, Xn */
+  Error neg(const Gp& d, const Gp& src) {
+    Gp zr(31, src.size()); /* XZR or WZR */
+    phx_a64_sub_rrr(b_(), d, zr, src); return kErrorOk;
+  }
   /* -- LDP/STP pre/post indexed -- */
   Error ldp_pre(const Gp& r1, const Gp& r2, const Gp& base, int32_t off) {
     phx_a64_ldp_pre(b_(), r1, r2, base, off); return kErrorOk;
@@ -1002,11 +1013,11 @@ class EmitterExplicitT {
   Error stxr(const Gp& st, const Gp& s, const Gp& base)  { phx_a64_stxr(b_(), st, s, base); return kErrorOk; }
   /* -- MRS -- */
   Error mrs(const Gp& d, uint16_t sysreg) { phx_a64_mrs(b_(), d, sysreg); return kErrorOk; }
-  /* -- FP arithmetic -- */
-  Error fadd(const Vec& d, const Vec& a, const Vec& c) { phx_a64_fadd(b_(), d, a, c); return kErrorOk; }
-  Error fsub(const Vec& d, const Vec& a, const Vec& c) { phx_a64_fsub(b_(), d, a, c); return kErrorOk; }
-  Error fmul(const Vec& d, const Vec& a, const Vec& c) { phx_a64_fmul(b_(), d, a, c); return kErrorOk; }
-  Error fdiv(const Vec& d, const Vec& a, const Vec& c) { phx_a64_fdiv(b_(), d, a, c); return kErrorOk; }
+  /* -- FP arithmetic (VecD = Gp for ARM64 D registers) -- */
+  Error fadd(const Gp& d, const Gp& a, const Gp& c) { phx_a64_fadd(b_(), d, a, c); return kErrorOk; }
+  Error fsub(const Gp& d, const Gp& a, const Gp& c) { phx_a64_fsub(b_(), d, a, c); return kErrorOk; }
+  Error fmul(const Gp& d, const Gp& a, const Gp& c) { phx_a64_fmul(b_(), d, a, c); return kErrorOk; }
+  Error fdiv(const Gp& d, const Gp& a, const Gp& c) { phx_a64_fdiv(b_(), d, a, c); return kErrorOk; }
 };
 
 class Builder : public EmitterExplicitT<Builder> {
