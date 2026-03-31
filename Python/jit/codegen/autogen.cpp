@@ -13,6 +13,9 @@
 #include "cinderx/Jit/lir/instruction.h"
 #include "cinderx/Jit/lir/printer.h"
 
+#include "jit/phoenix_asm/x86_64.h"
+#include "jit/phoenix_asm/arm64.h"
+
 #include <type_traits>
 #include <vector>
 
@@ -177,16 +180,17 @@ void fillLiveValueLocations(
 
 // Translate GUARD instruction
 void TranslateGuard(Environ* env, const Instruction* instr) {
-#if defined(CINDER_X86_64)
   auto as = env->as;
+  PhxBuilder* pb = as->impl();
 
+#if defined(CINDER_X86_64)
   // the first four operands of the guard instruction are:
   //   * kind
   //   * deopt meta id
   //   * guard var (physical register) (0 for AlwaysFail)
   //   * target (for GuardIs and GuardType, and 0 for all others)
 
-  auto deopt_label = as->newLabel();
+  auto deopt_label = Label(phx_builder_new_label(pb));
   auto kind = instr->getInput(0)->getConstant();
 
   arch::Gp reg = x86::rax;
@@ -195,8 +199,8 @@ void TranslateGuard(Environ* env, const Instruction* instr) {
     if (instr->getInput(2)->dataType() == jit::lir::OperandBase::kDouble) {
       JIT_CHECK(kind == kNotZero, "Only NotZero is supported for double");
       auto vecd_reg = AutoTranslator::getVecD(instr->getInput(2));
-      as->ptest(vecd_reg, vecd_reg);
-      as->jz(deopt_label);
+      phx_x86_ptest_rr(pb, vecd_reg, vecd_reg);
+      phx_x86_jz(pb, deopt_label);
       is_double = true;
     } else {
       reg = AutoTranslator::getGp(instr->getInput(2));
@@ -212,54 +216,65 @@ void TranslateGuard(Environ* env, const Instruction* instr) {
           fitsSignedInt<32>(target),
           "Constant operand should fit in a 32-bit register, got {:x}.",
           target);
-      as->cmp(reg_arg, target);
+      phx_x86_cmp_ri(pb, reg_arg, target);
     } else {
       auto target_reg = AutoTranslator::getGp(target_opnd);
-      as->cmp(reg_arg, target_reg);
+      phx_x86_cmp_rr(pb, reg_arg, target_reg);
     }
   };
 
   if (!is_double) {
     switch (kind) {
       case kNotZero: {
-        as->test(reg, reg);
-        as->jz(deopt_label);
+        phx_x86_test_rr(pb, reg, reg);
+        phx_x86_jz(pb, deopt_label);
         break;
       }
       case kNotNegative: {
-        as->test(reg, reg);
-        as->js(deopt_label);
+        phx_x86_test_rr(pb, reg, reg);
+        phx_x86_js(pb, deopt_label);
         break;
       }
       case kZero: {
-        as->test(reg, reg);
-        as->jnz(deopt_label);
+        phx_x86_test_rr(pb, reg, reg);
+        phx_x86_jnz(pb, deopt_label);
         break;
       }
       case kAlwaysFail:
-        as->jmp(deopt_label);
+        phx_x86_jmp_label(pb, deopt_label);
         break;
       case kIs:
         emit_cmp(reg);
-        as->jne(deopt_label);
+        phx_x86_jne(pb, deopt_label);
         break;
       case kHasType: {
-        emit_cmp(x86::qword_ptr(reg, offsetof(PyObject, ob_type)));
-        as->jne(deopt_label);
+        // Compare ob_type field against target
+        constexpr size_t kTargetIndex = 3;
+        auto target_opnd = instr->getInput(kTargetIndex);
+        if (target_opnd->isImm() || target_opnd->isMem()) {
+          auto target = target_opnd->getConstantOrAddress();
+          JIT_DCHECK(
+              fitsSignedInt<32>(target),
+              "Constant operand should fit in a 32-bit register, got {:x}.",
+              target);
+          phx_x86_cmp_mi(pb, phx_qword_ptr(reg, offsetof(PyObject, ob_type)), target);
+        } else {
+          auto target_reg = AutoTranslator::getGp(target_opnd);
+          phx_x86_cmp_mr(pb, phx_qword_ptr(reg, offsetof(PyObject, ob_type)), target_reg);
+        }
+        phx_x86_jne(pb, deopt_label);
         break;
       }
     }
   }
 #elif defined(CINDER_AARCH64)
-  auto as = env->as;
-
   // the first four operands of the guard instruction are:
   //   * kind
   //   * deopt meta id
   //   * guard var (physical register) (0 for AlwaysFail)
   //   * target (for GuardIs and GuardType, and 0 for all others)
 
-  auto deopt_label = as->newLabel();
+  auto deopt_label = Label(phx_builder_new_label(pb));
   auto kind = instr->getInput(0)->getConstant();
 
   arch::Gp reg = arch::reg_scratch_0;
@@ -270,8 +285,8 @@ void TranslateGuard(Environ* env, const Instruction* instr) {
     if (instr->getInput(2)->dataType() == jit::lir::OperandBase::kDouble) {
       JIT_CHECK(kind == kNotZero, "Only NotZero is supported for double")
       auto vecd_reg = AutoTranslator::getVecD(instr->getInput(2));
-      as->fmov(reg, vecd_reg);
-      as->cbz(reg, deopt_label);
+      phx_a64_fmov(pb, reg, vecd_reg);
+      phx_a64_cbz(pb, reg, deopt_label);
       is_double = true;
     } else {
       auto data_type = instr->getInput(2)->dataType();
@@ -302,10 +317,10 @@ void TranslateGuard(Environ* env, const Instruction* instr) {
           "Constant operand should fit into a 12-bit constant, optionally "
           "shifted by 12 bits, got {:x}.",
           target);
-      as->cmp(reg_arg, target);
+      phx_a64_cmp_ri(pb, reg_arg, target);
     } else {
       auto target_reg = AutoTranslator::getGp(target_opnd);
-      as->cmp(reg_arg, target_reg);
+      phx_a64_cmp_rr(pb, reg_arg, target_reg);
     }
   };
 
@@ -313,38 +328,38 @@ void TranslateGuard(Environ* env, const Instruction* instr) {
     switch (kind) {
       case kNotZero:
         if (mask) {
-          as->tst(reg, mask);
-          as->b_eq(deopt_label);
+          phx_a64_tst_ri(pb, reg, mask);
+          phx_a64_b_eq(pb, deopt_label);
         } else {
-          as->cbz(reg, deopt_label);
+          phx_a64_cbz(pb, reg, deopt_label);
         }
         break;
       case kNotNegative: {
-        as->tbnz(reg, sign_bit, deopt_label);
+        phx_a64_tbnz(pb, reg, sign_bit, deopt_label);
         break;
       }
       case kZero:
         if (mask) {
-          as->tst(reg, mask);
-          as->b_ne(deopt_label);
+          phx_a64_tst_ri(pb, reg, mask);
+          phx_a64_b_ne(pb, deopt_label);
         } else {
-          as->cbnz(reg, deopt_label);
+          phx_a64_cbnz(pb, reg, deopt_label);
         }
         break;
       case kAlwaysFail:
-        as->b(deopt_label);
+        phx_a64_b(pb, deopt_label);
         break;
       case kIs:
         emit_cmp(reg);
-        as->b_ne(deopt_label);
+        phx_a64_b_ne(pb, deopt_label);
         break;
       case kHasType: {
-        as->ldr(
+        phx_a64_ldr(pb,
             arch::reg_scratch_0,
             arch::ptr_offset(reg, offsetof(PyObject, ob_type)));
 
         emit_cmp(arch::reg_scratch_0);
-        as->b_ne(deopt_label);
+        phx_a64_b_ne(pb, deopt_label);
         break;
       }
     }
@@ -362,6 +377,7 @@ void TranslateGuard(Environ* env, const Instruction* instr) {
 
 void TranslateDeoptPatchpoint(Environ* env, const Instruction* instr) {
   auto as = env->as;
+  PhxBuilder* pb = as->impl();
 
   auto patcher =
       reinterpret_cast<JumpPatcher*>(instr->getInput(0)->getMemoryAddress());
@@ -376,19 +392,19 @@ void TranslateDeoptPatchpoint(Environ* env, const Instruction* instr) {
   //
   // Not needed on Arm as fixed instructions are a fixed size and updates
   // naturally atomic.
-  as->align(AlignMode::kCode, 8);
+  phx_builder_align(pb, 8);
 #endif
-  auto patchpoint_label = as->newLabel();
-  as->bind(patchpoint_label);
+  auto patchpoint_label = Label(phx_builder_new_label(pb));
+  phx_builder_bind(pb, patchpoint_label);
 
   auto stored_bytes = patcher->storedBytes();
-  as->embed(stored_bytes.data(), stored_bytes.size());
+  phx_builder_embed(pb, stored_bytes.data(), stored_bytes.size());
 
   // Fill in deopt metadata
   auto index = instr->getInput(1)->getConstant();
   // skip the first two inputs which are the patcher and deopt metadata id
   fillLiveValueLocations(env->code_rt, index, instr, 2, instr->getNumInputs());
-  auto deopt_label = as->newLabel();
+  auto deopt_label = Label(phx_builder_new_label(pb));
   env->deopt_exits.emplace_back(index, deopt_label, instr);
 
   // The runtime will link the patcher to the appropriate point in the code
@@ -398,60 +414,61 @@ void TranslateDeoptPatchpoint(Environ* env, const Instruction* instr) {
 }
 
 void TranslateCompare(Environ* env, const Instruction* instr) {
-#if defined(CINDER_X86_64)
   auto as = env->as;
+  PhxBuilder* pb = as->impl();
+
+#if defined(CINDER_X86_64)
   const OperandBase* inp0 = instr->getInput(0);
   const OperandBase* inp1 = instr->getInput(1);
 
   if (inp1->isImm() || inp1->isMem()) {
-    as->cmp(AutoTranslator::getGp(inp0), inp1->getConstantOrAddress());
+    phx_x86_cmp_ri(pb, AutoTranslator::getGp(inp0), inp1->getConstantOrAddress());
   } else if (!inp1->isVecD()) {
-    as->cmp(AutoTranslator::getGp(inp0), AutoTranslator::getGp(inp1));
+    phx_x86_cmp_rr(pb, AutoTranslator::getGp(inp0), AutoTranslator::getGp(inp1));
   } else {
-    as->comisd(AutoTranslator::getVecD(inp0), AutoTranslator::getVecD(inp1));
+    phx_x86_comisd(pb, AutoTranslator::getVecD(inp0), AutoTranslator::getVecD(inp1));
   }
   auto output = AutoTranslator::getGp(instr->output());
   switch (instr->opcode()) {
     case Instruction::kEqual:
-      as->sete(output);
+      phx_x86_sete(pb, output);
       break;
     case Instruction::kNotEqual:
-      as->setne(output);
+      phx_x86_setne(pb, output);
       break;
     case Instruction::kGreaterThanSigned:
-      as->setg(output);
+      phx_x86_setg(pb, output);
       break;
     case Instruction::kGreaterThanEqualSigned:
-      as->setge(output);
+      phx_x86_setge(pb, output);
       break;
     case Instruction::kLessThanSigned:
-      as->setl(output);
+      phx_x86_setl(pb, output);
       break;
     case Instruction::kLessThanEqualSigned:
-      as->setle(output);
+      phx_x86_setle(pb, output);
       break;
     case Instruction::kGreaterThanUnsigned:
-      as->seta(output);
+      phx_x86_seta(pb, output);
       break;
     case Instruction::kGreaterThanEqualUnsigned:
-      as->setae(output);
+      phx_x86_setae(pb, output);
       break;
     case Instruction::kLessThanUnsigned:
-      as->setb(output);
+      phx_x86_setb(pb, output);
       break;
     case Instruction::kLessThanEqualUnsigned:
-      as->setbe(output);
+      phx_x86_setbe(pb, output);
       break;
     default:
       JIT_ABORT("bad instruction for TranslateCompare");
   }
   if (instr->output()->dataType() != OperandBase::k8bit) {
-    as->movzx(
+    phx_x86_movzx_rr(pb,
         AutoTranslator::getGp(instr->output()),
         asmjit::x86::gpb(instr->output()->getPhyRegister().loc));
   }
 #elif defined(CINDER_AARCH64)
-  auto as = env->as;
   const OperandBase* inp0 = instr->getInput(0);
   const OperandBase* inp1 = instr->getInput(1);
 
@@ -461,56 +478,56 @@ void TranslateCompare(Environ* env, const Instruction* instr) {
     auto address = inp1->getConstantOrAddress();
     auto scratch = arch::reg_scratch_0;
 
-    as->mov(scratch, address);
-    as->ldr(scratch, a64::ptr(scratch));
-    as->cmp(AutoTranslator::getGp(inp0), scratch);
+    phx_a64_mov_ri(pb, scratch, address);
+    phx_a64_ldr(pb, scratch, phx_ptr(scratch, 0));
+    phx_a64_cmp_rr(pb, AutoTranslator::getGp(inp0), scratch);
   } else if (inp1->isImm()) {
     auto constant = inp1->getConstantOrAddress();
     auto scratch = arch::reg_scratch_0;
 
     if (arm::Utils::isAddSubImm(constant)) {
-      as->cmp(AutoTranslator::getGp(inp0), constant);
+      phx_a64_cmp_ri(pb, AutoTranslator::getGp(inp0), constant);
     } else {
-      as->mov(scratch, constant);
-      as->cmp(AutoTranslator::getGp(inp0), scratch);
+      phx_a64_mov_ri(pb, scratch, constant);
+      phx_a64_cmp_rr(pb, AutoTranslator::getGp(inp0), scratch);
     }
   } else if (!inp1->isVecD()) {
-    as->cmp(AutoTranslator::getGp(inp0), AutoTranslator::getGp(inp1));
+    phx_a64_cmp_rr(pb, AutoTranslator::getGp(inp0), AutoTranslator::getGp(inp1));
   } else {
-    as->fcmp(AutoTranslator::getVecD(inp0), AutoTranslator::getVecD(inp1));
+    phx_a64_fcmp(pb, AutoTranslator::getVecD(inp0), AutoTranslator::getVecD(inp1));
   }
 
   auto output = AutoTranslator::getGpOutput(instr->output());
   switch (instr->opcode()) {
     case Instruction::kEqual:
-      as->cset(output, arm::CondCode::kEQ);
+      phx_a64_cset(pb, output, PHX_COND_EQ);
       break;
     case Instruction::kNotEqual:
-      as->cset(output, arm::CondCode::kNE);
+      phx_a64_cset(pb, output, PHX_COND_NE);
       break;
     case Instruction::kGreaterThanSigned:
-      as->cset(output, arm::CondCode::kGT);
+      phx_a64_cset(pb, output, PHX_COND_GT);
       break;
     case Instruction::kGreaterThanEqualSigned:
-      as->cset(output, arm::CondCode::kGE);
+      phx_a64_cset(pb, output, PHX_COND_GE);
       break;
     case Instruction::kLessThanSigned:
-      as->cset(output, arm::CondCode::kLT);
+      phx_a64_cset(pb, output, PHX_COND_LT);
       break;
     case Instruction::kLessThanEqualSigned:
-      as->cset(output, arm::CondCode::kLE);
+      phx_a64_cset(pb, output, PHX_COND_LE);
       break;
     case Instruction::kGreaterThanUnsigned:
-      as->cset(output, arm::CondCode::kHI);
+      phx_a64_cset(pb, output, PHX_COND_HI);
       break;
     case Instruction::kGreaterThanEqualUnsigned:
-      as->cset(output, arm::CondCode::kHS);
+      phx_a64_cset(pb, output, PHX_COND_HS);
       break;
     case Instruction::kLessThanUnsigned:
-      as->cset(output, arm::CondCode::kLO);
+      phx_a64_cset(pb, output, PHX_COND_LO);
       break;
     case Instruction::kLessThanEqualUnsigned:
-      as->cset(output, arm::CondCode::kLS);
+      phx_a64_cset(pb, output, PHX_COND_LS);
       break;
     default:
       JIT_ABORT("bad instruction for TranslateCompare");
@@ -521,8 +538,10 @@ void TranslateCompare(Environ* env, const Instruction* instr) {
 }
 
 void translateIntToBool(Environ* env, const Instruction* instr) {
+  auto as = env->as;
+  PhxBuilder* pb = as->impl();
+
 #if defined(CINDER_X86_64)
-  x86::Builder* as = env->as;
   const OperandBase* input = instr->getInput(0);
   x86::Gp output = AutoTranslator::getGp(instr->output());
   JIT_CHECK(
@@ -530,13 +549,12 @@ void translateIntToBool(Environ* env, const Instruction* instr) {
       "Output should be 8bits, not {}",
       instr->output()->dataType());
   if (input->isImm()) {
-    as->mov(output, input->getConstant() ? 1 : 0);
+    phx_x86_mov_ri(pb, output, input->getConstant() ? 1 : 0);
   } else {
-    as->test(AutoTranslator::getGp(input), AutoTranslator::getGp(input));
-    as->setne(output);
+    phx_x86_test_rr(pb, AutoTranslator::getGp(input), AutoTranslator::getGp(input));
+    phx_x86_setne(pb, output);
   }
 #elif defined(CINDER_AARCH64)
-  a64::Builder* as = env->as;
   const OperandBase* input = instr->getInput(0);
   a64::Gp output = AutoTranslator::getGpOutput(instr->output());
   JIT_CHECK(
@@ -544,10 +562,10 @@ void translateIntToBool(Environ* env, const Instruction* instr) {
       "Output should be 8bits, not {}",
       instr->output()->dataType());
   if (input->isImm()) {
-    as->mov(output, input->getConstant() ? 1 : 0);
+    phx_a64_mov_ri(pb, output, input->getConstant() ? 1 : 0);
   } else {
-    as->cmp(AutoTranslator::getGp(input), 0);
-    as->cset(output, a64::CondCode::kNE);
+    phx_a64_cmp_ri(pb, AutoTranslator::getGp(input), 0);
+    phx_a64_cset(pb, output, PHX_COND_NE);
   }
 #else
   CINDER_UNSUPPORTED
@@ -595,18 +613,21 @@ void emitStoreGenYieldPoint(
     env->pending_debug_locs.emplace_back(resume_label, yield->origin());
   }
 
-  as->mov(scratch_r, reinterpret_cast<uint64_t>(gen_yield_point));
-  auto yieldPointOffset = offsetof(GenDataFooter, yieldPoint);
+  PhxBuilder* pb = as->impl();
 
 #if defined(CINDER_X86_64)
-  as->mov(x86::qword_ptr(suspend_data_r, yieldPointOffset), scratch_r);
+  phx_x86_mov_ri(pb, scratch_r, reinterpret_cast<uint64_t>(gen_yield_point));
+  auto yieldPointOffset = offsetof(GenDataFooter, yieldPoint);
+  phx_x86_mov_mr(pb, phx_qword_ptr(suspend_data_r, yieldPointOffset), scratch_r);
 #elif defined(CINDER_AARCH64)
-  as->str(
+  phx_a64_mov_ri(pb, scratch_r, reinterpret_cast<uint64_t>(gen_yield_point));
+  auto yieldPointOffset = offsetof(GenDataFooter, yieldPoint);
+  phx_a64_str(pb,
       scratch_r,
       arch::ptr_resolve(
           as, suspend_data_r, yieldPointOffset, arch::reg_scratch_0));
 #else
-  (void)yieldPointOffset;
+  (void)gen_yield_point;
   CINDER_UNSUPPORTED
 #endif
 }
@@ -616,15 +637,17 @@ void emitLoadResumedYieldInputs(
     const Instruction* instr,
     PhyLocation sent_in_source_loc,
     arch::Gp tstate_reg) {
+  PhxBuilder* pb = as->impl();
+
 #if defined(CINDER_X86_64)
   PhyLocation tstate = instr->getInput(0)->getStackSlot();
-  as->mov(x86::ptr(x86::rbp, tstate.loc), tstate_reg);
+  phx_x86_mov_mr(pb, phx_qword_ptr(x86::rbp, tstate.loc), tstate_reg);
 
   const lir::Operand* target = instr->output();
 
   if (target->isStack()) {
-    as->mov(
-        x86::ptr(x86::rbp, target->getStackSlot().loc),
+    phx_x86_mov_mr(pb,
+        phx_qword_ptr(x86::rbp, target->getStackSlot().loc),
         x86::gpq(sent_in_source_loc.loc));
     return;
   }
@@ -632,7 +655,7 @@ void emitLoadResumedYieldInputs(
   if (target->isReg()) {
     PhyLocation target_loc = target->getPhyRegister();
     if (target_loc != sent_in_source_loc) {
-      as->mov(x86::gpq(target_loc.loc), x86::gpq(sent_in_source_loc.loc));
+      phx_x86_mov_rr(pb, x86::gpq(target_loc.loc), x86::gpq(sent_in_source_loc.loc));
     }
     return;
   }
@@ -643,14 +666,14 @@ void emitLoadResumedYieldInputs(
       target->type());
 #elif defined(CINDER_AARCH64)
   PhyLocation tstate = instr->getInput(0)->getStackSlot();
-  as->str(
+  phx_a64_str(pb,
       tstate_reg,
       arch::ptr_resolve(as, arch::fp, tstate.loc, arch::reg_scratch_0));
 
   const lir::Operand* target = instr->output();
 
   if (target->isStack()) {
-    as->str(
+    phx_a64_str(pb,
         a64::x(sent_in_source_loc.loc),
         arch::ptr_resolve(
             as, arch::fp, target->getStackSlot().loc, arch::reg_scratch_0));
@@ -660,7 +683,7 @@ void emitLoadResumedYieldInputs(
   if (target->isReg()) {
     PhyLocation target_loc = target->getPhyRegister();
     if (target_loc != sent_in_source_loc) {
-      as->mov(a64::x(target_loc.loc), a64::x(sent_in_source_loc.loc));
+      phx_a64_mov_rr(pb, a64::x(target_loc.loc), a64::x(sent_in_source_loc.loc));
     }
     return;
   }
@@ -675,30 +698,31 @@ void emitLoadResumedYieldInputs(
 }
 
 void translateYieldInitial(Environ* env, const Instruction* instr) {
+  arch::Builder* as = env->as;
+  PhxBuilder* pb = as->impl();
+
 #if defined(CINDER_X86_64)
 #if PY_VERSION_HEX < 0x030C0000
-  arch::Builder* as = env->as;
-
   // Load tstate into RDI for call to JITRT_MakeGenObject*.
 
   // Consider avoiding reloading the tstate in from memory if it was already in
   // a register before spilling. Still needs to be in memory though so it can be
   // recovered after calling JITRT_MakeGenObject* which will trash it.
   PhyLocation tstate = instr->getInput(0)->getStackSlot();
-  as->mov(x86::rdi, x86::ptr(x86::rbp, tstate.loc));
+  phx_x86_mov_rm(pb, x86::rdi, phx_qword_ptr(x86::rbp, tstate.loc));
 
   // Make a generator object to be returned by the epilogue.
-  as->lea(x86::rsi, x86::ptr(env->gen_resume_entry_label));
+  phx_x86_lea(pb, x86::rsi, x86::ptr(env->gen_resume_entry_label));
   JIT_CHECK(
       env->shadow_frames_and_spill_size % kPointerSize == 0,
       "Bad spill alignment");
-  as->mov(x86::rdx, env->shadow_frames_and_spill_size / kPointerSize);
-  as->mov(x86::rcx, reinterpret_cast<uint64_t>(env->code_rt));
+  phx_x86_mov_ri(pb, x86::rdx, env->shadow_frames_and_spill_size / kPointerSize);
+  phx_x86_mov_ri(pb, x86::rcx, reinterpret_cast<uint64_t>(env->code_rt));
   JIT_CHECK(instr->origin()->IsInitialYield(), "expected InitialYield");
   PyCodeObject* code = static_cast<const hir::InitialYield*>(instr->origin())
                            ->frameState()
                            ->code;
-  as->mov(x86::r8, reinterpret_cast<uint64_t>(code));
+  phx_x86_mov_ri(pb, x86::r8, reinterpret_cast<uint64_t>(code));
   if (code->co_flags & CO_COROUTINE) {
     emitCall(*env, reinterpret_cast<uint64_t>(JITRT_MakeGenObjectCoro), instr);
   } else if (code->co_flags & CO_ASYNC_GENERATOR) {
@@ -711,17 +735,17 @@ void translateYieldInitial(Environ* env, const Instruction* instr) {
   const auto gen_reg = x86::rax;
 
   // Exit early if return from JITRT_MakeGenObject was nullptr.
-  as->test(gen_reg, gen_reg);
-  as->jz(env->hard_exit_label);
+  phx_x86_test_rr(pb, gen_reg, gen_reg);
+  phx_x86_jz(pb, env->hard_exit_label);
 
   // Set RDI to gen->gi_jit_data for use in emitStoreGenYieldPoint() and data
   // copy using 'movsq' below.
   auto gi_jit_data_offset = offsetof(PyGenObject, gi_jit_data);
-  as->mov(x86::rdi, x86::ptr(gen_reg, gi_jit_data_offset));
+  phx_x86_mov_rm(pb, x86::rdi, phx_qword_ptr(gen_reg, gi_jit_data_offset));
 
   // Arbitrary scratch register for use in emitStoreGenYieldPoint().
   auto scratch_r = x86::r9;
-  asmjit::Label resume_label = as->newLabel();
+  asmjit::Label resume_label = Label(phx_builder_new_label(pb));
   emitStoreGenYieldPoint(as, env, instr, resume_label, x86::rdi, scratch_r);
 
   // Store variables spilled by this point to generator.
@@ -729,23 +753,22 @@ void translateYieldInitial(Environ* env, const Instruction* instr) {
   JIT_CHECK(spill_bytes % kPointerSize == 0, "Bad spill alignment");
 
   // Point rsi at the bottom word of the current spill space.
-  as->lea(x86::rsi, x86::ptr(x86::rbp, -spill_bytes));
+  phx_x86_lea(pb, x86::rsi, phx_ptr(x86::rbp, -spill_bytes));
   // Point rdi at the bottom word of the generator's spill space.
-  as->sub(x86::rdi, spill_bytes);
-  as->mov(x86::rcx, spill_bytes / kPointerSize);
+  phx_x86_sub_ri(pb, x86::rdi, spill_bytes);
+  phx_x86_mov_ri(pb, x86::rcx, spill_bytes / kPointerSize);
+  // TODO(phoenix-asm): rep movsq not yet in phoenix-asm C API
   as->rep().movsq();
 
   // Jump to bottom half of epilogue
-  as->jmp(env->hard_exit_label);
+  phx_x86_jmp_label(pb, env->hard_exit_label);
 
   // Resumed execution in this generator begins here
-  as->bind(resume_label);
+  phx_builder_bind(pb, resume_label);
 
   // Sent in value is in RSI, and tstate is in RCX from resume entry-point args
   emitLoadResumedYieldInputs(as, instr, RSI, x86::rcx);
 #else
-  arch::Builder* as = env->as;
-
   // Load tstate into RDI for call to
   // JITRT_UnlinkGenFrameAndReturnGenDataFooter.
 
@@ -753,7 +776,7 @@ void translateYieldInitial(Environ* env, const Instruction* instr) {
   // a register before spilling. Still needs to be in memory though so it can be
   // recovered after calling JITRT_MakeGenObject* which will trash it.
   PhyLocation tstate = instr->getInput(0)->getStackSlot();
-  as->mov(x86::rdi, x86::ptr(x86::rbp, tstate.loc));
+  phx_x86_mov_rm(pb, x86::rdi, phx_qword_ptr(x86::rbp, tstate.loc));
 
   emitCall(
       *env,
@@ -765,14 +788,14 @@ void translateYieldInitial(Environ* env, const Instruction* instr) {
   // caller-saved register not used in this scope will do because we're on the
   // exit path now.
   auto scratch_r = x86::r9;
-  asmjit::Label resume_label = as->newLabel();
+  asmjit::Label resume_label = Label(phx_builder_new_label(pb));
   emitStoreGenYieldPoint(as, env, instr, resume_label, x86::rdx, scratch_r);
 
   // Jump to epilogue
-  as->jmp(env->exit_for_yield_label);
+  phx_x86_jmp_label(pb, env->exit_for_yield_label);
 
   // Resumed execution in this generator begins here
-  as->bind(resume_label);
+  phx_builder_bind(pb, resume_label);
 
   // Sent in value is in RSI, and tstate is in RCX from resume entry-point args
   emitLoadResumedYieldInputs(as, instr, RSI, x86::rcx);
@@ -781,8 +804,6 @@ void translateYieldInitial(Environ* env, const Instruction* instr) {
 #if PY_VERSION_HEX < 0x030C0000
   CINDER_UNSUPPORTED
 #else
-  arch::Builder* as = env->as;
-
   // Load tstate into X0 for call to
   // JITRT_UnlinkGenFrameAndReturnGenDataFooter.
 
@@ -790,7 +811,7 @@ void translateYieldInitial(Environ* env, const Instruction* instr) {
   // a register before spilling. Still needs to be in memory though so it can be
   // recovered after calling JITRT_MakeGenObject* which will trash it.
   PhyLocation tstate = instr->getInput(0)->getStackSlot();
-  as->ldr(
+  phx_a64_ldr(pb,
       a64::x0,
       arch::ptr_resolve(as, arch::fp, tstate.loc, arch::reg_scratch_0));
 
@@ -804,14 +825,14 @@ void translateYieldInitial(Environ* env, const Instruction* instr) {
   // caller-saved register not used in this scope will do because we're on the
   // exit path now.
   auto scratch_r = arch::reg_scratch_0;
-  asmjit::Label resume_label = as->newLabel();
+  asmjit::Label resume_label = Label(phx_builder_new_label(pb));
   emitStoreGenYieldPoint(as, env, instr, resume_label, a64::x1, scratch_r);
 
   // Jump to epilogue
-  as->b(env->exit_for_yield_label);
+  phx_a64_b(pb, env->exit_for_yield_label);
 
   // Resumed execution in this generator begins here
-  as->bind(resume_label);
+  phx_builder_bind(pb, resume_label);
 
   // Sent in value is in X1, and tstate is in X3 from resume entry-point args
   emitLoadResumedYieldInputs(as, instr, X1, a64::x3);
@@ -822,63 +843,62 @@ void translateYieldInitial(Environ* env, const Instruction* instr) {
 }
 
 void translateYieldValue(Environ* env, const Instruction* instr) {
-#if defined(CINDER_X86_64)
   arch::Builder* as = env->as;
+  PhxBuilder* pb = as->impl();
 
+#if defined(CINDER_X86_64)
   // Make sure tstate is in RDI for use in epilogue.
   PhyLocation tstate = instr->getInput(0)->getStackSlot();
-  as->mov(x86::rdi, x86::ptr(x86::rbp, tstate.loc));
+  phx_x86_mov_rm(pb, x86::rdi, phx_qword_ptr(x86::rbp, tstate.loc));
 
   // Value to send goes to RAX so it can be yielded (returned) by epilogue.
   if (instr->getInput(1)->isImm()) {
-    as->mov(x86::rax, instr->getInput(1)->getConstant());
+    phx_x86_mov_ri(pb, x86::rax, instr->getInput(1)->getConstant());
   } else {
     PhyLocation value_out = instr->getInput(1)->getStackSlot();
-    as->mov(x86::rax, x86::ptr(x86::rbp, value_out.loc));
+    phx_x86_mov_rm(pb, x86::rax, phx_qword_ptr(x86::rbp, value_out.loc));
   }
 
   // Arbitrary scratch register for use in emitStoreGenYieldPoint()
   auto scratch_r = x86::r9;
-  auto resume_label = as->newLabel();
+  auto resume_label = Label(phx_builder_new_label(pb));
   emitStoreGenYieldPoint(as, env, instr, resume_label, x86::rbp, scratch_r);
 
   // Jump to epilogue
-  as->jmp(env->exit_for_yield_label);
+  phx_x86_jmp_label(pb, env->exit_for_yield_label);
 
   // Resumed execution in this generator begins here
-  as->bind(resume_label);
+  phx_builder_bind(pb, resume_label);
 
   // Sent in value is in RSI, and tstate is in RCX from resume entry-point args
   emitLoadResumedYieldInputs(as, instr, RSI, x86::rcx);
 #elif defined(CINDER_AARCH64)
-  a64::Builder* as = env->as;
-
   // Make sure tstate is in x2 for use in epilogue.
   PhyLocation tstate = instr->getInput(0)->getStackSlot();
-  as->ldr(
+  phx_a64_ldr(pb,
       a64::x2,
       arch::ptr_resolve(as, arch::fp, tstate.loc, arch::reg_scratch_0));
 
   // Value to send goes to x0 so it can be yielded (returned) by epilogue.
   if (instr->getInput(1)->isImm()) {
-    as->mov(a64::x0, instr->getInput(1)->getConstant());
+    phx_a64_mov_ri(pb, a64::x0, instr->getInput(1)->getConstant());
   } else {
     PhyLocation value_out = instr->getInput(1)->getStackSlot();
-    as->ldr(
+    phx_a64_ldr(pb,
         a64::x0,
         arch::ptr_resolve(as, arch::fp, value_out.loc, arch::reg_scratch_0));
   }
 
   // Arbitrary scratch register for use in emitStoreGenYieldPoint()
   auto scratch_r = arch::reg_scratch_0;
-  auto resume_label = as->newLabel();
+  auto resume_label = Label(phx_builder_new_label(pb));
   emitStoreGenYieldPoint(as, env, instr, resume_label, arch::fp, scratch_r);
 
   // Jump to epilogue
-  as->b(env->exit_for_yield_label);
+  phx_a64_b(pb, env->exit_for_yield_label);
 
   // Resumed execution in this generator begins here
-  as->bind(resume_label);
+  phx_builder_bind(pb, resume_label);
 
   // Sent in value is in x1, and tstate is in x3 from resume entry-point args
   emitLoadResumedYieldInputs(as, instr, X1, a64::x3);
@@ -888,14 +908,16 @@ void translateYieldValue(Environ* env, const Instruction* instr) {
 }
 
 void translateYieldFrom(Environ* env, const Instruction* instr) {
-#if defined(CINDER_X86_64)
   arch::Builder* as = env->as;
+  PhxBuilder* pb = as->impl();
+
+#if defined(CINDER_X86_64)
   bool skip_initial_send = instr->isYieldFromSkipInitialSend();
 
   // Make sure tstate is in RDI for use in epilogue and here.
   PhyLocation tstate = instr->getInput(0)->getStackSlot();
   auto tstate_phys_reg = x86::rdi;
-  as->mov(tstate_phys_reg, x86::ptr(x86::rbp, tstate.loc));
+  phx_x86_mov_rm(pb, tstate_phys_reg, phx_qword_ptr(x86::rbp, tstate.loc));
 
   // If we're skipping the initial send the send value is actually the first
   // value to yield and so needs to go into RAX to be returned. Otherwise,
@@ -903,12 +925,12 @@ void translateYieldFrom(Environ* env, const Instruction* instr) {
   // be on resume.
   PhyLocation send_value = instr->getInput(1)->getStackSlot();
   const auto send_value_phys_reg = skip_initial_send ? RAX : RSI;
-  as->mov(
-      x86::gpq(send_value_phys_reg.loc), x86::ptr(x86::rbp, send_value.loc));
+  phx_x86_mov_rm(pb,
+      x86::gpq(send_value_phys_reg.loc), phx_qword_ptr(x86::rbp, send_value.loc));
 
-  asmjit::Label yield_label = as->newLabel();
+  asmjit::Label yield_label = Label(phx_builder_new_label(pb));
   if (skip_initial_send) {
-    as->jmp(yield_label);
+    phx_x86_jmp_label(pb, yield_label);
   } else {
     // Setup call to JITRT_GenSend
 
@@ -916,17 +938,17 @@ void translateYieldFrom(Environ* env, const Instruction* instr) {
     // set finish_yield_from (RDX) to 0. This register setup matches that when
     // `resume_label` is reached from the resume entry.
     auto gen_offs = offsetof(GenDataFooter, gen);
-    as->mov(x86::rcx, tstate_phys_reg);
-    as->mov(x86::rdi, x86::ptr(x86::rbp, gen_offs));
-    as->xor_(x86::rdx, x86::rdx);
+    phx_x86_mov_rr(pb, x86::rcx, tstate_phys_reg);
+    phx_x86_mov_rm(pb, x86::rdi, phx_qword_ptr(x86::rbp, gen_offs));
+    phx_x86_xor_rr(pb, x86::rdx, x86::rdx);
   }
 
   // Resumed execution begins here
-  auto resume_label = as->newLabel();
-  as->bind(resume_label);
+  auto resume_label = Label(phx_builder_new_label(pb));
+  phx_builder_bind(pb, resume_label);
 
   // Save tstate from resume to callee-saved reigster.
-  as->mov(x86::rbx, x86::rcx);
+  phx_x86_mov_rr(pb, x86::rbx, x86::rcx);
 
   // 'send_value', and 'finish_yield_from' will already be in RSI and RCX
   // respectively, either from code above on initial start or from resume entry
@@ -934,7 +956,7 @@ void translateYieldFrom(Environ* env, const Instruction* instr) {
 
   // Load sub-iterator into RDI
   PhyLocation iter_slot = instr->getInput(2)->getStackSlot();
-  as->mov(x86::rdi, x86::ptr(x86::rbp, iter_slot.loc));
+  phx_x86_mov_rm(pb, x86::rdi, phx_qword_ptr(x86::rbp, iter_slot.loc));
 
   uint64_t func = reinterpret_cast<uint64_t>(
       instr->isYieldFromHandleStopAsyncIteration()
@@ -947,30 +969,29 @@ void translateYieldFrom(Environ* env, const Instruction* instr) {
   const auto done_r = x86::rdx;
 
   // Restore tstate from callee-saved register.
-  as->mov(tstate_phys_reg, x86::rbx);
+  phx_x86_mov_rr(pb, tstate_phys_reg, x86::rbx);
 
   // If not done, jump to epilogue which will yield/return the value from
   // JITRT_GenSend in RAX.
-  as->test(done_r, done_r);
-  asmjit::Label done_label = as->newLabel();
-  as->jnz(done_label);
+  phx_x86_test_rr(pb, done_r, done_r);
+  asmjit::Label done_label = Label(phx_builder_new_label(pb));
+  phx_x86_jnz(pb, done_label);
 
-  as->bind(yield_label);
+  phx_builder_bind(pb, yield_label);
   // Arbitrary scratch register for use in emitStoreGenYieldPoint()
   auto scratch_r = x86::r9;
   emitStoreGenYieldPoint(as, env, instr, resume_label, x86::rbp, scratch_r);
-  as->jmp(env->exit_for_yield_label);
+  phx_x86_jmp_label(pb, env->exit_for_yield_label);
 
-  as->bind(done_label);
+  phx_builder_bind(pb, done_label);
   emitLoadResumedYieldInputs(as, instr, yf_result_phys_reg, tstate_phys_reg);
 #elif defined(CINDER_AARCH64)
-  arch::Builder* as = env->as;
   bool skip_initial_send = instr->isYieldFromSkipInitialSend();
 
   // Make sure tstate is in X0 for use in epilogue and here.
   PhyLocation tstate = instr->getInput(0)->getStackSlot();
   auto tstate_phys_reg = a64::x0;
-  as->ldr(
+  phx_a64_ldr(pb,
       tstate_phys_reg,
       arch::ptr_resolve(as, arch::fp, tstate.loc, arch::reg_scratch_0));
 
@@ -980,13 +1001,13 @@ void translateYieldFrom(Environ* env, const Instruction* instr) {
   // be on resume.
   PhyLocation send_value = instr->getInput(1)->getStackSlot();
   const auto send_value_phys_reg = skip_initial_send ? X0 : X1;
-  as->ldr(
+  phx_a64_ldr(pb,
       a64::x(send_value_phys_reg.loc),
       arch::ptr_resolve(as, arch::fp, send_value.loc, arch::reg_scratch_0));
 
-  asmjit::Label yield_label = as->newLabel();
+  asmjit::Label yield_label = Label(phx_builder_new_label(pb));
   if (skip_initial_send) {
-    as->b(yield_label);
+    phx_a64_b(pb, yield_label);
   } else {
     // Setup call to JITRT_GenSend
 
@@ -994,17 +1015,17 @@ void translateYieldFrom(Environ* env, const Instruction* instr) {
     // set finish_yield_from (X2) to 0. This register setup matches that when
     // `resume_label` is reached from the resume entry.
     auto gen_offs = offsetof(GenDataFooter, gen);
-    as->mov(a64::x3, tstate_phys_reg);
-    as->ldr(a64::x0, arch::ptr_offset(arch::fp, gen_offs));
-    as->mov(a64::x2, a64::xzr);
+    phx_a64_mov_rr(pb, a64::x3, tstate_phys_reg);
+    phx_a64_ldr(pb, a64::x0, arch::ptr_offset(arch::fp, gen_offs));
+    phx_a64_mov_rr(pb, a64::x2, a64::xzr);
   }
 
   // Resumed execution begins here
-  auto resume_label = as->newLabel();
-  as->bind(resume_label);
+  auto resume_label = Label(phx_builder_new_label(pb));
+  phx_builder_bind(pb, resume_label);
 
   // Save tstate from resume to callee-saved reigster.
-  as->mov(a64::x19, a64::x3);
+  phx_a64_mov_rr(pb, a64::x19, a64::x3);
 
   // 'send_value', and 'finish_yield_from' will already be in X1 and X3
   // respectively, either from code above on initial start or from resume entry
@@ -1012,7 +1033,7 @@ void translateYieldFrom(Environ* env, const Instruction* instr) {
 
   // Load sub-iterator into X0
   PhyLocation iter_slot = instr->getInput(2)->getStackSlot();
-  as->ldr(
+  phx_a64_ldr(pb,
       a64::x0,
       arch::ptr_resolve(as, arch::fp, iter_slot.loc, arch::reg_scratch_0));
 
@@ -1027,20 +1048,20 @@ void translateYieldFrom(Environ* env, const Instruction* instr) {
   const auto done_r = a64::x2;
 
   // Restore tstate from callee-saved register.
-  as->mov(tstate_phys_reg, a64::x19);
+  phx_a64_mov_rr(pb, tstate_phys_reg, a64::x19);
 
   // If not done, jump to epilogue which will yield/return the value from
   // JITRT_GenSend in X0.
-  asmjit::Label done_label = as->newLabel();
-  as->cbnz(done_r, done_label);
+  asmjit::Label done_label = Label(phx_builder_new_label(pb));
+  phx_a64_cbnz(pb, done_r, done_label);
 
-  as->bind(yield_label);
+  phx_builder_bind(pb, yield_label);
   // Arbitrary scratch register for use in emitStoreGenYieldPoint()
   auto scratch_r = arch::reg_scratch_0;
   emitStoreGenYieldPoint(as, env, instr, resume_label, arch::fp, scratch_r);
-  as->b(env->exit_for_yield_label);
+  phx_a64_b(pb, env->exit_for_yield_label);
 
-  as->bind(done_label);
+  phx_builder_bind(pb, done_label);
   emitLoadResumedYieldInputs(as, instr, yf_result_phys_reg, tstate_phys_reg);
 #else
   CINDER_UNSUPPORTED
@@ -1311,8 +1332,9 @@ struct RuleActions<> {
 
 struct AddDebugEntryAction {
   static void eval(Environ* env, const Instruction* instr) {
-    asmjit::Label label = env->as->newLabel();
-    env->as->bind(label);
+    PhxBuilder* pb = env->as->impl();
+    asmjit::Label label = Label(phx_builder_new_label(pb));
+    phx_builder_bind(pb, label);
     if (instr->origin()) {
       env->pending_debug_locs.emplace_back(label, instr->origin());
     }
@@ -1770,24 +1792,25 @@ void leaIndex(
     arch::Gp base,
     arch::Gp index,
     uint8_t multiplier) {
+  PhxBuilder* pb = as->impl();
   switch (multiplier) {
     case 0:
-      as->add(output, base, index);
+      phx_a64_add_rrr(pb, output, base, index);
       break;
     case 1:
-      as->add(output, base, index, a64::lsl(1));
+      phx_a64_add_rrr_shifted(pb, output, base, index, 0 /*LSL*/, 1);
       break;
     case 2:
-      as->add(output, base, index, a64::lsl(2));
+      phx_a64_add_rrr_shifted(pb, output, base, index, 0 /*LSL*/, 2);
       break;
     case 3:
-      as->add(output, base, index, a64::lsl(3));
+      phx_a64_add_rrr_shifted(pb, output, base, index, 0 /*LSL*/, 3);
       break;
     default: {
       // Use scratch register to avoid clobbering index when output and
       // index are the same register.
-      as->mov(arch::reg_scratch_0, uint64_t{1} << multiplier);
-      as->madd(output, index, arch::reg_scratch_0, base);
+      phx_a64_mov_ri(pb, arch::reg_scratch_0, uint64_t{1} << multiplier);
+      phx_a64_madd(pb, output, index, arch::reg_scratch_0, base);
       break;
     }
   }
@@ -1800,6 +1823,7 @@ void leaIndirect(
     arch::Gp output,
     arch::Gp scratch0,
     const MemoryIndirect* indirect) {
+  PhxBuilder* pb = as->impl();
   auto base = getGpOrSP(indirect->getBaseRegOperand());
   auto indexRegOperand = indirect->getIndexRegOperand();
   auto offset = indirect->getOffset();
@@ -1817,20 +1841,20 @@ void leaIndirect(
 
   if (offset > 0) {
     if (arm::Utils::isAddSubImm(static_cast<uint64_t>(offset))) {
-      as->add(output, base, offset);
+      phx_a64_add_rri(pb, output, base, offset);
     } else {
-      as->mov(scratch0, offset);
-      as->add(output, base, scratch0);
+      phx_a64_mov_ri(pb, scratch0, offset);
+      phx_a64_add_rrr(pb, output, base, scratch0);
     }
   } else if (offset < 0) {
     if (arm::Utils::isAddSubImm(static_cast<uint64_t>(-offset))) {
-      as->sub(output, base, -offset);
+      phx_a64_sub_rri(pb, output, base, -offset);
     } else {
-      as->mov(scratch0, -offset);
-      as->sub(output, base, scratch0);
+      phx_a64_mov_ri(pb, scratch0, -offset);
+      phx_a64_sub_rrr(pb, output, base, scratch0);
     }
   } else if (indexRegOperand == nullptr) {
-    as->mov(output, base);
+    phx_a64_mov_rr(pb, output, base);
   }
 }
 
@@ -1863,20 +1887,21 @@ void loadToReg(
     arch::Builder* as,
     const OperandBase* output,
     const arch::Mem& input) {
+  PhxBuilder* pb = as->impl();
   if (output->isVecD()) {
-    as->ldr(AT::getVecD(output), input);
+    phx_a64_ldr(pb, AT::getVecD(output), input);
   } else {
     switch (output->dataType()) {
       case OperandBase::k8bit:
-        as->ldrb(
+        phx_a64_ldrb(pb,
             AT::getGp(DataType::k32bit, output->getPhyRegister().loc), input);
         break;
       case OperandBase::k16bit:
-        as->ldrh(
+        phx_a64_ldrh(pb,
             AT::getGp(DataType::k32bit, output->getPhyRegister().loc), input);
         break;
       default:
-        as->ldr(AT::getGp(output), input);
+        phx_a64_ldr(pb, AT::getGp(output), input);
         break;
     }
   }
@@ -1886,20 +1911,21 @@ void storeFromReg(
     arch::Builder* as,
     const OperandBase* input,
     const arch::Mem& output) {
+  PhxBuilder* pb = as->impl();
   if (input->isVecD()) {
-    as->str(AT::getVecD(input), output);
+    phx_a64_str(pb, AT::getVecD(input), output);
   } else {
     switch (input->dataType()) {
       case OperandBase::k8bit:
-        as->strb(
+        phx_a64_strb(pb,
             AT::getGp(DataType::k32bit, input->getPhyRegister().loc), output);
         break;
       case OperandBase::k16bit:
-        as->strh(
+        phx_a64_strh(pb,
             AT::getGp(DataType::k32bit, input->getPhyRegister().loc), output);
         break;
       default:
-        as->str(AT::getGp(input), output);
+        phx_a64_str(pb, AT::getGp(input), output);
         break;
     }
   }
@@ -1907,6 +1933,7 @@ void storeFromReg(
 
 void translateLea(Environ* env, const Instruction* instr) {
   a64::Builder* as = env->as;
+  PhxBuilder* pb = as->impl();
 
   auto output = instr->output();
   auto input = instr->getInput(0);
@@ -1917,13 +1944,13 @@ void translateLea(Environ* env, const Instruction* instr) {
     // Use sub for negative offsets (aarch64 ADD only takes unsigned immediates)
     int loc = input->getStackSlot().loc;
     if (loc >= 0) {
-      as->add(AT::getGp(output), arch::fp, loc);
+      phx_a64_add_rri(pb, AT::getGp(output), arch::fp, loc);
     } else {
-      as->sub(AT::getGp(output), arch::fp, -loc);
+      phx_a64_sub_rri(pb, AT::getGp(output), arch::fp, -loc);
     }
   } else if (input->isMem()) {
     auto address = reinterpret_cast<uint64_t>(input->getMemoryAddress());
-    as->mov(AT::getGp(output), address);
+    phx_a64_mov_ri(pb, AT::getGp(output), address);
   } else if (input->isInd()) {
     leaIndirect(
         as, AT::getGp(output), arch::reg_scratch_0, input->getMemoryIndirect());
@@ -1934,82 +1961,80 @@ void translateLea(Environ* env, const Instruction* instr) {
 
 void translateCall(Environ* env, const Instruction* instr) {
   a64::Builder* as = env->as;
+  PhxBuilder* pb = as->impl();
 
   auto output = instr->output();
   auto input = instr->getInput(0);
 
-  asmjit::Label after_call = as->newLabel();
+  asmjit::Label after_call = Label(phx_builder_new_label(pb));
 
   if (input->isReg()) {
     auto target = AT::getGp(input);
     if (target.id() != arch::reg_scratch_br.id()) {
-      as->mov(arch::reg_scratch_br, target);
+      phx_a64_mov_rr(pb, arch::reg_scratch_br, target);
     }
-    as->adr(arch::reg_scratch_0, after_call);
+    phx_a64_adr(pb, arch::reg_scratch_0, after_call);
     if (env->is_generator) {
-      as->str(arch::reg_scratch_0,
-              asmjit::arm::Mem(asmjit::a64::x29,
-                               offsetof(jit::GenDataFooter, savedIP)));
+      phx_a64_str(pb, arch::reg_scratch_0,
+              phx_ptr(a64::x29, offsetof(jit::GenDataFooter, savedIP)));
     } else {
-      as->str(
+      phx_a64_str(pb,
           arch::reg_scratch_0,
           arch::ptr_resolve(
               as, arch::fp, env->saved_ip_fp_offset, arch::reg_scratch_1));
     }
-    as->blr(arch::reg_scratch_br);
+    phx_a64_blr(pb, arch::reg_scratch_br);
   } else if (input->isImm()) {
-    as->mov(arch::reg_scratch_br, input->getConstant());
-    as->adr(arch::reg_scratch_0, after_call);
+    phx_a64_mov_ri(pb, arch::reg_scratch_br, input->getConstant());
+    phx_a64_adr(pb, arch::reg_scratch_0, after_call);
     if (env->is_generator) {
-      as->str(arch::reg_scratch_0,
-              asmjit::arm::Mem(asmjit::a64::x29,
-                               offsetof(jit::GenDataFooter, savedIP)));
+      phx_a64_str(pb, arch::reg_scratch_0,
+              phx_ptr(a64::x29, offsetof(jit::GenDataFooter, savedIP)));
     } else {
-      as->str(
+      phx_a64_str(pb,
           arch::reg_scratch_0,
           arch::ptr_resolve(
               as, arch::fp, env->saved_ip_fp_offset, arch::reg_scratch_1));
     }
-    as->blr(arch::reg_scratch_br);
+    phx_a64_blr(pb, arch::reg_scratch_br);
   } else if (input->isStack()) {
     auto loc = input->getStackSlot().loc;
-    as->ldr(
+    phx_a64_ldr(pb,
         arch::reg_scratch_br,
         arch::ptr_resolve(as, arch::fp, loc, arch::reg_scratch_0));
-    as->adr(arch::reg_scratch_0, after_call);
+    phx_a64_adr(pb, arch::reg_scratch_0, after_call);
     if (env->is_generator) {
-      as->str(arch::reg_scratch_0,
-              asmjit::arm::Mem(asmjit::a64::x29,
-                               offsetof(jit::GenDataFooter, savedIP)));
+      phx_a64_str(pb, arch::reg_scratch_0,
+              phx_ptr(a64::x29, offsetof(jit::GenDataFooter, savedIP)));
     } else {
-      as->str(
+      phx_a64_str(pb,
           arch::reg_scratch_0,
           arch::ptr_resolve(
               as, arch::fp, env->saved_ip_fp_offset, arch::reg_scratch_1));
     }
-    as->blr(arch::reg_scratch_br);
+    phx_a64_blr(pb, arch::reg_scratch_br);
   } else {
     JIT_ABORT("Unsupported operand type for Call: {}", input->type());
   }
-  as->bind(after_call);
+  phx_builder_bind(pb, after_call);
 
   if (instr->origin()) {
-    asmjit::Label label = as->newLabel();
-    as->bind(label);
+    asmjit::Label label = Label(phx_builder_new_label(pb));
+    phx_builder_bind(pb, label);
     env->pending_debug_locs.emplace_back(label, instr->origin());
   }
 
   if (output->type() != OperandBase::kNone) {
     if (output->isVecD()) {
-      as->mov(AT::getVecD(output), a64::d0);
+      phx_a64_fmov(pb, AT::getVecD(output), a64::d0);
     } else {
       auto out_reg = AT::getGp(output);
       // Match the source register width to the destination register width.
       // aarch64 mov requires both operands to be the same size.
       if (out_reg.isGpW()) {
-        as->mov(out_reg, a64::w0);
+        phx_a64_mov_rr(pb, out_reg, a64::w0);
       } else {
-        as->mov(out_reg, a64::x0);
+        phx_a64_mov_rr(pb, out_reg, a64::x0);
       }
     }
   }
@@ -2027,6 +2052,7 @@ void translateCall(Environ* env, const Instruction* instr) {
 //
 void translateMove(Environ* env, const Instruction* instr) {
   a64::Builder* as = env->as;
+  PhxBuilder* pb = as->impl();
   auto scratch0 = arch::reg_scratch_0;
   auto scratch1 = arch::reg_scratch_1;
 
@@ -2040,15 +2066,15 @@ void translateMove(Environ* env, const Instruction* instr) {
           // Moving a value from a register to a register.
           if (output->isVecD()) {
             if (input->isVecD()) {
-              as->fmov(AT::getVecD(output), AT::getVecD(input));
+              phx_a64_fmov(pb, AT::getVecD(output), AT::getVecD(input));
             } else {
-              as->fmov(AT::getVecD(output), AT::getGp(input));
+              phx_a64_fmov(pb, AT::getVecD(output), AT::getGp(input));
             }
           } else {
             if (input->isVecD()) {
-              as->fmov(AT::getGp(output), AT::getVecD(input));
+              phx_a64_fmov(pb, AT::getGp(output), AT::getVecD(input));
             } else {
-              as->mov(AT::getGp(output), AT::getGp(input));
+              phx_a64_mov_rr(pb, AT::getGp(output), AT::getGp(input));
             }
           }
           break;
@@ -2057,17 +2083,17 @@ void translateMove(Environ* env, const Instruction* instr) {
           auto ptr = arch::ptr_resolve(
               as, arch::fp, input->getStackSlot().loc, arch::reg_scratch_0);
           if (output->isVecD()) {
-            as->ldr(AT::getVecD(output), ptr);
+            phx_a64_ldr(pb, AT::getVecD(output), ptr);
           } else {
             switch (output->dataType()) {
               case OperandBase::k8bit:
-                as->ldrb(AT::getGpOutput(output), ptr);
+                phx_a64_ldrb(pb, AT::getGpOutput(output), ptr);
                 break;
               case OperandBase::k16bit:
-                as->ldrh(AT::getGpOutput(output), ptr);
+                phx_a64_ldrh(pb, AT::getGpOutput(output), ptr);
                 break;
               default:
-                as->ldr(AT::getGp(output), ptr);
+                phx_a64_ldr(pb, AT::getGp(output), ptr);
                 break;
             }
           }
@@ -2075,7 +2101,7 @@ void translateMove(Environ* env, const Instruction* instr) {
         }
         case lir::OperandType::kMem:
           // Loading a value from an absolute address into a register.
-          as->mov(arch::reg_scratch_0, input->getMemoryAddress());
+          phx_a64_mov_ri(pb, arch::reg_scratch_0, reinterpret_cast<uint64_t>(input->getMemoryAddress()));
           loadToReg(as, output, a64::ptr(arch::reg_scratch_0));
           break;
         case lir::OperandType::kInd: {
@@ -2093,9 +2119,11 @@ void translateMove(Environ* env, const Instruction* instr) {
         case lir::OperandType::kImm:
           // Loading a constant immediate into a register.
           if (output->isVecD()) {
-            as->fmov(AT::getVecD(output), input->getConstant());
+            // Load immediate into GP scratch, then fmov to FP register.
+            phx_a64_mov_ri(pb, arch::reg_scratch_0, input->getConstant());
+            phx_a64_fmov(pb, AT::getVecD(output), arch::reg_scratch_0);
           } else {
-            as->mov(AT::getGp(output), input->getConstant());
+            phx_a64_mov_ri(pb, AT::getGp(output), input->getConstant());
           }
           break;
         case lir::OperandType::kNone:
@@ -2114,27 +2142,27 @@ void translateMove(Environ* env, const Instruction* instr) {
         storeFromReg(as, input, ptr);
       } else if (input->isImm()) {
         // Storing a constant immediate to the stack.
-        as->mov(scratch0, input->getConstant());
-        as->str(scratch0, ptr);
+        phx_a64_mov_ri(pb, scratch0, input->getConstant());
+        phx_a64_str(pb, scratch0, ptr);
       } else {
         JIT_ABORT("Unsupported operand type for Move: Stk + {}", input->type());
       }
       break;
     }
     case lir::OperandType::kMem:
-      as->mov(scratch0, reinterpret_cast<uint64_t>(output->getMemoryAddress()));
+      phx_a64_mov_ri(pb, scratch0, reinterpret_cast<uint64_t>(output->getMemoryAddress()));
 
       if (input->isReg()) {
         // Storing the value of a register to an absolute address.
         if (input->isVecD()) {
-          as->str(AT::getVecD(input), a64::ptr(scratch0));
+          phx_a64_str(pb, AT::getVecD(input), phx_ptr(scratch0, 0));
         } else {
-          as->str(AT::getGp(input), a64::ptr(scratch0));
+          phx_a64_str(pb, AT::getGp(input), phx_ptr(scratch0, 0));
         }
       } else if (input->isImm()) {
         // Storing a constant immediate to an absolute address.
-        as->mov(scratch1, input->getConstant());
-        as->str(scratch1, a64::ptr(scratch0));
+        phx_a64_mov_ri(pb, scratch1, input->getConstant());
+        phx_a64_str(pb, scratch1, phx_ptr(scratch0, 0));
       } else {
         JIT_ABORT("Unsupported operand type for Move: Mem + {}", input->type());
       }
@@ -2156,16 +2184,16 @@ void translateMove(Environ* env, const Instruction* instr) {
         // Use the output's data type to determine the store width.
         switch (output->dataType()) {
           case OperandBase::k8bit:
-            as->mov(a64::w(scratch1.id()), input->getConstant());
-            as->strb(a64::w(scratch1.id()), ptr);
+            phx_a64_mov_ri(pb, a64::w(scratch1.id()), input->getConstant());
+            phx_a64_strb(pb, a64::w(scratch1.id()), ptr);
             break;
           case OperandBase::k16bit:
-            as->mov(a64::w(scratch1.id()), input->getConstant());
-            as->strh(a64::w(scratch1.id()), ptr);
+            phx_a64_mov_ri(pb, a64::w(scratch1.id()), input->getConstant());
+            phx_a64_strh(pb, a64::w(scratch1.id()), ptr);
             break;
           default:
-            as->mov(scratch1, input->getConstant());
-            as->str(scratch1, ptr);
+            phx_a64_mov_ri(pb, scratch1, input->getConstant());
+            phx_a64_str(pb, scratch1, ptr);
             break;
         }
       } else {
@@ -2195,6 +2223,7 @@ void translateMovExtOp(
     EmitLoad8Fn emit_load8,
     EmitLoad16Fn emit_load16) {
   a64::Builder* as = env->as;
+  PhxBuilder* pb = as->impl();
 
   auto output = AT::getGpOutput(instr->output());
   const OperandBase* input = instr->getInput(0);
@@ -2205,13 +2234,13 @@ void translateMovExtOp(
 
     switch (input_size) {
       case 8:
-        emit_ext8(as, output, input_reg);
+        emit_ext8(pb, output, input_reg);
         break;
       case 16:
-        emit_ext16(as, output, input_reg);
+        emit_ext16(pb, output, input_reg);
         break;
       case 32:
-        as->mov(a64::w(output.id()), a64::w(input_reg.id()));
+        phx_a64_mov_rr(pb, a64::w(output.id()), a64::w(input_reg.id()));
         break;
       default:
         JIT_ABORT("Unsupported input size for {}: {}", opname, input_size);
@@ -2222,20 +2251,20 @@ void translateMovExtOp(
     switch (input_size) {
       case 8:
         emit_load8(
-            as,
+            pb,
             output,
             arch::ptr_resolve(
                 as, arch::fp, loc, arch::reg_scratch_0, arch::AccessSize::k8));
         break;
       case 16:
         emit_load16(
-            as,
+            pb,
             output,
             arch::ptr_resolve(
                 as, arch::fp, loc, arch::reg_scratch_0, arch::AccessSize::k16));
         break;
       case 32:
-        as->ldr(
+        phx_a64_ldr(pb,
             a64::w(output.id()),
             arch::ptr_resolve(
                 as, arch::fp, loc, arch::reg_scratch_0, arch::AccessSize::k32));
@@ -2253,10 +2282,10 @@ void translateMovZX(Environ* env, const Instruction* instr) {
       env,
       instr,
       "MovZX",
-      [](a64::Builder* as, auto... args) { as->uxtb(args...); },
-      [](a64::Builder* as, auto... args) { as->uxth(args...); },
-      [](a64::Builder* as, auto... args) { as->ldrb(args...); },
-      [](a64::Builder* as, auto... args) { as->ldrh(args...); });
+      [](PhxBuilder* pb, auto... args) { phx_a64_uxtb(pb, args...); },
+      [](PhxBuilder* pb, auto... args) { phx_a64_uxth(pb, args...); },
+      [](PhxBuilder* pb, auto... args) { phx_a64_ldrb(pb, args...); },
+      [](PhxBuilder* pb, auto... args) { phx_a64_ldrh(pb, args...); });
 }
 
 void translateMovSX(Environ* env, const Instruction* instr) {
@@ -2264,44 +2293,46 @@ void translateMovSX(Environ* env, const Instruction* instr) {
       env,
       instr,
       "MovSX",
-      [](a64::Builder* as, auto... args) { as->sxtb(args...); },
-      [](a64::Builder* as, auto... args) { as->sxth(args...); },
-      [](a64::Builder* as, auto... args) { as->ldrsb(args...); },
-      [](a64::Builder* as, auto... args) { as->ldrsh(args...); });
+      [](PhxBuilder* pb, auto... args) { phx_a64_sxtb(pb, args...); },
+      [](PhxBuilder* pb, auto... args) { phx_a64_sxth(pb, args...); },
+      [](PhxBuilder* pb, auto... args) { phx_a64_ldrsb(pb, args...); },
+      [](PhxBuilder* pb, auto... args) { phx_a64_ldrsh(pb, args...); });
 }
 
 void translateMovSXD(Environ* env, const Instruction* instr) {
   a64::Builder* as = env->as;
+  PhxBuilder* pb = as->impl();
 
   auto output = AT::getGpOutput(instr->output());
   const OperandBase* input = instr->getInput(0);
 
   if (input->isReg()) {
     auto input_reg = AT::getGp(input);
-    as->sxtw(output, input_reg);
+    phx_a64_sxtw(pb, output, input_reg);
   } else if (input->isStack()) {
     auto loc = input->getStackSlot().loc;
     auto ptr = arch::ptr_resolve(
         as, arch::fp, loc, arch::reg_scratch_0, arch::AccessSize::k32);
-    as->ldrsw(output, ptr);
+    phx_a64_ldrsw(pb, output, ptr);
   } else {
     JIT_ABORT("Unsupported operand type for MovSXD: {}", input->type());
   }
 }
 
 void translateUnreachable(Environ* env, const Instruction* instr) {
-  a64::Builder* as = env->as;
-
-  as->udf(0);
+  PhxBuilder* pb = env->as->impl();
+  phx_a64_udf(pb, 0);
 }
 
-template <typename EmitFn>
+enum class AddSubOp { kAdd, kSub };
+
 void translateAddSubOp(
     Environ* env,
     const Instruction* instr,
     const char* opname,
-    EmitFn emit) {
+    AddSubOp op) {
   a64::Builder* as = env->as;
+  PhxBuilder* pb = as->impl();
 
   const OperandBase* output =
       instr->getNumOutputs() > 0 ? instr->output() : instr->getInput(0);
@@ -2318,38 +2349,48 @@ void translateAddSubOp(
     uint64_t constant = opnd1->getConstant();
     JIT_CHECK(arm::Utils::isAddSubImm(constant), "Out of range");
 
-    emit(as, output_reg, opnd0_reg, constant);
+    if (op == AddSubOp::kAdd) {
+      phx_a64_add_rri(pb, output_reg, opnd0_reg, constant);
+    } else {
+      phx_a64_sub_rri(pb, output_reg, opnd0_reg, constant);
+    }
   } else if (opnd1->isReg()) {
-    emit(as, output_reg, opnd0_reg, AT::getGp(opnd1));
+    if (op == AddSubOp::kAdd) {
+      phx_a64_add_rrr(pb, output_reg, opnd0_reg, AT::getGp(opnd1));
+    } else {
+      phx_a64_sub_rrr(pb, output_reg, opnd0_reg, AT::getGp(opnd1));
+    }
   } else if (opnd1->isStack()) {
     auto loc = opnd1->getStackSlot().loc;
     auto ptr = arch::ptr_resolve(as, arch::fp, loc, arch::reg_scratch_0);
-    as->ldr(arch::reg_scratch_0, ptr);
-    emit(as, output_reg, opnd0_reg, arch::reg_scratch_0);
+    phx_a64_ldr(pb, arch::reg_scratch_0, ptr);
+    if (op == AddSubOp::kAdd) {
+      phx_a64_add_rrr(pb, output_reg, opnd0_reg, arch::reg_scratch_0);
+    } else {
+      phx_a64_sub_rrr(pb, output_reg, opnd0_reg, arch::reg_scratch_0);
+    }
   } else {
     JIT_ABORT("Unsupported operand type for {}: {}", opname, opnd1->type());
   }
 }
 
 void translateAdd(Environ* env, const Instruction* instr) {
-  translateAddSubOp(env, instr, "Add", [](a64::Builder* as, auto... args) {
-    as->add(args...);
-  });
+  translateAddSubOp(env, instr, "Add", AddSubOp::kAdd);
 }
 
 void translateSub(Environ* env, const Instruction* instr) {
-  translateAddSubOp(env, instr, "Sub", [](a64::Builder* as, auto... args) {
-    as->sub(args...);
-  });
+  translateAddSubOp(env, instr, "Sub", AddSubOp::kSub);
 }
 
-template <typename EmitFn>
+enum class LogicalOp { kAnd, kOrr, kEor };
+
 void translateLogicalOp(
     Environ* env,
     const Instruction* instr,
     const char* opname,
-    EmitFn emit) {
+    LogicalOp op) {
   a64::Builder* as = env->as;
+  PhxBuilder* pb = as->impl();
 
   const OperandBase* output =
       instr->getNumOutputs() > 0 ? instr->output() : instr->getInput(0);
@@ -2361,45 +2402,55 @@ void translateLogicalOp(
 
   auto output_reg = AT::getGp(output);
   auto opnd0_reg = AT::getGp(opnd0);
+
+  auto emit_rri = [&](PhxGp d, PhxGp s, uint64_t imm) {
+    switch (op) {
+      case LogicalOp::kAnd: phx_a64_and_rri(pb, d, s, imm); break;
+      case LogicalOp::kOrr: phx_a64_orr_rri(pb, d, s, imm); break;
+      case LogicalOp::kEor: phx_a64_eor_rri(pb, d, s, imm); break;
+    }
+  };
+  auto emit_rrr = [&](PhxGp d, PhxGp s1, PhxGp s2) {
+    switch (op) {
+      case LogicalOp::kAnd: phx_a64_and_rrr(pb, d, s1, s2); break;
+      case LogicalOp::kOrr: phx_a64_orr_rrr(pb, d, s1, s2); break;
+      case LogicalOp::kEor: phx_a64_eor_rrr(pb, d, s1, s2); break;
+    }
+  };
 
   if (opnd1->isImm()) {
     uint64_t constant = opnd1->getConstant();
     uint32_t width = output->sizeInBits() <= 32 ? 32 : 64;
     JIT_CHECK(arm::Utils::isLogicalImm(constant, width), "Invalid constant");
 
-    emit(as, output_reg, opnd0_reg, constant);
+    emit_rri(output_reg, opnd0_reg, constant);
   } else if (opnd1->isReg()) {
-    emit(as, output_reg, opnd0_reg, AT::getGp(opnd1));
+    emit_rrr(output_reg, opnd0_reg, AT::getGp(opnd1));
   } else if (opnd1->isStack()) {
     auto loc = opnd1->getStackSlot().loc;
     auto ptr = arch::ptr_resolve(as, arch::fp, loc, arch::reg_scratch_0);
-    as->ldr(arch::reg_scratch_0, ptr);
-    emit(as, output_reg, opnd0_reg, arch::reg_scratch_0);
+    phx_a64_ldr(pb, arch::reg_scratch_0, ptr);
+    emit_rrr(output_reg, opnd0_reg, arch::reg_scratch_0);
   } else {
     JIT_ABORT("Unsupported operand type for {}: {}", opname, opnd1->type());
   }
 }
 
 void translateAnd(Environ* env, const Instruction* instr) {
-  translateLogicalOp(env, instr, "And", [](a64::Builder* as, auto... args) {
-    as->and_(args...);
-  });
+  translateLogicalOp(env, instr, "And", LogicalOp::kAnd);
 }
 
 void translateOr(Environ* env, const Instruction* instr) {
-  translateLogicalOp(env, instr, "Or", [](a64::Builder* as, auto... args) {
-    as->orr(args...);
-  });
+  translateLogicalOp(env, instr, "Or", LogicalOp::kOrr);
 }
 
 void translateXor(Environ* env, const Instruction* instr) {
-  translateLogicalOp(env, instr, "Xor", [](a64::Builder* as, auto... args) {
-    as->eor(args...);
-  });
+  translateLogicalOp(env, instr, "Xor", LogicalOp::kEor);
 }
 
 void translateMul(Environ* env, const Instruction* instr) {
   a64::Builder* as = env->as;
+  PhxBuilder* pb = as->impl();
 
   const OperandBase* output =
       instr->getNumOutputs() > 0 ? instr->output() : instr->getInput(0);
@@ -2413,27 +2464,29 @@ void translateMul(Environ* env, const Instruction* instr) {
   auto opnd0_reg = AT::getGp(opnd0);
 
   if (opnd1->isImm()) {
-    as->mov(arch::reg_scratch_0, opnd1->getConstant());
-    as->mul(output_reg, opnd0_reg, arch::reg_scratch_0);
+    phx_a64_mov_ri(pb, arch::reg_scratch_0, opnd1->getConstant());
+    phx_a64_mul(pb, output_reg, opnd0_reg, arch::reg_scratch_0);
   } else if (opnd1->isReg()) {
-    as->mul(output_reg, opnd0_reg, AT::getGp(opnd1));
+    phx_a64_mul(pb, output_reg, opnd0_reg, AT::getGp(opnd1));
   } else if (opnd1->isStack()) {
     auto loc = opnd1->getStackSlot().loc;
     auto ptr = arch::ptr_resolve(as, arch::fp, loc, arch::reg_scratch_0);
-    as->ldr(arch::reg_scratch_0, ptr);
-    as->mul(output_reg, opnd0_reg, arch::reg_scratch_0);
+    phx_a64_ldr(pb, arch::reg_scratch_0, ptr);
+    phx_a64_mul(pb, output_reg, opnd0_reg, arch::reg_scratch_0);
   } else {
     JIT_ABORT("Unsupported operand type for Mul: {}", opnd1->type());
   }
 }
 
-template <typename EmitFn>
+enum class DivOp { kSdiv, kUdiv };
+
 void translateDivOp(
     Environ* env,
     const Instruction* instr,
     const char* opname,
-    EmitFn emit) {
+    DivOp op) {
   a64::Builder* as = env->as;
+  PhxBuilder* pb = as->impl();
 
   const OperandBase* output =
       instr->getNumOutputs() > 0 ? instr->output() : instr->getInput(0);
@@ -2446,46 +2499,52 @@ void translateDivOp(
   auto output_reg = AT::getGp(output);
   auto opnd0_reg = AT::getGp(opnd0);
 
+  auto emit = [&](PhxGp d, PhxGp s1, PhxGp s2) {
+    if (op == DivOp::kSdiv) {
+      phx_a64_sdiv(pb, d, s1, s2);
+    } else {
+      phx_a64_udiv(pb, d, s1, s2);
+    }
+  };
+
   if (opnd1->isReg()) {
-    emit(as, output_reg, opnd0_reg, AT::getGp(opnd1));
+    emit(output_reg, opnd0_reg, AT::getGp(opnd1));
   } else if (opnd1->isStack()) {
     auto loc = opnd1->getStackSlot().loc;
     auto ptr = arch::ptr_resolve(as, arch::fp, loc, arch::reg_scratch_0);
-    as->ldr(arch::reg_scratch_0, ptr);
-    emit(as, output_reg, opnd0_reg, arch::reg_scratch_0);
+    phx_a64_ldr(pb, arch::reg_scratch_0, ptr);
+    emit(output_reg, opnd0_reg, arch::reg_scratch_0);
   } else {
     JIT_ABORT("Unsupported operand type for {}: {}", opname, opnd1->type());
   }
 }
 
 void translateDiv(Environ* env, const Instruction* instr) {
-  translateDivOp(env, instr, "Div", [](a64::Builder* as, auto... args) {
-    as->sdiv(args...);
-  });
+  translateDivOp(env, instr, "Div", DivOp::kSdiv);
 }
 
 void translateDivUn(Environ* env, const Instruction* instr) {
-  translateDivOp(env, instr, "DivUn", [](a64::Builder* as, auto... args) {
-    as->udiv(args...);
-  });
+  translateDivOp(env, instr, "DivUn", DivOp::kUdiv);
 }
 
 void translatePush(Environ* env, const Instruction* instr) {
   a64::Builder* as = env->as;
+  PhxBuilder* pb = as->impl();
 
   const OperandBase* operand = instr->getInput(0);
 
   if (operand->isImm()) {
-    as->mov(arch::reg_scratch_0, operand->getConstant());
-    as->str(arch::reg_scratch_0, a64::ptr_pre(a64::sp, -16));
+    phx_a64_mov_ri(pb, arch::reg_scratch_0, operand->getConstant());
+    // STR with pre-index: [SP, #-16]!
+    phx_a64_str(pb, arch::reg_scratch_0, a64::ptr_pre(a64::sp, -16));
   } else if (operand->isReg()) {
     auto reg = AT::getGp(operand);
-    as->str(reg, a64::ptr_pre(a64::sp, -16));
+    phx_a64_str(pb, reg, a64::ptr_pre(a64::sp, -16));
   } else if (operand->isStack()) {
     auto loc = operand->getStackSlot().loc;
     auto ptr = arch::ptr_resolve(as, arch::fp, loc, arch::reg_scratch_1);
-    as->ldr(arch::reg_scratch_0, ptr);
-    as->str(arch::reg_scratch_0, a64::ptr_pre(a64::sp, -16));
+    phx_a64_ldr(pb, arch::reg_scratch_0, ptr);
+    phx_a64_str(pb, arch::reg_scratch_0, a64::ptr_pre(a64::sp, -16));
   } else {
     JIT_ABORT("Unsupported operand type for push: {}", operand->type());
   }
@@ -2493,17 +2552,19 @@ void translatePush(Environ* env, const Instruction* instr) {
 
 void translatePop(Environ* env, const Instruction* instr) {
   a64::Builder* as = env->as;
+  PhxBuilder* pb = as->impl();
 
   const OperandBase* operand = instr->output();
 
   if (operand->isReg()) {
     auto reg = AT::getGp(operand);
-    as->ldr(reg, a64::ptr_post(a64::sp, 16));
+    // LDR with post-index: [SP], #16
+    phx_a64_ldr(pb, reg, a64::ptr_post(a64::sp, 16));
   } else if (operand->isStack()) {
     auto loc = operand->getStackSlot().loc;
     auto ptr = arch::ptr_resolve(as, arch::fp, loc, arch::reg_scratch_1);
-    as->ldr(arch::reg_scratch_0, a64::ptr_post(a64::sp, 16));
-    as->str(arch::reg_scratch_0, ptr);
+    phx_a64_ldr(pb, arch::reg_scratch_0, a64::ptr_post(a64::sp, 16));
+    phx_a64_str(pb, arch::reg_scratch_0, ptr);
   } else {
     JIT_ABORT("Unsupported operand type for pop: {}", operand->type());
   }
@@ -2511,6 +2572,7 @@ void translatePop(Environ* env, const Instruction* instr) {
 
 void translateExchange(Environ* env, const Instruction* instr) {
   a64::Builder* as = env->as;
+  PhxBuilder* pb = as->impl();
 
   const OperandBase* opnd0 = instr->output();
   const OperandBase* opnd1 = instr->getInput(0);
@@ -2519,25 +2581,27 @@ void translateExchange(Environ* env, const Instruction* instr) {
   JIT_CHECK(opnd1->isReg(), "Expected opnd1 to be a register");
 
   if (opnd0->isVecD() && opnd1->isVecD()) {
+    // Swap FP registers via GP scratch registers (no SIMD EOR in phoenix-asm)
     auto vec0 = AT::getVecD(opnd0);
     auto vec1 = AT::getVecD(opnd1);
+    auto scratch = arch::reg_scratch_0;
 
-    as->eor(vec0.v16(), vec0.v16(), vec1.v16());
-    as->eor(vec1.v16(), vec1.v16(), vec0.v16());
-    as->eor(vec0.v16(), vec0.v16(), vec1.v16());
+    phx_a64_fmov(pb, scratch, vec0);
+    phx_a64_fmov(pb, vec0, vec1);
+    phx_a64_fmov(pb, vec1, scratch);
   } else {
     auto reg0 = AT::getGp(opnd0);
     auto reg1 = AT::getGp(opnd1);
     auto scratch = arch::reg_scratch_0;
 
-    as->mov(scratch, reg0);
-    as->mov(reg0, reg1);
-    as->mov(reg1, scratch);
+    phx_a64_mov_rr(pb, scratch, reg0);
+    phx_a64_mov_rr(pb, reg0, reg1);
+    phx_a64_mov_rr(pb, reg1, scratch);
   }
 }
 
 void translateCmp(Environ* env, const Instruction* instr) {
-  a64::Builder* as = env->as;
+  PhxBuilder* pb = env->as->impl();
 
   const OperandBase* inp0 = instr->getInput(0);
   const OperandBase* inp1 = instr->getInput(1);
@@ -2546,18 +2610,18 @@ void translateCmp(Environ* env, const Instruction* instr) {
 
   if (inp1->isReg()) {
     if (inp0->isVecD() && inp1->isVecD()) {
-      as->fcmp(AT::getVecD(inp0), AT::getVecD(inp1));
+      phx_a64_fcmp(pb, AT::getVecD(inp0), AT::getVecD(inp1));
     } else {
-      as->cmp(AT::getGp(inp0), AT::getGp(inp1));
+      phx_a64_cmp_rr(pb, AT::getGp(inp0), AT::getGp(inp1));
     }
   } else if (inp1->isImm()) {
     auto constant = inp1->getConstant();
 
     if (arm::Utils::isAddSubImm(constant)) {
-      as->cmp(AT::getGp(inp0), constant);
+      phx_a64_cmp_ri(pb, AT::getGp(inp0), constant);
     } else {
-      as->mov(arch::reg_scratch_0, constant);
-      as->cmp(AT::getGp(inp0), arch::reg_scratch_0);
+      phx_a64_mov_ri(pb, arch::reg_scratch_0, constant);
+      phx_a64_cmp_rr(pb, AT::getGp(inp0), arch::reg_scratch_0);
     }
   } else {
     JIT_ABORT(
@@ -2565,45 +2629,51 @@ void translateCmp(Environ* env, const Instruction* instr) {
   }
 }
 
-template <typename EmitFn>
+enum class IncDecOp { kInc, kDec };
+
 void translateIncDecOp(
     Environ* env,
     const Instruction* instr,
     const char* opname,
-    EmitFn emit) {
+    IncDecOp op) {
   a64::Builder* as = env->as;
+  PhxBuilder* pb = as->impl();
 
   auto opnd = instr->getInput(0);
 
-  if (opnd->isReg()) {
+  auto emit = [&](PhxGp d, PhxGp s, int64_t imm) {
     // We have to do adds/subs here, because implicitly our LIR relies on the
     // Inc/Dec instructions setting flags.
-    emit(as, AT::getGp(opnd), AT::getGp(opnd), 1);
+    if (op == IncDecOp::kInc) {
+      phx_a64_adds_rri(pb, d, s, imm);
+    } else {
+      phx_a64_subs_rri(pb, d, s, imm);
+    }
+  };
+
+  if (opnd->isReg()) {
+    emit(AT::getGp(opnd), AT::getGp(opnd), 1);
   } else if (opnd->isStack()) {
     auto loc = opnd->getStackSlot().loc;
     auto ptr = arch::ptr_resolve(as, arch::fp, loc, arch::reg_scratch_1);
-    as->ldr(arch::reg_scratch_0, ptr);
-    emit(as, arch::reg_scratch_0, arch::reg_scratch_0, 1);
-    as->str(arch::reg_scratch_0, ptr);
+    phx_a64_ldr(pb, arch::reg_scratch_0, ptr);
+    emit(arch::reg_scratch_0, arch::reg_scratch_0, 1);
+    phx_a64_str(pb, arch::reg_scratch_0, ptr);
   } else {
     JIT_ABORT("Unsupported operand type for {}: {}", opname, opnd->dataType());
   }
 }
 
 void translateInc(Environ* env, const Instruction* instr) {
-  translateIncDecOp(env, instr, "Inc", [](a64::Builder* as, auto... args) {
-    as->adds(args...);
-  });
+  translateIncDecOp(env, instr, "Inc", IncDecOp::kInc);
 }
 
 void translateDec(Environ* env, const Instruction* instr) {
-  translateIncDecOp(env, instr, "Dec", [](a64::Builder* as, auto... args) {
-    as->subs(args...);
-  });
+  translateIncDecOp(env, instr, "Dec", IncDecOp::kDec);
 }
 
 void translateBitTest(Environ* env, const Instruction* instr) {
-  a64::Builder* as = env->as;
+  PhxBuilder* pb = env->as->impl();
 
   auto test_reg = AT::getGp(instr->getInput(0));
   auto bit_pos = instr->getInput(1)->getConstant();
@@ -2613,11 +2683,12 @@ void translateBitTest(Environ* env, const Instruction* instr) {
       arm::Utils::isLogicalImm(mask, 64),
       "All single bits should be able to be tested");
 
-  as->tst(test_reg, mask);
+  phx_a64_tst_ri(pb, test_reg, mask);
 }
 
 void translateTst(Environ* env, const Instruction* instr) {
   a64::Builder* as = env->as;
+  PhxBuilder* pb = as->impl();
 
   auto opnd0 = instr->getInput(0);
   auto opnd1 = instr->getInput(1);
@@ -2637,15 +2708,20 @@ void translateTst(Environ* env, const Instruction* instr) {
     auto w0 = asmjit::a64::w(opnd0->getPhyRegister().loc);
     auto w1 = asmjit::a64::w(opnd1->getPhyRegister().loc);
     auto scratch = arch::reg_scratch_0.w();
-    as->lsl(scratch, w0, shift);
-    as->tst(scratch, w1, arm::Shift(arm::ShiftOp::kLSL, shift));
+    phx_a64_lsl(pb, scratch, w0, shift);
+    // TST with shifted register: TST scratch, w1, LSL #shift
+    // phoenix-asm tst_rr doesn't support shifted operands directly,
+    // so shift w1 into another scratch and use tst_rr.
+    auto scratch2 = arch::reg_scratch_1.w();
+    phx_a64_lsl(pb, scratch2, w1, shift);
+    phx_a64_tst_rr(pb, scratch, scratch2);
   } else {
-    as->tst(AT::getGp(opnd0), AT::getGp(opnd1));
+    phx_a64_tst_rr(pb, AT::getGp(opnd0), AT::getGp(opnd1));
   }
 }
 
 void translateSelect(Environ* env, const Instruction* instr) {
-  a64::Builder* as = env->as;
+  PhxBuilder* pb = env->as->impl();
 
   auto output = AT::getGpOutput(instr->output());
   auto condition_op = instr->getInput(0);
@@ -2655,7 +2731,7 @@ void translateSelect(Environ* env, const Instruction* instr) {
     case jit::lir::OperandBase::k16bit:
       condition_reg =
           AT::getGp(DataType::k32bit, condition_op->getPhyRegister().loc);
-      as->and_(
+      phx_a64_and_rri(pb,
           condition_reg,
           condition_reg,
           (1 << bitSize(condition_op->dataType())) - 1);
@@ -2667,9 +2743,9 @@ void translateSelect(Environ* env, const Instruction* instr) {
   auto true_val_reg = AT::getGp(instr->getInput(1));
   auto false_val = instr->getInput(2)->getConstant();
 
-  as->mov(arch::reg_scratch_0, false_val);
-  as->cmp(condition_reg, 0);
-  as->csel(output, true_val_reg, arch::reg_scratch_0, a64::CondCode::kNE);
+  phx_a64_mov_ri(pb, arch::reg_scratch_0, false_val);
+  phx_a64_cmp_ri(pb, condition_reg, 0);
+  phx_a64_csel(pb, output, true_val_reg, arch::reg_scratch_0, PHX_COND_NE);
 }
 
 } // namespace

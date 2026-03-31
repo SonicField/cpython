@@ -183,6 +183,12 @@ typedef enum {
     PHX_OP_PSRLQ,
     PHX_OP_PXOR,
 
+    /* Bit Test and Set */
+    PHX_OP_BTS,
+
+    /* Locked arithmetic */
+    PHX_OP_LOCK_ADD,
+
     /* Sign Extend */
     PHX_OP_CDQ,
     PHX_OP_CQO
@@ -354,6 +360,9 @@ void phx_x86_test_mi(PhxBuilder *b, PhxMem a, int32_t imm);
 void phx_x86_bt_rr(PhxBuilder *b, PhxGp a, PhxGp bit);
 void phx_x86_bt_ri(PhxBuilder *b, PhxGp a, uint8_t bit);
 
+/* BTS r/m, imm8 (bit test and set) */
+void phx_x86_bts_ri(PhxBuilder *b, PhxGp dst, uint8_t bit);
+
 void phx_x86_comisd(PhxBuilder *b, PhxGp a, PhxGp c);
 
 /* ------------------------------------------------------------------ */
@@ -446,6 +455,13 @@ void phx_x86_pxor_rr(PhxBuilder *b, PhxGp dst, PhxGp src);
 
 void phx_x86_cdq(PhxBuilder *b);
 void phx_x86_cqo(PhxBuilder *b);
+
+/* ------------------------------------------------------------------ */
+/*  LOCK-prefixed Instructions                                         */
+/* ------------------------------------------------------------------ */
+
+/* LOCK ADD [mem], imm */
+void phx_x86_lock_add_mi(PhxBuilder *b, PhxMem dst, int32_t imm);
 
 /* ------------------------------------------------------------------ */
 /*  Finalize                                                           */

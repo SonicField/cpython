@@ -321,27 +321,46 @@ class CodeHolder {
   bool hasBaseAddress() const { return code_ && code_->buffer != nullptr; }
   size_t codeSize() const { return code_ ? code_->buffer_size : 0; }
 
-  /* Section stubs — phoenix-asm uses a single code section */
+  /* Section — provides access to the CodeHolder's code buffer */
   struct Section {
+    PhxCodeHolder* holder = nullptr;
     const char* name() const { return ".text"; }
-    size_t realSize() const { return 0; }
-    size_t bufferSize() const { return 0; }
-    size_t virtualSize() const { return 0; }
+    size_t realSize() const { return holder ? holder->buffer_size : 0; }
+    size_t bufferSize() const { return holder ? holder->buffer_size : 0; }
+    size_t virtualSize() const { return holder ? holder->buffer_size : 0; }
     size_t offset() const { return 0; }
     void setOffset(size_t) {}
     size_t alignment() const { return 16; }
     uint32_t flags() const { return 0; }
-    const uint8_t* data() const { return nullptr; }
+    const uint8_t* data() const { return holder ? holder->buffer : nullptr; }
   };
-  static inline Section text_section_;
-  Section* sectionByName(const char*) const { return &text_section_; }
-  Section* textSection() const { return &text_section_; }
+  mutable Section text_section_{};  /* per-instance, not static */
+  Section* sectionByName(const char*) const { text_section_.holder = code_; return &text_section_; }
+  Section* textSection() const { text_section_.holder = code_; return &text_section_; }
   template <typename SectionPtr>
   Error newSection(SectionPtr*, const char*, size_t = 0, uint32_t = 0, uint32_t = 0, uint32_t = 0) {
     return kErrorOk;
   }
-  uint64_t labelOffsetFromBase(const Label&) const { return 0; }
-  uint64_t labelOffset(const Label&) const { return 0; }
+  uint64_t labelOffsetFromBase(const Label& l) const {
+    return builder_ ? labelOffsetImpl(l) : 0;
+  }
+  uint64_t labelOffset(const Label& l) const {
+    return builder_ ? labelOffsetImpl(l) : 0;
+  }
+
+  void setBuilder(PhxBuilder* b) { builder_ = b; }
+
+ private:
+  uint64_t labelOffsetImpl(const Label& l) const {
+    if (!builder_) { fprintf(stderr, "PHX labelOffset: no builder\n"); return 0; }
+    if (l.id() == UINT32_MAX) { fprintf(stderr, "PHX labelOffset: invalid label\n"); return 0; }
+    if (l.id() >= builder_->next_label_id) { fprintf(stderr, "PHX labelOffset: id %u >= next %u\n", l.id(), builder_->next_label_id); return 0; }
+    PhxNode* node = builder_->label_nodes[l.id()];
+    if (!node) { fprintf(stderr, "PHX labelOffset: label %u unbound\n", l.id()); return 0; }
+    return node->offset;
+  }
+  PhxBuilder* builder_ = nullptr;
+ public:
 
   /* Sections — phoenix-asm uses a single section.
    * code_allocator.cpp iterates via code->_sections and code->sections().
@@ -377,7 +396,8 @@ class CodeHolder {
       code_ = phx_code_create(PHX_ARCH_ARM64);
 #endif
     }
-    return code_ ? kErrorOk : 1;  /* 1 = error */
+    if (code_) text_section_.holder = code_;
+    return code_ ? kErrorOk : 1;
   }
 
   /* Error handler */
@@ -625,6 +645,12 @@ class EmitterExplicitT {
   Error bt(const Gp& a, const Gp& bit)  { phx_x86_bt_rr(b_(), a, bit); return kErrorOk; }
   Error bt(const Gp& a, uint8_t bit)    { phx_x86_bt_ri(b_(), a, bit); return kErrorOk; }
   Error bt(const Gp& a, const Imm& i)   { phx_x86_bt_ri(b_(), a, (uint8_t)i.value()); return kErrorOk; }
+  /* -- BTS -- */
+  Error bts(const Gp& d, uint8_t bit)   { phx_x86_bts_ri(b_(), d, bit); return kErrorOk; }
+  Error bts(const Gp& d, const Imm& i)  { phx_x86_bts_ri(b_(), d, (uint8_t)i.value()); return kErrorOk; }
+  /* -- LOCK ADD -- */
+  Error lock_add(const Mem& d, int32_t v)   { phx_x86_lock_add_mi(b_(), d, v); return kErrorOk; }
+  Error lock_add(const Mem& d, const Imm& i){ phx_x86_lock_add_mi(b_(), d, (int32_t)i.value()); return kErrorOk; }
   /* -- PUSH / POP -- */
   Error push(const Gp& s)               { phx_x86_push_r(b_(), s); return kErrorOk; }
   Error push(const Mem& s)              { phx_x86_push_m(b_(), s); return kErrorOk; }
@@ -738,6 +764,7 @@ class Builder : public EmitterExplicitT<Builder> {
     if (code) {
       if (!code->get()) code->init();
       impl_ = phx_builder_create(code->get());
+      code->setBuilder(impl_);
     }
   }
   ~Builder() { if (impl_) phx_builder_destroy(impl_); }
@@ -762,19 +789,50 @@ class Builder : public EmitterExplicitT<Builder> {
   Error embed(const void* data, size_t size) {
     phx_builder_embed(impl_, data, size); return kErrorOk;
   }
-  Error finalize() { return (impl_ && impl_->code) ? phx_x86_finalize(impl_) : 1; }
+  Error finalize() {
+    if (!impl_ || !impl_->code) { fprintf(stderr, "PHX finalize: null impl/code\n"); return 1; }
+    int rc = phx_x86_finalize(impl_);
+    if (rc != 0) {
+      fprintf(stderr, "PHX finalize error=%d nodes=%p labels=%u fixups=%u\n",
+          rc, (void*)impl_->head, impl_->next_label_id, impl_->fixup_count);
+    } else if (impl_->code->buffer_size > 30) {
+      /* Dump per-function compiled code (skip small trampolines) */
+      FILE* df = fopen("/tmp/jit_code.bin", "wb");
+      if (df) { fwrite(impl_->code->buffer, 1, impl_->code->buffer_size, df); fclose(df); }
+      fprintf(stderr, "PHX finalize: %zu bytes → /tmp/jit_code.bin\n", impl_->code->buffer_size);
+    }
+    return rc;
+  }
 
   /* Section stub — phoenix-asm uses single code section */
   Error section(void*) { return kErrorOk; }
 
   /* Jump hint stubs — asmjit uses these for short/long branch encoding.
    * Phoenix-asm always uses the appropriate encoding in finalize. */
-  Builder& short_() { return *this; }
+  /* short_() returns a proxy that emits short-encoded branches.
+   * Usage: as_->short_().jmp(label) emits EB rel8 instead of E9 rel32. */
+  struct ShortProxy {
+    PhxBuilder* b;
+    Error jmp(const Label& t) {
+      PhxNode* n = phx_builder_alloc_node(b);
+      if (!n) return 1;
+      n->node_type = PHX_NODE_INST;
+      n->opcode = 0xEB;
+      n->encoded[0] = 0xEB;
+      n->encoded[1] = 0x00;
+      n->encoded_size = 2;
+      phx_builder_append_node(b, n);
+      phx_builder_add_fixup(b, n, t.id(), 0);
+      return kErrorOk;
+    }
+  };
+  ShortProxy short_() { return ShortProxy{impl_}; }
   Builder& long_() { return *this; }
 
  private:
   PhxBuilder* impl_;
   CodeHolder* code_;
+  bool use_short_ = false;
 };
 
 } /* namespace phx */
@@ -923,9 +981,7 @@ class EmitterExplicitT {
   Error ret(const Gp& t)    { phx_a64_ret_reg(b_(), t); return kErrorOk; }
   /* -- TBNZ (test bit and branch if nonzero) -- */
   Error tbnz(const Gp& s, uint32_t bit, const Label& t) {
-    /* TODO: implement tbnz encoding in arm64.c */
-    fprintf(stderr, "FATAL: tbnz not implemented\n"); abort();
-    return kErrorOk;
+    phx_a64_tbnz(b_(), s, bit, t); return kErrorOk;
   }
   /* -- UDF -- */
   Error udf(uint16_t v)     { phx_a64_udf(b_(), v); return kErrorOk; }
@@ -948,6 +1004,7 @@ class Builder : public EmitterExplicitT<Builder> {
     if (code) {
       if (!code->get()) code->init();
       impl_ = phx_builder_create(code->get());
+      code->setBuilder(impl_);
     }
   }
   ~Builder() { if (impl_) phx_builder_destroy(impl_); }

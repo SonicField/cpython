@@ -1866,6 +1866,40 @@ void phx_a64_cbnz(PhxBuilder *b, PhxGp src, PhxLabel label) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Test-and-branch                                                    */
+/* ------------------------------------------------------------------ */
+
+void phx_a64_tbnz(PhxBuilder *b, PhxGp src, uint32_t bit, PhxLabel label) {
+    PhxNode *n = emit_node(b, PHX_A64_TBNZ);
+    if (!n) return;
+
+    /* TBNZ Rt, #bit, label:
+     * [31]    b5       (bit number [5], also sets 64-bit if 1)
+     * [30:25] 011011 1 (TBNZ fixed bits: 0110111)
+     * [24]    op=1     (1=TBNZ, 0=TBZ)
+     * [23:19] b40      (bit number [4:0])
+     * [18:5]  imm14    (signed word offset, resolved during finalize)
+     * [4:0]   Rt
+     *
+     * Full encoding: b5 | 0110111 | b40 | imm14 | Rt
+     * Placeholder with imm14=0 */
+    uint32_t b5 = (bit >> 5) & 1u;
+    uint32_t b40 = bit & 0x1Fu;
+    uint32_t inst = (b5 << 31)
+                  | (0x37u << 24)     /* 0110111 x = TBNZ */
+                  | (b40 << 19)
+                  | hw_reg(src);
+    store_inst(n, inst);
+
+    n->operands[0] = phx_op_gp(src);
+    n->operands[1] = phx_op_imm((int64_t)bit);
+    n->operands[2] = phx_op_label(label);
+    n->num_operands = 3;
+
+    phx_builder_add_fixup(b, n, label.id, 1);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Sign/zero extension                                                */
 /* ------------------------------------------------------------------ */
 
@@ -2192,6 +2226,7 @@ void phx_a64_mrs(PhxBuilder *b, PhxGp dst, uint16_t sysreg) {
  *   - B/BL:     26-bit signed offset (imm26), word-aligned
  *   - B.cond:   19-bit signed offset (imm19), word-aligned
  *   - CBZ/CBNZ: 19-bit signed offset (imm19), word-aligned
+ *   - TBNZ:     14-bit signed offset (imm14), word-aligned
  *   - ADR:      21-bit signed offset (split immhi:immlo)
  *
  * Finally, linearize all encoded bytes into the code holder's buffer.
@@ -2285,6 +2320,14 @@ int phx_a64_finalize(PhxBuilder *b) {
             }
             inst = (inst & 0xFF00001Fu)
                  | (((uint32_t)imm19 & 0x7FFFFu) << 5);
+        } else if (opc == PHX_A64_TBNZ) {
+            /* 14-bit signed word offset, bits [18:5] */
+            int64_t imm14 = pc_offset >> 2;
+            if (imm14 < -(1 << 13) || imm14 >= (1 << 13)) {
+                return -8; /* tbnz branch offset out of range */
+            }
+            inst = (inst & 0xFFF8001Fu)
+                 | (((uint32_t)imm14 & 0x3FFFu) << 5);
         } else if (opc == PHX_A64_ADR) {
             /* 21-bit signed byte offset, split: immhi [23:5], immlo [30:29] */
             if (pc_offset < -(1 << 20) || pc_offset >= (1 << 20)) {

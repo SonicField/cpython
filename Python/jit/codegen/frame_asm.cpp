@@ -280,9 +280,8 @@ void inc_ref_nogil(
 
   // Not owned - use atomic add to ob_ref_shared (slow path)
   phx_builder_bind(as->impl(), not_owned);
-  // LOCK ADD - no direct C API, use wrapper
-  as->lock().add(
-      x86::qword_ptr(reg, offsetof(PyObject, ob_ref_shared)),
+  phx_x86_lock_add_mi(as->impl(),
+      phx_qword_ptr(reg, offsetof(PyObject, ob_ref_shared)),
       1 << _Py_REF_SHARED_SHIFT);
   phx_builder_bind(as->impl(), done_incref);
 
@@ -1141,8 +1140,7 @@ void FrameAsm::linkOnStackShadowFrame(
     static_assert(
         PYSF_PYFRAME == 1 && _PyShadowFrame_NumPtrKindBits == 2,
         "Unexpected constant");
-    // BTS - no direct C API available, use wrapper
-    as_->bts(scratch_reg, 0);
+    phx_x86_bts_ri(as_->impl(), scratch_reg, 0);
   } else {
     phx_x86_mov_ri(as_->impl(), scratch_reg, (int64_t)data);
   }

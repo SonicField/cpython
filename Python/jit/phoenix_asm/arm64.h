@@ -296,6 +296,9 @@ typedef enum {
     /* System */
     PHX_A64_MRS,
 
+    /* Test-and-branch */
+    PHX_A64_TBNZ,
+
     PHX_A64_OPCODE_COUNT
 } PhxArm64Opcode;
 
@@ -506,6 +509,9 @@ void phx_a64_cbz(PhxBuilder *b, PhxGp src, PhxLabel label);
 
 /* CBNZ Xt, label  (19-bit offset) */
 void phx_a64_cbnz(PhxBuilder *b, PhxGp src, PhxLabel label);
+
+/* TBNZ Xt, #bit, label  (14-bit offset, test bit and branch if nonzero) */
+void phx_a64_tbnz(PhxBuilder *b, PhxGp src, uint32_t bit, PhxLabel label);
 
 /* ---- Sign/zero extension ---- */
 

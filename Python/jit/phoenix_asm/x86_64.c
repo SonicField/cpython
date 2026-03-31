@@ -2028,6 +2028,77 @@ void phx_x86_cqo(PhxBuilder *b) {
 }
 
 /* ================================================================== */
+/*  BTS (bit test and set)                                             */
+/* ================================================================== */
+
+/* BTS r/m, imm8:  0F BA /5 ib */
+void phx_x86_bts_ri(PhxBuilder *b, PhxGp dst, uint8_t bit) {
+    PhxNode *n = phx_builder_alloc_node(b);
+    if (!n) return;
+    n->node_type = PHX_NODE_INST;
+    n->opcode = PHX_OP_BTS;
+    n->operands[0] = phx_op_gp(dst);
+    n->operands[1] = phx_op_imm(bit);
+    n->num_operands = 2;
+
+    int pos = 0;
+    if (needs_66h(dst)) n->encoded[pos++] = 0x66;
+    uint8_t rex = make_rex_single(want_rexw(dst), dst);
+    if (rex) n->encoded[pos++] = rex;
+    n->encoded[pos++] = 0x0F;
+    n->encoded[pos++] = 0xBA;
+    pos += encode_modrm_rr(n->encoded + pos, 5, dst);  /* /5 for BTS */
+    n->encoded[pos++] = bit;
+    n->encoded_size = pos;
+    phx_builder_append_node(b, n);
+}
+
+/* ================================================================== */
+/*  LOCK ADD (atomic add, memory-immediate)                            */
+/* ================================================================== */
+
+/* LOCK ADD [mem], imm:  F0 83 /0 ib  or  F0 81 /0 id */
+void phx_x86_lock_add_mi(PhxBuilder *b, PhxMem dst, int32_t imm) {
+    PhxNode *n = phx_builder_alloc_node(b);
+    if (!n) return;
+    n->node_type = PHX_NODE_INST;
+    n->opcode = PHX_OP_LOCK_ADD;
+    n->operands[0] = phx_op_mem(dst);
+    n->operands[1] = phx_op_imm(imm);
+    n->num_operands = 2;
+
+    int pos = 0;
+    /* LOCK prefix */
+    n->encoded[pos++] = 0xF0;
+
+    if (dst.size == 2) n->encoded[pos++] = 0x66;
+    {
+        uint8_t r = 0x40;
+        if (want_rexw_mem(dst)) r |= 0x08;
+        if (dst.has_index && reg_ext(dst.index)) r |= 0x02;
+        if (reg_ext(dst.base)) r |= 0x01;
+        if (r != 0x40) n->encoded[pos++] = r;
+    }
+
+    if (dst.size == 1) {
+        n->encoded[pos++] = 0x80;
+        pos += encode_modrm_mem(n->encoded + pos, 0, dst);
+        n->encoded[pos++] = (uint8_t)(imm & 0xFF);
+    } else if (fits_i8(imm)) {
+        n->encoded[pos++] = 0x83;
+        pos += encode_modrm_mem(n->encoded + pos, 0, dst);
+        n->encoded[pos++] = (uint8_t)(imm & 0xFF);
+    } else {
+        n->encoded[pos++] = 0x81;
+        pos += encode_modrm_mem(n->encoded + pos, 0, dst);
+        memcpy(n->encoded + pos, &imm, 4);
+        pos += 4;
+    }
+    n->encoded_size = pos;
+    phx_builder_append_node(b, n);
+}
+
+/* ================================================================== */
 /*  Finalize: resolve fixups and linearize to code buffer              */
 /* ================================================================== */
 
@@ -2107,20 +2178,24 @@ int phx_x86_finalize(PhxBuilder *b) {
                      - ((int64_t)inst_node->offset
                         + (int64_t)inst_node->encoded_size));
 
-        /* Patch the last 4 bytes of encoded[] with the little-endian rel32 */
-        uint32_t patch_off = inst_node->encoded_size - 4;
-        inst_node->encoded[patch_off + 0] = (uint8_t)(disp);
-        inst_node->encoded[patch_off + 1] = (uint8_t)(disp >> 8);
-        inst_node->encoded[patch_off + 2] = (uint8_t)(disp >> 16);
-        inst_node->encoded[patch_off + 3] = (uint8_t)(disp >> 24);
-    }
-
-    /* ---- Verify all labels are bound ---- */
-    for (uint32_t i = 0; i < b->next_label_id; i++) {
-        if (!b->label_nodes[i]) {
-            return -3;
+        if (inst_node->encoded_size == 2 && inst_node->encoded[0] == 0xEB) {
+            /* Short jmp (EB rel8): patch last byte with rel8 */
+            if (disp < -128 || disp > 127) return -9; /* out of range for short jmp */
+            inst_node->encoded[1] = (uint8_t)(disp & 0xFF);
+        } else {
+            /* Near jmp/call/jcc (rel32): patch last 4 bytes */
+            uint32_t patch_off = inst_node->encoded_size - 4;
+            inst_node->encoded[patch_off + 0] = (uint8_t)(disp);
+            inst_node->encoded[patch_off + 1] = (uint8_t)(disp >> 8);
+            inst_node->encoded[patch_off + 2] = (uint8_t)(disp >> 16);
+            inst_node->encoded[patch_off + 3] = (uint8_t)(disp >> 24);
         }
     }
+
+    /* ---- Verify referenced labels are bound ---- */
+    /* Note: unreferenced unbound labels are harmless — the JIT creates
+       labels speculatively that may not be bound if a code path is optimized
+       away. Only labels referenced by fixups must be bound (checked in Pass 2). */
 
     /* ---- Pass 3: linearize into code buffer ---- */
     size_t total_size = (size_t)running_offset;

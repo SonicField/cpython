@@ -3066,6 +3066,8 @@ void NativeGenerator::generateCode(CodeHolder& codeholder) {
   generateDeoptExits(codeholder);
 
   code_start_ = finalizeCode(*as_, GetFunction()->fullname);
+  fprintf(stderr, "PHX: code_start_=%p, labelOffsetFromBase(vectorcall)=%lu\n",
+      code_start_, codeholder.labelOffsetFromBase(vectorcall_entry_label));
 
   // ------------- code_start_
   // ^
@@ -3082,6 +3084,10 @@ void NativeGenerator::generateCode(CodeHolder& codeholder) {
         codeholder.labelOffsetFromBase(vectorcall_entry_label) -
             codeholder.labelOffsetFromBase(static_jmp_location));
   }
+  fprintf(stderr, "PHX: correct_args_entry id=%u offset=%lu, vectorcall id=%u offset=%lu, reentry=%d\n",
+      correct_args_entry.id(), codeholder.labelOffset(correct_args_entry),
+      vectorcall_entry_label.id(), codeholder.labelOffset(vectorcall_entry_label),
+      JITRT_CALL_REENTRY_OFFSET);
   JIT_CHECK(
       codeholder.labelOffset(correct_args_entry) ==
           codeholder.labelOffset(vectorcall_entry_label) +

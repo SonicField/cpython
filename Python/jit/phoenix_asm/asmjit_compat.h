@@ -289,6 +289,15 @@ class JitRuntime {
       return kErrorNotInitialized;
     }
     size_t out_size = 0;
+    /* Debug: dump code bytes to file for offline disassembly */
+    {
+      static int dump_counter = 0;
+      char fname[64];
+      snprintf(fname, sizeof(fname), "/tmp/jit_code_%d.bin", dump_counter++);
+      FILE* df = fopen(fname, "wb");
+      if (df) { fwrite(phx_code->buffer, 1, phx_code->buffer_size, df); fclose(df); }
+      fprintf(stderr, "PHX addCode: %zu bytes → %s\n", phx_code->buffer_size, fname);
+    }
     void* addr = phx_runtime_add(runtime_, phx_code->buffer,
                                  phx_code->buffer_size, &out_size);
     *dst = addr;
