@@ -741,11 +741,28 @@ void phx_a64_mov_rr(PhxBuilder *b, PhxGp dst, PhxGp src) {
     PhxNode *n = emit_node(b, PHX_A64_MOV);
     if (!n) return;
 
-    /* MOV Xd, Xm is encoded as ORR Xd, XZR, Xm */
     int sf = is64(dst);
-    uint32_t inst = encode_logical_reg(sf, 0x1 /*ORR*/, 0 /*N*/,
-                                       hw_reg(dst), 31 /*XZR*/, hw_reg(src));
-    store_inst(n, inst);
+    uint32_t rd = hw_reg(dst);
+    uint32_t rm = hw_reg(src);
+
+    /* ARM64 register 31 is SP in ADD/SUB but XZR in logical ops (ORR).
+     * MOV Xd, Xm is normally ORR Xd, XZR, Xm — but if src or dst is
+     * register 31 (SP), we must use ADD Xd, Xn, #0 instead. */
+    if (rm == 31 || rd == 31) {
+        /* ADD Xd, Xn, #0 — treats reg 31 as SP */
+        uint32_t inst = ((uint32_t)sf << 31)
+                      | (0x11u << 24)   /* ADD immediate */
+                      | (0u << 22)      /* shift=0 */
+                      | (0u << 10)      /* imm12=0 */
+                      | (rm << 5)       /* Rn */
+                      | rd;             /* Rd */
+        store_inst(n, inst);
+    } else {
+        /* MOV Xd, Xm is encoded as ORR Xd, XZR, Xm */
+        uint32_t inst = encode_logical_reg(sf, 0x1 /*ORR*/, 0 /*N*/,
+                                           rd, 31 /*XZR*/, rm);
+        store_inst(n, inst);
+    }
 
     n->operands[0] = phx_op_gp(dst);
     n->operands[1] = phx_op_gp(src);
