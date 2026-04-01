@@ -80,6 +80,19 @@ struct LirOperand {
     } value;
 };
 
+/* Instruction: the basic unit of LIR. Has one output operand (embedded)
+ * and a growable array of input operands (owned pointers). */
+struct LirInstruction {
+    int id;
+    int opcode;                  /* Instruction::Opcode as int */
+    LirOperand output;           /* embedded output operand */
+    void *basic_block;           /* BasicBlock* (opaque) */
+    const void *origin;          /* hir::Instr* (opaque) */
+    LirOperand **inputs;         /* owned array of input operand pointers */
+    size_t num_inputs;
+    size_t inputs_capacity;
+};
+
 /* Code section constants (must match codegen::CodeSection enum) */
 #define JIT_LIR_SECTION_HOT  0
 #define JIT_LIR_SECTION_COLD 1
