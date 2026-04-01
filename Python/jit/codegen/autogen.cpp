@@ -1888,7 +1888,10 @@ void loadToReg(
     const OperandBase* output,
     const arch::Mem& input) {
   PhxBuilder* pb = as->impl();
-  if (output->isVecD()) {
+  if (output->isVecD() || output->isFp()) {
+    /* Use FP load (V=1) for double operands. Check both isVecD() (physical
+     * register in FP range) and isFp() (data type is kDouble) to catch
+     * any GP/FP register assignment mismatch on ARM64. */
     phx_a64_ldr_fp(pb, AT::getVecD(output), input);
   } else {
     switch (output->dataType()) {
@@ -1912,7 +1915,7 @@ void storeFromReg(
     const OperandBase* input,
     const arch::Mem& output) {
   PhxBuilder* pb = as->impl();
-  if (input->isVecD()) {
+  if (input->isVecD() || input->isFp()) {
     phx_a64_str_fp(pb, AT::getVecD(input), output);
   } else {
     switch (input->dataType()) {
@@ -2064,14 +2067,14 @@ void translateMove(Environ* env, const Instruction* instr) {
       switch (input->type()) {
         case lir::OperandType::kReg:
           // Moving a value from a register to a register.
-          if (output->isVecD()) {
-            if (input->isVecD()) {
+          if (output->isVecD() || output->isFp()) {
+            if (input->isVecD() || input->isFp()) {
               phx_a64_fmov(pb, AT::getVecD(output), AT::getVecD(input));
             } else {
               phx_a64_fmov(pb, AT::getVecD(output), AT::getGp(input));
             }
           } else {
-            if (input->isVecD()) {
+            if (input->isVecD() || input->isFp()) {
               phx_a64_fmov(pb, AT::getGp(output), AT::getVecD(input));
             } else {
               phx_a64_mov_rr(pb, AT::getGp(output), AT::getGp(input));
@@ -2082,7 +2085,7 @@ void translateMove(Environ* env, const Instruction* instr) {
           // Loading a value from the stack into a register.
           auto ptr = arch::ptr_resolve(
               as, arch::fp, input->getStackSlot().loc, arch::reg_scratch_0);
-          if (output->isVecD()) {
+          if (output->isVecD() || output->isFp()) {
             phx_a64_ldr_fp(pb, AT::getVecD(output), ptr);
           } else {
             switch (output->dataType()) {
@@ -2118,7 +2121,7 @@ void translateMove(Environ* env, const Instruction* instr) {
         }
         case lir::OperandType::kImm:
           // Loading a constant immediate into a register.
-          if (output->isVecD()) {
+          if (output->isVecD() || output->isFp()) {
             // Load immediate into GP scratch, then fmov to FP register.
             phx_a64_mov_ri(pb, arch::reg_scratch_0, input->getConstant());
             phx_a64_fmov(pb, AT::getVecD(output), arch::reg_scratch_0);
@@ -2154,7 +2157,7 @@ void translateMove(Environ* env, const Instruction* instr) {
 
       if (input->isReg()) {
         // Storing the value of a register to an absolute address.
-        if (input->isVecD()) {
+        if (input->isVecD() || input->isFp()) {
           phx_a64_str_fp(pb, AT::getVecD(input), phx_ptr(scratch0, 0));
         } else {
           phx_a64_str(pb, AT::getGp(input), phx_ptr(scratch0, 0));

@@ -118,10 +118,14 @@ inline phx::Mem ptr_post(const phx::Gp& base, int32_t offset) {
   return m;
 }
 
-/* SIMD/FP register factory + constants — Vec = Gp on ARM64 (needs id+size) */
+/* SIMD/FP register factory + constants — Vec = Gp on ARM64 (needs id+size).
+ * CRITICAL: id must include PHX_FP_FLAG (0x40) so is_fp() returns true.
+ * Without this flag, the assembler treats FP registers as GP registers,
+ * producing wrong fmov direction (0x9E66 vs 0x9E67) and ldr instead of
+ * ldr_fp (V=0 instead of V=1). */
 #ifdef CINDER_AARCH64
-inline phx::Vec d(uint8_t id) { return phx::Vec(id, 8); }
-constexpr phx::Vec d0{0,8}, d1{1,8}, d2{2,8}, d3{3,8}, d4{4,8}, d5{5,8}, d6{6,8}, d7{7,8};
+inline phx::Vec d(uint8_t id) { return phx::Vec(id | 0x40, 8); }
+constexpr phx::Vec d0{0x40,8}, d1{0x41,8}, d2{0x42,8}, d3{0x43,8}, d4{0x44,8}, d5{0x45,8}, d6{0x46,8}, d7{0x47,8};
 #else
 inline phx::Vec d(uint8_t id) { return phx::Vec(id); }
 constexpr phx::Vec d0{0}, d1{1}, d2{2}, d3{3}, d4{4}, d5{5}, d6{6}, d7{7};
