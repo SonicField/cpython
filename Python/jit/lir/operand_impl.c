@@ -9,7 +9,7 @@
  * become the sole implementation.
  */
 
-#include "cinderx/Jit/lir/lir_c_api.h"
+#include "cinderx/Jit/lir/lir_impl_internal.h"
 
 #include "Python.h"
 
@@ -150,11 +150,11 @@ lir_operand_get_mem_address(const LirOperand *op) {
     return r->value.mem_addr;
 }
 
-LirBasicBlock *
+void *
 lir_operand_get_basic_block(const LirOperand *op) {
     const LirOperand *r = resolve(op);
     assert(r->type == JIT_LIR_OPTYPE_LABEL);
-    return (LirBasicBlock *)r->value.label;
+    return r->value.label;
 }
 
 LirMemoryIndirect *
@@ -230,7 +230,7 @@ lir_operand_set_mem_address(LirOperand *op, void *addr) {
 }
 
 void
-lir_operand_set_basic_block(LirOperand *op, LirBasicBlock *block) {
+lir_operand_set_basic_block(LirOperand *op, void *block) {
     assert(!op->is_linked);
     op->type = JIT_LIR_OPTYPE_LABEL;
     op->data_type = JIT_LIR_DT_OBJECT;

@@ -5,7 +5,7 @@
  * Coexists with instruction.cpp until all consumers use the C API.
  */
 
-#include "cinderx/Jit/lir/lir_c_api.h"
+#include "cinderx/Jit/lir/lir_impl_internal.h"
 
 #include "Python.h"
 

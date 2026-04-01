@@ -6,7 +6,7 @@
  * remains in C++ for now due to UnorderedMap + LinkedOperand complexity.
  */
 
-#include "cinderx/Jit/lir/lir_c_api.h"
+#include "cinderx/Jit/lir/lir_impl_internal.h"
 
 #include "Python.h"
 
