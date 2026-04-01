@@ -294,7 +294,7 @@ jit_lir_operand_get_fp_constant(JitLirOperand op) {
 
 extern "C" int
 jit_lir_operand_get_phy_register(JitLirOperand op) {
-  return static_cast<int>(static_cast<OperandBase*>(op)->getPhyRegister());
+  return static_cast<int>(static_cast<OperandBase*>(op)->getPhyRegister().loc);
 }
 
 extern "C" int
