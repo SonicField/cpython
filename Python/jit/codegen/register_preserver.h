@@ -3,43 +3,47 @@
 #pragma once
 
 #include "cinderx/Jit/codegen/arch.h"
+#include "cinderx/Jit/codegen/register_preserver_c.h"
 
 #include <vector>
 
 namespace jit::codegen {
 
-// RegisterPreserver helps with preserving and restoring registers during code
-// generation. It handles both general-purpose and vector registers, and ensures
-// proper stack alignment.
+// C++ wrapper around the C PhxRegPreserver API.
+// Converts vector<pair<Reg&, Reg&>> to PhxRegPair array, then forwards
+// preserve/remap/restore to the C implementation in register_preserver.c.
 class RegisterPreserver {
  public:
+  static constexpr int kMaxRegs = 32;
+
   RegisterPreserver(
       arch::Builder* as,
       const std::vector<std::pair<const arch::Reg&, const arch::Reg&>>&
-          save_regs);
+          save_regs)
+      : num_regs_(static_cast<int>(save_regs.size())) {
+    for (int i = 0; i < num_regs_ && i < kMaxRegs; i++) {
+      pairs_[i].src = save_regs[i].first;
+      pairs_[i].dst = save_regs[i].second;
+    }
+    phx_reg_preserver_init(&rp_, as->impl(), pairs_, num_regs_);
+  }
 
-  // Save all registers in the save_regs_ list to the stack
-  void preserve();
+  void preserve() {
+    phx_reg_preserver_preserve(&rp_);
+  }
 
-  // Restore all registers from the stack in reverse order
-  void restore();
+  void restore() {
+    phx_reg_preserver_restore(&rp_);
+  }
 
-  // Remaps the registers as if they had been preserved and restored
-  void remap();
+  void remap() {
+    phx_reg_preserver_remap(&rp_);
+  }
 
  private:
-#if defined(CINDER_AARCH64)
-  enum class RegisterGroup : uint8_t { kGp, kVecD, kGpPair, kVecDPair };
-
-  // Computes register groupings for stp/ldp pairing. Returns a vector of
-  // (index, length) where length is 1 or 2.
-  std::vector<std::pair<size_t, RegisterGroup>> registerGroups() const;
-#endif
-
-  [[maybe_unused]] arch::Builder* as_;
-  [[maybe_unused]] const std::vector<
-      std::pair<const arch::Reg&, const arch::Reg&>>& save_regs_;
-  [[maybe_unused]] bool align_stack_;
+  PhxRegPair pairs_[kMaxRegs];
+  PhxRegPreserver rp_;
+  int num_regs_;
 };
 
 } // namespace jit::codegen
