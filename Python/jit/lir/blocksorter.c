@@ -228,7 +228,7 @@ calc_entry_blocks(Sorter *s) {
 
             assert(succ_scc->entry == NULL || succ_scc->entry == succ);
             succ_scc->entry = succ;
-            ptrvec_push(&succ_scc->successors, succ_scc);
+            ptrvec_push(&cur_scc->successors, succ_scc);
         }
     }
 }
@@ -329,12 +329,7 @@ static void
 expand_scc(SccBlock *scc, JitLirBlock exit_block, PtrVec *result) {
     size_t sz = sccblock_size(scc);
     if (sz == 1) {
-        /* Single block — just emit it */
-        _Py_hashtable_foreach(scc->blocks,
-            (int (*)(struct _Py_hashtable_t *, const void *, const void *, void *))
-            /* callback: push the single key */
-            NULL, NULL);
-        /* Use iteration to get the single block */
+        /* Single block — find and emit it */
         _Py_hashtable_entry_t *e = NULL;
         for (size_t i = 0; i < scc->blocks->nbuckets && e == NULL; i++) {
             e = (_Py_hashtable_entry_t *)scc->blocks->buckets[i].head;
