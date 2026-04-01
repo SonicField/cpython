@@ -166,3 +166,101 @@ extern "C" int
 jit_lir_opcode_guard(void) {
   return static_cast<int>(Instruction::kGuard);
 }
+
+/* ---- Extended instruction accessors (Phase 3D Step 10: DCE) ---- */
+
+extern "C" int
+jit_lir_instr_id(JitLirInstr instr) {
+  return static_cast<Instruction*>(instr)->id();
+}
+
+extern "C" int
+jit_lir_instr_is_essential(JitLirInstr instr) {
+  auto* i = static_cast<Instruction*>(instr);
+  return jit::lir::InstrProperty::getProperties(i).is_essential ? 1 : 0;
+}
+
+extern "C" int
+jit_lir_instr_flag_effects(JitLirInstr instr) {
+  auto* i = static_cast<Instruction*>(instr);
+  return static_cast<int>(
+      jit::lir::InstrProperty::getProperties(i).flag_effects);
+}
+
+extern "C" void
+jit_lir_instr_foreach_input(
+    JitLirInstr instr,
+    void (*cb)(JitLirOperand operand, void* ctx),
+    void* ctx) {
+  auto* i = static_cast<Instruction*>(instr);
+  for (size_t idx = 0; idx < i->getNumInputs(); idx++) {
+    cb(i->getInput(idx), ctx);
+  }
+}
+
+/* ---- Extended operand accessors ---- */
+
+extern "C" int
+jit_lir_operand_is_reg(JitLirOperand op) {
+  return static_cast<OperandBase*>(op)->isReg() ? 1 : 0;
+}
+
+extern "C" int
+jit_lir_operand_is_stack(JitLirOperand op) {
+  return static_cast<OperandBase*>(op)->isStack() ? 1 : 0;
+}
+
+extern "C" int
+jit_lir_operand_is_mem(JitLirOperand op) {
+  return static_cast<OperandBase*>(op)->isMem() ? 1 : 0;
+}
+
+extern "C" int
+jit_lir_operand_is_ind(JitLirOperand op) {
+  return static_cast<OperandBase*>(op)->isInd() ? 1 : 0;
+}
+
+extern "C" int
+jit_lir_operand_is_linked(JitLirOperand op) {
+  return static_cast<OperandBase*>(op)->isLinked() ? 1 : 0;
+}
+
+extern "C" JitLirInstr
+jit_lir_operand_get_linked_instr(JitLirOperand op) {
+  auto* linked = static_cast<jit::lir::LinkedOperand*>(
+      static_cast<OperandBase*>(op));
+  return linked->getLinkedInstr();
+}
+
+extern "C" JitLirIndirect
+jit_lir_operand_get_indirect(JitLirOperand op) {
+  return static_cast<OperandBase*>(op)->getMemoryIndirect();
+}
+
+extern "C" JitLirOperand
+jit_lir_indirect_base_reg(JitLirIndirect ind) {
+  return static_cast<jit::lir::MemoryIndirect*>(ind)->getBaseRegOperand();
+}
+
+extern "C" JitLirOperand
+jit_lir_indirect_index_reg(JitLirIndirect ind) {
+  return static_cast<jit::lir::MemoryIndirect*>(ind)->getIndexRegOperand();
+}
+
+/* ---- Block instruction removal ---- */
+
+extern "C" void
+jit_lir_block_remove_dead_instrs(
+    JitLirBlock block,
+    int (*is_live)(JitLirInstr instr, void* ctx),
+    void* ctx) {
+  auto* bb = static_cast<BasicBlock*>(block);
+  for (auto it = bb->instructions().begin();
+       it != bb->instructions().end();) {
+    auto to_remove = it;
+    ++it;
+    if (!is_live(to_remove->get(), ctx)) {
+      bb->removeInstr(to_remove);
+    }
+  }
+}

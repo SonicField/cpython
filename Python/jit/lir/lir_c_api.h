@@ -76,6 +76,46 @@ JitLirBlock jit_lir_operand_get_basic_block(JitLirOperand op);
 /* Opcode constants */
 int jit_lir_opcode_guard(void);
 
+/* ---- Extended instruction accessors (Phase 3D Step 10: DCE) ---- */
+int jit_lir_instr_id(JitLirInstr instr);
+int jit_lir_instr_is_essential(JitLirInstr instr);
+int jit_lir_instr_flag_effects(JitLirInstr instr);
+
+/* Iterate all input operands of an instruction. */
+void jit_lir_instr_foreach_input(
+    JitLirInstr instr,
+    void (*cb)(JitLirOperand operand, void *ctx),
+    void *ctx);
+
+/* ---- Extended operand accessors ---- */
+int jit_lir_operand_is_reg(JitLirOperand op);
+int jit_lir_operand_is_stack(JitLirOperand op);
+int jit_lir_operand_is_mem(JitLirOperand op);
+int jit_lir_operand_is_ind(JitLirOperand op);
+int jit_lir_operand_is_linked(JitLirOperand op);
+
+/* Get the defining instruction of a LinkedOperand. */
+JitLirInstr jit_lir_operand_get_linked_instr(JitLirOperand op);
+
+/* ---- MemoryIndirect accessors ---- */
+typedef void* JitLirIndirect;
+JitLirIndirect jit_lir_operand_get_indirect(JitLirOperand op);
+JitLirOperand jit_lir_indirect_base_reg(JitLirIndirect ind);
+JitLirOperand jit_lir_indirect_index_reg(JitLirIndirect ind);
+
+/* ---- Block instruction removal ---- */
+/* Remove all instructions for which is_live(instr, ctx) returns 0.
+ * Handles C++ iterator invalidation internally. */
+void jit_lir_block_remove_dead_instrs(
+    JitLirBlock block,
+    int (*is_live)(JitLirInstr instr, void *ctx),
+    void *ctx);
+
+/* FlagEffects constants (must match lir::FlagEffects enum) */
+#define JIT_LIR_FLAG_NONE       0
+#define JIT_LIR_FLAG_SET        1
+#define JIT_LIR_FLAG_INVALIDATE 2
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
