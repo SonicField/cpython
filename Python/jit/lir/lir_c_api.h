@@ -241,6 +241,56 @@ JitLirInstr jit_lir_block_alloc_instr(JitLirBlock block, int opcode,
     const void* hir_origin);
 void jit_lir_block_add_successor(JitLirBlock block, JitLirBlock succ);
 
+/* ---- Phase B1: LirOperand C struct operations ---- */
+/* These operate directly on LirOperand/LirMemoryIndirect structs.
+ * They coexist with the jit_lir_operand_* wrappers above (which cast
+ * through C++ classes). New C code should use these directly. */
+LirOperand *lir_operand_new(LirInstruction *parent);
+LirOperand *lir_operand_new_linked(LirInstruction *parent,
+                                   LirInstruction *def_instr);
+void lir_operand_free(LirOperand *op);
+
+LirMemoryIndirect *lir_memind_new(LirInstruction *parent);
+void lir_memind_free(LirMemoryIndirect *mi);
+
+uint8_t lir_operand_type(const LirOperand *op);
+uint8_t lir_operand_data_type(const LirOperand *op);
+int lir_operand_is_linked(const LirOperand *op);
+int lir_operand_is_fp(const LirOperand *op);
+int lir_operand_is_last_use(const LirOperand *op);
+size_t lir_operand_size_in_bits(const LirOperand *op);
+LirInstruction *lir_operand_instr(const LirOperand *op);
+
+uint64_t lir_operand_get_constant(const LirOperand *op);
+double lir_operand_get_fp_constant(const LirOperand *op);
+LirPhyLocation lir_operand_get_phy_register(const LirOperand *op);
+LirPhyLocation lir_operand_get_stack_slot(const LirOperand *op);
+void *lir_operand_get_mem_address(const LirOperand *op);
+void *lir_operand_get_basic_block(const LirOperand *op);
+LirMemoryIndirect *lir_operand_get_indirect(const LirOperand *op);
+LirOperand *lir_operand_get_define(LirOperand *op);
+uint64_t lir_operand_get_constant_or_address(const LirOperand *op);
+LirInstruction *lir_operand_get_linked_instr(const LirOperand *op);
+
+void lir_operand_set_constant(LirOperand *op, uint64_t val, uint8_t dt);
+void lir_operand_set_fp_constant(LirOperand *op, double val);
+void lir_operand_set_phy_register(LirOperand *op, LirPhyLocation reg);
+void lir_operand_set_stack_slot(LirOperand *op, LirPhyLocation slot);
+void lir_operand_set_mem_address(LirOperand *op, void *addr);
+void lir_operand_set_basic_block(LirOperand *op, void *block);
+void lir_operand_set_virtual_register(LirOperand *op);
+void lir_operand_set_data_type(LirOperand *op, uint8_t dt);
+void lir_operand_set_last_use(LirOperand *op);
+void lir_operand_set_none(LirOperand *op);
+void lir_operand_set_linked_instr(LirOperand *op, LirInstruction *def);
+
+void lir_memind_set(LirMemoryIndirect *mi,
+                    LirPhyLocation base, LirPhyLocation index,
+                    uint8_t multiplier, int32_t offset);
+void lir_memind_set_linked(LirMemoryIndirect *mi,
+                           LirInstruction *base, LirInstruction *index,
+                           uint8_t multiplier, int32_t offset);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
