@@ -26,6 +26,60 @@ typedef void* JitLirBlock;
 typedef void* JitLirInstr;
 typedef void* JitLirOperand;
 
+/*
+ * ---- Phase B1: C struct definitions for LIR core types ----
+ *
+ * These structs will eventually REPLACE the C++ class hierarchy.
+ * For now they coexist — C files use these structs via the C API,
+ * C++ files continue using the C++ classes.
+ *
+ * When all consumers are converted to C, the C++ classes are deleted
+ * and these structs become the sole implementation.
+ */
+
+/* Forward declarations for struct cross-references */
+typedef struct LirOperand LirOperand;
+typedef struct LirMemoryIndirect LirMemoryIndirect;
+typedef struct LirInstruction LirInstruction;
+
+/* PhyLocation: physical register or stack slot.
+ * Matches codegen::PhyLocation layout (int loc + size_t bitSize). */
+typedef struct {
+    int loc;
+    size_t bit_size;
+} LirPhyLocation;
+
+#define LIR_REG_INVALID (-1)
+
+/* Memory indirect reference: [base + index * (2^multiplier) + offset] */
+struct LirMemoryIndirect {
+    LirInstruction *parent;
+    LirOperand *base_reg;       /* owned, may be NULL */
+    LirOperand *index_reg;      /* owned, may be NULL */
+    uint8_t multiplier;
+    int32_t offset;
+};
+
+/* Unified operand: replaces OperandBase, Operand, and LinkedOperand.
+ * When is_linked=1, value.def_opnd points to the defining instruction's
+ * output operand — all getters delegate through it.
+ * When is_linked=0, type/data_type/value hold the operand's own data. */
+struct LirOperand {
+    LirInstruction *parent_instr;
+    uint8_t is_linked;
+    uint8_t last_use;
+    uint8_t type;       /* OperandType enum (kNone..kLabel) */
+    uint8_t data_type;  /* DataType enum (k8bit..kObject) */
+    union {
+        uint64_t imm;              /* kImm: integer constant (or bit-cast double) */
+        void *mem_addr;            /* kMem: memory address */
+        void *label;               /* kLabel: BasicBlock* */
+        LirMemoryIndirect *indirect; /* kInd: memory indirect (owned) */
+        LirPhyLocation phy_loc;    /* kReg, kStack: physical location */
+        LirOperand *def_opnd;      /* is_linked=1: defining operand */
+    } value;
+};
+
 /* Code section constants (must match codegen::CodeSection enum) */
 #define JIT_LIR_SECTION_HOT  0
 #define JIT_LIR_SECTION_COLD 1
