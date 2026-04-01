@@ -114,6 +114,15 @@ struct LirBasicBlock {
     size_t preds_capacity;
 };
 
+/* Function: owns a list of basic blocks. Manages ID allocation. */
+typedef struct {
+    LirBasicBlock **blocks;     /* growable array of owned blocks */
+    size_t num_blocks;
+    size_t blocks_capacity;
+    int next_id;                /* next ID for blocks/instructions */
+    const void *hir_func;       /* hir::Function* (opaque) */
+} LirFunction;
+
 /* Code section constants (must match codegen::CodeSection enum) */
 #define JIT_LIR_SECTION_HOT  0
 #define JIT_LIR_SECTION_COLD 1
