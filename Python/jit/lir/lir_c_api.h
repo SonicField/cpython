@@ -81,16 +81,37 @@ struct LirOperand {
 };
 
 /* Instruction: the basic unit of LIR. Has one output operand (embedded)
- * and a growable array of input operands (owned pointers). */
+ * and a growable array of input operands (owned pointers).
+ * prev/next form a doubly-linked intrusive list within a BasicBlock. */
+typedef struct LirBasicBlock LirBasicBlock;
+
 struct LirInstruction {
     int id;
     int opcode;                  /* Instruction::Opcode as int */
     LirOperand output;           /* embedded output operand */
-    void *basic_block;           /* BasicBlock* (opaque) */
+    LirBasicBlock *basic_block;
     const void *origin;          /* hir::Instr* (opaque) */
     LirOperand **inputs;         /* owned array of input operand pointers */
     size_t num_inputs;
     size_t inputs_capacity;
+    LirInstruction *prev;        /* intrusive list link */
+    LirInstruction *next;        /* intrusive list link */
+};
+
+/* BasicBlock: a sequence of instructions with predecessor/successor edges. */
+struct LirBasicBlock {
+    int id;
+    int section;                 /* CodeSection enum (hot=0, cold=1) */
+    void *function;              /* Function* (opaque) */
+    LirInstruction *instr_head;  /* intrusive doubly-linked list */
+    LirInstruction *instr_tail;
+    size_t num_instrs;
+    LirBasicBlock **successors;  /* growable array */
+    size_t num_succs;
+    size_t succs_capacity;
+    LirBasicBlock **predecessors; /* growable array */
+    size_t num_preds;
+    size_t preds_capacity;
 };
 
 /* Code section constants (must match codegen::CodeSection enum) */
