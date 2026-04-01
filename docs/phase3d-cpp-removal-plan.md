@@ -95,12 +95,14 @@ Wrapper: asmjit_compat.h (~270 lines), phoenix_asm_wrapper.h (~1,100 lines)
 Wrapper removed LAST — it cannot go until gen_asm.cpp/autogen.cpp are converted
 
 ## Prerequisites (All Met)
-- [x] ARM64 crashes resolved (21/21 benchmarks pass)
+- [x] ARM64 crashes resolved (23/24 benchmarks pass, nbody crash open — separate bug)
 - [x] ARM64 encoding corpus (25/25 tests, preserves wrapper knowledge)
 - [x] Gate-before-push mechanized (CLAUDE.md rule, diff excerpts required)
 - [x] Phase 3D dependency map (no circular dependencies)
 - [x] CPython internals decision (PyMem_RawMalloc, __attribute__((cleanup)))
-- [ ] Float unboxing fix must land BEFORE lir/generator.cpp conversion (Phase 4)
+- [x] Float codegen fix landed (PHX_FP_FLAG + isFp fallback, ec748db5de)
+- [ ] nbody crash must be fixed BEFORE Phase 3D begins
+- [ ] Benchmark correctness gate (JIT vs interpreter output comparison) must be implemented BEFORE Phase 3D begins
 
 ## Verification Gates (Per Phase)
 1. ASAN clean (leak detection enabled)

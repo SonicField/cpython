@@ -14,6 +14,18 @@
 #include <cstring>
 #include <vector>
 
+/* ---- C API (implemented in code_section.c) ---- */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+const char* jit_code_section_name(int section);
+int jit_code_section_from_name(const char* name);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+
 namespace jit::codegen {
 
 enum class CodeSection {
@@ -21,11 +33,14 @@ enum class CodeSection {
   kCold,
 };
 
-const char* codeSectionName(CodeSection section);
+/* Inline C++ wrappers that forward to the C functions */
+inline const char* codeSectionName(CodeSection section) {
+  return jit_code_section_name(static_cast<int>(section));
+}
 
-// Provides a reverse mapping from text section names to CodeSection enums. Will
-// abort if a section is unknown.
-CodeSection codeSectionFromName(const char* name);
+inline CodeSection codeSectionFromName(const char* name) {
+  return static_cast<CodeSection>(jit_code_section_from_name(name));
+}
 
 class CodeHolderMetadata {
  public:
@@ -90,9 +105,21 @@ void forEachSection(F f) {
   f(CodeSection::kCold);
 }
 
-void populateCodeSections(
-    std::vector<std::pair<void*, std::size_t>>& output_vector,
+// Inlined here (was in code_section.cpp) — uses C++ types (std::vector, CodeHolder).
+inline void populateCodeSections(
+    std::vector<std::pair<void*, std::size_t>>& code_sections,
     asmjit::CodeHolder& code,
-    void* entry);
+    void* code_base_ptr) {
+  forEachSection([&](CodeSection section) {
+    auto asmjit_section = code.sectionByName(codeSectionName(section));
+    if (asmjit_section == nullptr || asmjit_section->realSize() == 0) {
+      return;
+    }
+    auto section_start =
+        static_cast<char*>(code_base_ptr) + asmjit_section->offset();
+    code_sections.emplace_back(
+        reinterpret_cast<void*>(section_start), asmjit_section->realSize());
+  });
+}
 
 } // namespace jit::codegen

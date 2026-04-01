@@ -107,9 +107,4 @@ class MultipleSectionCodeAllocator : public CodeAllocator {
   size_t total_allocation_size_{0};
 };
 
-void populateCodeSections(
-    std::vector<std::pair<void*, std::size_t>>& output_vector,
-    asmjit::CodeHolder& code,
-    void* entry);
-
 } // namespace jit
