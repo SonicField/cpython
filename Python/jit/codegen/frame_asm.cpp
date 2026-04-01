@@ -1096,7 +1096,7 @@ void FrameAsm::generateUnlinkFrame([[maybe_unused]] bool is_generator) {
 
   hir::Type ret_type = func_->return_type;
   if (ret_type <= TCDouble) {
-    phx_a64_str(as_->impl(), a64::d0, saved_x0_ptr);
+    phx_a64_str_fp(as_->impl(), a64::d0, saved_x0_ptr);
   } else {
     phx_a64_str(as_->impl(), a64::x0, saved_x0_ptr);
   }
@@ -1110,7 +1110,7 @@ void FrameAsm::generateUnlinkFrame([[maybe_unused]] bool is_generator) {
       arch::ptr_resolve(as_, arch::fp, -frameHeaderSize(), arch::reg_scratch_0);
 
   if (ret_type <= TCDouble) {
-    phx_a64_ldr(as_->impl(), a64::d0, saved_x0_ptr);
+    phx_a64_ldr_fp(as_->impl(), a64::d0, saved_x0_ptr);
   } else {
     phx_a64_ldr(as_->impl(), a64::x0, saved_x0_ptr);
   }

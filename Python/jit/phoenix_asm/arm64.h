@@ -325,6 +325,9 @@ void phx_a64_mov_ri(PhxBuilder *b, PhxGp dst, uint64_t imm);
 /* LDR Xt, [Xn, #offset]  -- 64-bit or 32-bit depending on dst.size */
 void phx_a64_ldr(PhxBuilder *b, PhxGp dst, PhxMem mem);
 
+/* LDR Dt, [Xn, #offset]  -- 64-bit FP/SIMD load (V=1) */
+void phx_a64_ldr_fp(PhxBuilder *b, PhxGp dst, PhxMem mem);
+
 /* LDRB Wt, [Xn, #offset] */
 void phx_a64_ldrb(PhxBuilder *b, PhxGp dst, PhxMem mem);
 
@@ -349,6 +352,9 @@ void phx_a64_ldp_post(PhxBuilder *b, PhxGp rt1, PhxGp rt2, PhxGp base, int32_t o
 
 /* STR Xt, [Xn, #offset] */
 void phx_a64_str(PhxBuilder *b, PhxGp src, PhxMem mem);
+
+/* STR Dt, [Xn, #offset]  -- 64-bit FP/SIMD store (V=1) */
+void phx_a64_str_fp(PhxBuilder *b, PhxGp src, PhxMem mem);
 
 /* STRB Wt, [Xn, #offset] */
 void phx_a64_strb(PhxBuilder *b, PhxGp src, PhxMem mem);

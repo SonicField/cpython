@@ -874,6 +874,22 @@ void phx_a64_ldr(PhxBuilder *b, PhxGp dst, PhxMem mem) {
     n->num_operands = 2;
 }
 
+void phx_a64_ldr_fp(PhxBuilder *b, PhxGp dst, PhxMem mem) {
+    mem = resolve_abs_addr(b, mem);
+
+    PhxNode *n = emit_node(b, PHX_A64_LDR);
+    if (!n) return;
+
+    /* 64-bit FP/SIMD load: size=11, V=1, opc=01 (LDR Dt, [...]) */
+    uint32_t inst = encode_ldst(0x3u, 1, 0x1 /*opc=01=LDR*/,
+                                hw_reg(dst), mem, 8);
+    store_inst(n, inst);
+
+    n->operands[0] = phx_op_gp(dst);
+    n->operands[1] = phx_op_mem(mem);
+    n->num_operands = 2;
+}
+
 void phx_a64_ldrb(PhxBuilder *b, PhxGp dst, PhxMem mem) {
     mem = resolve_abs_addr(b, mem);
 
@@ -1047,6 +1063,22 @@ void phx_a64_str(PhxBuilder *b, PhxGp src, PhxMem mem) {
 
     uint32_t inst = encode_ldst(size_bits, 0, 0x0 /*opc=00=STR*/,
                                 hw_reg(src), mem, access_sz);
+    store_inst(n, inst);
+
+    n->operands[0] = phx_op_gp(src);
+    n->operands[1] = phx_op_mem(mem);
+    n->num_operands = 2;
+}
+
+void phx_a64_str_fp(PhxBuilder *b, PhxGp src, PhxMem mem) {
+    mem = resolve_abs_addr(b, mem);
+
+    PhxNode *n = emit_node(b, PHX_A64_STR);
+    if (!n) return;
+
+    /* 64-bit FP/SIMD store: size=11, V=1, opc=00 (STR Dt, [...]) */
+    uint32_t inst = encode_ldst(0x3u, 1, 0x0 /*opc=00=STR*/,
+                                hw_reg(src), mem, 8);
     store_inst(n, inst);
 
     n->operands[0] = phx_op_gp(src);

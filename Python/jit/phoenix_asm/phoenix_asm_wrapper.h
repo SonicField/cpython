@@ -901,12 +901,14 @@ class EmitterExplicitT {
   }
   /* -- LDR / STR -- */
   Error ldr(const Gp& d, const Mem& m)  { phx_a64_ldr(b_(), d, m); return kErrorOk; }
+  Error ldr_fp(const Gp& d, const Mem& m) { phx_a64_ldr_fp(b_(), d, m); return kErrorOk; }
   Error ldrb(const Gp& d, const Mem& m) { phx_a64_ldrb(b_(), d, m); return kErrorOk; }
   Error ldrh(const Gp& d, const Mem& m) { phx_a64_ldrh(b_(), d, m); return kErrorOk; }
   Error ldrsb(const Gp& d, const Mem& m){ phx_a64_ldrsb(b_(), d, m); return kErrorOk; }
   Error ldrsh(const Gp& d, const Mem& m){ phx_a64_ldrsh(b_(), d, m); return kErrorOk; }
   Error ldrsw(const Gp& d, const Mem& m){ phx_a64_ldrsw(b_(), d, m); return kErrorOk; }
   Error str(const Gp& s, const Mem& m)  { phx_a64_str(b_(), s, m); return kErrorOk; }
+  Error str_fp(const Gp& s, const Mem& m) { phx_a64_str_fp(b_(), s, m); return kErrorOk; }
   Error strb(const Gp& s, const Mem& m) { phx_a64_strb(b_(), s, m); return kErrorOk; }
   Error strh(const Gp& s, const Mem& m) { phx_a64_strh(b_(), s, m); return kErrorOk; }
   /* -- LDP / STP -- */

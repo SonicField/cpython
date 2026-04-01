@@ -1889,7 +1889,7 @@ void loadToReg(
     const arch::Mem& input) {
   PhxBuilder* pb = as->impl();
   if (output->isVecD()) {
-    phx_a64_ldr(pb, AT::getVecD(output), input);
+    phx_a64_ldr_fp(pb, AT::getVecD(output), input);
   } else {
     switch (output->dataType()) {
       case OperandBase::k8bit:
@@ -1913,7 +1913,7 @@ void storeFromReg(
     const arch::Mem& output) {
   PhxBuilder* pb = as->impl();
   if (input->isVecD()) {
-    phx_a64_str(pb, AT::getVecD(input), output);
+    phx_a64_str_fp(pb, AT::getVecD(input), output);
   } else {
     switch (input->dataType()) {
       case OperandBase::k8bit:
@@ -2083,7 +2083,7 @@ void translateMove(Environ* env, const Instruction* instr) {
           auto ptr = arch::ptr_resolve(
               as, arch::fp, input->getStackSlot().loc, arch::reg_scratch_0);
           if (output->isVecD()) {
-            phx_a64_ldr(pb, AT::getVecD(output), ptr);
+            phx_a64_ldr_fp(pb, AT::getVecD(output), ptr);
           } else {
             switch (output->dataType()) {
               case OperandBase::k8bit:
@@ -2155,7 +2155,7 @@ void translateMove(Environ* env, const Instruction* instr) {
       if (input->isReg()) {
         // Storing the value of a register to an absolute address.
         if (input->isVecD()) {
-          phx_a64_str(pb, AT::getVecD(input), phx_ptr(scratch0, 0));
+          phx_a64_str_fp(pb, AT::getVecD(input), phx_ptr(scratch0, 0));
         } else {
           phx_a64_str(pb, AT::getGp(input), phx_ptr(scratch0, 0));
         }
