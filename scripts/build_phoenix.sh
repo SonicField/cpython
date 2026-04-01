@@ -56,7 +56,8 @@ cmake --build . -- -j"$(nproc)"
 # Step 4: Create empty libasmjit.a stub (phoenix-asm replaces asmjit)
 # Always recreate — PGO's internal `make clean` deletes the stub
 mkdir -p "$BUILD_DIR/_deps/asmjit-build"
-llvm-ar rcs "$BUILD_DIR/_deps/asmjit-build/libasmjit.a"
+AR_CMD=$(command -v llvm-ar 2>/dev/null || command -v ar)
+$AR_CMD rcs "$BUILD_DIR/_deps/asmjit-build/libasmjit.a"
 
 # Step 5: Configure CPython (hermetic — always reconfigure)
 # ARM64: no LTO (causes issues on aarch64 devgpu builds)
