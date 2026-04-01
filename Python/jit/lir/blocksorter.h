@@ -2,60 +2,52 @@
 
 #pragma once
 
-#include "cinderx/Jit/containers.h"
+#include "cinderx/Jit/lir/lir_c_api.h"
+
+/* ---- C API (implemented in blocksorter.c) ---- */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Sort basic blocks in reverse post-order with SCC handling.
+ * blocks[0] is the entry block, blocks[count-1] is the exit block.
+ * Returns a newly allocated array of sorted blocks; caller frees with
+ * PyMem_RawFree(). Sets *out_count to the number of blocks returned. */
+JitLirBlock *jit_lir_sort_blocks_rpo(
+    JitLirBlock *blocks, size_t count, size_t *out_count);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+
+#ifdef __cplusplus
 #include "cinderx/Jit/lir/block.h"
 
-#include <memory>
-#include <unordered_map>
 #include <vector>
 
 namespace jit::lir {
 
-// this struct represents a group of basic blocks that
-// are strongly conncted to each other.
-struct SCCBasicBlocks {
-  // only one entry basic block. Otherwise, the CFG
-  // is irreducible, which we don't support.
-  BasicBlock* entry{nullptr};
-  UnorderedSet<BasicBlock*> basic_blocks;
-  std::vector<SCCBasicBlocks*> successors;
-
-  bool hasBasicBlock(BasicBlock* block) const {
-    return basic_blocks.count(block);
-  }
-};
-
 class BasicBlockSorter {
  public:
-  // The first entry of blocks is the entry block, and the last entry is the
-  // exit block. The position of both will be maintained after sorting.
-  explicit BasicBlockSorter(const std::vector<BasicBlock*>& blocks);
+  explicit BasicBlockSorter(const std::vector<BasicBlock*>& blocks)
+      : blocks_(blocks) {}
 
-  std::vector<BasicBlock*> getSortedBlocks();
+  std::vector<BasicBlock*> getSortedBlocks() {
+    size_t out_count = 0;
+    JitLirBlock *sorted = jit_lir_sort_blocks_rpo(
+        reinterpret_cast<JitLirBlock*>(
+            const_cast<BasicBlock**>(blocks_.data())),
+        blocks_.size(), &out_count);
+    std::vector<BasicBlock*> result(
+        reinterpret_cast<BasicBlock**>(sorted),
+        reinterpret_cast<BasicBlock**>(sorted) + out_count);
+    PyMem_RawFree(sorted);
+    return result;
+  }
 
  private:
-  BasicBlockSorter(const UnorderedSet<BasicBlock*>& blocks, BasicBlock* entry);
-
-  BasicBlock* entry_{nullptr};
-  BasicBlock* exit_{nullptr};
-  UnorderedSet<BasicBlock*> basic_blocks_store_;
-  // This is a ref to either basic_blocks_store_ or the basic_blocks field of
-  // the SCCBasicBlocks being processed. This allows us to avoid some copying
-  // since this set is never modified.
-  const UnorderedSet<BasicBlock*>& basic_blocks_;
-
-  std::vector<BasicBlock*> scc_stack_;
-  UnorderedSet<BasicBlock*> scc_in_stack_;
-  std::unordered_map<BasicBlock*, int> scc_visited_;
-  int index_;
-
-  UnorderedMap<BasicBlock*, SCCBasicBlocks*> block_to_scc_map_;
-  std::vector<std::unique_ptr<SCCBasicBlocks>> scc_blocks_;
-  void calculateSCC();
-  int dfsSearch(BasicBlock* block);
-
-  void calcEntryBlocks();
-  void sortRPO();
+  const std::vector<BasicBlock*>& blocks_;
 };
 
 } // namespace jit::lir
+#endif
