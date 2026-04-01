@@ -4,12 +4,25 @@
 
 #include <cstdint>
 #include <string>
-#include <unordered_map>
+
+/* ---- C API (implemented in symbol_mapping.c) ---- */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+const uint64_t* jit_lir_py_function_from_name(const char* name);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
 
 namespace jit::lir {
 
-// Map the name of a CPython function (e.g. "PyLong_FromLong") to its address.
-// Return nullptr if such a function doesn't seem to exist.
-const uint64_t* pyFunctionFromName(std::string_view name);
+// Inline C++ wrapper that forwards to the C function.
+inline const uint64_t* pyFunctionFromName(std::string_view name) {
+  // string_view may not be null-terminated; use std::string for safety.
+  std::string name_str(name);
+  return jit_lir_py_function_from_name(name_str.c_str());
+}
 
 } // namespace jit::lir

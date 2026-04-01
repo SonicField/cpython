@@ -7,6 +7,19 @@
 #include <cstdint>
 #include <iosfwd>
 
+/* ---- C API (implemented in type.c) ---- */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+size_t jit_lir_bit_size(int dt);
+const char* jit_lir_data_type_name(int dt);
+const char* jit_lir_operand_type_name(int ty);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+
 namespace jit::lir {
 
 /*
@@ -55,10 +68,18 @@ enum class DataType : uint8_t {
 #undef DECL_DATA_TYPE_ENUM
 };
 
-size_t bitSize(DataType dt);
+/* Inline C++ wrappers that forward to the C functions */
+inline size_t bitSize(DataType dt) {
+  return jit_lir_bit_size(static_cast<int>(dt));
+}
 
-std::ostream& operator<<(std::ostream& os, DataType dt);
-std::ostream& operator<<(std::ostream& os, OperandType ty);
+inline std::ostream& operator<<(std::ostream& os, OperandType ty) {
+  return os << jit_lir_operand_type_name(static_cast<int>(ty));
+}
+
+inline std::ostream& operator<<(std::ostream& os, DataType dt) {
+  return os << jit_lir_data_type_name(static_cast<int>(dt));
+}
 
 } // namespace jit::lir
 
