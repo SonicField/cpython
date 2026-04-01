@@ -52,6 +52,8 @@ class StringTable {
         std::span<const uint8_t>{tab_.data, tab_.len});
   }
 
+  const JitElfStrTab* c_tab() const { return &tab_; }
+
  private:
   JitElfStrTab tab_;
 };

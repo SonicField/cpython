@@ -5,13 +5,41 @@
 #include "cinderx/Jit/elf/string.h"
 #include "cinderx/Jit/elf/symbol.h"
 
+#include <stdint.h>
+#include <stddef.h>
+
+/* ---- C types and API (implemented in hash.c) ---- */
+
+typedef struct {
+    uint32_t *buckets;
+    uint32_t *chains;
+    uint32_t nbuckets;
+    uint32_t nchains;
+} JitElfHashTab;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+uint32_t jit_elf_hash(const char *name);
+void jit_elf_hashtab_init(JitElfHashTab *ht);
+void jit_elf_hashtab_free(JitElfHashTab *ht);
+void jit_elf_hashtab_build(JitElfHashTab *ht,
+                           const JitElfSymTab *syms,
+                           const JitElfStrTab *strings);
+size_t jit_elf_hashtab_size_bytes(const JitElfHashTab *ht);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+
+#ifdef __cplusplus
 #include <cstdint>
 #include <span>
-#include <vector>
 
 namespace jit::elf {
 
-// This is the hash function defined by the ELF standard.
+// ELF standard hash function.
 constexpr uint32_t hash(const char* name) {
   uint32_t h = 0;
   for (; *name; name++) {
@@ -25,38 +53,31 @@ constexpr uint32_t hash(const char* name) {
   return h;
 }
 
-// Hash table of symbols.  The table is split into two arrays: the buckets array
-// and the chains array.  The buckets array holds symbol table indices, and if
-// those don't match, then the lookup starts chasing through the chains array,
-// trying each index until it hits 0, which is always the undefined symbol.
-//
-// See
-// https://docs.oracle.com/cd/E23824_01/html/819-0690/chapter6-48031.html#scrolltoc
+// C++ wrapper around JitElfHashTab.
 class HashTable {
  public:
-  // Build a new hash table from a symbol and string table pair.
-  void build(const SymbolTable& syms, const StringTable& strings);
+  HashTable() { jit_elf_hashtab_init(&tab_); }
+  ~HashTable() { jit_elf_hashtab_free(&tab_); }
 
-  constexpr std::span<const uint32_t> buckets() const {
-    return std::span{buckets_};
+  void build(const SymbolTable& syms, const StringTable& strings) {
+    jit_elf_hashtab_build(&tab_, syms.c_tab(), strings.c_tab());
   }
 
-  constexpr std::span<const uint32_t> chains() const {
-    return std::span{chains_};
+  std::span<const uint32_t> buckets() const {
+    return {tab_.buckets, tab_.nbuckets};
   }
 
-  constexpr size_t size_bytes() const {
-    // Hash table serializes the lengths of both tables as uint32_t values
-    // before writing out the tables.
-    return (sizeof(uint32_t) * 2) + buckets().size_bytes() +
-        chains().size_bytes();
+  std::span<const uint32_t> chains() const {
+    return {tab_.chains, tab_.nchains};
+  }
+
+  size_t size_bytes() const {
+    return jit_elf_hashtab_size_bytes(&tab_);
   }
 
  private:
-  uint32_t chaseChainIdx(uint32_t idx) const;
-
-  std::vector<uint32_t> buckets_;
-  std::vector<uint32_t> chains_;
+  JitElfHashTab tab_;
 };
 
 } // namespace jit::elf
+#endif

@@ -74,6 +74,8 @@ class SymbolTable {
 
   size_t size() const { return jit_elf_symtab_size(&tab_); }
 
+  const JitElfSymTab* c_tab() const { return &tab_; }
+
  private:
   JitElfSymTab tab_;
 };
