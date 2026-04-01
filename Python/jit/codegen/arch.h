@@ -13,7 +13,7 @@
 #include <asmjit/asmjit.h>
 #endif
 
-#include <iosfwd>
+#include <ostream>
 
 #if defined(CINDER_X86_64)
 
@@ -138,10 +138,44 @@ constexpr auto reg_stack_pointer_loc = SP;
 
 #if defined(CINDER_AARCH64)
 
+#ifdef PHOENIX_ASM
+/* Pure C implementations in arch.c */
+#ifdef __cplusplus
+extern "C" {
+#endif
+PhxMem jit_arch_ptr_offset(PhxGp base, int32_t offset, int32_t access_size);
+PhxMem jit_arch_ptr_resolve(PhxBuilder *as, PhxGp base, int32_t offset,
+                            PhxGp scratch, int32_t access_size);
+#ifdef __cplusplus
+}
+#endif
+#endif /* PHOENIX_ASM */
+
 namespace jit::codegen::arch {
 
 enum class AccessSize : int32_t { k8 = 1, k16 = 2, k32 = 4, k64 = 8 };
 
+#ifdef PHOENIX_ASM
+/* Inline wrappers calling the C implementations */
+inline asmjit::a64::Mem ptr_offset(
+    const asmjit::a64::Gp& base,
+    int32_t offset,
+    AccessSize access_size = AccessSize::k64) {
+  return asmjit::a64::Mem(
+      jit_arch_ptr_offset(base, offset, static_cast<int32_t>(access_size)));
+}
+
+inline asmjit::a64::Mem ptr_resolve(
+    asmjit::a64::Builder* as,
+    const asmjit::a64::Gp& base,
+    int32_t offset,
+    const asmjit::a64::Gp& scratch,
+    AccessSize access_size = AccessSize::k64) {
+  return asmjit::a64::Mem(
+      jit_arch_ptr_resolve(as->impl(), base, offset, scratch,
+                           static_cast<int32_t>(access_size)));
+}
+#else
 asmjit::a64::Mem ptr_offset(
     const asmjit::a64::Gp& base,
     int32_t offset,
@@ -153,6 +187,7 @@ asmjit::a64::Mem ptr_resolve(
     int32_t offset,
     const asmjit::a64::Gp& scratch,
     AccessSize access_size = AccessSize::k64);
+#endif /* PHOENIX_ASM */
 
 } // namespace jit::codegen::arch
 
@@ -160,7 +195,9 @@ asmjit::a64::Mem ptr_resolve(
 
 namespace jit::codegen {
 
-std::ostream& operator<<(std::ostream& out, const PhyLocation& loc);
+inline std::ostream& operator<<(std::ostream& out, const PhyLocation& loc) {
+  return out << loc.toString();
+}
 
 } // namespace jit::codegen
 
