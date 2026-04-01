@@ -116,6 +116,77 @@ void jit_lir_block_remove_dead_instrs(
 #define JIT_LIR_FLAG_SET        1
 #define JIT_LIR_FLAG_INVALIDATE 2
 
+/* DataType constants (must match lir::DataType enum) */
+#define JIT_LIR_DT_8BIT   0
+#define JIT_LIR_DT_16BIT  1
+#define JIT_LIR_DT_32BIT  2
+#define JIT_LIR_DT_64BIT  3
+#define JIT_LIR_DT_DOUBLE 4
+#define JIT_LIR_DT_OBJECT 5
+
+/* ---- Phase A: Extended operand getters ---- */
+int jit_lir_operand_data_type(JitLirOperand op);
+int jit_lir_operand_is_fp(JitLirOperand op);
+int jit_lir_operand_is_last_use(JitLirOperand op);
+uint64_t jit_lir_operand_get_constant(JitLirOperand op);
+double jit_lir_operand_get_fp_constant(JitLirOperand op);
+int jit_lir_operand_get_phy_register(JitLirOperand op);
+int jit_lir_operand_get_stack_slot(JitLirOperand op);
+void* jit_lir_operand_get_mem_address(JitLirOperand op);
+JitLirOperand jit_lir_operand_get_define(JitLirOperand op);
+
+/* ---- Phase A: Extended instruction getters ---- */
+JitLirBlock jit_lir_instr_basic_block(JitLirInstr instr);
+const void* jit_lir_instr_origin(JitLirInstr instr);
+int jit_lir_instr_is_compare(JitLirInstr instr);
+int jit_lir_instr_is_any_yield(JitLirInstr instr);
+int jit_lir_instr_inputs_live_across(JitLirInstr instr);
+int jit_lir_instr_output_phy_use(JitLirInstr instr);
+int jit_lir_instr_input_phy_use(JitLirInstr instr, size_t index);
+
+/* ---- Phase A: MemoryIndirect getters ---- */
+int jit_lir_indirect_multiplier(JitLirIndirect ind);
+int32_t jit_lir_indirect_offset(JitLirIndirect ind);
+
+/* ---- Phase A: Branch CC statics ---- */
+int jit_lir_negate_branch_cc(int opcode);
+int jit_lir_flip_branch_cc_direction(int opcode);
+int jit_lir_compare_to_branch_cc(int opcode);
+
+/* ---- Phase A: Operand setters ---- */
+void jit_lir_operand_set_constant(JitLirOperand op, uint64_t val, int data_type);
+void jit_lir_operand_set_fp_constant(JitLirOperand op, double val);
+void jit_lir_operand_set_phy_register(JitLirOperand op, int loc);
+void jit_lir_operand_set_stack_slot(JitLirOperand op, int loc);
+void jit_lir_operand_set_virtual_register(JitLirOperand op);
+void jit_lir_operand_set_data_type(JitLirOperand op, int dt);
+void jit_lir_operand_set_basic_block(JitLirOperand op, JitLirBlock block);
+void jit_lir_operand_set_mem_address(JitLirOperand op, void* addr);
+void jit_lir_operand_set_last_use(JitLirOperand op);
+
+/* ---- Phase A: Instruction mutation ---- */
+void jit_lir_instr_set_opcode(JitLirInstr instr, int opcode);
+void jit_lir_instr_set_num_inputs(JitLirInstr instr, size_t n);
+const char *jit_lir_instr_opname(JitLirInstr instr);
+
+/* ---- Phase A: Instruction operand allocation ---- */
+JitLirOperand jit_lir_instr_alloc_imm_input(JitLirInstr instr,
+    uint64_t val, int data_type);
+JitLirOperand jit_lir_instr_alloc_fp_imm_input(JitLirInstr instr, double val);
+JitLirOperand jit_lir_instr_alloc_linked_input(JitLirInstr instr,
+    JitLirInstr def_instr);
+JitLirOperand jit_lir_instr_alloc_phyreg_input(JitLirInstr instr, int loc);
+JitLirOperand jit_lir_instr_alloc_stack_input(JitLirInstr instr, int loc);
+JitLirOperand jit_lir_instr_alloc_label_input(JitLirInstr instr,
+    JitLirBlock block);
+JitLirOperand jit_lir_instr_alloc_addr_input(JitLirInstr instr, void* addr);
+
+/* ---- Phase A: Block/Function allocation ---- */
+JitLirBlock jit_lir_func_alloc_block(JitLirFunc func);
+JitLirInstr jit_lir_block_alloc_instr(JitLirBlock block, int opcode,
+    const void* hir_origin);
+void jit_lir_block_add_successor(JitLirBlock block, JitLirBlock succ);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
