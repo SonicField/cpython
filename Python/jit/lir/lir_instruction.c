@@ -16,7 +16,7 @@
 /* ---- Lifecycle ---- */
 
 LirInstruction *
-lir_instruction_create(void *basic_block, int opcode, const void *origin) {
+lir_instruction_create(LirBasicBlock *basic_block, int opcode, const void *origin) {
     LirInstruction *inst = (LirInstruction *)PyMem_RawCalloc(
         1, sizeof(LirInstruction));
     inst->opcode = opcode;
@@ -75,7 +75,7 @@ lir_instruction_get_input(const LirInstruction *inst, size_t index) {
     return inst->inputs[index];
 }
 
-void *
+LirBasicBlock *
 lir_instruction_basic_block(const LirInstruction *inst) {
     return inst->basic_block;
 }
@@ -106,49 +106,49 @@ append_input(LirInstruction *inst, LirOperand *op) {
 
 LirOperand *
 lir_instruction_alloc_imm_input(LirInstruction *inst, uint64_t val, int dt) {
-    LirOperand *op = lir_operand_create(inst);
-    lir_operand_set_constant(op, val, dt);
+    LirOperand *op = lir_operand_new(inst);
+    lir_operand_set_constant(op, val, (uint8_t)dt);
     return append_input(inst, op);
 }
 
 LirOperand *
 lir_instruction_alloc_fp_imm_input(LirInstruction *inst, double val) {
-    LirOperand *op = lir_operand_create(inst);
+    LirOperand *op = lir_operand_new(inst);
     lir_operand_set_fp_constant(op, val);
     return append_input(inst, op);
 }
 
 LirOperand *
 lir_instruction_alloc_linked_input(LirInstruction *inst,
-                                    LirOperand *def_opnd) {
-    LirOperand *op = lir_operand_create_linked(inst, def_opnd);
+                                    LirInstruction *def_instr) {
+    LirOperand *op = lir_operand_new_linked(inst, def_instr);
     return append_input(inst, op);
 }
 
 LirOperand *
-lir_instruction_alloc_phyreg_input(LirInstruction *inst, int loc) {
-    LirOperand *op = lir_operand_create(inst);
+lir_instruction_alloc_phyreg_input(LirInstruction *inst, LirPhyLocation loc) {
+    LirOperand *op = lir_operand_new(inst);
     lir_operand_set_phy_register(op, loc);
     return append_input(inst, op);
 }
 
 LirOperand *
-lir_instruction_alloc_stack_input(LirInstruction *inst, int loc) {
-    LirOperand *op = lir_operand_create(inst);
+lir_instruction_alloc_stack_input(LirInstruction *inst, LirPhyLocation loc) {
+    LirOperand *op = lir_operand_new(inst);
     lir_operand_set_stack_slot(op, loc);
     return append_input(inst, op);
 }
 
 LirOperand *
-lir_instruction_alloc_label_input(LirInstruction *inst, void *block) {
-    LirOperand *op = lir_operand_create(inst);
+lir_instruction_alloc_label_input(LirInstruction *inst, LirBasicBlock *block) {
+    LirOperand *op = lir_operand_new(inst);
     lir_operand_set_basic_block(op, block);
     return append_input(inst, op);
 }
 
 LirOperand *
 lir_instruction_alloc_addr_input(LirInstruction *inst, void *addr) {
-    LirOperand *op = lir_operand_create(inst);
+    LirOperand *op = lir_operand_new(inst);
     lir_operand_set_mem_address(op, addr);
     return append_input(inst, op);
 }
