@@ -123,54 +123,8 @@ typedef struct {
     const void *hir_func;       /* hir::Function* (opaque) */
 } LirFunction;
 
-/* ---- Phase B: C struct lifecycle/accessor declarations ---- */
-
-/* Operand (operand_impl.c) */
-LirOperand *lir_operand_new(LirInstruction *parent);
-LirOperand *lir_operand_new_linked(LirInstruction *parent,
-                                    LirInstruction *def_instr);
-void lir_operand_free(LirOperand *op);
-int lir_operand_type(const LirOperand *op);
-int lir_operand_data_type(const LirOperand *op);
-int lir_operand_is_linked(const LirOperand *op);
-int lir_operand_is_fp(const LirOperand *op);
-int lir_operand_is_last_use(const LirOperand *op);
-uint64_t lir_operand_get_constant(const LirOperand *op);
-double lir_operand_get_fp_constant(const LirOperand *op);
-LirPhyLocation lir_operand_get_phy_register(const LirOperand *op);
-LirPhyLocation lir_operand_get_stack_slot(const LirOperand *op);
-void *lir_operand_get_mem_address(const LirOperand *op);
-void *lir_operand_get_basic_block(const LirOperand *op);
-LirMemoryIndirect *lir_operand_get_indirect(const LirOperand *op);
-LirOperand *lir_operand_get_define(LirOperand *op);
-void lir_operand_set_constant(LirOperand *op, uint64_t val, uint8_t dt);
-void lir_operand_set_fp_constant(LirOperand *op, double val);
-void lir_operand_set_phy_register(LirOperand *op, LirPhyLocation reg);
-void lir_operand_set_stack_slot(LirOperand *op, LirPhyLocation slot);
-void lir_operand_set_mem_address(LirOperand *op, void *addr);
-void lir_operand_set_basic_block(LirOperand *op, LirBasicBlock *block);
-void lir_operand_set_virtual_register(LirOperand *op);
-void lir_operand_set_data_type(LirOperand *op, uint8_t dt);
-void lir_operand_set_last_use(LirOperand *op);
-void lir_operand_set_none(LirOperand *op);
-
-/* MemoryIndirect (operand_impl.c) */
-LirMemoryIndirect *lir_memind_new(LirInstruction *parent);
-void lir_memind_free(LirMemoryIndirect *mi);
-
-/* Instruction (lir_instruction.c) */
-LirInstruction *lir_instruction_create(LirBasicBlock *bb, int opcode,
-                                        const void *origin);
-void lir_instruction_free(LirInstruction *inst);
-
-/* BasicBlock (block_impl.c) */
-LirBasicBlock *lir_block_create(void *function, int id);
-void lir_block_free(LirBasicBlock *bb);
-
-/* Function (function_impl.c) */
-LirFunction *lir_function_create(const void *hir_func);
-void lir_function_free(LirFunction *func);
-LirBasicBlock *lir_function_alloc_block(LirFunction *func);
+/* Phase B lifecycle declarations are below, after the opaque pointer API.
+ * See the section starting with "Phase B1: operand/memind lifecycle" */
 
 /* Code section constants (must match codegen::CodeSection enum) */
 #define JIT_LIR_SECTION_HOT  0
@@ -382,6 +336,23 @@ void lir_memind_set(LirMemoryIndirect *mi,
 void lir_memind_set_linked(LirMemoryIndirect *mi,
                            LirInstruction *base, LirInstruction *index,
                            uint8_t multiplier, int32_t offset);
+
+/* Instruction lifecycle (lir_instruction.c) */
+LirInstruction *lir_instruction_create(LirBasicBlock *bb, int opcode,
+                                        const void *origin);
+void lir_instruction_free(LirInstruction *inst);
+
+/* BasicBlock lifecycle (block_impl.c) */
+LirBasicBlock *lir_block_create(void *function, int id);
+void lir_block_free(LirBasicBlock *bb);
+void lir_block_add_successor(LirBasicBlock *bb, LirBasicBlock *succ);
+LirInstruction *lir_block_alloc_instr(LirBasicBlock *bb, int opcode,
+                                       const void *origin);
+
+/* Function lifecycle (function_impl.c) */
+LirFunction *lir_function_create(const void *hir_func);
+void lir_function_free(LirFunction *func);
+LirBasicBlock *lir_function_alloc_block(LirFunction *func);
 
 #ifdef __cplusplus
 } /* extern "C" */
