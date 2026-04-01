@@ -10,6 +10,21 @@ echo "=== Phoenix JIT Clean Build ==="
 echo "CPython root: $CPYTHON_ROOT"
 echo "Build dir: $BUILD_DIR"
 
+# Step 0: Check if local branch is behind remote (prevents stale binary builds)
+cd "$CPYTHON_ROOT"
+if git remote get-url origin >/dev/null 2>&1; then
+    echo "--- Checking remote sync ---"
+    git fetch origin 2>/dev/null || true
+    BEHIND=$(git rev-list HEAD..origin/phoenix-asm-integration --count 2>/dev/null || echo 0)
+    if [ "$BEHIND" -gt 0 ]; then
+        echo "WARNING: local is $BEHIND commit(s) behind remote!"
+        echo "Run: git pull origin phoenix-asm-integration"
+        echo "Building anyway — but the binary may be stale."
+    else
+        echo "Local is up to date with remote."
+    fi
+fi
+
 # Step 1: Clean stale JIT build artifacts
 echo "--- Cleaning stale JIT artifacts ---"
 rm -rf "$BUILD_DIR/CMakeFiles/jit.dir" \
