@@ -1,14 +1,17 @@
 #!/bin/bash
 # build_phoenix.sh — Clean build of Phoenix JIT with phoenix-asm
+# Works on both x86_64 and ARM64 (aarch64).
 # Ensures no stale .o files or binaries contaminate the build.
 set -euo pipefail
 
 CPYTHON_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$CPYTHON_ROOT/Python/jit_build/build"
+ARCH="$(uname -m)"
 
 echo "=== Phoenix JIT Clean Build ==="
 echo "CPython root: $CPYTHON_ROOT"
 echo "Build dir: $BUILD_DIR"
+echo "Architecture: $ARCH"
 
 # Step 0: Check if local branch is behind remote (prevents stale binary builds)
 cd "$CPYTHON_ROOT"
@@ -55,10 +58,18 @@ cmake --build . -- -j"$(nproc)"
 mkdir -p "$BUILD_DIR/_deps/asmjit-build"
 llvm-ar rcs "$BUILD_DIR/_deps/asmjit-build/libasmjit.a"
 
-# Step 5: Configure CPython with LTO (hermetic — always reconfigure)
-echo "--- Configuring CPython with LTO ---"
+# Step 5: Configure CPython (hermetic — always reconfigure)
+# ARM64: no LTO (causes issues on aarch64 devgpu builds)
+# x86_64: LTO enabled for production performance
+echo "--- Configuring CPython ---"
 cd "$CPYTHON_ROOT"
-CC=clang CXX=clang++ ./configure --without-pydebug --with-lto > /dev/null 2>&1
+if [ "$ARCH" = "aarch64" ]; then
+    echo "ARM64 detected — configuring without LTO"
+    CC=clang CXX=clang++ ./configure --without-pydebug --without-lto > /dev/null 2>&1
+else
+    echo "x86_64 detected — configuring with LTO"
+    CC=clang CXX=clang++ ./configure --without-pydebug --with-lto > /dev/null 2>&1
+fi
 
 # Step 6: Remove stale python binary and rebuild CPython
 echo "--- Building CPython ---"
