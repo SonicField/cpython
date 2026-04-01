@@ -1,0 +1,149 @@
+========================================================================
+ABBA Interleaved Benchmark -- JIT vs Interpreter (in-process)
+========================================================================
+Python:       3.12.13 (heads/phoenix-asm-integration-dirty:acb0b5de07, Mar 31 2026, 04:37:44) [Clang 21.1.7 (CentOS 21.1.7-1.el9)]
+Platform:     x86_64
+PHX finalize: 115 bytes → /tmp/jit_code.bin
+PHX finalize: 119 bytes → /tmp/jit_code.bin
+JIT active:   True
+ABBA_BLOCKS:  15
+BENCH_ITERS:  50000
+INNER_ITERS:  100
+WARMUP_ITERS: 5000
+
+MODE: JIT vs Interpreter
+A = warmed past auto-compile threshold, B = cold (interpreter).
+
+PHX compileFunction: calling compile_func
+PHX finalize: 1765 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f8a70c00108, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=106 offset=0, vectorcall id=107 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 1765 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f8a70c007ed, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=106 offset=0, vectorcall id=107 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 1618 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f8a70c00ed2, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=100 offset=0, vectorcall id=101 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 1603 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f8a70c01524, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=99 offset=0, vectorcall id=100 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 1713 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f8a70c01b67, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=106 offset=0, vectorcall id=107 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 1702 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f8a70c02218, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=106 offset=0, vectorcall id=107 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 1731 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f8a70c028be, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=107 offset=0, vectorcall id=108 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 1723 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f8a70c02f81, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=107 offset=0, vectorcall id=108 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 1748 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f8a70c0363c, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=109 offset=0, vectorcall id=110 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 1743 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f8a70c03d10, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=109 offset=0, vectorcall id=110 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 1762 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f8a70c043df, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=109 offset=0, vectorcall id=110 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 1757 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f8a70c04ac1, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=109 offset=0, vectorcall id=110 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 2025 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f8a70c0519e, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=131 offset=0, vectorcall id=132 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX finalize: 2026 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f8a70c05987, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=131 offset=0, vectorcall id=132 offset=6, reentry=-6
+PHX compileFunction: result=0
+PHX compileFunction: calling compile_func
+PHX compileFunction: result=0
+Benchmark             JIT ns/call Interp ns/call  Improv%  Signif                    IQR
+-------------------------------------------------------------------------------------
+  isinstance                 49.6         49.5     -0.2%       no  [-0.513, +3.704] ms
+  issubclass                 50.9         50.9     -0.0%       no  [-0.634, +1.837] ms
+  hasattr                    67.6         67.8     +0.2%       no  [-9.253, +1.075] ms
+  getattr                    58.8         58.9     +0.0%       no  [-1.162, +0.917] ms
+  next                       76.7         76.7     +0.0%       no  [-13.401, +11.397] ms
+  next_default               72.2         72.2     -0.0%       no  [-3.928, +3.704] ms
+  divmod                    109.4        109.4     +0.0%       no  [-5.152, +18.618] ms
+
+Significant results: 0/7
+
+Interpretation:
+  Signif=YES: IQR of per-block deltas does not span zero.
+  Signif=no:  IQR spans zero. Cannot distinguish from noise.
+  Improv%:    Positive = A faster than B. Negative = B faster.
+
+Raw per-block deltas (ms) -- inspect for drift patterns:
+  isinstance           [-12.948, -3.500, -2.440, -0.513, +0.044, +0.104, +0.488, +0.870, +1.406, +1.431, +3.205, +3.704, +5.381, +5.790, +19.599]
+  issubclass           [-1.003, -0.959, -0.796, -0.634, -0.558, -0.504, -0.431, -0.096, -0.062, +0.360, +1.178, +1.837, +2.294, +5.097, +18.052]
+  hasattr              [-22.932, -14.896, -11.625, -9.253, -6.769, -3.700, -3.589, -0.458, -0.405, -0.333, +0.202, +1.075, +3.745, +16.488, +18.184]
+  getattr              [-2.431, -1.919, -1.351, -1.162, -0.884, -0.530, -0.371, -0.188, -0.000, +0.379, +0.786, +0.917, +1.804, +2.108, +6.444]
+  next                 [-34.194, -25.792, -15.161, -13.401, -2.537, -2.119, -0.223, +1.224, +3.310, +3.343, +3.683, +11.397, +27.408, +29.388, +84.134]
+  next_default         [-22.349, -5.107, -4.520, -3.928, -3.473, -2.146, -1.784, -1.644, +0.421, +1.861, +1.904, +3.704, +4.793, +6.183, +7.563]
+  divmod               [-45.341, -30.599, -9.088, -5.152, -3.353, -3.193, -0.604, +0.004, +1.818, +5.425, +17.570, +18.618, +29.335, +57.799, +110.256]
+
+========================================================================
+
+========================================================================
+Phoenix JIT Benchmarks -- Auto-compilation (threshold=1000)
+========================================================================
+Python:       3.12.13 (heads/phoenix-asm-integration-dirty:acb0b5de07, Mar 31 2026, 04:37:44) [Clang 21.1.7 (CentOS 21.1.7-1.el9)]
+Platform:     x86_64
+JIT active:   True
+N iterations: 100,000
+Warmup:       3 rounds
+Measure:      5 rounds
+
+Benchmark                   Mean ms     Min ms   Stdev ms
+------------------------------------------------------------
+  fibonacci                 19751.8    16889.3     6190.8
+  richards_full               196.4      186.1        8.4
+  richards_slots             1007.2      972.4       29.4
+  nqueens                    2491.5     2441.6       38.0
+PHX compileFunction: calling compile_func
+PHX finalize: 1759 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7f8a70c06171, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=108 offset=0, vectorcall id=109 offset=6, reentry=-6
+PHX compileFunction: result=0

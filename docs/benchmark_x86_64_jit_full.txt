@@ -1,0 +1,23 @@
+========================================================================
+Phoenix JIT Benchmarks -- Auto-compilation (threshold=1000)
+========================================================================
+Python:       3.12.13 (heads/phoenix-asm-integration-dirty:acb0b5de07, Mar 31 2026, 04:37:44) [Clang 21.1.7 (CentOS 21.1.7-1.el9)]
+Platform:     x86_64
+PHX finalize: 115 bytes → /tmp/jit_code.bin
+PHX finalize: 119 bytes → /tmp/jit_code.bin
+JIT active:   True
+N iterations: 100,000
+Warmup:       3 rounds
+Measure:      5 rounds
+
+Benchmark                   Mean ms     Min ms   Stdev ms
+------------------------------------------------------------
+  fibonacci                 16419.7    16337.3       87.5
+  richards_full                86.7       85.4        1.0
+  richards_slots              427.3      418.9        6.1
+  nqueens                     954.4      947.5        7.2
+PHX compileFunction: calling compile_func
+PHX finalize: 1759 bytes → /tmp/jit_code.bin
+PHX: code_start_=0x7fab4ce00108, labelOffsetFromBase(vectorcall)=6
+PHX: correct_args_entry id=108 offset=0, vectorcall id=109 offset=6, reentry=-6
+PHX compileFunction: result=0

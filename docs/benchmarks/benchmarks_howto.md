@@ -4,10 +4,10 @@ How to build, run, interpret, and save ABBA benchmark results.
 
 ## Prerequisites
 
-1. **CPython + JIT built** via `scripts/build_phoenix.sh` (x86_64 with LTO) or manual build (ARM64 without LTO to match cinderx_dev).
-2. **Vanilla baseline binary** for comparison:
+1. **CPython + JIT built** via `scripts/build_phoenix.sh` (x86_64 with LTO) or manual build (ARM64 without LTO).
+2. **Vanilla baseline binary** — must be vanilla CPython of the **same version** (3.12.13). Do NOT compare against cinderx_dev or a different Python version:
    - x86_64: build vanilla CPython with `scripts/build_vanilla.sh`
-   - ARM64 (devgpu004): use cinderx_dev's CPython at `~/local/cinderx_dev/python-install/bin/python3.12`
+   - ARM64 (devgpu004): build vanilla CPython 3.12.13 from source (same configure flags, no JIT)
 3. **benchmark_phoenix_full.py** in `Tools/` (committed in repo).
 
 ## Building
@@ -57,15 +57,9 @@ VANILLA_PYTHON=cpython-vanilla/python \
 ```bash
 cd ~/local/phoenix-cpython-git
 
-# Create a wrapper for vanilla Python (needs LD_LIBRARY_PATH)
-cat > /tmp/run_vanilla.sh << 'EOF'
-#!/bin/bash
-LD_LIBRARY_PATH=~/local/cinderx_dev/python-install/lib \
-    ~/local/cinderx_dev/python-install/bin/python3.12 "$@"
-EOF
-chmod +x /tmp/run_vanilla.sh
-
-VANILLA_PYTHON=/tmp/run_vanilla.sh \
+# IMPORTANT: vanilla baseline must be same CPython version (3.12.13), built
+# from source WITHOUT JIT. Do NOT use cinderx_dev or a different Python version.
+VANILLA_PYTHON=~/local/vanilla-cpython/python \
     ./python Tools/benchmark_phoenix_full.py jit --reps=3
 ```
 
@@ -84,11 +78,12 @@ Key metrics:
 - **Geometric mean**: product(speedups)^(1/N) — equal weight per benchmark
 - **Per-benchmark speedup**: > 1.0 means JIT is faster, < 1.0 means JIT is slower
 
-### Acceptance criteria (ARM64 vs cinderx_dev)
+### Acceptance criteria
 
-- Geometric mean >= 1.0x
+- Geometric mean >= 1.0x (JIT-on vs JIT-off, same CPython version)
 - No individual benchmark > 30% slower (speedup >= 0.7x)
-- Build flags must match comparison target
+- Build flags must match between JIT and vanilla binaries
+- Must compare JIT-on vs JIT-off on the SAME binary or same CPython version — never cross-version
 
 ### Known regressions
 
