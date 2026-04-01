@@ -2,54 +2,81 @@
 
 #pragma once
 
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
+
+/* Symbol flags */
+#define JIT_ELF_SYM_GLOBAL 0x10
+#define JIT_ELF_SYM_FUNC   0x02
+
+/* ---- C API (implemented in symbol.c) ---- */
+typedef struct {
+    uint32_t name_offset;
+    uint8_t info;
+    uint8_t other;
+    uint16_t section_index;
+    uint64_t address;
+    uint64_t size;
+} JitElfSymbol;
+
+typedef struct {
+    JitElfSymbol *syms;
+    size_t len;
+    size_t cap;
+} JitElfSymTab;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+void jit_elf_symtab_init(JitElfSymTab *st);
+void jit_elf_symtab_free(JitElfSymTab *st);
+void jit_elf_symtab_insert(JitElfSymTab *st, const JitElfSymbol *sym);
+const JitElfSymbol *jit_elf_symtab_get(const JitElfSymTab *st, size_t idx);
+size_t jit_elf_symtab_size(const JitElfSymTab *st);
+const uint8_t *jit_elf_symtab_data(const JitElfSymTab *st);
+size_t jit_elf_symtab_data_size(const JitElfSymTab *st);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+
+#ifdef __cplusplus
 #include <span>
-#include <vector>
 
 namespace jit::elf {
 
-// Symbol flags.
-constexpr uint8_t kGlobal = 0x10;
-constexpr uint8_t kFunc = 0x02;
+constexpr uint8_t kGlobal = JIT_ELF_SYM_GLOBAL;
+constexpr uint8_t kFunc = JIT_ELF_SYM_FUNC;
 
-struct Symbol {
-  uint32_t name_offset{0};
-
-  // Type of symbol this is.
-  uint8_t info{0};
-
-  // Controls symbol visibility.  Zero means to compute visibility from the
-  // `info` field.
-  const uint8_t other{0};
-
-  // Index of the section that this symbol points to.
-  uint16_t section_index{0};
-  uint64_t address{0};
-  uint64_t size{0};
-};
+using Symbol = JitElfSymbol;
 
 class SymbolTable {
  public:
-  SymbolTable();
+  SymbolTable() { jit_elf_symtab_init(&tab_); }
+  ~SymbolTable() { jit_elf_symtab_free(&tab_); }
 
   template <class... Args>
   void insert(Args&&... args) {
-    syms_.emplace_back(std::forward<Args>(args)...);
+    Symbol sym{std::forward<Args>(args)...};
+    jit_elf_symtab_insert(&tab_, &sym);
   }
 
-  const Symbol& operator[](size_t idx) const;
+  const Symbol& operator[](size_t idx) const {
+    return *jit_elf_symtab_get(&tab_, idx);
+  }
 
   std::span<const std::byte> bytes() const {
-    return std::as_bytes(std::span{syms_});
+    return std::as_bytes(
+        std::span<const uint8_t>{jit_elf_symtab_data(&tab_),
+                                 jit_elf_symtab_data_size(&tab_)});
   }
 
-  // Get the number of symbols in the table.
-  constexpr size_t size() const {
-    return syms_.size();
-  }
+  size_t size() const { return jit_elf_symtab_size(&tab_); }
 
  private:
-  std::vector<Symbol> syms_;
+  JitElfSymTab tab_;
 };
 
 } // namespace jit::elf
+#endif
