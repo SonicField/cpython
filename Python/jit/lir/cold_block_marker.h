@@ -2,6 +2,18 @@
 
 #pragma once
 
+/* ---- C API (implemented in cold_block_marker.c) ---- */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+void jit_lir_mark_cold_blocks(void* func);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+
+#ifdef __cplusplus
 namespace jit::lir {
 
 class Function;
@@ -18,6 +30,9 @@ class Function;
 //   H3: Transitive closure — blocks reachable only from cold blocks
 //
 // Call after LIR generation, before register allocation.
-void markColdBlocks(Function* func);
+inline void markColdBlocks(Function* func) {
+  jit_lir_mark_cold_blocks(static_cast<void*>(func));
+}
 
 } // namespace jit::lir
+#endif
