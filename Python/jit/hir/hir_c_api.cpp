@@ -63,10 +63,10 @@ size_t hir_cfg_get_rpo(HirCFG cfg, HirBasicBlock *out, size_t capacity) {
 
 HirBasicBlock hir_cfg_blocks_first(HirCFG cfg) {
   auto& blocks = as_cfg(cfg)->blocks;
-  if (blocks.empty()) {
+  if (blocks.begin() == blocks.end()) {
     return nullptr;
   }
-  return &blocks.front();
+  return &*blocks.begin();
 }
 
 HirBasicBlock hir_cfg_blocks_next(HirCFG cfg, HirBasicBlock block) {
