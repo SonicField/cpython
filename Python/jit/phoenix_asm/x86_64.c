@@ -1069,19 +1069,23 @@ void phx_x86_movq_rr(PhxBuilder *b, PhxGp dst, PhxGp src) {
         n->encoded[pos++] = 0x0F;
         n->encoded[pos++] = 0x7E;
         pos += encode_modrm_rr(n->encoded + pos, reg3(dst), src);
-    } else if (dst.size == 16 && src.size == 8) {
-        /* GP r64 to XMM: 66 REX.W 0F 6E /r */
+    } else if (dst.size == 16 && (src.size == 4 || src.size == 8)) {
+        /* GP to XMM: 66 [REX.W] 0F 6E /r
+         * REX.W=1 for r64 (MOVQ), REX.W=0 for r32 (MOVD encoding). */
+        int w = (src.size == 8) ? 1 : 0;
         n->encoded[pos++] = 0x66;
-        uint8_t rex = make_rex(1, dst, src);
-        n->encoded[pos++] = rex;
+        uint8_t rex = make_rex(w, dst, src);
+        if (rex) n->encoded[pos++] = rex;
         n->encoded[pos++] = 0x0F;
         n->encoded[pos++] = 0x6E;
         pos += encode_modrm_rr(n->encoded + pos, reg3(dst), src);
-    } else if (dst.size == 8 && src.size == 16) {
-        /* XMM to GP r64: 66 REX.W 0F 7E /r */
+    } else if ((dst.size == 4 || dst.size == 8) && src.size == 16) {
+        /* XMM to GP: 66 [REX.W] 0F 7E /r
+         * REX.W=1 for r64 (MOVQ), REX.W=0 for r32 (MOVD encoding). */
+        int w = (dst.size == 8) ? 1 : 0;
         n->encoded[pos++] = 0x66;
-        uint8_t rex = make_rex(1, src, dst);
-        n->encoded[pos++] = rex;
+        uint8_t rex = make_rex(w, src, dst);
+        if (rex) n->encoded[pos++] = rex;
         n->encoded[pos++] = 0x0F;
         n->encoded[pos++] = 0x7E;
         pos += encode_modrm_rr(n->encoded + pos, reg3(src), dst);
