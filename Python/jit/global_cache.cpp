@@ -4,9 +4,10 @@
 
 #include "cinderx/Common/dict.h"
 #include "cinderx/Common/util.h"
-#include "cinderx/Common/watchers.h"
+#include "cinderx/Common/watchers_c.h"
 #include "cinderx/Jit/threaded_compile.h"
 #include "cinderx/Jit/context.h"
+#include "cinderx/module_c_state.h"
 #include "cinderx/module_state.h"
 
 #ifndef ENABLE_LAZY_IMPORTS
@@ -189,7 +190,7 @@ void GlobalCacheManager::clear() {
     // so we need to make sure each dictionary is still being watched
     if (dict_it != watch_map_.end()) {
       notifyDictUnwatch(dict);
-      cinderx::getModuleState()->watcherState().unwatchDict(dict);
+      Ci_Watchers_UnwatchDict(dict);
     }
   }
 }
@@ -218,7 +219,7 @@ void GlobalCacheManager::watchDictKey(
   bool inserted = watchers.emplace(cache).second;
   JIT_CHECK(inserted, "cache was already watching key");
   JIT_CHECK(
-      cinderx::getModuleState()->watcherState().watchDict(dict) == 0,
+      Ci_Watchers_WatchDict(dict) == 0,
       "Failed to watch globals or builtins dict");
 }
 
@@ -240,7 +241,7 @@ void GlobalCacheManager::unwatchDictKey(
     if (dict_keys.empty()) {
       watch_map_.erase(dict_it);
       JIT_CHECK(
-          cinderx::getModuleState()->watcherState().unwatchDict(dict) == 0,
+          Ci_Watchers_UnwatchDict(dict) == 0,
           "Failed to unwatch globals or builtins dictionary");
     }
   }

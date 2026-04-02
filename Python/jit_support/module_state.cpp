@@ -116,7 +116,7 @@ bool ModuleState::initBuiltinMembers() {
   return true;
 }
 
-WatcherState& ModuleState::watcherState() {
+CiWatcherState& ModuleState::watcherState() {
   return watcher_state_;
 }
 

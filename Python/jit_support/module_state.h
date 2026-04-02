@@ -4,7 +4,7 @@
 
 #include "cinderx/python.h"
 
-#include "cinderx/Common/watchers.h"
+#include "cinderx/Common/watchers_c.h"
 #include "cinderx/Jit/code_allocator_iface.h"
 #include "cinderx/Jit/containers.h"
 #include "cinderx/Jit/context_iface.h"
@@ -185,12 +185,12 @@ class ModuleState {
 
   bool initBuiltinMembers();
 
-  WatcherState& watcherState();
+  CiWatcherState& watcherState();
 
   jit::UnorderedSet<BorrowedRef<>>& registeredCompilationUnits();
 
  private:
-  WatcherState watcher_state_;
+  CiWatcherState watcher_state_;
 
   std::unique_ptr<jit::IGlobalCacheManager> cache_manager_;
   std::unique_ptr<jit::ICodeAllocator> code_allocator_;

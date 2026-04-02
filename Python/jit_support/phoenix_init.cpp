@@ -13,7 +13,7 @@
 #include "cinderx/Jit/generators_rt.h"
 #include "cinderx/Common/code.h"
 #include "cinderx/Common/log.h"
-#include "cinderx/Common/watchers.h"
+#include "cinderx/Common/watchers_c.h"
 #include "cinderx/module_c_state.h"
 
 /* Watcher callbacks — notify the JIT when types/dicts/funcs/code change */
@@ -189,12 +189,12 @@ static int phoenix_exec(PyObject* m) {
 
     /* Initialize watchers — the JIT's inline caches need these to
        track type/dict/func/code changes */
-    auto& ws = state->watcherState();
-    ws.setCodeWatcher(phoenix_code_watcher);
-    ws.setDictWatcher(phoenix_dict_watcher);
-    ws.setFuncWatcher(phoenix_func_watcher);
-    ws.setTypeWatcher(phoenix_type_watcher);
-    if (ws.init() < 0) {
+    CiWatcherState& ws = state->watcherState();
+    ci_watcher_state_set_code_watcher(&ws, phoenix_code_watcher);
+    ci_watcher_state_set_dict_watcher(&ws, phoenix_dict_watcher);
+    ci_watcher_state_set_func_watcher(&ws, phoenix_func_watcher);
+    ci_watcher_state_set_type_watcher(&ws, phoenix_type_watcher);
+    if (ci_watcher_state_init(&ws) < 0) {
         PyErr_SetString(PyExc_RuntimeError, "Phoenix: failed to init watchers");
         return -1;
     }
@@ -250,7 +250,7 @@ static void phoenix_free(void* m) {
             f->vectorcall = Ci_PyFunction_Vectorcall;
         }
     }
-    state->watcherState().fini();
+    ci_watcher_state_fini(&state->watcherState());
     jit::finalize();
     finiCodeExtraIndex();
     state->~ModuleState();

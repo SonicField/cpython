@@ -10,6 +10,7 @@
 #include "cinderx/Interpreter/interpreter.h"
 #include "cinderx/Jit/elf/reader.h"
 #include "cinderx/StaticPython/classloader.h"
+#include "cinderx/module_c_state.h"
 #include "cinderx/module_state.h"
 #include "cinderx/python_runtime.h"
 
@@ -416,7 +417,7 @@ void Context::watchType(
   }
 
   JIT_CHECK(
-      cinderx::getModuleState()->watcherState().watchType(type) == 0,
+      Ci_Watchers_WatchType(type) == 0,
       "Failed to watch type {}",
       type->tp_name);
 }
@@ -447,7 +448,7 @@ BorrowedRef<> Context::strBuildClass() {
 void Context::watchPendingTypes() {
   for (auto& type : pending_watches_) {
     JIT_CHECK(
-        cinderx::getModuleState()->watcherState().watchType(type) == 0,
+        Ci_Watchers_WatchType(type) == 0,
         "Failed to watch pending type {}",
         type->tp_name);
   }

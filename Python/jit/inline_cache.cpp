@@ -13,6 +13,7 @@
 #include "cinderx/Jit/containers.h"
 #include "cinderx/StaticPython/strictmoduleobject.h"
 #include "cinderx/UpstreamBorrow/borrowed.h"
+#include "cinderx/module_c_state.h"
 #include "cinderx/module_state.h"
 
 #include <algorithm>
@@ -28,7 +29,7 @@ struct TypeWatcher {
 
   void watch(BorrowedRef<PyTypeObject> type, T* cache) {
     JIT_CHECK(
-        cinderx::getModuleState()->watcherState().watchType(type) == 0,
+        Ci_Watchers_WatchType(type) == 0,
         "Failed to watch type {} for attribute cache",
         type->tp_name);
     caches[type].emplace(cache);

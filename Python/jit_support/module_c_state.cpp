@@ -12,19 +12,19 @@ vectorcallfunc Ci_PyFunction_Vectorcall;
 #endif
 
 int Ci_Watchers_WatchDict(PyObject* dict) {
-  return cinderx::getModuleState()->watcherState().watchDict(dict);
+  return ci_watcher_state_watch_dict(&cinderx::getModuleState()->watcherState(), dict);
 }
 
 int Ci_Watchers_UnwatchDict(PyObject* dict) {
-  return cinderx::getModuleState()->watcherState().unwatchDict(dict);
+  return ci_watcher_state_unwatch_dict(&cinderx::getModuleState()->watcherState(), dict);
 }
 
 int Ci_Watchers_WatchType(PyTypeObject* type) {
-  return cinderx::getModuleState()->watcherState().watchType(type);
+  return ci_watcher_state_watch_type(&cinderx::getModuleState()->watcherState(), type);
 }
 
 int Ci_Watchers_UnwatchType(PyTypeObject* type) {
-  return cinderx::getModuleState()->watcherState().unwatchType(type);
+  return ci_watcher_state_unwatch_type(&cinderx::getModuleState()->watcherState(), type);
 }
 
 PyObject**
