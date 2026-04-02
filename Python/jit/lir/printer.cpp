@@ -9,7 +9,9 @@
 
 #include <fmt/ostream.h>
 
+#include <algorithm>
 #include <iomanip>
+#include <vector>
 
 namespace jit::lir {
 
@@ -30,16 +32,21 @@ void Printer::print(std::ostream& out, const BasicBlock& block) {
   out << "BB %" << block.id();
 
   auto print_blocks = [&](const char* which,
-                          std::vector<BasicBlock*> blocks,
+                          ConstBlockSpan span,
                           bool is_sorted = true) {
+    if (span.empty()) return;
     if (is_sorted) {
-      std::sort(blocks.begin(), blocks.end(), [](auto& a, auto& b) {
+      std::vector<BasicBlock*> sorted(span.begin(), span.end());
+      std::sort(sorted.begin(), sorted.end(), [](auto a, auto b) {
         return a->id() < b->id();
       });
-    }
-    if (!blocks.empty()) {
       out << which;
-      for (auto& b : blocks) {
+      for (auto* b : sorted) {
+        out << " %" << b->id();
+      }
+    } else {
+      out << which;
+      for (auto b : span) {
         out << " %" << b->id();
       }
     }
