@@ -2,8 +2,11 @@
 
 #pragma once
 
+#include "cinderx/Jit/hir/hir_opcode_c.h"
+
 #include <cstddef>
 #include <optional>
+#include <string>
 #include <string_view>
 
 namespace jit::hir {
@@ -200,6 +203,13 @@ constexpr std::string_view hirOpcodeName(Opcode op) {
   }
 }
 
-std::optional<Opcode> opcodeFromName(std::string_view name);
+inline std::optional<Opcode> opcodeFromName(std::string_view name) {
+  std::string tmp(name);
+  HirOpcode result = hir_opcode_from_name(tmp.c_str());
+  if (result == HIR_OP_COUNT) {
+    return std::nullopt;
+  }
+  return static_cast<Opcode>(result);
+}
 
 } // namespace jit::hir
