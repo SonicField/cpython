@@ -3,6 +3,7 @@
 #pragma once
 
 #include "cinderx/Jit/hir/pass.h"
+#include "cinderx/Jit/hir/phi_elimination_c.h"
 
 namespace jit::hir {
 
@@ -11,7 +12,9 @@ class PhiElimination : public Pass {
  public:
   PhiElimination() : Pass("PhiElimination") {}
 
-  void Run(Function& irfunc) override;
+  void Run(Function& irfunc) override {
+    hir_phi_elimination_run(static_cast<HirFunction>(&irfunc));
+  }
 
   static std::unique_ptr<PhiElimination> Factory() {
     return std::make_unique<PhiElimination>();
