@@ -23,6 +23,8 @@ option(PHOENIX_ASM "Use phoenix-asm instead of asmjit" OFF)
 if(NOT PHOENIX_ASM)
   set(ASMJIT_STATIC TRUE)
   add_subdirectory(${JIT_ROOT}/jit_deps/asmjit ${CMAKE_BINARY_DIR}/_deps/asmjit-build)
+else()
+  add_definitions(-DPHOENIX_ASM)
 endif()
 
 # fmt
