@@ -94,7 +94,7 @@ endif()
 
 set(INTERP_SOURCES
   ${JIT_ROOT}/jit_interp/cinder_opcode.c
-  ${JIT_ROOT}/jit_interp/interpreter_base.cpp
+  ${JIT_ROOT}/jit_interp/interpreter_base.c
   ${JIT_ROOT}/jit_interp/iter_helpers.c
 )
 add_library(interpreter ${INTERP_SOURCES})

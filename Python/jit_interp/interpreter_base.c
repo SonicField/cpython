@@ -12,10 +12,8 @@
 #include "cinder/hooks.h"
 #endif
 
-extern "C" {
-
-vectorcallfunc getInterpretedVectorcall(
-    [[maybe_unused]] const PyFunctionObject* func) {
+vectorcallfunc getInterpretedVectorcall(const PyFunctionObject* func) {
+  (void)func;
 #ifdef ENABLE_INTERPRETER_LOOP
   const PyCodeObject* code = (const PyCodeObject*)(func->func_code);
   return (code->co_flags & CI_CO_STATICALLY_COMPILED)
@@ -26,7 +24,7 @@ vectorcallfunc getInterpretedVectorcall(
 #endif
 }
 
-int Ci_InitFrameEvalFunc() {
+int Ci_InitFrameEvalFunc(void) {
 #ifdef ENABLE_INTERPRETER_LOOP
 #ifdef ENABLE_EVAL_HOOK
   Ci_hook_EvalFrame = Ci_EvalFrame;
@@ -34,8 +32,9 @@ int Ci_InitFrameEvalFunc() {
   // Let borrowed.h know the eval frame pointer
   Ci_EvalFrameFunc = Ci_EvalFrame;
 
-  auto interp = _PyInterpreterState_GET();
-  auto current_eval_frame = _PyInterpreterState_GetEvalFrameFunc(interp);
+  PyInterpreterState *interp = _PyInterpreterState_GET();
+  _PyFrameEvalFunction current_eval_frame =
+      _PyInterpreterState_GetEvalFrameFunc(interp);
   if (current_eval_frame == Ci_EvalFrame) {
     return 0;
   }
@@ -54,14 +53,12 @@ int Ci_InitFrameEvalFunc() {
   return 0;
 }
 
-void Ci_FiniFrameEvalFunc() {
+void Ci_FiniFrameEvalFunc(void) {
 #ifdef ENABLE_INTERPRETER_LOOP
 #ifdef ENABLE_EVAL_HOOK
-  Ci_hook_EvalFrame = nullptr;
+  Ci_hook_EvalFrame = NULL;
 #elif defined(ENABLE_PEP523_HOOK)
-  _PyInterpreterState_SetEvalFrameFunc(_PyInterpreterState_GET(), nullptr);
+  _PyInterpreterState_SetEvalFrameFunc(_PyInterpreterState_GET(), NULL);
 #endif
 #endif
 }
-
-} // extern "C"
