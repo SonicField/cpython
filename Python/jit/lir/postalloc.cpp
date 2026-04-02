@@ -405,7 +405,7 @@ RewriteResult rewriteBranchInstrs(Function* function) {
 
     BasicBlock* next_block = iter == blocks.end() ? nullptr : *iter;
 
-    auto& succs = block->successors();
+    auto succs = block->successors();
 
     if (succs.size() != 1) {
       // skip conditional branches for now.

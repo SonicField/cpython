@@ -377,7 +377,7 @@ void LinearScanAllocator::calculateLiveIntervals() {
                 std::forward_as_tuple(bb, bb_start_id, bb->getFirstInstr()))
             .first;
 
-    auto& successors = bb->successors();
+    auto successors = bb->successors();
 
     UnorderedSet<const Operand*> live;
 
@@ -1319,7 +1319,7 @@ void LinearScanAllocator::resolveEdges() {
 
   for (size_t block_index = 0; block_index < blocks.size(); block_index++) {
     auto basic_block = blocks.at(block_index);
-    auto& successors = basic_block->successors();
+    auto successors = basic_block->successors();
     if (successors.empty()) {
       continue;
     }
