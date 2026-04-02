@@ -1,0 +1,240 @@
+
+/tmp/fib_step4.elf:     file format elf64-x86-64
+
+
+Disassembly of section .text:
+
+0000000000001000 <__main__:fib>:
+    1000:	55                   	push   %rbp
+    1001:	48 89 e5             	mov    %rsp,%rbp
+    1004:	eb 3c                	jmp    1042 <__main__:fib+0x42>
+    1006:	55                   	push   %rbp
+    1007:	48 89 e5             	mov    %rsp,%rbp
+    100a:	48 85 c9             	test   %rcx,%rcx
+    100d:	0f 84 13 00 00 00    	je     1026 <__main__:fib+0x26>
+    1013:	4c 8d 05 e6 ff ff ff 	lea    -0x1a(%rip),%r8        # 1000 <__main__:fib>
+    101a:	49 c7 c3 f0 2c 7e 00 	mov    $0x7e2cf0,%r11
+    1021:	41 ff d3             	call   *%r11
+    1024:	c9                   	leave  
+    1025:	c3                   	ret    
+    1026:	83 fa 01             	cmp    $0x1,%edx
+    1029:	0f 84 13 00 00 00    	je     1042 <__main__:fib+0x42>
+    102f:	48 c7 c1 01 00 00 00 	mov    $0x1,%rcx
+    1036:	49 c7 c3 80 37 7e 00 	mov    $0x7e3780,%r11
+    103d:	41 ff d3             	call   *%r11
+    1040:	c9                   	leave  
+    1041:	c3                   	ret    
+    1042:	48 83 ec 40          	sub    $0x40,%rsp
+    1046:	56                   	push   %rsi
+    1047:	57                   	push   %rdi
+    1048:	49 c7 c3 00 41 7e 00 	mov    $0x7e4100,%r11
+    104f:	41 ff d3             	call   *%r11
+    1052:	49 89 c3             	mov    %rax,%r11
+    1055:	5f                   	pop    %rdi
+    1056:	41 5a                	pop    %r10
+    1058:	49 8b 32             	mov    (%r10),%rsi
+    105b:	48 83 c4 08          	add    $0x8,%rsp
+    105f:	53                   	push   %rbx
+    1060:	41 54                	push   %r12
+    1062:	41 55                	push   %r13
+    1064:	41 56                	push   %r14
+    1066:	41 57                	push   %r15
+    1068:	48 83 ec 10          	sub    $0x10,%rsp
+    106c:	48 89 f3             	mov    %rsi,%rbx
+    106f:	49 8b 43 38          	mov    0x38(%r11),%rax
+    1073:	4c 8b 20             	mov    (%rax),%r12
+    1076:	4d 31 ed             	xor    %r13,%r13
+    1079:	8b 04 25 b8 06 d0 00 	mov    0xd006b8,%eax
+    1080:	85 c0                	test   %eax,%eax
+    1082:	0f 85 08 00 00 00    	jne    1090 <__main__:fib+0x90>
+    1088:	4d 89 de             	mov    %r11,%r14
+    108b:	e9 27 00 00 00       	jmp    10b7 <__main__:fib+0xb7>
+    1090:	48 b8 f0 13 73 e7 29 	movabs $0x7f29e77313f0,%rax
+    1097:	7f 00 00 
+    109a:	49 89 44 24 38       	mov    %rax,0x38(%r12)
+    109f:	4d 89 de             	mov    %r11,%r14
+    10a2:	4c 89 f7             	mov    %r14,%rdi
+    10a5:	49 c7 c3 f0 44 5d 00 	mov    $0x5d44f0,%r11
+    10ac:	41 ff d3             	call   *%r11
+    10af:	85 c0                	test   %eax,%eax
+    10b1:	0f 88 82 02 00 00    	js     1339 <__main__:fib+0x339>
+    10b7:	49 c7 c7 60 ea ce 00 	mov    $0xceea60,%r15
+    10be:	48 c7 c0 40 ea ce 00 	mov    $0xceea40,%rax
+    10c5:	48 8b 0c 25 00 60 e2 	mov    0xe26000,%rcx
+    10cc:	00 
+    10cd:	48 81 f9 f0 74 c1 00 	cmp    $0xc174f0,%rcx
+    10d4:	0f 85 66 02 00 00    	jne    1340 <__main__:fib+0x340>
+    10da:	48 ba 08 14 73 e7 29 	movabs $0x7f29e7731408,%rdx
+    10e1:	7f 00 00 
+    10e4:	49 89 54 24 38       	mov    %rdx,0x38(%r12)
+    10e9:	48 89 4d e8          	mov    %rcx,-0x18(%rbp)
+    10ed:	48 89 45 f0          	mov    %rax,-0x10(%rbp)
+    10f1:	48 89 cf             	mov    %rcx,%rdi
+    10f4:	48 8d 74 24 08       	lea    0x8(%rsp),%rsi
+    10f9:	48 ba 01 00 00 00 00 	movabs $0x8000000000000001,%rdx
+    1100:	00 00 80 
+    1103:	48 89 1e             	mov    %rbx,(%rsi)
+    1106:	48 31 c9             	xor    %rcx,%rcx
+    1109:	49 c7 c3 20 4d 7e 00 	mov    $0x7e4d20,%r11
+    1110:	41 ff d3             	call   *%r11
+    1113:	48 85 c0             	test   %rax,%rax
+    1116:	0f 84 2b 02 00 00    	je     1347 <__main__:fib+0x347>
+    111c:	48 89 5d e0          	mov    %rbx,-0x20(%rbp)
+    1120:	48 89 c3             	mov    %rax,%rbx
+    1123:	48 89 df             	mov    %rbx,%rdi
+    1126:	49 c7 c3 20 52 45 00 	mov    $0x455220,%r11
+    112d:	41 ff d3             	call   *%r11
+    1130:	48 85 c0             	test   %rax,%rax
+    1133:	0f 84 15 02 00 00    	je     134e <__main__:fib+0x34e>
+    1139:	48 8b 0b             	mov    (%rbx),%rcx
+    113c:	85 c9                	test   %ecx,%ecx
+    113e:	0f 89 08 00 00 00    	jns    114c <__main__:fib+0x14c>
+    1144:	48 89 c3             	mov    %rax,%rbx
+    1147:	e9 29 00 00 00       	jmp    1175 <__main__:fib+0x175>
+    114c:	48 ff c9             	dec    %rcx
+    114f:	48 89 0b             	mov    %rcx,(%rbx)
+    1152:	0f 84 08 00 00 00    	je     1160 <__main__:fib+0x160>
+    1158:	48 89 c3             	mov    %rax,%rbx
+    115b:	e9 15 00 00 00       	jmp    1175 <__main__:fib+0x175>
+    1160:	48 89 5d d8          	mov    %rbx,-0x28(%rbp)
+    1164:	48 89 c3             	mov    %rax,%rbx
+    1167:	48 8b 7d d8          	mov    -0x28(%rbp),%rdi
+    116b:	49 c7 c3 c0 6b 4d 00 	mov    $0x4d6bc0,%r11
+    1172:	41 ff d3             	call   *%r11
+    1175:	4c 89 f8             	mov    %r15,%rax
+    1178:	4d 89 ef             	mov    %r13,%r15
+    117b:	4c 8b 6d f0          	mov    -0x10(%rbp),%r13
+    117f:	8b 0c 25 b8 06 d0 00 	mov    0xd006b8,%ecx
+    1186:	85 c9                	test   %ecx,%ecx
+    1188:	0f 85 0c 00 00 00    	jne    119a <__main__:fib+0x19a>
+    118e:	4c 89 75 d8          	mov    %r14,-0x28(%rbp)
+    1192:	49 89 c6             	mov    %rax,%r14
+    1195:	e9 2c 00 00 00       	jmp    11c6 <__main__:fib+0x1c6>
+    119a:	48 b9 12 14 73 e7 29 	movabs $0x7f29e7731412,%rcx
+    11a1:	7f 00 00 
+    11a4:	49 89 4c 24 38       	mov    %rcx,0x38(%r12)
+    11a9:	4c 89 75 d8          	mov    %r14,-0x28(%rbp)
+    11ad:	49 89 c6             	mov    %rax,%r14
+    11b0:	48 8b 7d d8          	mov    -0x28(%rbp),%rdi
+    11b4:	49 c7 c3 f0 44 5d 00 	mov    $0x5d44f0,%r11
+    11bb:	41 ff d3             	call   *%r11
+    11be:	85 c0                	test   %eax,%eax
+    11c0:	0f 88 8f 01 00 00    	js     1355 <__main__:fib+0x355>
+    11c6:	48 b8 12 14 73 e7 29 	movabs $0x7f29e7731412,%rax
+    11cd:	7f 00 00 
+    11d0:	49 89 44 24 38       	mov    %rax,0x38(%r12)
+    11d5:	48 89 df             	mov    %rbx,%rdi
+    11d8:	49 c7 c3 00 68 7e 00 	mov    $0x7e6800,%r11
+    11df:	41 ff d3             	call   *%r11
+    11e2:	48 85 c0             	test   %rax,%rax
+    11e5:	0f 84 71 01 00 00    	je     135c <__main__:fib+0x35c>
+    11eb:	4d 85 ff             	test   %r15,%r15
+    11ee:	0f 85 08 00 00 00    	jne    11fc <__main__:fib+0x1fc>
+    11f4:	49 89 c7             	mov    %rax,%r15
+    11f7:	e9 3c 00 00 00       	jmp    1238 <__main__:fib+0x238>
+    11fc:	49 8b 0f             	mov    (%r15),%rcx
+    11ff:	85 c9                	test   %ecx,%ecx
+    1201:	0f 89 08 00 00 00    	jns    120f <__main__:fib+0x20f>
+    1207:	49 89 c7             	mov    %rax,%r15
+    120a:	e9 29 00 00 00       	jmp    1238 <__main__:fib+0x238>
+    120f:	48 ff c9             	dec    %rcx
+    1212:	49 89 0f             	mov    %rcx,(%r15)
+    1215:	0f 84 08 00 00 00    	je     1223 <__main__:fib+0x223>
+    121b:	49 89 c7             	mov    %rax,%r15
+    121e:	e9 15 00 00 00       	jmp    1238 <__main__:fib+0x238>
+    1223:	4c 89 7d d0          	mov    %r15,-0x30(%rbp)
+    1227:	49 89 c7             	mov    %rax,%r15
+    122a:	48 8b 7d d0          	mov    -0x30(%rbp),%rdi
+    122e:	49 c7 c3 c0 6b 4d 00 	mov    $0x4d6bc0,%r11
+    1235:	41 ff d3             	call   *%r11
+    1238:	4c 89 f8             	mov    %r15,%rax
+    123b:	48 2d 70 cb ce 00    	sub    $0xcecb70,%rax
+    1241:	48 85 c0             	test   %rax,%rax
+    1244:	0f 84 74 00 00 00    	je     12be <__main__:fib+0x2be>
+    124a:	48 b8 1e 14 73 e7 29 	movabs $0x7f29e773141e,%rax
+    1251:	7f 00 00 
+    1254:	49 89 44 24 38       	mov    %rax,0x38(%r12)
+    1259:	4c 89 ef             	mov    %r13,%rdi
+    125c:	4c 89 f6             	mov    %r14,%rsi
+    125f:	49 c7 c3 c0 02 4b 00 	mov    $0x4b02c0,%r11
+    1266:	41 ff d3             	call   *%r11
+    1269:	48 85 c0             	test   %rax,%rax
+    126c:	0f 84 f1 00 00 00    	je     1363 <__main__:fib+0x363>
+    1272:	49 8b 4d 00          	mov    0x0(%r13),%rcx
+    1276:	85 c9                	test   %ecx,%ecx
+    1278:	0f 89 09 00 00 00    	jns    1287 <__main__:fib+0x287>
+    127e:	48 89 45 d0          	mov    %rax,-0x30(%rbp)
+    1282:	e9 27 00 00 00       	jmp    12ae <__main__:fib+0x2ae>
+    1287:	48 ff c9             	dec    %rcx
+    128a:	49 89 4d 00          	mov    %rcx,0x0(%r13)
+    128e:	0f 84 09 00 00 00    	je     129d <__main__:fib+0x29d>
+    1294:	48 89 45 d0          	mov    %rax,-0x30(%rbp)
+    1298:	e9 11 00 00 00       	jmp    12ae <__main__:fib+0x2ae>
+    129d:	48 89 45 d0          	mov    %rax,-0x30(%rbp)
+    12a1:	4c 89 ef             	mov    %r13,%rdi
+    12a4:	49 c7 c3 f0 02 4b 00 	mov    $0x4b02f0,%r11
+    12ab:	41 ff d3             	call   *%r11
+    12ae:	48 8b 45 d0          	mov    -0x30(%rbp),%rax
+    12b2:	4d 89 f5             	mov    %r14,%r13
+    12b5:	4c 8b 75 d8          	mov    -0x28(%rbp),%r14
+    12b9:	e9 c1 fe ff ff       	jmp    117f <__main__:fib+0x17f>
+    12be:	48 b8 2c 14 73 e7 29 	movabs $0x7f29e773142c,%rax
+    12c5:	7f 00 00 
+    12c8:	49 89 44 24 38       	mov    %rax,0x38(%r12)
+    12cd:	48 8b 03             	mov    (%rbx),%rax
+    12d0:	85 c0                	test   %eax,%eax
+    12d2:	0f 88 19 00 00 00    	js     12f1 <__main__:fib+0x2f1>
+    12d8:	48 ff c8             	dec    %rax
+    12db:	48 89 03             	mov    %rax,(%rbx)
+    12de:	0f 85 0d 00 00 00    	jne    12f1 <__main__:fib+0x2f1>
+    12e4:	48 89 df             	mov    %rbx,%rdi
+    12e7:	49 c7 c3 c0 6b 4d 00 	mov    $0x4d6bc0,%r11
+    12ee:	41 ff d3             	call   *%r11
+    12f1:	49 8b 06             	mov    (%r14),%rax
+    12f4:	85 c0                	test   %eax,%eax
+    12f6:	0f 88 19 00 00 00    	js     1315 <__main__:fib+0x315>
+    12fc:	48 ff c8             	dec    %rax
+    12ff:	49 89 06             	mov    %rax,(%r14)
+    1302:	0f 85 0d 00 00 00    	jne    1315 <__main__:fib+0x315>
+    1308:	4c 89 f7             	mov    %r14,%rdi
+    130b:	49 c7 c3 f0 02 4b 00 	mov    $0x4b02f0,%r11
+    1312:	41 ff d3             	call   *%r11
+    1315:	4c 89 e8             	mov    %r13,%rax
+    1318:	48 89 45 f8          	mov    %rax,-0x8(%rbp)
+    131c:	49 c7 c3 60 45 7e 00 	mov    $0x7e4560,%r11
+    1323:	41 ff d3             	call   *%r11
+    1326:	48 8b 45 f8          	mov    -0x8(%rbp),%rax
+    132a:	48 8d 65 a0          	lea    -0x60(%rbp),%rsp
+    132e:	41 5f                	pop    %r15
+    1330:	41 5e                	pop    %r14
+    1332:	41 5d                	pop    %r13
+    1334:	41 5c                	pop    %r12
+    1336:	5b                   	pop    %rbx
+    1337:	c9                   	leave  
+    1338:	c3                   	ret    
+    1339:	6a 00                	push   $0x0
+    133b:	e8 2a 00 00 00       	call   136a <__main__:fib+0x36a>
+    1340:	6a 01                	push   $0x1
+    1342:	e8 23 00 00 00       	call   136a <__main__:fib+0x36a>
+    1347:	6a 02                	push   $0x2
+    1349:	e8 1c 00 00 00       	call   136a <__main__:fib+0x36a>
+    134e:	6a 03                	push   $0x3
+    1350:	e8 15 00 00 00       	call   136a <__main__:fib+0x36a>
+    1355:	6a 04                	push   $0x4
+    1357:	e8 0e 00 00 00       	call   136a <__main__:fib+0x36a>
+    135c:	6a 05                	push   $0x5
+    135e:	e8 07 00 00 00       	call   136a <__main__:fib+0x36a>
+    1363:	6a 06                	push   $0x6
+    1365:	e8 00 00 00 00       	call   136a <__main__:fib+0x36a>
+    136a:	41 57                	push   %r15
+    136c:	41 57                	push   %r15
+    136e:	41 57                	push   %r15
+    1370:	41 57                	push   %r15
+    1372:	41 57                	push   %r15
+    1374:	49 c7 c7 00 40 e3 00 	mov    $0xe34000,%r15
+    137b:	4c 89 7c 24 10       	mov    %r15,0x10(%rsp)
+    1380:	4c 8d 3d a3 ff ff ff 	lea    -0x5d(%rip),%r15        # 132a <__main__:fib+0x32a>
+    1387:	4c 89 7c 24 08       	mov    %r15,0x8(%rsp)
+    138c:	49 bf 00 00 e0 e6 29 	movabs $0x7f29e6e00000,%r15
+    1393:	7f 00 00 
+    1396:	41 ff e7             	jmp    *%r15

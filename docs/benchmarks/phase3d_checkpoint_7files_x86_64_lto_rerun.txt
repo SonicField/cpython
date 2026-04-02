@@ -1,0 +1,33 @@
+Precondition checks: PASS
+WARNING: Running on x86_64, designed for aarch64. Results may differ.
+
+========================================================================
+CinderX JIT vs Vanilla Python — Per-Benchmark Subprocess ABBA
+========================================================================
+Platform:     x86_64
+Reps:         3 ABBA cycles per benchmark
+Compile mode: auto
+
+*** COMPARE LIKE WITH LIKE ***
+Results from --compile=auto and --compile=force are NOT comparable.
+  auto:  JIT compiles after adaptive interpreter specialises (production)
+  force: JIT compiles immediately via force_compile (dev/debug)
+Current: --compile=auto  --reps=3  --iters=50000  --blocks=15
+
+JIT ON:  /data/users/alexturner/phoenix/cpython/python
+JIT OFF: /data/users/alexturner/phoenix/cpython-vanilla/python -I
+
+Benchmarks:   24 (each in isolated subprocess)
+
+[1/24] fibonacci
+  Run 1/12: JIT_ON  (rep 1) ... 13387.42ms
+  Run 2/12: JIT_OFF (rep 1) ... 15172.67ms
+  Run 3/12: JIT_OFF (rep 1) ... 15059.83ms
+  Run 4/12: JIT_ON  (rep 1) ... 14120.23ms
+  Run 5/12: JIT_ON  (rep 2) ... 13399.40ms
+  Run 6/12: JIT_OFF (rep 2) ... 15425.29ms
+  Run 7/12: JIT_OFF (rep 2) ... 15147.89ms
+  Run 8/12: JIT_ON  (rep 2) ... 13814.75ms
+  Run 9/12: JIT_ON  (rep 3) ... 13683.58ms
+  Run 10/12: JIT_OFF (rep 3) ... 14993.29ms
+  Run 11/12: JIT_OFF (rep 3) ... 

@@ -1,7 +1,7 @@
 # ARM64 Same-Binary JIT vs Interpreter Benchmark
 
 - **Date:** 2026-04-01
-- **Platform:** aarch64 (devgpu004.kcm2.facebook.com)
+- **Platform:** aarch64 (devgpu004)
 - **Binary:** ~/local/phoenix-cpython/python (Phoenix CPython 3.12.13, Clang 21.1.7)
 - **Build flags:** no LTO, no PGO, RelWithDebInfo (-O2)
 - **Methodology:** Same binary, JIT-on (post force_compile/auto-compile) vs JIT-off (pre-compilation). 3 runs per measurement, min time reported.

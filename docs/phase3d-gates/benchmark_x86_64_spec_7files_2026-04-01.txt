@@ -1,0 +1,71 @@
+Precondition checks: PASS
+WARNING: Running on x86_64, designed for aarch64. Results may differ.
+
+========================================================================
+CinderX Specialisation ON vs OFF — Subprocess ABBA
+========================================================================
+Platform:     x86_64
+Reps:         3
+Compile mode: auto
+
+*** COMPARE LIKE WITH LIKE ***
+Results from --compile=auto and --compile=force are NOT comparable.
+  auto:  JIT compiles after adaptive interpreter specialises (production)
+  force: JIT compiles immediately via force_compile (dev/debug)
+Current: --compile=auto  --reps=3  --iters=50000  --blocks=15
+
+Python: /data/users/alexturner/phoenix/cpython/python
+
+--- Falsification check ---
+Spec ON worker: OK
+Spec OFF worker: OK
+
+  Run 1/12: SPEC_ON (rep 1) ... 20693.6ms total
+  Run 2/12: SPEC_OFF (rep 1) ... 20830.5ms total
+  Run 3/12: SPEC_OFF (rep 1) ... 20777.1ms total
+  Run 4/12: SPEC_ON (rep 1) ... 20842.1ms total
+  Run 5/12: SPEC_ON (rep 2) ... 21092.9ms total
+  Run 6/12: SPEC_OFF (rep 2) ... 20889.6ms total
+  Run 7/12: SPEC_OFF (rep 2) ... 21164.8ms total
+  Run 8/12: SPEC_ON (rep 2) ... 21312.5ms total
+  Run 9/12: SPEC_ON (rep 3) ... 21311.5ms total
+  Run 10/12: SPEC_OFF (rep 3) ... 20869.7ms total
+  Run 11/12: SPEC_OFF (rep 3) ... 20959.9ms total
+  Run 12/12: SPEC_ON (rep 3) ... 21017.1ms total
+
+===========================================================================
+Specialisation Effect (x86_64)
+===========================================================================
+
+Benchmark                Spec OFF    Spec ON     Ratio      Δ%
+-----------------------------------------------------------------
+  context_manager         40.72ms    39.38ms   1.0341x    3.3%
+  decorator_chain         38.56ms    39.79ms   0.9689x   -3.2%
+  deep_class_super       176.28ms   174.57ms   1.0098x    1.0%
+  dict_ops                11.59ms    11.60ms   0.9989x   -0.1%
+  dunder_protocol         49.96ms    51.79ms   0.9647x   -3.7%
+  fibonacci            13551.57ms 13568.62ms   0.9987x   -0.1%
+  float_arith             26.99ms    27.39ms   0.9851x   -1.5%
+  func_calls              22.51ms    22.44ms   1.0032x    0.3%
+  gen_nested              18.82ms    19.31ms   0.9748x   -2.6%
+  gen_simple               7.35ms     7.38ms   0.9954x   -0.5%
+  import_callee           28.65ms    28.99ms   0.9886x   -1.2%
+  int_arith               19.29ms    19.44ms   0.9925x   -0.8%
+  kwargs_dispatch         34.88ms    35.67ms   0.9779x   -2.3%
+  list_comp                5.16ms     5.15ms   1.0017x    0.2%
+  nbody                   73.46ms    76.04ms   0.9661x   -3.5%
+  nn_module_forward        4.31ms     4.47ms   0.9661x   -3.5%
+  nqueens                745.85ms   737.13ms   1.0118x    1.2%
+  positional_dispatch     18.44ms    18.90ms   0.9757x   -2.5%
+  pytorch_cm             172.74ms   172.75ms   0.9999x   -0.0%
+  richards_full           60.04ms    60.15ms   0.9980x   -0.2%
+  richards_slots         405.95ms   411.79ms   0.9858x   -1.4%
+  spectral_norm         5374.30ms  5483.79ms   0.9800x   -2.0%
+  store_subscr            17.65ms    17.95ms   0.9832x   -1.7%
+  try_except_callee       10.21ms    10.44ms   0.9778x   -2.3%
+===========================================================================
+
+Ratio > 1.0 = spec ON is faster. Ratio ≈ 1.0 = neutral.
+
+Exception ignored in tp_clear of: <class 'dict'>
+ValueError: Invalid dict watcher ID -1

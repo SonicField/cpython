@@ -18,7 +18,7 @@ Branch: phoenix-asm-integration
 | 7 | ASAN quarantine=0 | PASS | 17/17 modules, 2084 tests, zero ASAN errors |
 | 8 | Byte-comparison | PASS | 56/56 byte-identical vs asmjit |
 
-### ARM64 (verified on devgpu004.kcm2.facebook.com, aarch64)
+### ARM64 (verified on devgpu004, aarch64)
 
 | Gate | Description | Result | Evidence |
 |------|-------------|--------|----------|
