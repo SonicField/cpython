@@ -6,8 +6,9 @@
 #include "cinderx/Jit/codegen/arch/detection.h"
 #include "fmt/ostream.h"
 
-#ifdef PHOENIX_ASM
-// Phoenix assembler — pure C replacement for asmjit
+#if defined(PHOENIX_ASM) || defined(__aarch64__)
+// Phoenix assembler — pure C replacement for asmjit.
+// Always used on ARM64 (the phoenix_asm ARM64 backend is the assembler).
 #include "jit/phoenix_asm/asmjit_compat.h"
 #else
 #include <asmjit/asmjit.h>
@@ -56,12 +57,8 @@ constexpr auto reg_stack_pointer_loc = RSP;
 
 #include "cinderx/Jit/codegen/arch/aarch64.h"
 
-#ifndef PHOENIX_ASM
-#include <asmjit/arm/a64builder.h>
-#include <asmjit/arm/a64emitter.h>
-#include <asmjit/arm/a64operand.h>
-#include <asmjit/arm/armutils.h>
-#endif
+// ARM64 always uses phoenix_asm via asmjit_compat.h (included above).
+// No raw asmjit ARM headers needed.
 
 namespace jit::codegen::arch {
 
@@ -138,8 +135,7 @@ constexpr auto reg_stack_pointer_loc = SP;
 
 #if defined(CINDER_AARCH64)
 
-#ifdef PHOENIX_ASM
-/* Pure C implementations in arch.c */
+/* Pure C implementations in arch.c — always available on ARM64 */
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -149,14 +145,12 @@ PhxMem jit_arch_ptr_resolve(PhxBuilder *as, PhxGp base, int32_t offset,
 #ifdef __cplusplus
 }
 #endif
-#endif /* PHOENIX_ASM */
 
 namespace jit::codegen::arch {
 
 enum class AccessSize : int32_t { k8 = 1, k16 = 2, k32 = 4, k64 = 8 };
 
-#ifdef PHOENIX_ASM
-/* Inline wrappers calling the C implementations */
+/* ARM64 always uses phoenix_asm — inline wrappers call C implementations */
 inline asmjit::a64::Mem ptr_offset(
     const asmjit::a64::Gp& base,
     int32_t offset,
@@ -175,19 +169,6 @@ inline asmjit::a64::Mem ptr_resolve(
       jit_arch_ptr_resolve(as->impl(), base, offset, scratch,
                            static_cast<int32_t>(access_size)));
 }
-#else
-asmjit::a64::Mem ptr_offset(
-    const asmjit::a64::Gp& base,
-    int32_t offset,
-    AccessSize access_size = AccessSize::k64);
-
-asmjit::a64::Mem ptr_resolve(
-    asmjit::a64::Builder* as,
-    const asmjit::a64::Gp& base,
-    int32_t offset,
-    const asmjit::a64::Gp& scratch,
-    AccessSize access_size = AccessSize::k64);
-#endif /* PHOENIX_ASM */
 
 } // namespace jit::codegen::arch
 

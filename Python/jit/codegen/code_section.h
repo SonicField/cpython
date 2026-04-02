@@ -5,7 +5,7 @@
 #include "cinderx/Jit/codegen/arch.h"
 #include "cinderx/Jit/config.h"
 
-#ifdef PHOENIX_ASM
+#if defined(PHOENIX_ASM) || defined(__aarch64__)
 #include "jit/phoenix_asm/asmjit_compat.h"
 #else
 #include <asmjit/asmjit.h>

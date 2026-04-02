@@ -13,7 +13,7 @@
 
 #include "gen_asm_utils_c.h"
 
-#ifdef PHOENIX_ASM
+#if defined(PHOENIX_ASM) || defined(__aarch64__)
 
 #include "arch/detection.h"
 

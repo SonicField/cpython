@@ -6,7 +6,7 @@
 
 #include "cinderx/Jit/codegen/arch/detection.h"
 
-#ifdef PHOENIX_ASM
+#if defined(PHOENIX_ASM) || defined(__aarch64__)
 
 #include "jit/phoenix_asm/phoenix_asm.h"
 #include "jit/phoenix_asm/arm64.h"

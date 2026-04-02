@@ -8,13 +8,13 @@
 #include "cinderx/Jit/gen_data_footer.h"
 #include "cinderx/Jit/lir/instruction.h"
 
-#ifdef PHOENIX_ASM
+#if defined(PHOENIX_ASM) || defined(__aarch64__)
 #include "jit/phoenix_asm/asmjit_compat.h"
 #else
 #include <asmjit/asmjit.h>
 #endif
 
-#ifdef PHOENIX_ASM
+#if defined(PHOENIX_ASM) || defined(__aarch64__)
 /* ---- C API (implemented in gen_asm_utils.c) ---- */
 #include "cinderx/Jit/codegen/gen_asm_utils_c.h"
 #endif
@@ -23,7 +23,7 @@
 
 namespace jit::codegen {
 
-#ifdef PHOENIX_ASM
+#if defined(PHOENIX_ASM) || defined(__aarch64__)
 
 // Inline C++ wrappers that bridge Environ to the C PhxEmitCallCtx API.
 // The C implementation handles instruction emission; the wrapper handles
@@ -83,7 +83,7 @@ inline void emitCall(
   }
 }
 
-#else /* !PHOENIX_ASM -- raw asmjit path (ARM64 without phoenix-asm) */
+#else /* !PHOENIX_ASM && !__aarch64__ — raw asmjit path (x86_64 without phoenix-asm) */
 
 namespace {
 inline void recordDebugEntry(Environ& env, const jit::lir::Instruction* instr) {
@@ -151,6 +151,6 @@ inline void emitCall(
   recordDebugEntry(env, instr);
 }
 
-#endif /* PHOENIX_ASM */
+#endif /* PHOENIX_ASM || __aarch64__ */
 
 } // namespace jit::codegen

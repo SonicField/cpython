@@ -14,7 +14,7 @@
 #include "cinderx/Jit/hir/hir.h"
 #include "cinderx/Jit/lir/function.h"
 
-#ifdef PHOENIX_ASM
+#if defined(PHOENIX_ASM) || defined(__aarch64__)
 #include "jit/phoenix_asm/asmjit_compat.h"
 #else
 #include <asmjit/asmjit.h>

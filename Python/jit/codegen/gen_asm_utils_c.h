@@ -18,7 +18,7 @@
 #ifndef GEN_ASM_UTILS_C_H
 #define GEN_ASM_UTILS_C_H
 
-#ifdef PHOENIX_ASM
+#if defined(PHOENIX_ASM) || defined(__aarch64__)
 
 #include "jit/phoenix_asm/phoenix_asm.h"
 
@@ -83,6 +83,6 @@ void phx_emit_call_func(
 }
 #endif
 
-#endif /* PHOENIX_ASM */
+#endif /* PHOENIX_ASM || __aarch64__ */
 
 #endif /* GEN_ASM_UTILS_C_H */
