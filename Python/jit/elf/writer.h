@@ -2,6 +2,9 @@
 
 #pragma once
 
+/* ---- C API (implemented in writer.c) ---- */
+#include "cinderx/Jit/elf/writer_c.h"
+
 #include "cinderx/python.h"
 
 #include "cinderx/Jit/elf/dynamic.h"
@@ -106,7 +109,39 @@ struct CodeEntry {
 
 // Write function or code objects out to a new ELF file.
 //
-// The output ELF file is always a shared library.
-void writeEntries(std::ostream& os, const std::vector<CodeEntry>& entries);
+// The output ELF file is always a shared library.  Delegates to
+// jit_elf_write_entries (pure C) for the actual ELF construction.
+inline void writeEntries(
+    std::ostream& os,
+    const std::vector<CodeEntry>& entries) {
+  // Convert C++ entries to C entries.
+  std::vector<JitElfCodeEntry> c_entries(entries.size());
+  for (size_t i = 0; i < entries.size(); i++) {
+    c_entries[i].code = entries[i].code;
+    c_entries[i].compiled_code =
+        reinterpret_cast<const uint8_t*>(entries[i].compiled_code.data());
+    c_entries[i].compiled_code_size = entries[i].compiled_code.size();
+    c_entries[i].normal_entry = entries[i].normal_entry;
+    c_entries[i].static_entry = entries[i].static_entry;
+    c_entries[i].func_name = entries[i].func_name.c_str();
+    c_entries[i].file_name = entries[i].file_name.c_str();
+    c_entries[i].lineno = entries[i].lineno;
+  }
+
+  uint8_t* data = nullptr;
+  size_t size = 0;
+  int rc = jit_elf_write_entries(c_entries.data(), c_entries.size(),
+                                 &data, &size);
+  if (rc != 0 || data == nullptr) {
+    throw std::runtime_error{"Failed to write ELF entries"};
+  }
+
+  os.write(reinterpret_cast<const char*>(data), size);
+  PyMem_RawFree(data);
+
+  if (os.bad()) {
+    throw std::runtime_error{"Failed to write ELF output"};
+  }
+}
 
 } // namespace jit::elf
