@@ -37,6 +37,10 @@ PyObject** Ci_GetDictCache(PyObject* dict, PyObject* key);
 
 void Ci_free_jit_list_gen(PyGenObject* obj);
 
+// JIT generator/coroutine type pointers.
+PyTypeObject* Ci_JitGenType(void);
+PyTypeObject* Ci_JitCoroType(void);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

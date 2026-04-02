@@ -55,4 +55,12 @@ void Ci_free_jit_list_gen(PyGenObject* obj) {
       reinterpret_cast<PyObject*>(obj));
 }
 
+PyTypeObject* Ci_JitGenType(void) {
+  return cinderx::getModuleState()->genType();
+}
+
+PyTypeObject* Ci_JitCoroType(void) {
+  return cinderx::getModuleState()->coroType();
+}
+
 } // extern "C"
