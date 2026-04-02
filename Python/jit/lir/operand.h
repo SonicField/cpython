@@ -20,6 +20,10 @@ class LinkedOperand;
 class MemoryIndirect;
 
 // Defines the interface for all the operand kinds.
+//
+// Phase 3D: Devirtualized. All data fields live in OperandBase; dispatch
+// is via is_linked_ flag instead of vtable.  Operand and LinkedOperand
+// are thin subclasses with constructors and setters only.
 class OperandBase {
  public:
   using Type = OperandType;
@@ -60,32 +64,47 @@ class OperandBase {
   bool isLastUse() const;
   void setLastUse();
 
-  virtual uint64_t getConstant() const = 0;
-  virtual double getFPConstant() const = 0;
-  virtual PhyLocation getPhyRegister() const = 0;
-  virtual PhyLocation getStackSlot() const = 0;
-  virtual PhyLocation getPhyRegOrStackSlot() const = 0;
-  virtual void* getMemoryAddress() const = 0;
-  virtual MemoryIndirect* getMemoryIndirect() const = 0;
-  virtual BasicBlock* getBasicBlock() const = 0;
+  // Data accessors — dispatch via is_linked_ flag.
+  // When linked, delegates to def_opnd_ (the defining Operand).
+  uint64_t getConstant() const;
+  double getFPConstant() const;
+  PhyLocation getPhyRegister() const;
+  PhyLocation getStackSlot() const;
+  PhyLocation getPhyRegOrStackSlot() const;
+  void* getMemoryAddress() const;
+  MemoryIndirect* getMemoryIndirect() const;
+  BasicBlock* getBasicBlock() const;
+  uint64_t getConstantOrAddress() const;
 
-  // Get the value of an integer constant, or the integral cast of a fixed
-  // memory address.
-  virtual uint64_t getConstantOrAddress() const = 0;
+  Operand* getDefine();
+  const Operand* getDefine() const;
 
-  // Get the canonical operand that defines this operand.  For Operand, that is
-  // itself.  For LinkedOperand, it's the linked operand.
-  virtual Operand* getDefine() = 0;
-  virtual const Operand* getDefine() const = 0;
+  DataType dataType() const;
+  Type type() const;
 
-  virtual DataType dataType() const = 0;
-  virtual Type type() const = 0;
+  bool isLinked() const { return is_linked_; }
 
-  virtual bool isLinked() const = 0;
+ protected:
+  // Raw value accessor for diagnostics (works on non-linked operands only).
+  uint64_t rawValue() const;
 
- private:
   Instruction* parent_instr_{nullptr};
   bool last_use_{false};
+  bool is_linked_{false};
+
+  // Fields from Operand (unused when is_linked_):
+  Type type_{kNone};
+  DataType data_type_{kObject};
+  std::variant<
+      uint64_t,
+      void*,
+      BasicBlock*,
+      std::unique_ptr<MemoryIndirect>,
+      PhyLocation>
+      value_;
+
+  // Field from LinkedOperand (unused when !is_linked_):
+  Operand* def_opnd_{nullptr};
 };
 
 // Memory reference: [base_reg + index_reg * (2^index_multiplier) + offset]
@@ -134,6 +153,9 @@ class MemoryIndirect {
 
 // An operand that is either an immediate value, or a value being defined by an
 // instruction.
+//
+// Phase 3D: Devirtualized — all data fields now in OperandBase.
+// Operand is a thin subclass with constructors and setters.
 class Operand : public OperandBase {
  public:
   Operand() = default;
@@ -148,25 +170,13 @@ class Operand : public OperandBase {
   Operand(Instruction* parent, DataType data_type, Type type, uint64_t data);
   Operand(Instruction* parent, Type type, double data);
 
-  uint64_t getConstant() const override;
+  // Setters (modify base class fields directly):
   void setConstant(uint64_t n, DataType data_type = k64bit);
-
-  double getFPConstant() const override;
   void setFPConstant(double n);
-
-  PhyLocation getPhyRegister() const override;
   void setPhyRegister(PhyLocation reg);
-
-  PhyLocation getStackSlot() const override;
   void setStackSlot(PhyLocation slot);
-
-  PhyLocation getPhyRegOrStackSlot() const override;
   void setPhyRegOrStackSlot(PhyLocation loc);
-
-  void* getMemoryAddress() const override;
   void setMemoryAddress(void* addr);
-
-  MemoryIndirect* getMemoryIndirect() const override;
 
   template <typename... Args>
   void setMemoryIndirect(Args&&... args) {
@@ -176,42 +186,19 @@ class Operand : public OperandBase {
     value_ = std::move(ind);
   }
 
-  BasicBlock* getBasicBlock() const override;
   void setBasicBlock(BasicBlock* block);
-
-  uint64_t getConstantOrAddress() const override;
-
-  const Operand* getDefine() const override;
-  Operand* getDefine() override;
-
-  DataType dataType() const override;
   void setDataType(DataType data_type);
-
-  Type type() const override;
   void setNone();
   void setVirtualRegister();
-
-  bool isLinked() const override;
-
- private:
-  uint64_t rawValue() const;
-
-  Type type_{kNone};
-  DataType data_type_{kObject};
-
-  std::variant<
-      uint64_t,
-      void*,
-      BasicBlock*,
-      std::unique_ptr<MemoryIndirect>,
-      PhyLocation>
-      value_;
 };
 
 // An operand that points to the output value of an instruction.  Represents a
 // def-use relationship.
 //
 // Can only be the input of an instruction.
+//
+// Phase 3D: Devirtualized — all data accessors now in OperandBase via
+// is_linked_ dispatch.  LinkedOperand just has constructors and helpers.
 class LinkedOperand : public OperandBase {
  public:
   explicit LinkedOperand(Instruction* def);
@@ -226,26 +213,6 @@ class LinkedOperand : public OperandBase {
   const Instruction* getLinkedInstr() const;
 
   void setLinkedInstr(Instruction* def);
-
-  uint64_t getConstant() const override;
-  double getFPConstant() const override;
-  PhyLocation getPhyRegister() const override;
-  PhyLocation getStackSlot() const override;
-  PhyLocation getPhyRegOrStackSlot() const override;
-  void* getMemoryAddress() const override;
-  MemoryIndirect* getMemoryIndirect() const override;
-  BasicBlock* getBasicBlock() const override;
-  uint64_t getConstantOrAddress() const override;
-  Operand* getDefine() override;
-  const Operand* getDefine() const override;
-  DataType dataType() const override;
-  Type type() const override;
-  bool isLinked() const override;
-
- private:
-  friend class Operand;
-
-  Operand* def_opnd_{nullptr};
 };
 
 // OperandArg reqresents different operand data types, and is used as

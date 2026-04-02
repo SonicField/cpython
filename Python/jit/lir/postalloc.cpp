@@ -461,11 +461,11 @@ RewriteResult optimizeMoveInstrs(instr_iter_t instr_iter) {
   }
 
   if (in->isImm() && !in->isFp() && in->getConstant() == 0 && out->isReg()) {
-    auto in_opnd = dynamic_cast<Operand*>(in);
     JIT_CHECK(
-        in_opnd != nullptr,
+        !in->isLinked(),
         "Register allocation should have replaced linked operand {}",
         *in);
+    auto in_opnd = static_cast<Operand*>(in);
     instr->setOpcode(Instruction::kXor);
     auto reg = out->getPhyRegister();
     auto data_type = out->dataType();

@@ -10,7 +10,14 @@ namespace jit::lir {
 OperandBase::OperandBase(Instruction* parent) : parent_instr_{parent} {}
 
 OperandBase::OperandBase(const OperandBase& ob)
-    : parent_instr_{ob.parent_instr_}, last_use_{ob.last_use_} {}
+    : parent_instr_{ob.parent_instr_},
+      last_use_{ob.last_use_},
+      is_linked_{ob.is_linked_},
+      type_{ob.type_},
+      data_type_{ob.data_type_},
+      def_opnd_{ob.def_opnd_} {
+  // value_ is not copied (same as original Operand copy ctor behavior).
+}
 
 size_t OperandBase::sizeInBits() const {
   return bitSize(dataType());
@@ -46,6 +53,132 @@ bool OperandBase::isLastUse() const {
 
 void OperandBase::setLastUse() {
   last_use_ = true;
+}
+
+// --- Devirtualized data accessors (dispatch via is_linked_) ---
+
+uint64_t OperandBase::getConstant() const {
+  if (is_linked_) return def_opnd_->getConstant();
+  return std::get<uint64_t>(value_);
+}
+
+double OperandBase::getFPConstant() const {
+  if (is_linked_) return def_opnd_->getFPConstant();
+  auto value = std::get<uint64_t>(value_);
+  return bit_cast<double>(value);
+}
+
+PhyLocation OperandBase::getPhyRegister() const {
+  if (is_linked_) return def_opnd_->getPhyRegister();
+  JIT_CHECK(
+      type_ == kReg,
+      "Trying to treat operand [type={},val={:#x}] as a physical register",
+      type_,
+      rawValue());
+  return std::get<PhyLocation>(value_);
+}
+
+PhyLocation OperandBase::getStackSlot() const {
+  if (is_linked_) return def_opnd_->getStackSlot();
+  JIT_CHECK(
+      type_ == kStack,
+      "Trying to treat operand [type={},val={:#x}] as a stack slot",
+      type_,
+      rawValue());
+  return std::get<PhyLocation>(value_);
+}
+
+PhyLocation OperandBase::getPhyRegOrStackSlot() const {
+  if (is_linked_) return def_opnd_->getPhyRegOrStackSlot();
+  switch (type_) {
+    case kReg:
+      return getPhyRegister();
+    case kStack:
+      return getStackSlot();
+    default:
+      JIT_ABORT(
+          "Trying to treat operand [type={},val={:#x} as a physical register "
+          "or a stack slot",
+          type_,
+          rawValue());
+  }
+  return -1;
+}
+
+void* OperandBase::getMemoryAddress() const {
+  if (is_linked_) return def_opnd_->getMemoryAddress();
+  JIT_CHECK(
+      type_ == kMem,
+      "Trying to treat operand [type={},val={:#x}] as a memory address",
+      type_,
+      rawValue());
+  return std::get<void*>(value_);
+}
+
+MemoryIndirect* OperandBase::getMemoryIndirect() const {
+  if (is_linked_) return def_opnd_->getMemoryIndirect();
+  JIT_CHECK(
+      type_ == kInd,
+      "Trying to treat operand [type={},val={:#x}] as a memory indirect",
+      type_,
+      rawValue());
+  return std::get<std::unique_ptr<MemoryIndirect>>(value_).get();
+}
+
+BasicBlock* OperandBase::getBasicBlock() const {
+  if (is_linked_) return def_opnd_->getBasicBlock();
+  JIT_CHECK(
+      type_ == kLabel,
+      "Trying to treat operand [type={},val={:#x}] as a basic block address",
+      type_,
+      rawValue());
+  return std::get<BasicBlock*>(value_);
+}
+
+uint64_t OperandBase::getConstantOrAddress() const {
+  if (is_linked_) return def_opnd_->getConstantOrAddress();
+  if (auto v = std::get_if<uint64_t>(&value_)) {
+    return *v;
+  }
+  return reinterpret_cast<uint64_t>(getMemoryAddress());
+}
+
+Operand* OperandBase::getDefine() {
+  if (is_linked_) return def_opnd_;
+  return static_cast<Operand*>(this);
+}
+
+const Operand* OperandBase::getDefine() const {
+  if (is_linked_) return def_opnd_;
+  return static_cast<const Operand*>(this);
+}
+
+DataType OperandBase::dataType() const {
+  if (is_linked_) return def_opnd_->dataType();
+  return data_type_;
+}
+
+OperandBase::Type OperandBase::type() const {
+  if (is_linked_) return def_opnd_->type();
+  return type_;
+}
+
+uint64_t OperandBase::rawValue() const {
+  if (const auto ptr = std::get_if<uint64_t>(&value_)) {
+    return *ptr;
+  } else if (const auto void_ptr = std::get_if<void*>(&value_)) {
+    return reinterpret_cast<uint64_t>(*void_ptr);
+  } else if (const auto bb_ptr = std::get_if<BasicBlock*>(&value_)) {
+    return reinterpret_cast<uint64_t>(*bb_ptr);
+  } else if (
+      const auto mem_ptr =
+          std::get_if<std::unique_ptr<MemoryIndirect>>(&value_)) {
+    return reinterpret_cast<uint64_t>(mem_ptr->get());
+  } else if (const auto phy_ptr = std::get_if<PhyLocation>(&value_)) {
+    return static_cast<uint64_t>(phy_ptr->loc);
+  }
+
+  JIT_ABORT("Unknown operand value type, has index {}", value_.index());
 }
 
 MemoryIndirect::MemoryIndirect(Instruction* parent) : parent_(parent) {}
@@ -128,26 +261,27 @@ Operand::Operand(Instruction* parent) : OperandBase{parent} {}
 // Only copies simple fields (type and data type) from operand.
 // The value_ field is not copied.
 Operand::Operand(Instruction* parent, Operand* operand)
-    : OperandBase(parent),
-      type_(operand->type_),
-      data_type_(operand->data_type_) {}
+    : OperandBase(parent) {
+  type_ = operand->type_;
+  data_type_ = operand->data_type_;
+}
 
 Operand::Operand(
     Instruction* parent,
     DataType data_type,
     Operand::Type type,
     uint64_t data)
-    : OperandBase(parent), type_(type), data_type_(data_type) {
+    : OperandBase(parent) {
+  type_ = type;
+  data_type_ = data_type;
   value_ = data;
 }
 
 Operand::Operand(Instruction* parent, Operand::Type type, double data)
-    : OperandBase(parent), type_(type), data_type_(kDouble) {
+    : OperandBase(parent) {
+  type_ = type;
+  data_type_ = kDouble;
   value_ = bit_cast<uint64_t>(data);
-}
-
-uint64_t Operand::getConstant() const {
-  return std::get<uint64_t>(value_);
 }
 
 void Operand::setConstant(uint64_t n, DataType data_type) {
@@ -156,24 +290,10 @@ void Operand::setConstant(uint64_t n, DataType data_type) {
   data_type_ = data_type;
 }
 
-double Operand::getFPConstant() const {
-  auto value = std::get<uint64_t>(value_);
-  return bit_cast<double>(value);
-}
-
 void Operand::setFPConstant(double n) {
   type_ = kImm;
   data_type_ = kDouble;
   value_ = bit_cast<uint64_t>(n);
-}
-
-PhyLocation Operand::getPhyRegister() const {
-  JIT_CHECK(
-      type_ == kReg,
-      "Trying to treat operand [type={},val={:#x}] as a physical register",
-      type_,
-      rawValue());
-  return std::get<PhyLocation>(value_);
 }
 
 void Operand::setPhyRegister(PhyLocation reg) {
@@ -181,34 +301,9 @@ void Operand::setPhyRegister(PhyLocation reg) {
   value_ = reg;
 }
 
-PhyLocation Operand::getStackSlot() const {
-  JIT_CHECK(
-      type_ == kStack,
-      "Trying to treat operand [type={},val={:#x}] as a stack slot",
-      type_,
-      rawValue());
-  return std::get<PhyLocation>(value_);
-}
-
 void Operand::setStackSlot(PhyLocation slot) {
   type_ = kStack;
   value_ = slot;
-}
-
-PhyLocation Operand::getPhyRegOrStackSlot() const {
-  switch (type_) {
-    case kReg:
-      return getPhyRegister();
-    case kStack:
-      return getStackSlot();
-    default:
-      JIT_ABORT(
-          "Trying to treat operand [type={},val={:#x} as a physical register "
-          "or a stack slot",
-          type_,
-          rawValue());
-  }
-  return -1;
 }
 
 void Operand::setPhyRegOrStackSlot(PhyLocation loc) {
@@ -219,36 +314,9 @@ void Operand::setPhyRegOrStackSlot(PhyLocation loc) {
   }
 }
 
-void* Operand::getMemoryAddress() const {
-  JIT_CHECK(
-      type_ == kMem,
-      "Trying to treat operand [type={},val={:#x}] as a memory address",
-      type_,
-      rawValue());
-  return std::get<void*>(value_);
-}
-
 void Operand::setMemoryAddress(void* addr) {
   type_ = kMem;
   value_ = addr;
-}
-
-MemoryIndirect* Operand::getMemoryIndirect() const {
-  JIT_CHECK(
-      type_ == kInd,
-      "Trying to treat operand [type={},val={:#x}] as a memory indirect",
-      type_,
-      rawValue());
-  return std::get<std::unique_ptr<MemoryIndirect>>(value_).get();
-}
-
-BasicBlock* Operand::getBasicBlock() const {
-  JIT_CHECK(
-      type_ == kLabel,
-      "Trying to treat operand [type={},val={:#x}] as a basic block address",
-      type_,
-      rawValue());
-  return std::get<BasicBlock*>(value_);
 }
 
 void Operand::setBasicBlock(BasicBlock* block) {
@@ -257,34 +325,11 @@ void Operand::setBasicBlock(BasicBlock* block) {
   value_ = block;
 }
 
-uint64_t Operand::getConstantOrAddress() const {
-  if (auto v = std::get_if<uint64_t>(&value_)) {
-    return *v;
-  }
-  return reinterpret_cast<uint64_t>(getMemoryAddress());
-}
-
-const Operand* Operand::getDefine() const {
-  return this;
-}
-
-Operand* Operand::getDefine() {
-  return this;
-}
-
-DataType Operand::dataType() const {
-  return data_type_;
-}
-
 void Operand::setDataType(DataType data_type) {
   data_type_ = data_type;
   if (auto loc_ptr = std::get_if<PhyLocation>(&value_)) {
     loc_ptr->bitSize = bitSize(data_type);
   }
-}
-
-Operand::Type Operand::type() const {
-  return type_;
 }
 
 void Operand::setNone() {
@@ -295,29 +340,8 @@ void Operand::setVirtualRegister() {
   type_ = kVreg;
 }
 
-bool Operand::isLinked() const {
-  return false;
-}
-
-uint64_t Operand::rawValue() const {
-  if (const auto ptr = std::get_if<uint64_t>(&value_)) {
-    return *ptr;
-  } else if (const auto void_ptr = std::get_if<void*>(&value_)) {
-    return reinterpret_cast<uint64_t>(*void_ptr);
-  } else if (const auto bb_ptr = std::get_if<BasicBlock*>(&value_)) {
-    return reinterpret_cast<uint64_t>(*bb_ptr);
-  } else if (
-      const auto mem_ptr =
-          std::get_if<std::unique_ptr<MemoryIndirect>>(&value_)) {
-    return reinterpret_cast<uint64_t>(mem_ptr->get());
-  } else if (const auto phy_ptr = std::get_if<PhyLocation>(&value_)) {
-    return static_cast<uint64_t>(phy_ptr->loc);
-  }
-
-  JIT_ABORT("Unknown operand value type, has index {}", value_.index());
-}
-
 LinkedOperand::LinkedOperand(Instruction* def_instr) {
+  is_linked_ = true;
   def_opnd_ = def_instr->output();
 }
 
@@ -344,62 +368,6 @@ const Instruction* LinkedOperand::getLinkedInstr() const {
 
 void LinkedOperand::setLinkedInstr(Instruction* def) {
   def_opnd_ = def->output();
-}
-
-uint64_t LinkedOperand::getConstant() const {
-  return def_opnd_->getConstant();
-}
-
-double LinkedOperand::getFPConstant() const {
-  return def_opnd_->getFPConstant();
-}
-
-PhyLocation LinkedOperand::getPhyRegister() const {
-  return def_opnd_->getPhyRegister();
-}
-
-PhyLocation LinkedOperand::getStackSlot() const {
-  return def_opnd_->getStackSlot();
-}
-
-PhyLocation LinkedOperand::getPhyRegOrStackSlot() const {
-  return def_opnd_->getPhyRegOrStackSlot();
-}
-
-void* LinkedOperand::getMemoryAddress() const {
-  return def_opnd_->getMemoryAddress();
-}
-
-MemoryIndirect* LinkedOperand::getMemoryIndirect() const {
-  return def_opnd_->getMemoryIndirect();
-}
-
-BasicBlock* LinkedOperand::getBasicBlock() const {
-  return def_opnd_->getBasicBlock();
-}
-
-uint64_t LinkedOperand::getConstantOrAddress() const {
-  return def_opnd_->getConstantOrAddress();
-}
-
-Operand* LinkedOperand::getDefine() {
-  return def_opnd_;
-}
-
-const Operand* LinkedOperand::getDefine() const {
-  return def_opnd_;
-}
-
-DataType LinkedOperand::dataType() const {
-  return def_opnd_->dataType();
-}
-
-Operand::Type LinkedOperand::type() const {
-  return def_opnd_->type();
-}
-
-bool LinkedOperand::isLinked() const {
-  return true;
 }
 
 } // namespace jit::lir
