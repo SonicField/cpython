@@ -81,12 +81,42 @@ struct GenDataFooter {
 #endif
 };
 
+} // namespace jit
+
+/* ---- C API (implemented in gen_data_footer.c) ---- */
 #if PY_VERSION_HEX >= 0x030C0000
-GenDataFooter** jitGenDataFooterPtr(PyGenObject* gen, PyCodeObject* gen_code);
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-GenDataFooter** jitGenDataFooterPtr(PyGenObject* gen);
+/* Returns pointer-to-pointer (void**) to the GenDataFooter* slot. */
+void **jit_gen_data_footer_ptr_code(PyGenObject *gen, PyCodeObject *gen_code);
+void **jit_gen_data_footer_ptr(PyGenObject *gen);
+void *jit_gen_data_footer(PyGenObject *gen);
 
-GenDataFooter* jitGenDataFooter(PyGenObject* gen);
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+#endif /* PY_VERSION_HEX >= 0x030C0000 */
+
+/* ---- C++ convenience ---- */
+#ifdef __cplusplus
+namespace jit {
+
+#if PY_VERSION_HEX >= 0x030C0000
+inline GenDataFooter** jitGenDataFooterPtr(PyGenObject* gen, PyCodeObject* gen_code) {
+  return reinterpret_cast<GenDataFooter**>(
+      jit_gen_data_footer_ptr_code(gen, gen_code));
+}
+
+inline GenDataFooter** jitGenDataFooterPtr(PyGenObject* gen) {
+  return reinterpret_cast<GenDataFooter**>(jit_gen_data_footer_ptr(gen));
+}
+
+inline GenDataFooter* jitGenDataFooter(PyGenObject* gen) {
+  return static_cast<GenDataFooter*>(jit_gen_data_footer(gen));
+}
 #endif
 
 } // namespace jit
+#endif
