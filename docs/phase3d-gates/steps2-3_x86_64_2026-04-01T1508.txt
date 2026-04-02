@@ -652,6 +652,8 @@ test_ttk skipped -- Use of the 'gui' resource not enabled
 test test_urllib failed -- multiple errors occurred; run in verbose mode for details
 0:04:47 load avg: 29.05 [447/494/10] test_urllib2 failed (5 failures) -- running (1): test_posixpath (1 min 30 sec)
 Warning -- os.environ was modified by test_urllib2
+Warning --   Before: [REDACTED: environment variable dump removed - contained sensitive infrastructure info]
+Warning --   After:  [REDACTED: environment variable dump removed - contained sensitive infrastructure info]
 test test_urllib2 failed -- multiple errors occurred; run in verbose mode for details
 0:04:47 load avg: 29.05 [448/494/10] test_unparse passed -- running (1): test_posixpath (1 min 30 sec)
 <unknown>:1769: SyntaxWarning: invalid escape sequence '\N'

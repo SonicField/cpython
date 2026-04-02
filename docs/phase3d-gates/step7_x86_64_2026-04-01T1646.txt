@@ -559,6 +559,8 @@ test test_urllib failed -- multiple errors occurred; run in verbose mode for det
 <unknown>:1769: SyntaxWarning: invalid escape sequence '\N'
 0:04:20 load avg: 25.38 [448/494/7] test_urllib2 failed (5 failures) -- running (1): test_subprocess (38.7 sec)
 Warning -- os.environ was modified by test_urllib2
+Warning --   Before: [REDACTED: environment variable dump removed - contained sensitive infrastructure info]
+Warning --   After:  [REDACTED: environment variable dump removed - contained sensitive infrastructure info]
 test test_urllib2 failed -- multiple errors occurred; run in verbose mode for details
 0:04:21 load avg: 25.38 [449/494/7] test_urllib2net skipped (resource denied) -- running (1): test_subprocess (38.9 sec)
 test_urllib2net skipped -- Use of the 'network' resource not enabled

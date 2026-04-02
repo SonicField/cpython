@@ -3,20 +3,20 @@
 ## Overview
 
 devgpu004 is an aarch64 machine used for ARM64 build/test.
-It has NO internet access — code must be transferred from devgpu009 via SSH.
+It has NO internet access — code must be transferred from the x86_64 dev machine via SSH.
 
 ## Paths
 
 | Machine | Path | Drive | Purpose |
 |---------|------|-------|---------|
-| devgpu009 | /data/users/$USER/phoenix/cpython | fast (local) | Primary x86_64 development |
-| devgpu004 | /data/users/$USER/phoenix-cpython | fast (local /data) | ARM64 build/test |
+| x86_64-host | /data/users/$USER/phoenix/cpython | fast (local) | Primary x86_64 development |
+| arm64-host | /data/users/$USER/phoenix-cpython | fast (local /data) | ARM64 build/test |
 
-**Do NOT use /home/alexturner on devgpu004** — it's a network drive and builds are very slow.
+**Do NOT use /home/$USER on devgpu004** — it's a network drive and builds are very slow.
 
 ## Transfer Protocol
 
-### 1. Create git bundle on devgpu009
+### 1. Create git bundle on x86_64 host
 
 ```bash
 cd /data/users/$USER/phoenix/cpython
@@ -71,8 +71,8 @@ make -j4
 
 ## Key Facts
 
-- SSH to devgpu004 works via nbs-local-session (credentials)
-- Direct `ssh` from agent Bash tool is blocked by bpfjailer
+- SSH to devgpu004 works via nbs-local-session
+- Direct `ssh` from agent Bash tool is blocked
 - devgpu004 has no internet — cannot clone from GitHub
 - Bundle transfer takes ~10 seconds over internal network
 - The `error: bundle-uri` warning is harmless

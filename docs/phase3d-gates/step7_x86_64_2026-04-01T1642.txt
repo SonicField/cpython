@@ -647,6 +647,8 @@ test_ttk skipped -- Use of the 'gui' resource not enabled
 test test_urllib failed -- multiple errors occurred; run in verbose mode for details
 0:04:27 load avg: 22.47 [448/494/9] test_urllib2 failed (5 failures) -- running (1): test_subprocess (40.0 sec)
 Warning -- os.environ was modified by test_urllib2
+Warning --   Before: [REDACTED: environment variable dump removed - contained sensitive infrastructure info]
+Warning --   After:  [REDACTED: environment variable dump removed - contained sensitive infrastructure info]
 test test_urllib2 failed -- multiple errors occurred; run in verbose mode for details
 0:04:27 load avg: 22.59 [449/494/9] test_urllib2net skipped (resource denied) -- running (1): test_subprocess (40.2 sec)
 test_urllib2net skipped -- Use of the 'network' resource not enabled
