@@ -10,6 +10,7 @@
 #include "cinderx/Jit/hir/hir_type_c.h"
 
 #include "cinderx/Jit/hir/hir.h"
+#include "cinderx/Jit/hir/hir_ops.h"
 #include "cinderx/Jit/hir/cfg.h"
 #include "cinderx/Jit/hir/function.h"
 #include "cinderx/Jit/hir/instr_effects.h"
@@ -164,6 +165,58 @@ int hir_instr_is_branch(HirInstr instr) {
   return as_instr(instr)->IsBranch() ? 1 : 0;
 }
 
+int hir_instr_is_cond_branch(HirInstr instr) {
+  return as_instr(instr)->IsCondBranch() ? 1 : 0;
+}
+
+int hir_instr_is_compare(HirInstr instr) {
+  return as_instr(instr)->opcode() == Opcode::kCompare ? 1 : 0;
+}
+
+int hir_instr_is_guard_type(HirInstr instr) {
+  return as_instr(instr)->IsGuardType() ? 1 : 0;
+}
+
+int hir_instr_is_guard_is(HirInstr instr) {
+  return as_instr(instr)->opcode() == Opcode::kGuardIs ? 1 : 0;
+}
+
+int hir_instr_is_begin_inlined(HirInstr instr) {
+  return as_instr(instr)->opcode() == Opcode::kBeginInlinedFunction ? 1 : 0;
+}
+
+int hir_instr_is_end_inlined(HirInstr instr) {
+  return as_instr(instr)->opcode() == Opcode::kEndInlinedFunction ? 1 : 0;
+}
+
+int hir_instr_is_load_eval_breaker(HirInstr instr) {
+  return as_instr(instr)->opcode() == Opcode::kLoadEvalBreaker ? 1 : 0;
+}
+
+int hir_instr_is_call_method(HirInstr instr) {
+  return as_instr(instr)->opcode() == Opcode::kCallMethod ? 1 : 0;
+}
+
+int hir_instr_is_load_method_super(HirInstr instr) {
+  return as_instr(instr)->opcode() == Opcode::kLoadMethodSuper ? 1 : 0;
+}
+
+int hir_instr_is_get_second_output(HirInstr instr) {
+  return as_instr(instr)->opcode() == Opcode::kGetSecondOutput ? 1 : 0;
+}
+
+int hir_instr_is_is_truthy(HirInstr instr) {
+  return as_instr(instr)->opcode() == Opcode::kIsTruthy ? 1 : 0;
+}
+
+int hir_instr_is_vector_call(HirInstr instr) {
+  return as_instr(instr)->opcode() == Opcode::kVectorCall ? 1 : 0;
+}
+
+int hir_instr_is_replayable(HirInstr instr) {
+  return as_instr(instr)->isReplayable() ? 1 : 0;
+}
+
 int hir_instr_has_deopt_base(HirInstr instr) {
   return as_instr(instr)->asDeoptBase() != nullptr ? 1 : 0;
 }
@@ -185,6 +238,62 @@ HirBasicBlock hir_instr_successor(HirInstr instr, size_t index) {
 void hir_instr_set_successor(HirInstr instr, size_t index,
                              HirBasicBlock block) {
   as_instr(instr)->set_successor(index, as_block(block));
+}
+
+/* ---- Tier A generic accessors ---- */
+
+HirRegister hir_instr_get_operand(HirInstr instr, size_t idx) {
+  return as_instr(instr)->GetOperand(idx);
+}
+
+size_t hir_instr_num_operands(HirInstr instr) {
+  return as_instr(instr)->NumOperands();
+}
+
+void hir_instr_set_operand(HirInstr instr, size_t idx, HirRegister reg) {
+  as_instr(instr)->SetOperand(idx, as_reg(reg));
+}
+
+HirBasicBlock hir_instr_block(HirInstr instr) {
+  return as_instr(instr)->block();
+}
+
+int hir_instr_uses_reg(HirInstr instr, HirRegister reg) {
+  bool found = false;
+  as_instr(instr)->visitUses([&](Register*& r) -> bool {
+    if (r == as_reg(reg)) {
+      found = true;
+      return false; /* stop */
+    }
+    return true;
+  });
+  return found ? 1 : 0;
+}
+
+void hir_instr_replace_with(HirInstr old_instr, HirInstr new_instr) {
+  as_instr(new_instr)->InsertBefore(*as_instr(old_instr));
+  as_instr(new_instr)->copyBytecodeOffset(*as_instr(old_instr));
+  if (as_instr(old_instr)->output() && as_instr(new_instr)->output()) {
+    as_instr(new_instr)->output()->set_type(as_instr(old_instr)->output()->type());
+  }
+  as_instr(old_instr)->unlink();
+  delete as_instr(old_instr);
+}
+
+int hir_instr_bytecode_offset(HirInstr instr) {
+  return as_instr(instr)->bytecodeOffset();
+}
+
+void hir_instr_set_bytecode_offset(HirInstr instr, int offset) {
+  as_instr(instr)->setBytecodeOffset(offset);
+}
+
+const char* hir_instr_opname(HirInstr instr) {
+  return hirOpcodeName(as_instr(instr)->opcode()).data();
+}
+
+int hir_block_id(HirBasicBlock block) {
+  return as_block(block)->id;
 }
 
 /* ---- Instruction mutation ---- */
