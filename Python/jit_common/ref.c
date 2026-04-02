@@ -1,6 +1,6 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
-#include "cinderx/Common/ref.h"
+#include "cinderx/python.h"
 
 #if PY_VERSION_HEX >= 0x030E0000
 #include "internal/pycore_interp.h"
@@ -12,8 +12,6 @@
 
 #if defined(Py_REF_DEBUG) && defined(Py_GIL_DISABLED)
 #include "internal/pycore_tstate.h"
-
-#include <atomic>
 #endif
 
 #ifdef Py_GIL_DISABLED
@@ -21,16 +19,18 @@
 void incref_total(PyThreadState* tstate) {
 #ifdef Py_REF_DEBUG
   _PyThreadStateImpl* tstate_impl = (_PyThreadStateImpl*)tstate;
-  std::atomic_ref<Py_ssize_t>(tstate_impl->reftotal)
-      .fetch_add(1, std::memory_order_relaxed);
+  __atomic_fetch_add(&tstate_impl->reftotal, 1, __ATOMIC_RELAXED);
+#else
+  (void)tstate;
 #endif
 }
 
 void decref_total(PyThreadState* tstate) {
 #ifdef Py_REF_DEBUG
   _PyThreadStateImpl* tstate_impl = (_PyThreadStateImpl*)tstate;
-  std::atomic_ref<Py_ssize_t>(tstate_impl->reftotal)
-      .fetch_sub(1, std::memory_order_relaxed);
+  __atomic_fetch_sub(&tstate_impl->reftotal, 1, __ATOMIC_RELAXED);
+#else
+  (void)tstate;
 #endif
 }
 
@@ -43,6 +43,8 @@ void incref_total(PyInterpreterState* interp) {
 #else
   _Py_RefTotal++;
 #endif
+#else
+  (void)interp;
 #endif
 }
 
@@ -53,6 +55,8 @@ void decref_total(PyInterpreterState* interp) {
 #else
   _Py_RefTotal--;
 #endif
+#else
+  (void)interp;
 #endif
 }
 

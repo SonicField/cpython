@@ -8,8 +8,6 @@
 #include "internal/pycore_audit.h"
 #endif
 
-extern "C" {
-
 bool installAuditHook(Py_AuditHookFunction func, void* userData) {
   if (PySys_AddAuditHook(func, userData) < 0) {
     return false;
@@ -32,7 +30,7 @@ bool installAuditHook(Py_AuditHookFunction func, void* userData) {
       ;
 
   // Verify that the hook was actually installed.
-  for (_Py_AuditHookEntry* e = audit_hook_head; e != nullptr; e = e->next) {
+  for (_Py_AuditHookEntry* e = audit_hook_head; e != NULL; e = e->next) {
     if (e->hookCFunction == func && e->userData == userData) {
       return true;
     }
@@ -40,5 +38,3 @@ bool installAuditHook(Py_AuditHookFunction func, void* userData) {
 
   return false;
 }
-
-} // extern "C"

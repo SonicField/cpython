@@ -20,7 +20,15 @@ extern struct _Py_static_objects* _static_objects;
 #endif
 
 #ifdef __cplusplus
+extern "C" {
+#endif
+
+void cinderx_initStaticObjects(void);
+
+#ifdef __cplusplus
+} /* extern "C" */
+
 namespace cinderx {
-void initStaticObjects();
+inline void initStaticObjects() { cinderx_initStaticObjects(); }
 }
 #endif

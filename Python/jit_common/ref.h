@@ -65,12 +65,20 @@ class RefBase {
   T* ptr_{nullptr};
 };
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #if defined(Py_GIL_DISABLED)
 void incref_total(PyThreadState* tstate);
 void decref_total(PyThreadState* tstate);
 #else
 void incref_total(PyInterpreterState* interp);
 void decref_total(PyInterpreterState* interp);
+#endif
+
+#ifdef __cplusplus
+} /* extern "C" */
 #endif
 
 /*

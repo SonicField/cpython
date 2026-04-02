@@ -66,7 +66,7 @@ endforeach()
 ##############################################################################
 # Common/
 
-file(GLOB_RECURSE COMMON_SOURCES ${JIT_ROOT}/jit_common/*.cpp)
+file(GLOB_RECURSE COMMON_SOURCES ${JIT_ROOT}/jit_common/*.cpp ${JIT_ROOT}/jit_common/*.c)
 add_library(common ${COMMON_SOURCES})
 if(NOT PHOENIX_ASM)
   target_link_libraries(common PRIVATE asmjit::asmjit fmt::fmt)
@@ -140,7 +140,7 @@ set(SUPPORT_SOURCES
   ${JIT_ROOT}/jit_support/phoenix_init.cpp
   ${JIT_ROOT}/jit_support/module_state.cpp
   ${JIT_ROOT}/jit_support/module_c_state.cpp
-  ${JIT_ROOT}/jit_support/python_runtime.cpp
+  ${JIT_ROOT}/jit_support/python_runtime.c
   ${JIT_ROOT}/jit_support/phoenix_stubs.c
 )
 

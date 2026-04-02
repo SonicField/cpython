@@ -2,4 +2,12 @@
 
 #include "cinderx/python.h"
 
-PyObject* _cinderx_lib_init();
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+PyObject* _cinderx_lib_init(void);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
