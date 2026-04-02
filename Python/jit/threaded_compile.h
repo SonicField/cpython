@@ -3,6 +3,7 @@
 #pragma once
 
 #include "cinderx/Common/ref.h"
+#include "cinderx/Jit/threaded_compile_c.h"
 
 #include <atomic>
 #include <cassert>
@@ -101,6 +102,9 @@ class ThreadedCompileContext {
 
  private:
   friend class ThreadedCompileSerialize;
+  /* C bridge functions (extern "C") need access to lock/unlock */
+  friend void ::jit_compile_lock(void);
+  friend void ::jit_compile_unlock(void);
 
   void lock() {
     if (!compileRunning()) {
