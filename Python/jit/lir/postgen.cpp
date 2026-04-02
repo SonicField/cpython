@@ -43,7 +43,7 @@ RewriteResult rewriteBinaryOpConstantPosition(instr_iter_t instr_iter) {
         OutVReg{constant_size},
         Imm{constant, constant_size});
 
-    instr->setInput(2, std::make_unique<LinkedOperand>(move));
+    instr->setInput(2, new LinkedOperand(move));
     return kChanged;
   }
 
@@ -68,8 +68,8 @@ RewriteResult rewriteBinaryOpConstantPosition(instr_iter_t instr_iter) {
     if (instr->isCompare()) {
       instr->setOpcode(Instruction::flipComparisonDirection(instr->opcode()));
     }
-    auto imm = instr->removeInput(0);
-    instr->appendInput(std::move(imm));
+    auto* imm = instr->removeInput(0);
+    instr->appendInput(imm);
     return kChanged;
   }
 
@@ -82,7 +82,7 @@ RewriteResult rewriteBinaryOpConstantPosition(instr_iter_t instr_iter) {
       Instruction::kMove,
       OutVReg{constant_size},
       Imm{constant, constant_size});
-  instr->setInput(0, std::make_unique<LinkedOperand>(move));
+  instr->setInput(0, new LinkedOperand(move));
 
   return kChanged;
 }
@@ -160,11 +160,11 @@ RewriteResult rewriteBinaryOpLargeConstant(instr_iter_t instr_iter) {
     auto movsx = block->allocateInstrBefore(
         instr_iter, Instruction::kMovSX, OutVReg{in1->dataType()});
     movsx->appendInput(instr->releaseInput(0));
-    instr->setInput(0, std::make_unique<LinkedOperand>(movsx));
+    instr->setInput(0, new LinkedOperand(movsx));
   }
 
   // Replace the constant with the move.
-  instr->setInput(1, std::make_unique<LinkedOperand>(move));
+  instr->setInput(1, new LinkedOperand(move));
 
   return kChanged;
 }
@@ -204,7 +204,7 @@ RewriteResult rewriteMoveToMemoryLargeConstant(instr_iter_t instr_iter) {
       Imm(constant, input->dataType()));
 
   // Replace the constant input with the move.
-  instr->setInput(0, std::make_unique<LinkedOperand>(move));
+  instr->setInput(0, new LinkedOperand(move));
 
   return kChanged;
 }
@@ -245,7 +245,7 @@ RewriteResult rewriteGuardLargeConstant(instr_iter_t instr_iter) {
       Instruction::kMove,
       OutVReg(),
       Imm(target_imm, target_opnd->dataType()));
-  instr->setInput(kTargetIndex, std::make_unique<LinkedOperand>(move));
+  instr->setInput(kTargetIndex, new LinkedOperand(move));
   return kChanged;
 }
 

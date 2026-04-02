@@ -7,6 +7,7 @@
 #include "cinderx/Jit/lir/function.h"
 
 #include <array>
+#include <cstring>
 #include <utility>
 
 namespace jit::lir {
@@ -41,6 +42,13 @@ Instruction::Instruction(
       basic_block_(bb),
       origin_(origin) {}
 
+Instruction::~Instruction() {
+  for (size_t i = 0; i < num_inputs_; i++) {
+    delete inputs_[i];
+  }
+  delete[] inputs_;
+}
+
 int Instruction::id() const {
   return id_;
 }
@@ -62,11 +70,22 @@ const hir::Instr* Instruction::origin() const {
 }
 
 size_t Instruction::getNumInputs() const {
-  return inputs_.size();
+  return num_inputs_;
 }
 
 void Instruction::setNumInputs(size_t n) {
-  inputs_.resize(n);
+  if (n > num_inputs_) {
+    ensureInputCapacity(n);
+    for (size_t i = num_inputs_; i < n; i++) {
+      inputs_[i] = nullptr;
+    }
+  } else if (n < num_inputs_) {
+    for (size_t i = n; i < num_inputs_; i++) {
+      delete inputs_[i];
+      inputs_[i] = nullptr;
+    }
+  }
+  num_inputs_ = n;
 }
 
 size_t Instruction::getNumOutputs() const {
@@ -74,35 +93,44 @@ size_t Instruction::getNumOutputs() const {
 }
 
 OperandBase* Instruction::getInput(size_t i) {
-  return inputs_.at(i).get();
+  JIT_DCHECK(i < num_inputs_, "Input index out of bounds");
+  return inputs_[i];
 }
 
 const OperandBase* Instruction::getInput(size_t i) const {
-  return inputs_.at(i).get();
+  JIT_DCHECK(i < num_inputs_, "Input index out of bounds");
+  return inputs_[i];
 }
 
 Operand* Instruction::allocateImmediateInput(uint64_t n, DataType data_type) {
-  auto operand =
-      std::make_unique<Operand>(this, data_type, OperandBase::kImm, n);
-  auto opnd = operand.get();
-  inputs_.push_back(std::move(operand));
-
-  return opnd;
+  auto* operand = new Operand(this, data_type, OperandBase::kImm, n);
+  appendInput(operand);
+  return operand;
 }
 
 Operand* Instruction::allocateFPImmediateInput(double n) {
-  auto operand = std::make_unique<Operand>(this, OperandBase::kImm, n);
-  auto opnd = operand.get();
-  inputs_.push_back(std::move(operand));
-
-  return opnd;
+  auto* operand = new Operand(this, OperandBase::kImm, n);
+  appendInput(operand);
+  return operand;
 }
 
 LinkedOperand* Instruction::allocateLinkedInput(Instruction* def_instr) {
-  auto operand = std::make_unique<LinkedOperand>(this, def_instr);
-  auto opnd = operand.get();
-  inputs_.push_back(std::move(operand));
-  return opnd;
+  auto* operand = new LinkedOperand(this, def_instr);
+  appendInput(operand);
+  return operand;
+}
+
+void Instruction::ensureInputCapacity(size_t needed) {
+  if (needed <= inputs_capacity_) return;
+  size_t new_cap = inputs_capacity_ == 0 ? 4 : inputs_capacity_ * 2;
+  while (new_cap < needed) new_cap *= 2;
+  auto** new_arr = new OperandBase*[new_cap]();
+  if (inputs_) {
+    std::memcpy(new_arr, inputs_, num_inputs_ * sizeof(OperandBase*));
+    delete[] inputs_;
+  }
+  inputs_ = new_arr;
+  inputs_capacity_ = new_cap;
 }
 
 Operand* Instruction::allocatePhyRegisterInput(PhyLocation loc) {
@@ -149,41 +177,59 @@ std::string_view Instruction::opname() const {
   return kOpcodeNames[opcode_];
 }
 
-void Instruction::setInput(size_t i, std::unique_ptr<OperandBase> input) {
-  inputs_.at(i) = std::move(input);
-  inputs_[i]->assignToInstr(this);
+void Instruction::setInput(size_t i, OperandBase* input) {
+  JIT_DCHECK(i < num_inputs_, "Input index out of bounds");
+  delete inputs_[i];
+  inputs_[i] = input;
+  if (input) {
+    input->assignToInstr(this);
+  }
 }
 
-std::unique_ptr<OperandBase> Instruction::removeInput(size_t index) {
-  auto operand = releaseInput(index);
-  inputs_.erase(inputs_.begin() + index);
+OperandBase* Instruction::removeInput(size_t index) {
+  auto* operand = releaseInput(index);
+  // Shift remaining inputs left.
+  for (size_t i = index; i + 1 < num_inputs_; i++) {
+    inputs_[i] = inputs_[i + 1];
+  }
+  num_inputs_--;
+  inputs_[num_inputs_] = nullptr;
   return operand;
 }
 
-std::unique_ptr<OperandBase> Instruction::releaseInput(size_t index) {
-  auto& operand = inputs_.at(index);
-  operand->releaseFromInstr();
-  return std::move(inputs_.at(index));
+OperandBase* Instruction::releaseInput(size_t index) {
+  JIT_DCHECK(index < num_inputs_, "Input index out of bounds");
+  auto* operand = inputs_[index];
+  if (operand) {
+    operand->releaseFromInstr();
+  }
+  inputs_[index] = nullptr;
+  return operand;
 }
 
-OperandBase* Instruction::appendInput(std::unique_ptr<OperandBase> operand) {
-  auto operand_ptr = operand.get();
-  // Use setInput() to call assignToInstr().
-  inputs_.emplace_back();
-  setInput(getNumInputs() - 1, std::move(operand));
-  return operand_ptr;
+OperandBase* Instruction::appendInput(OperandBase* operand) {
+  ensureInputCapacity(num_inputs_ + 1);
+  inputs_[num_inputs_] = nullptr;
+  num_inputs_++;
+  setInput(num_inputs_ - 1, operand);
+  return operand;
 }
 
-OperandBase* Instruction::prependInput(std::unique_ptr<OperandBase> operand) {
-  auto operand_ptr = operand.get();
-  inputs_.insert(inputs_.begin(), nullptr);
-  setInput(0, std::move(operand));
-  return operand_ptr;
+OperandBase* Instruction::prependInput(OperandBase* operand) {
+  ensureInputCapacity(num_inputs_ + 1);
+  // Shift all existing inputs right.
+  for (size_t i = num_inputs_; i > 0; i--) {
+    inputs_[i] = inputs_[i - 1];
+  }
+  inputs_[0] = nullptr;
+  num_inputs_++;
+  setInput(0, operand);
+  return operand;
 }
 
 OperandBase* Instruction::getOperandByPredecessor(const BasicBlock* pred) {
   auto index = getOperandIndexByPredecessor(pred);
-  return index == -1 ? nullptr : inputs_.at(index).get();
+  return index == -1 ? nullptr : inputs_[index];
 }
 
 int Instruction::getOperandIndexByPredecessor(const BasicBlock* pred) const {

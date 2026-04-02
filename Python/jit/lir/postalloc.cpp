@@ -229,7 +229,7 @@ int rewriteVectorCallFunctions(instr_iter_t instr_iter) {
   } else {
     auto move_2 = block->allocateInstrBefore(
         instr_iter, Instruction::kMove, OutPhyReg(ARGUMENT_REGS[3]));
-    move_2->appendInput(std::move(last_input));
+    move_2->appendInput(last_input);
 
     // Subtract the length of kwnames (always a tuple) from nargsf (arg2)
     size_t ob_size_offs = offsetof(PyVarObject, ob_size);
@@ -675,7 +675,7 @@ RewriteResult rewriteBinaryOpInstrs(instr_iter_t instr_iter) {
     instr->output()->setNone();
 
     auto opnd0 = instr->removeInput(0);
-    instr->appendInput(std::move(opnd0));
+    instr->appendInput(opnd0);
     return kChanged;
   }
 
@@ -846,12 +846,12 @@ RewriteResult rewriteDivide(instr_iter_t instr_iter) {
 
     auto divisor_removed = instr->removeInput(2);
     auto div_lower_removed = instr->removeInput(1);
-    move->appendInput(std::move(div_lower_removed));
+    move->appendInput(div_lower_removed);
 
     instr->removeInput(0); // Imm/rdx, no longer used
 
     instr->addOperands(PhyReg(AX, OperandBase::k16bit));
-    instr->appendInput(std::move(divisor_removed));
+    instr->appendInput(divisor_removed);
     changed = true;
   } else {
     // dividend lower needs to be in rax, we reserved the register

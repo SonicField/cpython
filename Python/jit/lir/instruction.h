@@ -254,11 +254,10 @@ class Instruction {
 
   template <typename... Args>
   Operand* allocateMemoryIndirectInput(Args&&... args) {
-    auto operand = std::make_unique<Operand>(this);
-    auto operand_ptr = operand.get();
+    auto* operand = new Operand(this);
     operand->setMemoryIndirect(std::forward<Args>(args)...);
-    inputs_.push_back(std::move(operand));
-    return operand_ptr;
+    appendInput(operand);
+    return operand;
   }
 
   // add operands to the instruction. The arguments can be one
@@ -365,22 +364,25 @@ class Instruction {
   }
 
   // Set an input by index, deleting the previous input.  Does not resize the
-  // inputs list.
-  void setInput(size_t index, std::unique_ptr<OperandBase> input);
+  // inputs list.  Takes ownership of the raw pointer.
+  void setInput(size_t index, OperandBase* input);
 
   // Remove an input by index, shifting all other inputs to the left.
-  std::unique_ptr<OperandBase> removeInput(size_t index);
+  // Returns the removed operand — caller takes ownership.
+  OperandBase* removeInput(size_t index);
 
   // Release the input operand at index from the instruction without
   // deallocating it.  The original input slot will be left with a nullptr,
-  // which is meant be removed afterwards.
-  std::unique_ptr<OperandBase> releaseInput(size_t index);
+  // which is meant be removed afterwards.  Caller takes ownership.
+  OperandBase* releaseInput(size_t index);
 
   // Add a new input to the end of this instruction's input list.
-  OperandBase* appendInput(std::unique_ptr<OperandBase> operand);
+  // Takes ownership of the raw pointer.
+  OperandBase* appendInput(OperandBase* operand);
 
   // Add a new input to the beginning of this instruction's input list.
-  OperandBase* prependInput(std::unique_ptr<OperandBase> operand);
+  // Takes ownership of the raw pointer.
+  OperandBase* prependInput(OperandBase* operand);
 
   // get the operand associated to a given predecessor in a phi instruction
   // returns nullptr if not found.
@@ -414,22 +416,28 @@ class Instruction {
 
   static Opcode compareToBranchCC(Opcode opcode);
 
+ // Phase B3b: Instruction now owns operands via raw pointers.
+  ~Instruction();
+
  private:
   template <typename FType, typename... AType>
   Operand* allocateOperand(FType&& set_func, AType&&... arg) {
-    auto operand = std::make_unique<Operand>(this);
-    auto operand_ptr = operand.get();
-    (operand_ptr->*set_func)(std::forward<AType>(arg)...);
-    inputs_.push_back(std::move(operand));
-    return operand_ptr;
+    auto* operand = new Operand(this);
+    (operand->*set_func)(std::forward<AType>(arg)...);
+    appendInput(operand);
+    return operand;
   }
+
+  void ensureInputCapacity(size_t needed);
 
   int id_;
   Opcode opcode_;
   Operand output_;
   BasicBlock* basic_block_;
   const hir::Instr* origin_;
-  std::vector<std::unique_ptr<OperandBase>> inputs_;
+  OperandBase** inputs_{nullptr};
+  size_t num_inputs_{0};
+  size_t inputs_capacity_{0};
 };
 
 // Kind of condition that a Guard instruction will execute.

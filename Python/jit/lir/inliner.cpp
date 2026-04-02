@@ -277,10 +277,9 @@ void LIRInliner::resolveLoadArg(
   if (param->isImm()) {
     // For immediate values, change kLoadArg to kMove.
     instr->setOpcode(Instruction::kMove);
-    auto param_copy =
-        std::make_unique<Operand>(instr, static_cast<Operand*>(param));
+    auto* param_copy = new Operand(instr, static_cast<Operand*>(param));
     param_copy->setConstant(param->getConstant());
-    instr->setInput(0, std::move(param_copy));
+    instr->setInput(0, param_copy);
     ++instr_it;
   } else {
     JIT_DCHECK(

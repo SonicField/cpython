@@ -1207,7 +1207,7 @@ void LinearScanAllocator::rewriteInstrOneInput(
   }
 
   auto phyreg = iter->second->allocated_loc;
-  auto new_input = std::make_unique<Operand>();
+  auto* new_input = new Operand();
   new_input->setDataType(input->dataType());
   new_input->setPhyRegOrStackSlot(phyreg);
 
@@ -1216,7 +1216,7 @@ void LinearScanAllocator::rewriteInstrOneInput(
     new_input->setLastUse();
   }
 
-  instr->setInput(i, std::move(new_input));
+  instr->setInput(i, new_input);
 }
 
 void LinearScanAllocator::rewriteInstrOneIndirectOperand(
