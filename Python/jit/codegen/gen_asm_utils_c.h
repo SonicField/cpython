@@ -9,10 +9,16 @@
  * On ARM64:  saves the return address (via ADR) to either the GenDataFooter
  *            savedIP slot (generators) or a stack slot (regular functions),
  *            then issues BL/BLR.
+ *
+ * This header requires PHOENIX_ASM -- the PhxBuilder/PhxLabel types are
+ * provided by phoenix_asm.h.  Without PHOENIX_ASM, gen_asm_utils.h
+ * provides inline C++ implementations using raw asmjit instead.
  */
 
 #ifndef GEN_ASM_UTILS_C_H
 #define GEN_ASM_UTILS_C_H
+
+#ifdef PHOENIX_ASM
 
 #include "jit/phoenix_asm/phoenix_asm.h"
 
@@ -76,5 +82,7 @@ void phx_emit_call_func(
 #ifdef __cplusplus
 }
 #endif
+
+#endif /* PHOENIX_ASM */
 
 #endif /* GEN_ASM_UTILS_C_H */

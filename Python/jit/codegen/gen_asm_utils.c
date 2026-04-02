@@ -4,10 +4,17 @@
  * Phase 3D conversion: gen_asm_utils.cpp -> gen_asm_utils.c
  * Uses the phoenix-asm C API instead of asmjit.
  *
+ * This file is only compiled when PHOENIX_ASM is defined.
+ * Without PHOENIX_ASM, gen_asm_utils.h provides inline C++
+ * implementations using raw asmjit instead.
+ *
  * C11, no C++ dependencies.
  */
 
 #include "gen_asm_utils_c.h"
+
+#ifdef PHOENIX_ASM
+
 #include "arch/detection.h"
 
 #if defined(CINDER_X86_64)
@@ -152,3 +159,5 @@ void phx_emit_call_func(
 
     record_debug_label(ctx->builder, has_origin, out_debug_label);
 }
+
+#endif /* PHOENIX_ASM */
