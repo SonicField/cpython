@@ -8,6 +8,8 @@
  */
 #pragma once
 
+#include "cinderx/python.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -37,6 +39,19 @@ static inline void jit_compile_unlock_cleanup(int *dummy) {
     jit_compile_lock(); \
     __attribute__((cleanup(jit_compile_unlock_cleanup))) \
     int _jit_compile_guard = 0
+
+/* ---- ThreadedCompileContext state queries ---- */
+
+/* Returns 1 if a multi-threaded compile is currently running. */
+int jit_compile_running(void);
+
+/* Returns 1 if the current thread can safely access shared data
+ * (either no threaded compile is active, or this thread holds the lock). */
+int jit_compile_can_access_shared_data(void);
+
+/* Get the interpreter state that started the current compile.
+ * Returns _PyInterpreterState_GET() if no compile is running. */
+PyInterpreterState* jit_compile_interpreter(void);
 
 #ifdef __cplusplus
 } /* extern "C" */
