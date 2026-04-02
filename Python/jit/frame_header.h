@@ -4,11 +4,32 @@
 
 #include "cinderx/python.h"
 
+/* ---- C API (implemented in frame_header.c) ---- */
+#if PY_VERSION_HEX >= 0x030C0000
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/*
+ * Calculate frame header size for a code object.
+ * frame_mode_lightweight: nonzero if FrameMode is kLightweight.
+ * header_size: sizeof(FrameHeader).
+ * frame_obj_size: sizeof(PyObject*).
+ */
+int jit_frame_header_size(PyCodeObject *code, int frame_mode_lightweight,
+                          size_t header_size, size_t frame_obj_size);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+#endif
+
+/* ---- C++ convenience ---- */
+#ifdef __cplusplus
+
 #include "cinderx/Common/ref.h"
 
 namespace jit {
-
-int frameHeaderSize(BorrowedRef<PyCodeObject> code);
 
 #if PY_VERSION_HEX < 0x030C0000
 
@@ -41,4 +62,10 @@ struct FrameHeader {
 
 #endif
 
+// C++ wrapper — delegates to C implementation with config values.
+// Include config.h only in the .cpp files that call this, not here.
+int frameHeaderSize(BorrowedRef<PyCodeObject> code);
+
 } // namespace jit
+
+#endif /* __cplusplus */
