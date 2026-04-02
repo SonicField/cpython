@@ -4,6 +4,7 @@
 
 #include "cinderx/Common/log.h"
 #include "cinderx/Common/util.h"
+#include "cinderx/Jit/codegen/phylocation.h"
 
 #include <fmt/format.h>
 
@@ -72,9 +73,13 @@ struct PhyLocation {
 #undef DEFINE_REG
 
   // Parse a register name and return the corresponding physical register.
-  // Return REG_INVALID if the name is not a valid register name.  Does not
-  // support parsing stack slots.
-  static PhyLocation parse(std::string_view name);
+  // Aborts on unrecognized register name. Does not support parsing stack slots.
+  static PhyLocation parse(std::string_view name) {
+    std::string tmp(name);
+    PhyLoc result = phyloc_parse(tmp.c_str());
+    JIT_CHECK(result.loc != PHYLOC_REG_INVALID, "Unrecognized register {}", name);
+    return PhyLocation{result.loc, static_cast<size_t>(result.bit_size)};
+  }
 
   int32_t loc{REG_INVALID};
   uint32_t bitSize{64};
@@ -109,7 +114,11 @@ struct PhyLocation {
     return is_register() && loc >= VECD_REG_BASE;
   }
 
-  std::string toString() const;
+  std::string toString() const {
+    char buf[64];
+    phyloc_to_string(PhyLoc{loc, bitSize}, buf, sizeof(buf));
+    return std::string(buf);
+  }
 
   bool operator==(const PhyLocation& rhs) const {
     return loc == rhs.loc;
