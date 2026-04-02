@@ -11,6 +11,7 @@
 #if PY_VERSION_HEX >= 0x030C0000
 
 #include "internal/pycore_frame.h"
+#include "jit_common/py-portability.h"
 
 static int
 jitgen_is_coroutine(PyObject *o)

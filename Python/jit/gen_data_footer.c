@@ -12,6 +12,7 @@
 #if PY_VERSION_HEX >= 0x030C0000
 
 #include "internal/pycore_frame.h"
+#include "jit_common/py-portability.h"
 
 void **
 jit_gen_data_footer_ptr_code(PyGenObject *gen, PyCodeObject *gen_code)

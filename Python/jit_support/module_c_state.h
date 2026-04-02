@@ -41,6 +41,9 @@ void Ci_free_jit_list_gen(PyGenObject* obj);
 PyTypeObject* Ci_JitGenType(void);
 PyTypeObject* Ci_JitCoroType(void);
 
+// Module object (for reference counting).
+PyObject* Ci_JitModule(void);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

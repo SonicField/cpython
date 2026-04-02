@@ -63,4 +63,8 @@ PyTypeObject* Ci_JitCoroType(void) {
   return cinderx::getModuleState()->coroType();
 }
 
+PyObject* Ci_JitModule(void) {
+  return cinderx::getModuleState()->module();
+}
+
 } // extern "C"

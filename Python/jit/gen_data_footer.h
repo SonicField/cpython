@@ -8,6 +8,7 @@
 #include "cinder/genobject_jit.h"
 #endif
 
+#ifdef __cplusplus
 #include "cinderx/Common/util.h"
 #include "cinderx/Jit/code_runtime.h"
 #include "cinderx/Jit/frame_header.h"
@@ -82,6 +83,7 @@ struct GenDataFooter {
 };
 
 } // namespace jit
+#endif /* __cplusplus */
 
 /* ---- C API (implemented in gen_data_footer.c) ---- */
 #if PY_VERSION_HEX >= 0x030C0000
