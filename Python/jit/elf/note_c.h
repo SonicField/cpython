@@ -23,13 +23,16 @@ extern "C" {
 
 typedef struct {
     char *name;         /* owned, null-terminated */
-    char *desc;         /* owned, null-terminated (empty string if no desc) */
+    char *desc;         /* owned, may contain embedded NULs (binary data) */
+    size_t desc_len;    /* length of desc in bytes (not including trailing NUL) */
     uint32_t type;
 } JitElfNote;
 
 void jit_elf_note_init(JitElfNote *note);
 void jit_elf_note_set(JitElfNote *note, const char *name, const char *desc,
                       uint32_t type);
+void jit_elf_note_set_bin(JitElfNote *note, const char *name,
+                          const char *desc, size_t desc_len, uint32_t type);
 void jit_elf_note_free(JitElfNote *note);
 size_t jit_elf_note_size_bytes(const JitElfNote *note);
 
@@ -46,6 +49,10 @@ void jit_elf_note_array_free(JitElfNoteArray *arr);
 void jit_elf_note_array_insert(JitElfNoteArray *arr,
                                const char *name, const char *desc,
                                uint32_t type);
+void jit_elf_note_array_insert_bin(JitElfNoteArray *arr,
+                                   const char *name,
+                                   const char *desc, size_t desc_len,
+                                   uint32_t type);
 size_t jit_elf_note_array_size_bytes(const JitElfNoteArray *arr);
 size_t jit_elf_note_array_len(const JitElfNoteArray *arr);
 const JitElfNote *jit_elf_note_array_get(const JitElfNoteArray *arr,

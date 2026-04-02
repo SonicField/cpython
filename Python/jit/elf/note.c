@@ -33,6 +33,22 @@ strdup_raw(const char *s)
     return copy;
 }
 
+/* Duplicate binary data (may contain embedded NULs).
+ * Always adds a trailing NUL for safety. */
+static char *
+memdup_raw(const char *s, size_t len)
+{
+    if (s == NULL) {
+        return NULL;
+    }
+    char *copy = (char *)PyMem_RawMalloc(len + 1);
+    if (copy != NULL) {
+        memcpy(copy, s, len);
+        copy[len] = '\0';
+    }
+    return copy;
+}
+
 /* ---- Note ---- */
 
 void
@@ -40,6 +56,7 @@ jit_elf_note_init(JitElfNote *note)
 {
     note->name = NULL;
     note->desc = NULL;
+    note->desc_len = 0;
     note->type = 0;
 }
 
@@ -51,6 +68,19 @@ jit_elf_note_set(JitElfNote *note, const char *name, const char *desc,
     PyMem_RawFree(note->desc);
     note->name = strdup_raw(name ? name : "");
     note->desc = strdup_raw(desc ? desc : "");
+    note->desc_len = desc ? strlen(desc) : 0;
+    note->type = type;
+}
+
+void
+jit_elf_note_set_bin(JitElfNote *note, const char *name,
+                     const char *desc, size_t desc_len, uint32_t type)
+{
+    PyMem_RawFree(note->name);
+    PyMem_RawFree(note->desc);
+    note->name = strdup_raw(name ? name : "");
+    note->desc = memdup_raw(desc, desc_len);
+    note->desc_len = desc_len;
     note->type = type;
 }
 
@@ -61,6 +91,7 @@ jit_elf_note_free(JitElfNote *note)
     PyMem_RawFree(note->desc);
     note->name = NULL;
     note->desc = NULL;
+    note->desc_len = 0;
 }
 
 size_t
@@ -75,8 +106,8 @@ jit_elf_note_size_bytes(const JitElfNote *note)
     }
 
     /* Descriptor may be empty */
-    if (note->desc != NULL && note->desc[0] != '\0') {
-        s += round_up(strlen(note->desc) + 1, 4);
+    if (note->desc_len > 0) {
+        s += round_up(note->desc_len + 1, 4);
     }
 
     return s;
@@ -118,6 +149,24 @@ jit_elf_note_array_insert(JitElfNoteArray *arr,
     JitElfNote *note = &arr->notes[arr->len];
     jit_elf_note_init(note);
     jit_elf_note_set(note, name, desc, type);
+    arr->len++;
+}
+
+void
+jit_elf_note_array_insert_bin(JitElfNoteArray *arr,
+                              const char *name,
+                              const char *desc, size_t desc_len,
+                              uint32_t type)
+{
+    if (arr->len >= arr->cap) {
+        size_t new_cap = arr->cap ? arr->cap * 2 : 8;
+        arr->notes = (JitElfNote *)PyMem_RawRealloc(
+            arr->notes, new_cap * sizeof(JitElfNote));
+        arr->cap = new_cap;
+    }
+    JitElfNote *note = &arr->notes[arr->len];
+    jit_elf_note_init(note);
+    jit_elf_note_set_bin(note, name, desc, desc_len, type);
     arr->len++;
 }
 

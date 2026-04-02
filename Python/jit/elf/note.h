@@ -41,7 +41,7 @@ struct Note {
   JitElfNote toC() const {
     JitElfNote cn;
     jit_elf_note_init(&cn);
-    jit_elf_note_set(&cn, name.c_str(), desc.c_str(), type);
+    jit_elf_note_set_bin(&cn, name.c_str(), desc.data(), desc.size(), type);
     return cn;
   }
 
@@ -49,7 +49,7 @@ struct Note {
   static Note fromC(const JitElfNote& cn) {
     Note n;
     n.name = cn.name ? cn.name : "";
-    n.desc = cn.desc ? cn.desc : "";
+    n.desc = cn.desc ? std::string(cn.desc, cn.desc_len) : "";
     n.type = cn.type;
     return n;
   }
