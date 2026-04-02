@@ -28,6 +28,7 @@ int jit_frame_header_size(PyCodeObject *code, int frame_mode_lightweight,
 #ifdef __cplusplus
 
 #include "cinderx/Common/ref.h"
+#include "cinderx/Jit/jit_config_c.h"
 
 namespace jit {
 
@@ -63,8 +64,13 @@ struct FrameHeader {
 #endif
 
 // C++ wrapper — delegates to C implementation with config values.
-// Include config.h only in the .cpp files that call this, not here.
-int frameHeaderSize(BorrowedRef<PyCodeObject> code);
+inline int frameHeaderSize(BorrowedRef<PyCodeObject> code) {
+  return jit_frame_header_size(
+      code,
+      jit_get_config()->frame_mode == JIT_FRAME_LIGHTWEIGHT ? 1 : 0,
+      sizeof(FrameHeader),
+      sizeof(PyObject*));
+}
 
 } // namespace jit
 
