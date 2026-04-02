@@ -7,6 +7,7 @@
  */
 
 #include "cinderx/Jit/hir/hir_c_api.h"
+#include "cinderx/Jit/hir/hir_type_c.h"
 
 #include "cinderx/Jit/hir/hir.h"
 #include "cinderx/Jit/hir/cfg.h"
@@ -17,6 +18,12 @@
 #include <vector>
 
 using namespace jit::hir;
+
+/* Verify HirType is layout-compatible with C++ Type */
+static_assert(sizeof(HirType) == sizeof(Type),
+              "HirType size must match C++ Type");
+static_assert(sizeof(HirType) == 16,
+              "HirType must be 16 bytes");
 
 /* ---- Cast helpers ---- */
 
@@ -226,6 +233,14 @@ HirBasicBlock hir_branch_target(HirInstr branch) {
 }
 
 /* ---- Register accessors ---- */
+
+int hir_reg_id(HirRegister reg) {
+  return as_reg(reg)->id();
+}
+
+int hir_reg_name(HirRegister reg, char *buf, size_t len) {
+  return snprintf(buf, len, "v%d", as_reg(reg)->id());
+}
 
 HirInstr hir_reg_instr(HirRegister reg) {
   return as_reg(reg)->instr();

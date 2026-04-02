@@ -141,6 +141,12 @@ HirBasicBlock hir_branch_target(HirInstr branch);
 
 /* ---- Register accessors ---- */
 
+/* Get the register's numeric ID. */
+int hir_reg_id(HirRegister reg);
+
+/* Get the register's name (writes "v{id}" to buf). Returns chars written. */
+int hir_reg_name(HirRegister reg, char *buf, size_t len);
+
 /* Get the instruction that defines this register. */
 HirInstr hir_reg_instr(HirRegister reg);
 
