@@ -5,13 +5,9 @@
  * BasicBlock, Instr, and Register so that optimization passes can be
  * written in pure C.
  *
- * Modeled on lir_c_api.h. Each function casts the opaque handle to
- * the C++ type and calls the corresponding method.
- *
- * C++ callers: include this header and use the C functions directly,
- * or continue using C++ class methods. The C API is additive.
- *
- * C callers: include this header for opaque pointer access to HIR types.
+ * Only functions with active .c callers are declared here.
+ * Do NOT add speculative wrapper functions — convert the underlying
+ * C++ to C instead (Phase 3D directive).
  */
 
 #ifndef JIT_HIR_C_API_H
@@ -39,9 +35,6 @@ typedef void* HirRegister;
 
 /* Get the CFG from a function. */
 HirCFG hir_func_cfg(HirFunction func);
-
-/* Get the entry block of the CFG. */
-HirBasicBlock hir_cfg_entry_block(HirCFG cfg);
 
 /* Get blocks in reverse postorder. Caller provides output array.
  * Returns number of blocks written (clamped to capacity). */
@@ -81,31 +74,14 @@ void hir_block_fixup_phis(HirBasicBlock block,
                           HirBasicBlock old_pred,
                           HirBasicBlock new_pred);
 
-/* Get the i-th successor (via the terminator's edges). */
-HirBasicBlock hir_block_successor(HirBasicBlock block, size_t index);
-
 /* ---- Instruction predicates ---- */
 
-int hir_instr_opcode(HirInstr instr);
 int hir_instr_is_terminator(HirInstr instr);
 int hir_instr_is_snapshot(HirInstr instr);
 int hir_instr_is_phi(HirInstr instr);
 int hir_instr_is_assign(HirInstr instr);
 int hir_instr_is_primitive_box(HirInstr instr);
 int hir_instr_is_branch(HirInstr instr);
-int hir_instr_is_cond_branch(HirInstr instr);
-int hir_instr_is_compare(HirInstr instr);
-int hir_instr_is_guard_type(HirInstr instr);
-int hir_instr_is_guard_is(HirInstr instr);
-int hir_instr_is_begin_inlined(HirInstr instr);
-int hir_instr_is_end_inlined(HirInstr instr);
-int hir_instr_is_load_eval_breaker(HirInstr instr);
-int hir_instr_is_call_method(HirInstr instr);
-int hir_instr_is_load_method_super(HirInstr instr);
-int hir_instr_is_get_second_output(HirInstr instr);
-int hir_instr_is_is_truthy(HirInstr instr);
-int hir_instr_is_vector_call(HirInstr instr);
-int hir_instr_is_replayable(HirInstr instr);
 
 /* Returns 1 if the instruction is a DeoptBase subclass, 0 otherwise. */
 int hir_instr_has_deopt_base(HirInstr instr);
@@ -115,35 +91,9 @@ int hir_instr_has_deopt_base(HirInstr instr);
 /* Get the output register (may be NULL for side-effect-only instrs). */
 HirRegister hir_instr_output(HirInstr instr);
 
-/* Get/set operand registers by index. */
-HirRegister hir_instr_get_operand(HirInstr instr, size_t idx);
-size_t hir_instr_num_operands(HirInstr instr);
-void hir_instr_set_operand(HirInstr instr, size_t idx, HirRegister reg);
-
-/* Get the block this instruction belongs to. */
-HirBasicBlock hir_instr_block(HirInstr instr);
-
-/* Check if instruction uses a specific register. */
-int hir_instr_uses_reg(HirInstr instr, HirRegister reg);
-
-/* Replace old instruction with new (in the same position). */
-void hir_instr_replace_with(HirInstr old_instr, HirInstr new_instr);
-
-/* Bytecode offset accessors. */
-int hir_instr_bytecode_offset(HirInstr instr);
-void hir_instr_set_bytecode_offset(HirInstr instr, int offset);
-
-/* Get the opcode name as a string. */
-const char* hir_instr_opname(HirInstr instr);
-
-/* Get the block's numeric ID. */
-int hir_block_id(HirBasicBlock block);
-
 /* Control flow edges. */
 size_t hir_instr_num_edges(HirInstr instr);
 HirBasicBlock hir_instr_successor(HirInstr instr, size_t index);
-void hir_instr_set_successor(HirInstr instr, size_t index,
-                             HirBasicBlock block);
 
 /* ---- Instruction mutation ---- */
 
@@ -177,12 +127,6 @@ void hir_instr_visit_uses(HirInstr instr,
 HirBasicBlock hir_branch_target(HirInstr branch);
 
 /* ---- Register accessors ---- */
-
-/* Get the register's numeric ID. */
-int hir_reg_id(HirRegister reg);
-
-/* Get the register's name (writes "v{id}" to buf). Returns chars written. */
-int hir_reg_name(HirRegister reg, char *buf, size_t len);
 
 /* Get the instruction that defines this register. */
 HirInstr hir_reg_instr(HirRegister reg);
@@ -222,9 +166,6 @@ void hir_remove_unreachable_instructions(HirFunction func);
 
 /* Re-derive all register types from instructions. */
 void hir_reflow_types(HirFunction func);
-
-/* Simplify conditional branches where both targets are the same. */
-void hir_simplify_redundant_cond_branches(HirCFG cfg);
 
 #ifdef __cplusplus
 } /* extern "C" */

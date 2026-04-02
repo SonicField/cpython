@@ -4,10 +4,9 @@
  * Phase 3D: Provides opaque pointer accessors for LIR Function, BasicBlock,
  * Instruction, and OperandBase so that algorithm files can be written in pure C.
  *
- * C++ callers: include this header and use the C functions directly,
- * or continue using C++ class methods. The C API is additive.
- *
- * C callers: include this header for opaque pointer access to LIR types.
+ * Only functions with active .c callers are declared here.
+ * Do NOT add speculative wrapper functions — convert the underlying
+ * C++ to C instead (Phase 3D directive).
  */
 
 #ifndef JIT_LIR_C_API_H
@@ -167,45 +166,11 @@ _Static_assert(sizeof(LirFunction) == 40, "LirFunction size changed");
     assert((dt) >= JIT_LIR_DT_8BIT && (dt) <= JIT_LIR_DT_OBJECT \
            && "invalid data type")
 
-/* Phase B lifecycle declarations are below, after the opaque pointer API.
- * See the section starting with "Phase B1: operand/memind lifecycle" */
+/* ---- Enum constants ---- */
 
 /* Code section constants (must match codegen::CodeSection enum) */
 #define JIT_LIR_SECTION_HOT  0
 #define JIT_LIR_SECTION_COLD 1
-
-/* ---- Function accessors ---- */
-size_t jit_lir_func_num_blocks(JitLirFunc func);
-JitLirBlock jit_lir_func_get_block(JitLirFunc func, size_t index);
-JitLirBlock jit_lir_func_entry_block(JitLirFunc func);
-
-/* ---- BasicBlock accessors ---- */
-size_t jit_lir_block_num_preds(JitLirBlock block);
-JitLirBlock jit_lir_block_get_pred(JitLirBlock block, size_t index);
-size_t jit_lir_block_num_succs(JitLirBlock block);
-JitLirBlock jit_lir_block_get_succ(JitLirBlock block, size_t index);
-JitLirInstr jit_lir_block_get_last_instr(JitLirBlock block);
-JitLirInstr jit_lir_block_get_first_instr(JitLirBlock block);
-size_t jit_lir_block_num_instrs(JitLirBlock block);
-JitLirBlock jit_lir_block_get_false_succ(JitLirBlock block);
-int jit_lir_block_get_section(JitLirBlock block);
-void jit_lir_block_set_section(JitLirBlock block, int section);
-int jit_lir_block_get_id(JitLirBlock block);
-JitLirInstr jit_lir_block_get_instr_at(JitLirBlock block, size_t index);
-
-/* ---- Instruction accessors ---- */
-int jit_lir_instr_opcode(JitLirInstr instr);
-int jit_lir_instr_is_branch(JitLirInstr instr);
-int jit_lir_instr_is_branch_cc(JitLirInstr instr);
-int jit_lir_instr_is_any_branch(JitLirInstr instr);
-int jit_lir_instr_is_terminator(JitLirInstr instr);
-size_t jit_lir_instr_num_inputs(JitLirInstr instr);
-JitLirOperand jit_lir_instr_get_input(JitLirInstr instr, size_t index);
-JitLirOperand jit_lir_instr_output(JitLirInstr instr);
-
-/* ---- Operand accessors ---- */
-int jit_lir_operand_type(JitLirOperand op);
-JitLirBlock jit_lir_operand_get_basic_block(JitLirOperand op);
 
 /* Operand type constants (must match lir::OperandType enum) */
 #define JIT_LIR_OPTYPE_NONE  0
@@ -216,44 +181,6 @@ JitLirBlock jit_lir_operand_get_basic_block(JitLirOperand op);
 #define JIT_LIR_OPTYPE_IND   5
 #define JIT_LIR_OPTYPE_IMM   6
 #define JIT_LIR_OPTYPE_LABEL 7
-
-/* Opcode constants */
-int jit_lir_opcode_guard(void);
-
-/* ---- Extended instruction accessors (Phase 3D Step 10: DCE) ---- */
-int jit_lir_instr_id(JitLirInstr instr);
-int jit_lir_instr_is_essential(JitLirInstr instr);
-int jit_lir_instr_flag_effects(JitLirInstr instr);
-
-/* Iterate all input operands of an instruction. */
-void jit_lir_instr_foreach_input(
-    JitLirInstr instr,
-    void (*cb)(JitLirOperand operand, void *ctx),
-    void *ctx);
-
-/* ---- Extended operand accessors ---- */
-int jit_lir_operand_is_reg(JitLirOperand op);
-int jit_lir_operand_is_stack(JitLirOperand op);
-int jit_lir_operand_is_mem(JitLirOperand op);
-int jit_lir_operand_is_ind(JitLirOperand op);
-int jit_lir_operand_is_linked(JitLirOperand op);
-
-/* Get the defining instruction of a LinkedOperand. */
-JitLirInstr jit_lir_operand_get_linked_instr(JitLirOperand op);
-
-/* ---- MemoryIndirect accessors ---- */
-typedef void* JitLirIndirect;
-JitLirIndirect jit_lir_operand_get_indirect(JitLirOperand op);
-JitLirOperand jit_lir_indirect_base_reg(JitLirIndirect ind);
-JitLirOperand jit_lir_indirect_index_reg(JitLirIndirect ind);
-
-/* ---- Block instruction removal ---- */
-/* Remove all instructions for which is_live(instr, ctx) returns 0.
- * Handles C++ iterator invalidation internally. */
-void jit_lir_block_remove_dead_instrs(
-    JitLirBlock block,
-    int (*is_live)(JitLirInstr instr, void *ctx),
-    void *ctx);
 
 /* FlagEffects constants (must match lir::FlagEffects enum) */
 #define JIT_LIR_FLAG_NONE       0
@@ -268,73 +195,81 @@ void jit_lir_block_remove_dead_instrs(
 #define JIT_LIR_DT_DOUBLE 4
 #define JIT_LIR_DT_OBJECT 5
 
-/* ---- Phase A: Extended operand getters ---- */
-int jit_lir_operand_data_type(JitLirOperand op);
-int jit_lir_operand_is_fp(JitLirOperand op);
-int jit_lir_operand_is_last_use(JitLirOperand op);
-uint64_t jit_lir_operand_get_constant(JitLirOperand op);
-double jit_lir_operand_get_fp_constant(JitLirOperand op);
-int jit_lir_operand_get_phy_register(JitLirOperand op);
-int jit_lir_operand_get_stack_slot(JitLirOperand op);
-void* jit_lir_operand_get_mem_address(JitLirOperand op);
-JitLirOperand jit_lir_operand_get_define(JitLirOperand op);
+/* ---- Opaque pointer API (functions with active .c callers) ---- */
 
-/* ---- Phase A: Extended instruction getters ---- */
-JitLirBlock jit_lir_instr_basic_block(JitLirInstr instr);
-const void* jit_lir_instr_origin(JitLirInstr instr);
-int jit_lir_instr_is_compare(JitLirInstr instr);
-int jit_lir_instr_is_any_yield(JitLirInstr instr);
-int jit_lir_instr_inputs_live_across(JitLirInstr instr);
-int jit_lir_instr_output_phy_use(JitLirInstr instr);
-int jit_lir_instr_input_phy_use(JitLirInstr instr, size_t index);
+/* Function accessors */
+size_t jit_lir_func_num_blocks(JitLirFunc func);
+JitLirBlock jit_lir_func_get_block(JitLirFunc func, size_t index);
+JitLirBlock jit_lir_func_entry_block(JitLirFunc func);
 
-/* ---- Phase A: MemoryIndirect getters ---- */
-int jit_lir_indirect_multiplier(JitLirIndirect ind);
-int32_t jit_lir_indirect_offset(JitLirIndirect ind);
+/* BasicBlock accessors */
+size_t jit_lir_block_num_preds(JitLirBlock block);
+JitLirBlock jit_lir_block_get_pred(JitLirBlock block, size_t index);
+size_t jit_lir_block_num_succs(JitLirBlock block);
+JitLirBlock jit_lir_block_get_succ(JitLirBlock block, size_t index);
+JitLirInstr jit_lir_block_get_last_instr(JitLirBlock block);
+JitLirInstr jit_lir_block_get_first_instr(JitLirBlock block);
+size_t jit_lir_block_num_instrs(JitLirBlock block);
+JitLirBlock jit_lir_block_get_false_succ(JitLirBlock block);
+int jit_lir_block_get_section(JitLirBlock block);
+void jit_lir_block_set_section(JitLirBlock block, int section);
+int jit_lir_block_get_id(JitLirBlock block);
+JitLirInstr jit_lir_block_get_instr_at(JitLirBlock block, size_t index);
 
-/* ---- Phase A: Branch CC statics ---- */
-int jit_lir_negate_branch_cc(int opcode);
-int jit_lir_flip_branch_cc_direction(int opcode);
-int jit_lir_compare_to_branch_cc(int opcode);
+/* Instruction accessors */
+int jit_lir_instr_opcode(JitLirInstr instr);
+int jit_lir_instr_is_branch(JitLirInstr instr);
+int jit_lir_instr_is_branch_cc(JitLirInstr instr);
+int jit_lir_instr_is_any_branch(JitLirInstr instr);
+int jit_lir_instr_is_terminator(JitLirInstr instr);
+JitLirOperand jit_lir_instr_get_input(JitLirInstr instr, size_t index);
+JitLirOperand jit_lir_instr_output(JitLirInstr instr);
 
-/* ---- Phase A: Operand setters ---- */
-void jit_lir_operand_set_constant(JitLirOperand op, uint64_t val, int data_type);
-void jit_lir_operand_set_fp_constant(JitLirOperand op, double val);
-void jit_lir_operand_set_phy_register(JitLirOperand op, int loc);
-void jit_lir_operand_set_stack_slot(JitLirOperand op, int loc);
-void jit_lir_operand_set_virtual_register(JitLirOperand op);
-void jit_lir_operand_set_data_type(JitLirOperand op, int dt);
-void jit_lir_operand_set_basic_block(JitLirOperand op, JitLirBlock block);
-void jit_lir_operand_set_mem_address(JitLirOperand op, void* addr);
-void jit_lir_operand_set_last_use(JitLirOperand op);
+/* Operand accessors */
+JitLirBlock jit_lir_operand_get_basic_block(JitLirOperand op);
 
-/* ---- Phase A: Instruction mutation ---- */
-void jit_lir_instr_set_opcode(JitLirInstr instr, int opcode);
-void jit_lir_instr_set_num_inputs(JitLirInstr instr, size_t n);
-const char *jit_lir_instr_opname(JitLirInstr instr);
+/* Opcode constants */
+int jit_lir_opcode_guard(void);
 
-/* ---- Phase A: Instruction operand allocation ---- */
-JitLirOperand jit_lir_instr_alloc_imm_input(JitLirInstr instr,
-    uint64_t val, int data_type);
-JitLirOperand jit_lir_instr_alloc_fp_imm_input(JitLirInstr instr, double val);
-JitLirOperand jit_lir_instr_alloc_linked_input(JitLirInstr instr,
-    JitLirInstr def_instr);
-JitLirOperand jit_lir_instr_alloc_phyreg_input(JitLirInstr instr, int loc);
-JitLirOperand jit_lir_instr_alloc_stack_input(JitLirInstr instr, int loc);
-JitLirOperand jit_lir_instr_alloc_label_input(JitLirInstr instr,
-    JitLirBlock block);
-JitLirOperand jit_lir_instr_alloc_addr_input(JitLirInstr instr, void* addr);
+/* DCE instruction accessors */
+int jit_lir_instr_id(JitLirInstr instr);
+int jit_lir_instr_is_essential(JitLirInstr instr);
+int jit_lir_instr_flag_effects(JitLirInstr instr);
 
-/* ---- Phase A: Block/Function allocation ---- */
-JitLirBlock jit_lir_func_alloc_block(JitLirFunc func);
-JitLirInstr jit_lir_block_alloc_instr(JitLirBlock block, int opcode,
-    const void* hir_origin);
-void jit_lir_block_add_successor(JitLirBlock block, JitLirBlock succ);
+/* Iterate all input operands of an instruction. */
+void jit_lir_instr_foreach_input(
+    JitLirInstr instr,
+    void (*cb)(JitLirOperand operand, void *ctx),
+    void *ctx);
+
+/* Extended operand accessors */
+int jit_lir_operand_is_reg(JitLirOperand op);
+int jit_lir_operand_is_stack(JitLirOperand op);
+int jit_lir_operand_is_mem(JitLirOperand op);
+int jit_lir_operand_is_ind(JitLirOperand op);
+int jit_lir_operand_is_linked(JitLirOperand op);
+
+/* Get the defining instruction of a LinkedOperand. */
+JitLirInstr jit_lir_operand_get_linked_instr(JitLirOperand op);
+
+/* MemoryIndirect accessors */
+typedef void* JitLirIndirect;
+JitLirIndirect jit_lir_operand_get_indirect(JitLirOperand op);
+JitLirOperand jit_lir_indirect_base_reg(JitLirIndirect ind);
+JitLirOperand jit_lir_indirect_index_reg(JitLirIndirect ind);
+
+/* Block instruction removal.
+ * Remove all instructions for which is_live(instr, ctx) returns 0.
+ * Handles C++ iterator invalidation internally. */
+void jit_lir_block_remove_dead_instrs(
+    JitLirBlock block,
+    int (*is_live)(JitLirInstr instr, void *ctx),
+    void *ctx);
 
 /* ---- Phase B1: LirOperand C struct operations ---- */
 /* These operate directly on LirOperand/LirMemoryIndirect structs.
- * They coexist with the jit_lir_operand_* wrappers above (which cast
- * through C++ classes). New C code should use these directly. */
+ * New C code should use these directly rather than the opaque
+ * jit_lir_* wrappers above. */
 LirOperand *lir_operand_new(LirInstruction *parent);
 LirOperand *lir_operand_new_linked(LirInstruction *parent,
                                    LirInstruction *def_instr);
