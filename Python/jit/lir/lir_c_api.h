@@ -123,6 +123,50 @@ typedef struct {
     const void *hir_func;       /* hir::Function* (opaque) */
 } LirFunction;
 
+/* ---- Static size assertions ----
+ * Catch layout changes at compile time. If a struct changes size,
+ * the build will fail here before any runtime corruption can occur.
+ * Update the expected values after intentional layout changes. */
+#ifdef __cplusplus
+static_assert(sizeof(LirPhyLocation) == 16, "LirPhyLocation size changed");
+static_assert(sizeof(LirOperand) == 32, "LirOperand size changed");
+static_assert(sizeof(LirMemoryIndirect) == 32, "LirMemoryIndirect size changed");
+static_assert(sizeof(LirInstruction) == 96, "LirInstruction size changed");
+static_assert(sizeof(LirBasicBlock) == 88, "LirBasicBlock size changed");
+static_assert(sizeof(LirFunction) == 40, "LirFunction size changed");
+#else
+_Static_assert(sizeof(LirPhyLocation) == 16, "LirPhyLocation size changed");
+_Static_assert(sizeof(LirOperand) == 32, "LirOperand size changed");
+_Static_assert(sizeof(LirMemoryIndirect) == 32, "LirMemoryIndirect size changed");
+_Static_assert(sizeof(LirInstruction) == 96, "LirInstruction size changed");
+_Static_assert(sizeof(LirBasicBlock) == 88, "LirBasicBlock size changed");
+_Static_assert(sizeof(LirFunction) == 40, "LirFunction size changed");
+#endif
+
+/* ---- Runtime assertion macros ----
+ * Per Alex's directive: use macros and assertions for type safety,
+ * not C++ types. These catch at runtime what C++ virtual dispatch
+ * caught at compile time. */
+#define LIR_ASSERT_OPERAND_TYPE(op, expected) \
+    assert((op)->type == (expected) && "operand type mismatch")
+
+#define LIR_ASSERT_NOT_LINKED(op) \
+    assert(!(op)->is_linked && "expected direct operand, got linked")
+
+#define LIR_ASSERT_IS_LINKED(op) \
+    assert((op)->is_linked && "expected linked operand, got direct")
+
+#define LIR_ASSERT_FP_OPERAND(op) \
+    assert((op)->data_type == JIT_LIR_DT_DOUBLE && "expected FP operand")
+
+#define LIR_ASSERT_VALID_OPTYPE(t) \
+    assert((t) >= JIT_LIR_OPTYPE_NONE && (t) <= JIT_LIR_OPTYPE_LABEL \
+           && "invalid operand type")
+
+#define LIR_ASSERT_VALID_DATATYPE(dt) \
+    assert((dt) >= JIT_LIR_DT_8BIT && (dt) <= JIT_LIR_DT_OBJECT \
+           && "invalid data type")
+
 /* Phase B lifecycle declarations are below, after the opaque pointer API.
  * See the section starting with "Phase B1: operand/memind lifecycle" */
 
