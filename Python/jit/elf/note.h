@@ -2,6 +2,9 @@
 
 #pragma once
 
+/* ---- C API (implemented in note.c) ---- */
+#include "cinderx/Jit/elf/note_c.h"
+
 #include "cinderx/Common/util.h"
 
 #include <cstdint>
@@ -32,6 +35,23 @@ struct Note {
     }
 
     return s;
+  }
+
+  // Convert to C note (caller must free with jit_elf_note_free)
+  JitElfNote toC() const {
+    JitElfNote cn;
+    jit_elf_note_init(&cn);
+    jit_elf_note_set(&cn, name.c_str(), desc.c_str(), type);
+    return cn;
+  }
+
+  // Construct from C note
+  static Note fromC(const JitElfNote& cn) {
+    Note n;
+    n.name = cn.name ? cn.name : "";
+    n.desc = cn.desc ? cn.desc : "";
+    n.type = cn.type;
+    return n;
   }
 };
 
@@ -72,8 +92,8 @@ struct CodeNoteData {
   std::optional<uint32_t> static_entry_offset;
 };
 
-constexpr uint32_t kInvalidStaticOffset = ~uint32_t{0};
+constexpr uint32_t kInvalidStaticOffset = JIT_ELF_INVALID_STATIC_OFFSET;
 
-constexpr std::string_view kFuncNoteSectionName = ".note.pyfunc";
+constexpr std::string_view kFuncNoteSectionName = JIT_ELF_FUNC_NOTE_SECTION_NAME;
 
 } // namespace jit::elf
