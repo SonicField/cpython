@@ -2,12 +2,11 @@
 
 #pragma once
 
-#include "cinderx/Jit/intrusive_list.h"
+#include "cinderx/Jit/codegen/copy_graph_c.h"
 
-#include <iterator>
-#include <limits>
-#include <map>
-#include <tuple>
+#include "cinderx/Common/log.h"
+#include "cinderx/Common/util.h"
+
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -27,7 +26,7 @@ namespace jit::codegen {
 // the graph, is up to the caller.
 class CopyGraph {
  public:
-  static constexpr int kTempLoc = std::numeric_limits<int>::max();
+  static constexpr int kTempLoc = JIT_COPY_GRAPH_TEMP_LOC;
 
   struct Op {
     enum class Kind {
@@ -46,56 +45,42 @@ class CopyGraph {
     int to;
   };
 
+  CopyGraph() : impl_(jit_copy_graph_create()) {}
+  ~CopyGraph() { jit_copy_graph_destroy(impl_); }
+
+  // Non-copyable
+  CopyGraph(const CopyGraph&) = delete;
+  CopyGraph& operator=(const CopyGraph&) = delete;
+
   // Add a copy edge to the graph.
-  void addEdge(int from, int to);
+  void addEdge(int from, int to) {
+    jit_copy_graph_add_edge(impl_, from, to);
+  }
 
   // Process the graph and return the sequence of copies and/or exchanges.
-  std::vector<Op> process();
+  std::vector<Op> process() {
+    Py_ssize_t count = 0;
+    JitCopyOp* raw = jit_copy_graph_process(impl_, &count);
+    std::vector<Op> result;
+    result.reserve(count);
+    for (Py_ssize_t i = 0; i < count; i++) {
+      result.emplace_back(
+          raw[i].kind == JIT_COPY_OP_COPY ? Op::Kind::kCopy
+                                          : Op::Kind::kExchange,
+          raw[i].from,
+          raw[i].to);
+    }
+    jit_copy_graph_ops_free(raw);
+    return result;
+  }
 
   // Check if the copy graph is empty.
   bool isEmpty() const {
-    return nodes_.empty();
+    return jit_copy_graph_is_empty(impl_);
   }
 
  private:
-  struct Node {
-    explicit Node(int loc) : loc{loc} {}
-    ~Node();
-
-    bool operator<(const Node& other) const {
-      return loc < other.loc;
-    }
-
-    const int loc;
-    Node* parent{nullptr};
-    IntrusiveListNode child_node;
-    IntrusiveListNode leaf_node;
-    IntrusiveList<Node, &Node::child_node> children;
-
-    DISALLOW_COPY_AND_ASSIGN(Node);
-  };
-
-  // Create or look up a node for the given location. Newly-created nodes will
-  // automatically be added to leaf_nodes_.
-  Node* getNode(int loc);
-
-  // Add child as a child of parent, removing parent from leaf_nodes_ if
-  // appropriate.
-  void setParent(Node* child, Node* parent);
-
-  // Process all leaf nodes in the graph, putting any necessary operations in
-  // ops.
-  void processLeafNodes(std::vector<Op>& ops);
-
-  // Given a node in a cycle, returns true iff the cycle contains only register
-  // (non-negative) locations.
-  bool inRegisterCycle(Node* node);
-
-  // All nodes in the graph, keyed by location.
-  std::map<int, Node> nodes_;
-
-  // All nodes with no outgoing edges (children).
-  IntrusiveList<Node, &Node::leaf_node> leaf_nodes_;
+  JitCopyGraph* impl_;
 };
 
 // the same as CopyGraph, but preserves certain types of `from` nodes.
