@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "cinderx/Jit/hir/dead_code_elimination_c.h"
 #include "cinderx/Jit/hir/pass.h"
 
 namespace jit::hir {
@@ -12,7 +13,9 @@ class DeadCodeElimination : public Pass {
  public:
   DeadCodeElimination() : Pass("DeadCodeElimination") {}
 
-  void Run(Function& irfunc) override;
+  void Run(Function& irfunc) override {
+    hir_dead_code_elimination_run(static_cast<HirFunction>(&irfunc));
+  }
 
   static std::unique_ptr<DeadCodeElimination> Factory() {
     return std::make_unique<DeadCodeElimination>();
