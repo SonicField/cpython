@@ -10,6 +10,39 @@ namespace jit::lir {
 
 BasicBlock::BasicBlock(Function* func) : id_(func->allocateId()), func_(func) {}
 
+BasicBlock::~BasicBlock() {
+  delete[] successors_;
+  delete[] predecessors_;
+}
+
+static void appendToBlockArray(
+    BasicBlock**& arr, size_t& count, size_t& capacity, BasicBlock* bb) {
+  if (count >= capacity) {
+    size_t new_cap = capacity == 0 ? 2 : capacity * 2;
+    auto** new_arr = new BasicBlock*[new_cap]();
+    if (arr) {
+      std::memcpy(new_arr, arr, count * sizeof(BasicBlock*));
+      delete[] arr;
+    }
+    arr = new_arr;
+    capacity = new_cap;
+  }
+  arr[count++] = bb;
+}
+
+static void eraseFromBlockArray(
+    BasicBlock**& arr, size_t& count, BasicBlock* bb) {
+  for (size_t i = 0; i < count; i++) {
+    if (arr[i] == bb) {
+      for (size_t j = i; j + 1 < count; j++) {
+        arr[j] = arr[j + 1];
+      }
+      count--;
+      return;
+    }
+  }
+}
+
 int BasicBlock::id() const {
   return id_;
 }
@@ -27,34 +60,33 @@ const Function* BasicBlock::function() const {
 }
 
 void BasicBlock::addSuccessor(BasicBlock* bb) {
-  successors_.push_back(bb);
-  bb->predecessors_.push_back(this);
+  appendToBlockArray(successors_, num_succs_, succs_capacity_, bb);
+  appendToBlockArray(bb->predecessors_, bb->num_preds_, bb->preds_capacity_, this);
 }
 
 void BasicBlock::setSuccessor(size_t index, BasicBlock* bb) {
-  JIT_CHECK(index < successors_.size(), "Index out of range");
+  JIT_CHECK(index < num_succs_, "Index out of range");
   BasicBlock* old_bb = successors_[index];
-  std::vector<BasicBlock*>& old_preds = old_bb->predecessors_;
-  old_preds.erase(std::find(old_preds.begin(), old_preds.end(), this));
+  eraseFromBlockArray(old_bb->predecessors_, old_bb->num_preds_, this);
 
   successors_[index] = bb;
-  bb->predecessors_.push_back(this);
+  appendToBlockArray(bb->predecessors_, bb->num_preds_, bb->preds_capacity_, this);
 }
 
-std::vector<BasicBlock*>& BasicBlock::successors() {
-  return successors_;
+BlockSpan BasicBlock::successors() {
+  return {successors_, num_succs_};
 }
 
-const std::vector<BasicBlock*>& BasicBlock::successors() const {
-  return successors_;
+ConstBlockSpan BasicBlock::successors() const {
+  return {successors_, num_succs_};
 }
 
 void BasicBlock::swapSuccessors() {
-  if (successors_.size() < 2) {
+  if (num_succs_ < 2) {
     return;
   }
 
-  JIT_DCHECK(successors_.size() == 2, "Should at most have two successors.");
+  JIT_DCHECK(num_succs_ == 2, "Should at most have two successors.");
   std::swap(successors_[0], successors_[1]);
 }
 
@@ -66,12 +98,12 @@ BasicBlock* BasicBlock::getFalseSuccessor() const {
   return successors_[1];
 }
 
-std::vector<BasicBlock*>& BasicBlock::predecessors() {
-  return predecessors_;
+BlockSpan BasicBlock::predecessors() {
+  return {predecessors_, num_preds_};
 }
 
-const std::vector<BasicBlock*>& BasicBlock::predecessors() const {
-  return predecessors_;
+ConstBlockSpan BasicBlock::predecessors() const {
+  return {predecessors_, num_preds_};
 }
 
 void BasicBlock::appendInstr(std::unique_ptr<Instruction> instr) {
@@ -121,15 +153,20 @@ instr_iter_t BasicBlock::getLastInstrIter() {
 }
 
 BasicBlock* BasicBlock::insertBasicBlockBetween(BasicBlock* block) {
-  auto i = std::find(successors_.begin(), successors_.end(), block);
-  JIT_DCHECK(i != successors_.end(), "block must be one of the successors.");
+  // Find block in successors.
+  size_t idx = num_succs_;
+  for (size_t i = 0; i < num_succs_; i++) {
+    if (successors_[i] == block) { idx = i; break; }
+  }
+  JIT_DCHECK(idx < num_succs_, "block must be one of the successors.");
 
   auto new_block = func_->allocateBasicBlockAfter(this);
-  *i = new_block;
-  new_block->predecessors_.push_back(this);
+  successors_[idx] = new_block;
+  appendToBlockArray(
+      new_block->predecessors_, new_block->num_preds_,
+      new_block->preds_capacity_, this);
 
-  auto& old_preds = block->predecessors_;
-  old_preds.erase(std::find(old_preds.begin(), old_preds.end(), this));
+  eraseFromBlockArray(block->predecessors_, block->num_preds_, this);
 
   new_block->addSuccessor(block);
 
@@ -166,20 +203,24 @@ BasicBlock* BasicBlock::splitBefore(Instruction* instr) {
   }
 
   // fix up successors
-  for (auto bb : successors_) {
+  for (size_t i = 0; i < num_succs_; i++) {
+    auto* bb = successors_[i];
     // fix up phis in successors
     bb->fixupPhis(this, second_block);
     // update successors of second block
-    second_block->successors().push_back(bb);
-    replace(
-        bb->predecessors().begin(),
-        bb->predecessors().end(),
-        this,
-        second_block);
+    appendToBlockArray(
+        second_block->successors_, second_block->num_succs_,
+        second_block->succs_capacity_, bb);
+    // replace this with second_block in bb's predecessors
+    for (size_t j = 0; j < bb->num_preds_; j++) {
+      if (bb->predecessors_[j] == this) {
+        bb->predecessors_[j] = second_block;
+      }
+    }
   }
 
   // update successors of first block
-  successors_.clear();
+  num_succs_ = 0;
   // addSuccessor also fixes predecessors of second block
   addSuccessor(second_block);
   return second_block;

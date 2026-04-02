@@ -5,9 +5,9 @@
 #include "cinderx/Jit/codegen/code_section.h"
 #include "cinderx/Jit/lir/instruction.h"
 
+#include <cstring>
 #include <list>
 #include <memory>
-#include <vector>
 
 namespace jit::hir {
 class Instr;
@@ -17,6 +17,28 @@ namespace jit::lir {
 
 class Function;
 
+// Lightweight non-owning view over a BasicBlock* array (range-for compatible).
+struct BlockSpan {
+  BasicBlock** data_;
+  size_t size_;
+  BasicBlock** begin() const { return data_; }
+  BasicBlock** end() const { return data_ + size_; }
+  size_t size() const { return size_; }
+  bool empty() const { return size_ == 0; }
+  BasicBlock*& operator[](size_t i) { return data_[i]; }
+  BasicBlock* operator[](size_t i) const { return data_[i]; }
+};
+
+struct ConstBlockSpan {
+  BasicBlock* const* data_;
+  size_t size_;
+  BasicBlock* const* begin() const { return data_; }
+  BasicBlock* const* end() const { return data_ + size_; }
+  size_t size() const { return size_; }
+  bool empty() const { return size_ == 0; }
+  BasicBlock* operator[](size_t i) const { return data_[i]; }
+};
+
 // Basic block class for LIR
 class BasicBlock {
  public:
@@ -24,6 +46,7 @@ class BasicBlock {
   using instr_iter_t = InstrList::iterator;
 
   explicit BasicBlock(Function* func);
+  ~BasicBlock();
 
   // Get the unique ID representing this block within its function.
   int id() const;
@@ -42,16 +65,16 @@ class BasicBlock {
   // Expects index to be within the current size of successors.
   void setSuccessor(size_t index, BasicBlock* bb);
 
-  std::vector<BasicBlock*>& successors();
-  const std::vector<BasicBlock*>& successors() const;
+  BlockSpan successors();
+  ConstBlockSpan successors() const;
 
   void swapSuccessors();
 
   BasicBlock* getTrueSuccessor() const;
   BasicBlock* getFalseSuccessor() const;
 
-  std::vector<BasicBlock*>& predecessors();
-  const std::vector<BasicBlock*>& predecessors() const;
+  BlockSpan predecessors();
+  ConstBlockSpan predecessors() const;
 
   // Allocate an instruction and its operands and append it to the
   // instruction list. For the details on how to allocate instruction
@@ -146,8 +169,13 @@ class BasicBlock {
   int id_;
   Function* func_;
 
-  std::vector<BasicBlock*> successors_;
-  std::vector<BasicBlock*> predecessors_;
+  BasicBlock** successors_{nullptr};
+  size_t num_succs_{0};
+  size_t succs_capacity_{0};
+
+  BasicBlock** predecessors_{nullptr};
+  size_t num_preds_{0};
+  size_t preds_capacity_{0};
 
   // Consider using IntrusiveList as in HIR.
   InstrList instrs_;
