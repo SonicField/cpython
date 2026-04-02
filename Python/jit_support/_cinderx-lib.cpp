@@ -9,7 +9,7 @@
 #include "cinderx/Common/log.h"
 #include "cinderx/Common/py-portability.h"
 #include "cinderx/Common/util.h"
-#include "cinderx/Common/watchers.h"
+#include "cinderx/Common/watchers_c.h"
 #include "cinderx/Immortalize/immortalize.h"
 #include "cinderx/Interpreter/interpreter.h"
 #include "cinderx/Jit/compiled_function.h"
@@ -1374,11 +1374,11 @@ int _cinderx_exec_impl(PyObject* m) {
     }
   }
 
-  auto& watcher_state = state->watcherState();
-  watcher_state.setCodeWatcher(cinderx_code_watcher);
-  watcher_state.setDictWatcher(cinderx_dict_watcher);
-  watcher_state.setFuncWatcher(cinderx_func_watcher);
-  watcher_state.setTypeWatcher(cinderx_type_watcher);
+  CiWatcherState& watcher_state = state->watcherState();
+  ci_watcher_state_set_code_watcher(&watcher_state, cinderx_code_watcher);
+  ci_watcher_state_set_dict_watcher(&watcher_state, cinderx_dict_watcher);
+  ci_watcher_state_set_func_watcher(&watcher_state, cinderx_func_watcher);
+  ci_watcher_state_set_type_watcher(&watcher_state, cinderx_type_watcher);
 
   CiExc_StaticTypeError =
       PyErr_NewException("cinderx.StaticTypeError", PyExc_TypeError, nullptr);
@@ -1504,7 +1504,7 @@ int _cinderx_exec_impl(PyObject* m) {
 
   init_already_existing_types();
 
-  if (watcher_state.init() < 0) {
+  if (ci_watcher_state_init(&watcher_state) < 0) {
     return -1;
   }
 
