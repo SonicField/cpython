@@ -3,15 +3,32 @@
 
 #include <Python.h>
 
+/* ---- C API (implemented in iterator_types.c) ---- */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+extern PyTypeObject *jit_g_range_iterator_type;
+extern PyTypeObject *jit_g_list_iterator_type;
+extern PyTypeObject *jit_g_tuple_iterator_type;
+
+void jit_init_iterator_types(void);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+
+/* ---- C++ convenience (namespace jit) ---- */
+#ifdef __cplusplus
 namespace jit {
 
-// Cached type pointers — nullptr until init_iterator_types() is called.
-extern PyTypeObject* g_range_iterator_type;
-extern PyTypeObject* g_list_iterator_type;
-extern PyTypeObject* g_tuple_iterator_type;
+inline PyTypeObject*& g_range_iterator_type = jit_g_range_iterator_type;
+inline PyTypeObject*& g_list_iterator_type  = jit_g_list_iterator_type;
+inline PyTypeObject*& g_tuple_iterator_type = jit_g_tuple_iterator_type;
 
-// Initialise iterator type pointers at CinderX startup.
-// Must be called after Python is fully initialised.
-void init_iterator_types();
+inline void init_iterator_types() {
+    jit_init_iterator_types();
+}
 
 } // namespace jit
+#endif
