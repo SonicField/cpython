@@ -343,8 +343,8 @@ void LinearScanAllocator::calculateLiveIntervals() {
   int total_ids = total_instrs * 2 + basic_blocks.size();
 
   UnorderedSet<const BasicBlock*> visited_blocks;
-  for (auto iter = basic_blocks.rbegin(); iter != basic_blocks.rend(); ++iter) {
-    BasicBlock* bb = *iter;
+  for (size_t ri = basic_blocks.size(); ri > 0; --ri) {
+    BasicBlock* bb = basic_blocks[ri - 1];
 
     // bb_start_id and bb_end_id do not point to any instructions.
     // each instrution is associated to two ids, where the first id
