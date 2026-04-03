@@ -20,8 +20,8 @@ namespace {
 RewriteResult removePhiInstructions(instr_iter_t instr_iter) {
   auto* instr = instr_iter;
 
-  if (instr->opcode() == Instruction::kPhi) {
-    auto block = instr->basicblock();
+  if (instr->opcode_ == Instruction::kPhi) {
+    auto block = instr->basic_block_;
     delete block->removeInstr(instr_iter);
     return kRemoved;
   }
@@ -90,15 +90,15 @@ void insertMoveToMemoryLocation(
 
 int rewriteRegularFunction(instr_iter_t instr_iter) {
   auto instr = instr_iter;
-  auto block = instr->basicblock();
+  auto block = instr->basic_block_;
 
-  auto num_inputs = instr->getNumInputs();
+  auto num_inputs = instr->num_inputs_;
   size_t arg_reg = 0;
   size_t fp_arg_reg = 0;
   int stack_arg_size = 0;
 
   for (size_t i = 1; i < num_inputs; i++) {
-    auto operand = instr->getInput(i);
+    auto operand = instr->inputs_[i];
     bool operand_imm = operand->isImm();
 
     if (operand->isFp()) {
@@ -111,8 +111,8 @@ int rewriteRegularFunction(instr_iter_t instr_iter) {
               Imm(operand->getConstant()));
         }
         auto move = block->allocateInstrBefore(instr_iter, Instruction::kMove);
-        move->output()->setPhyRegister(FP_ARGUMENT_REGS[fp_arg_reg++]);
-        move->output()->setDataType(OperandBase::kDouble);
+        (&move->output_)->setPhyRegister(FP_ARGUMENT_REGS[fp_arg_reg++]);
+        (&move->output_)->setDataType(OperandBase::kDouble);
 
         if (operand_imm) {
           move->allocatePhyRegisterInput(arch::reg_scratch_0_loc);
@@ -133,8 +133,8 @@ int rewriteRegularFunction(instr_iter_t instr_iter) {
 
     if (arg_reg < ARGUMENT_REGS.size()) {
       auto move = block->allocateInstrBefore(instr_iter, Instruction::kMove);
-      move->output()->setPhyRegister(ARGUMENT_REGS[arg_reg++]);
-      move->output()->setDataType(operand->dataType());
+      (&move->output_)->setPhyRegister(ARGUMENT_REGS[arg_reg++]);
+      (&move->output_)->setDataType(operand->dataType());
       move->appendInput(instr->releaseInput(i));
     } else {
       insertMoveToMemoryLocation(
@@ -158,7 +158,7 @@ int prepareArgsArray(
     PhyLocation dest,
     PhyLocation size_dest) {
   auto instr = instr_iter;
-  auto block = instr->basicblock();
+  auto block = instr->basic_block_;
   constexpr size_t PTR_SIZE = sizeof(void*);
 
   // offset on the stack where arg reservation starts...
@@ -181,7 +181,7 @@ int prepareArgsArray(
       Imm(num_args | flags, lir::OperandBase::k64bit));
 
   for (size_t i = first_arg; i < first_arg + num_args; i++) {
-    auto arg = instr->getInput(i);
+    auto arg = instr->inputs_[i];
     int arg_offset = (i - first_arg) * PTR_SIZE;
     insertMoveToMemoryLocation(block, instr_iter, dest, arg_offset, arg);
   }
@@ -198,14 +198,14 @@ int rewriteVectorCallFunctions(instr_iter_t instr_iter) {
   // * #n-1 - kwnames
   constexpr int kFirstArg = 3;
 
-  auto flag = instr->getInput(1)->getConstant();
-  auto num_args = instr->getNumInputs() - kFirstArg - 1;
+  auto flag = instr->inputs_[1]->getConstant();
+  auto num_args = instr->num_inputs_ - kFirstArg - 1;
 
   // first argument
-  auto block = instr->basicblock();
+  auto block = instr->basic_block_;
   auto move = block->allocateInstrBefore(instr_iter, Instruction::kMove);
-  move->output()->setPhyRegister(ARGUMENT_REGS[0]);
-  move->output()->setDataType(instr->getInput(2)->dataType());
+  (&move->output_)->setPhyRegister(ARGUMENT_REGS[0]);
+  (&move->output_)->setDataType(instr->inputs_[2]->dataType());
   move->appendInput(instr->releaseInput(2)); // callable
 
   constexpr PhyLocation TMP_REG = arch::reg_scratch_0_loc;
@@ -218,7 +218,7 @@ int rewriteVectorCallFunctions(instr_iter_t instr_iter) {
       ARGUMENT_REGS[2]);
 
   // check if kwnames is provided
-  auto last_input = instr->releaseInput(instr->getNumInputs() - 1);
+  auto last_input = instr->releaseInput(instr->num_inputs_ - 1);
   if (last_input->isImm()) {
     JIT_DCHECK(last_input->getConstant() == 0, "kwnames must be 0 or variable");
     block->allocateInstrBefore(
@@ -254,7 +254,7 @@ int rewriteVarArgCall(instr_iter_t instr_iter) {
   instr->setOpcode(Instruction::kCall);
   auto res = prepareArgsArray(
       instr_iter,
-      instr->getNumInputs() - 1, // func is 1st argument
+      instr->num_inputs_ - 1, // func is 1st argument
       0,
       1,
       ARGUMENT_REGS[0],
@@ -277,13 +277,13 @@ RewriteResult rewriteCallInstrs(instr_iter_t instr_iter, Environ* env) {
     return kUnchanged;
   }
 
-  auto output = instr->output();
-  if (instr->isCall() && instr->getNumInputs() == 1 && output->isNone()) {
+  auto output = (&instr->output_);
+  if (instr->isCall() && instr->num_inputs_ == 1 && output->isNone()) {
     return kUnchanged;
   }
 
   int rsp_sub = 0;
-  auto block = instr->basicblock();
+  auto block = instr->basic_block_;
 
   if (instr->isVectorCall()) {
     rsp_sub = rewriteVectorCallFunctions(instr_iter);
@@ -330,15 +330,15 @@ RewriteResult rewriteCallInstrs(instr_iter_t instr_iter, Environ* env) {
 RewriteResult rewriteBitExtensionInstrs(instr_iter_t instr_iter) {
   auto instr = instr_iter;
 
-  bool is_sext = instr->opcode() == Instruction::kSext;
-  bool is_zext = instr->opcode() == Instruction::kZext;
+  bool is_sext = instr->opcode_ == Instruction::kSext;
+  bool is_zext = instr->opcode_ == Instruction::kZext;
 
   if (!is_sext && !is_zext) {
     return kUnchanged;
   }
 
-  auto in = instr->getInput(0);
-  auto out = instr->output();
+  auto in = instr->inputs_[0];
+  auto out = (&instr->output_);
   auto out_size = out->dataType();
   if (in->isImm()) {
     long mask = 0;
@@ -374,7 +374,7 @@ RewriteResult rewriteBitExtensionInstrs(instr_iter_t instr_iter) {
         // must be unsigned extension from 32 bits to 64 bits.
         // in this case, a 32-bit move will do the work.
         instr->setOpcode(Instruction::kMove);
-        instr->output()->setDataType(lir::OperandBase::k32bit);
+        (&instr->output_)->setDataType(lir::OperandBase::k32bit);
       }
       break;
     case OperandBase::k64bit:
@@ -414,7 +414,7 @@ RewriteResult rewriteBranchInstrs(Function* function) {
 
     auto last_instr = block->getLastInstr();
     auto last_opcode =
-        last_instr != nullptr ? last_instr->opcode() : Instruction::kNone;
+        last_instr != nullptr ? last_instr->opcode_ : Instruction::kNone;
     if (last_opcode == Instruction::kReturn) {
       continue;
     }
@@ -430,7 +430,7 @@ RewriteResult rewriteBranchInstrs(Function* function) {
 
     auto branch = block->allocateInstr(
         Instruction::kBranch,
-        last_instr != nullptr ? last_instr->origin() : nullptr);
+        last_instr != nullptr ? last_instr->origin_ : nullptr);
     branch->allocateLabelInput(succs[0]);
 
     changed = true;
@@ -445,18 +445,18 @@ RewriteResult rewriteBranchInstrs(Function* function) {
 //   2. rewrite move instruction to xor when the source operand is 0.
 RewriteResult optimizeMoveInstrs(instr_iter_t instr_iter) {
   auto instr = instr_iter;
-  auto instr_opcode = instr->opcode();
+  auto instr_opcode = instr->opcode_;
   if (instr_opcode != Instruction::kMove) {
     return kUnchanged;
   }
 
-  auto out = instr->output();
-  auto in = instr->getInput(0);
+  auto out = (&instr->output_);
+  auto in = instr->inputs_[0];
 
   // if the input and the output are the same
   if ((out->isReg() || out->isStack()) && in->type() == out->type() &&
       in->getPhyRegOrStackSlot() == out->getPhyRegOrStackSlot()) {
-    instr->basicblock()->removeInstr(instr_iter);
+    instr->basic_block_->removeInstr(instr_iter);
     return kRemoved;
   }
 
@@ -482,11 +482,11 @@ RewriteResult rewriteLoadInstrs(instr_iter_t instr_iter) {
   auto instr = instr_iter;
 
   if (!(instr->isMove() || instr->isMoveRelaxed()) ||
-      instr->getNumInputs() != 1 || !instr->getInput(0)->isMem()) {
+      instr->num_inputs_ != 1 || !instr->inputs_[0]->isMem()) {
     return kUnchanged;
   }
 
-  auto out = instr->output();
+  auto out = (&instr->output_);
   JIT_DCHECK(out->isReg(), "Unable to load to a non-register location.");
 
 #if defined(CINDER_X86_64)
@@ -498,7 +498,7 @@ RewriteResult rewriteLoadInstrs(instr_iter_t instr_iter) {
   }
 #endif
 
-  auto in = instr->getInput(0);
+  auto in = instr->inputs_[0];
   auto mem_addr = reinterpret_cast<intptr_t>(in->getMemoryAddress());
 
 #if defined(CINDER_X86_64)
@@ -514,7 +514,7 @@ RewriteResult rewriteLoadInstrs(instr_iter_t instr_iter) {
   CINDER_UNSUPPORTED
 #endif
 
-  auto block = instr->basicblock();
+  auto block = instr->basic_block_;
   block->allocateInstrBefore(
       instr_iter,
       Instruction::kMove,
@@ -530,8 +530,8 @@ RewriteResult rewriteLoadInstrs(instr_iter_t instr_iter) {
 void doRewriteCondBranch(instr_iter_t instr_iter, BasicBlock* next_block) {
   auto instr = instr_iter;
 
-  auto input = instr->getInput(0);
-  auto block = instr->basicblock();
+  auto input = instr->inputs_[0];
+  auto block = instr->basic_block_;
 
   // insert test Reg, Reg instruction
   auto size = input->dataType();
@@ -566,7 +566,7 @@ void doRewriteCondBranch(instr_iter_t instr_iter, BasicBlock* next_block) {
   if (fallthrough_block != next_block ||
       block->section() != next_block->section()) {
     auto fallthrough_branch =
-        block->allocateInstr(Instruction::kBranch, instr->origin());
+        block->allocateInstr(Instruction::kBranch, instr->origin_);
     fallthrough_branch->allocateLabelInput(fallthrough_block);
   }
 }
@@ -574,14 +574,14 @@ void doRewriteCondBranch(instr_iter_t instr_iter, BasicBlock* next_block) {
 // Negate BranchCC instructions based on the next (fallthrough) basic block.
 void doRewriteBranchCC(instr_iter_t instr_iter, BasicBlock* next_block) {
   auto instr = instr_iter;
-  auto block = instr->basicblock();
+  auto block = instr->basic_block_;
 
   auto true_bb = block->getTrueSuccessor();
   auto false_bb = block->getFalseSuccessor();
   BasicBlock* fallthrough_bb = nullptr;
 
   if (true_bb == next_block) {
-    instr->setOpcode(Instruction::negateBranchCC(instr->opcode()));
+    instr->setOpcode(Instruction::negateBranchCC(instr->opcode_));
     instr->allocateLabelInput(false_bb);
     fallthrough_bb = true_bb;
   } else {
@@ -592,7 +592,7 @@ void doRewriteBranchCC(instr_iter_t instr_iter, BasicBlock* next_block) {
   if (fallthrough_bb != next_block ||
       block->section() != next_block->section()) {
     auto fallthrough_branch =
-        block->allocateInstr(Instruction::kBranch, instr->origin());
+        block->allocateInstr(Instruction::kBranch, instr->origin_);
     fallthrough_branch->allocateLabelInput(fallthrough_bb);
   }
 }
@@ -618,7 +618,7 @@ RewriteResult rewriteCondBranch(Function* function) {
     if (instr->isCondBranch()) {
       doRewriteCondBranch(instr_iter, next_block);
       changed = true;
-    } else if (instr->isBranchCC() && instr->getNumInputs() == 0) {
+    } else if (instr->isBranchCC() && instr->num_inputs_ == 0) {
       doRewriteBranchCC(instr_iter, next_block);
       changed = true;
     }
@@ -654,25 +654,25 @@ RewriteResult rewriteBinaryOpInstrs(instr_iter_t instr_iter) {
     return kUnchanged;
   }
 
-  if (!instr->output()->isReg() || !instr->getInput(0)->isReg()) {
+  if (!(&instr->output_)->isReg() || !instr->inputs_[0]->isReg()) {
     return kUnchanged;
   }
 
-  auto out_reg = instr->output()->getPhyRegister();
-  auto in0_reg = instr->getInput(0)->getPhyRegister();
+  auto out_reg = (&instr->output_)->getPhyRegister();
+  auto in0_reg = instr->inputs_[0]->getPhyRegister();
 
   if (out_reg == in0_reg) {
     // Remove the output. The code generator will use the first input as the
     // output (and also the first input).
-    instr->output()->setNone();
+    (&instr->output_)->setNone();
     return kChanged;
   }
 
-  auto in1 = instr->getInput(1);
+  auto in1 = instr->inputs_[1];
   auto in1_reg =
       in1->isReg() ? in1->getPhyRegister() : PhyLocation::REG_INVALID;
   if (out_reg == in1_reg) {
-    instr->output()->setNone();
+    (&instr->output_)->setNone();
 
     auto opnd0 = instr->removeInput(0);
     instr->appendInput(opnd0);
@@ -691,7 +691,7 @@ RewriteResult rewriteSubWordRegMoves(instr_iter_t instr_iter) {
     return kUnchanged;
   }
 
-  auto out = instr->output();
+  auto out = (&instr->output_);
   if (!out->isReg()) {
     return kUnchanged;
   }
@@ -701,7 +701,7 @@ RewriteResult rewriteSubWordRegMoves(instr_iter_t instr_iter) {
     return kUnchanged;
   }
 
-  auto in = instr->getInput(0);
+  auto in = instr->inputs_[0];
   if (!in->isReg() && !in->isImm()) {
     return kUnchanged;
   }
@@ -720,17 +720,17 @@ RewriteResult rewriteSubWordRegMoves(instr_iter_t instr_iter) {
 RewriteResult rewriteByteMultiply(instr_iter_t instr_iter) {
   Instruction* instr = instr_iter;
 
-  if (!instr->isMul() || instr->getNumInputs() < 2) {
+  if (!instr->isMul() || instr->num_inputs_ < 2) {
     return kUnchanged;
   }
 
-  Operand* input0 = static_cast<Operand*>(instr->getInput(0));
+  Operand* input0 = static_cast<Operand*>(instr->inputs_[0]);
 
   if (input0->dataType() > OperandBase::k8bit) {
     return kUnchanged;
   }
 
-  Operand* output = static_cast<Operand*>(instr->output());
+  Operand* output = static_cast<Operand*>((&instr->output_));
   PhyLocation in_reg = input0->getPhyRegister();
   PhyLocation out_reg = in_reg;
 
@@ -738,7 +738,7 @@ RewriteResult rewriteByteMultiply(instr_iter_t instr_iter) {
     out_reg = output->getPhyRegister();
   }
 
-  BasicBlock* block = instr->basicblock();
+  BasicBlock* block = instr->basic_block_;
   if (in_reg != AL) {
     block->allocateInstrBefore(
         instr_iter,
@@ -800,17 +800,17 @@ RewriteResult rewriteDivide(instr_iter_t instr_iter) {
   }
 
   bool changed = false;
-  Operand* output = static_cast<Operand*>(instr->output());
+  Operand* output = static_cast<Operand*>((&instr->output_));
 
-  BasicBlock* block = instr->basicblock();
+  BasicBlock* block = instr->basic_block_;
 
   Operand* dividend_upper = nullptr;
   Operand* dividend_lower;
-  if (instr->getNumInputs() == 3) {
-    dividend_upper = static_cast<Operand*>(instr->getInput(0));
-    dividend_lower = static_cast<Operand*>(instr->getInput(1));
+  if (instr->num_inputs_ == 3) {
+    dividend_upper = static_cast<Operand*>(instr->inputs_[0]);
+    dividend_lower = static_cast<Operand*>(instr->inputs_[1]);
   } else {
-    dividend_lower = static_cast<Operand*>(instr->getInput(0));
+    dividend_lower = static_cast<Operand*>(instr->inputs_[0]);
   }
 
   PhyLocation out_reg = RAX;
@@ -831,7 +831,7 @@ RewriteResult rewriteDivide(instr_iter_t instr_iter) {
     // it down to the 2 input form and make dividend_lower
     // be 16-bit.
     JIT_CHECK(
-        instr->getNumInputs() == 3,
+        instr->num_inputs_ == 3,
         "8-bit should always start with 3 operands");
     auto move = block->allocateInstrBefore(
         instr_iter,
@@ -989,8 +989,8 @@ RewriteResult optimizeMoveSequence(BasicBlock* basicblock) {
     auto instr_iter = instr;  // for backward compat with stored iters
     // TODO: do not optimize for yield for now. They need to be special cased.
     if (!instr->isAnyYield()) {
-      auto out_reg = instr->output()->isReg()
-          ? instr->output()->getPhyRegister()
+      auto out_reg = (&instr->output_)->isReg()
+          ? (&instr->output_)->getPhyRegister()
           : PhyLocation::REG_INVALID;
       // for moves only we can generate A = Move A, which will get optimized out
       if (instr->isMove()) {
@@ -1039,8 +1039,8 @@ RewriteResult optimizeMoveSequence(BasicBlock* basicblock) {
 
     if (instr->isMove() || instr->isPush() || instr->isPop()) {
       if (instr->isMove()) {
-        Operand* out = instr->output();
-        OperandBase* in = instr->getInput(0);
+        Operand* out = (&instr->output_);
+        OperandBase* in = instr->inputs_[0];
         if (out->isStack() && in->isReg()) {
           registerMemoryMoves.addRegisterToMemoryMove(
               in->getPhyRegister(), out->getStackSlot(), instr_iter);
@@ -1048,7 +1048,7 @@ RewriteResult optimizeMoveSequence(BasicBlock* basicblock) {
           invalidateOperand(out);
         }
       } else if (instr->isPop()) {
-        auto opnd = instr->output();
+        auto opnd = (&instr->output_);
         invalidateOperand(opnd);
       }
     } else {
