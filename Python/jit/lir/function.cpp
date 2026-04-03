@@ -197,8 +197,14 @@ void Function::ensureBlockCapacity(size_t needed) {
   while (new_cap < needed) {
     new_cap *= 2;
   }
-  BasicBlock** new_blocks = static_cast<BasicBlock**>(
-      PyMem_RawRealloc(blocks_, new_cap * sizeof(BasicBlock*)));
+  BasicBlock** new_blocks;
+  if (blocks_ == nullptr) {
+    new_blocks = static_cast<BasicBlock**>(
+        PyMem_RawMalloc(new_cap * sizeof(BasicBlock*)));
+  } else {
+    new_blocks = static_cast<BasicBlock**>(
+        PyMem_RawRealloc(blocks_, new_cap * sizeof(BasicBlock*)));
+  }
   JIT_CHECK(new_blocks != nullptr, "Failed to allocate block array");
   blocks_ = new_blocks;
   blocks_capacity_ = new_cap;

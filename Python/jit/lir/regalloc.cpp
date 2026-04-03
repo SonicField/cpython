@@ -1316,17 +1316,17 @@ void LinearScanAllocator::resolveEdges() {
     }
   }
 
-  for (size_t block_index = 0; block_index < blocks.size(); block_index++) {
-    auto basic_block = blocks.at(block_index);
+  for (size_t block_index = 0; block_index < func_->getNumBasicBlocks(); block_index++) {
+    auto basic_block = func_->basicblocks()[block_index];
     auto successors = basic_block->successors();
     if (successors.empty()) {
       continue;
     }
 
     auto next_block_index = block_index + 1;
-    auto next_basic_block = next_block_index == blocks.size()
+    auto next_basic_block = next_block_index == func_->getNumBasicBlocks()
         ? nullptr
-        : blocks.at(next_block_index);
+        : func_->basicblocks()[next_block_index];
 
     bool empty = basic_block->isEmpty();
     Instruction* last_instr = basic_block->getLastInstr();
@@ -1400,7 +1400,7 @@ void LinearScanAllocator::resolveEdges() {
         std::move(true_bb_copies),
         std::move(false_bb_copies));
 
-    while (blocks.at(block_index) != next_basic_block) {
+    while (func_->basicblocks()[block_index] != next_basic_block) {
       block_index++;
     }
     block_index--;
