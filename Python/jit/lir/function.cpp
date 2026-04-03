@@ -154,14 +154,14 @@ void deepCopyBasicBlocks(
       // (including the output type and data type).
       auto* instr_copy = new Instruction(bb_copy, &instr, origin);
       bb_copy->appendInstr(instr_copy);
-      output_index_map.emplace(instr.id(), instr_copy);
+      output_index_map.emplace(instr.id_, instr_copy);
       // Copy output.
-      Operand* output = instr.output();
-      Operand* output_copy = instr_copy->output();
+      Operand* output = &instr.output_;
+      Operand* output_copy = &instr_copy->output_;
       copyOperand(block_index_map_, instr_refs, output, output_copy);
       // Copy inputs.
-      for (size_t i = 0, n = instr.getNumInputs(); i < n; ++i) {
-        OperandBase* input = instr.getInput(i);
+      for (size_t i = 0, n = instr.num_inputs_; i < n; ++i) {
+        OperandBase* input = instr.inputs_[i];
         copyInput(block_index_map_, instr_refs, input, instr_copy);
       }
     }
