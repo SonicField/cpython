@@ -419,7 +419,8 @@ class Instruction {
  // Phase B3b: Instruction now owns operands via raw pointers.
   ~Instruction();
 
- private:
+  // Phase B4a: All fields public for C struct compatibility.
+  // Template helpers remain as methods until callers are converted.
   template <typename FType, typename... AType>
   Operand* allocateOperand(FType&& set_func, AType&&... arg) {
     auto* operand = new Operand(this);
@@ -439,7 +440,6 @@ class Instruction {
   size_t num_inputs_{0};
   size_t inputs_capacity_{0};
 
- public:
   // Phase B3c-2: intrusive linked list pointers (owned by BasicBlock).
   // Must be public for InstrIterator access.
   Instruction* prev_{nullptr};
