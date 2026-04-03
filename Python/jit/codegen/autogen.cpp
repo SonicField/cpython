@@ -102,17 +102,17 @@ PatternNode::func_t findByPattern(
 // functions.
 void AutoTranslator::translateInstr(Environ* env, const Instruction* instr)
     const {
-  auto opcode = instr->opcode();
+  auto opcode = instr->opcode_;
   if (opcode == Instruction::kBind) {
     return;
   }
   auto& instr_map = map_get(instr_rule_map_, opcode);
 
   std::string pattern;
-  pattern.reserve(instr->getNumInputs() + instr->getNumOutputs());
+  pattern.reserve(instr->num_inputs_ + instr->getNumOutputs());
 
   if (instr->getNumOutputs()) {
-    auto operand = instr->output();
+    auto operand = (&instr->output_);
 
     switch (operand->type()) {
       case OperandBase::kReg:
@@ -173,7 +173,7 @@ void fillLiveValueLocations(
 
   DeoptMetadata& deopt_meta = code_runtime->getDeoptMetadata(deopt_idx);
   for (size_t i = begin_input; i < end_input; i++) {
-    auto loc = instr->getInput(i)->getPhyRegOrStackSlot();
+    auto loc = instr->inputs_[i]->getPhyRegOrStackSlot();
     deopt_meta.live_values[i - begin_input].location = loc;
   }
 }
@@ -191,25 +191,25 @@ void TranslateGuard(Environ* env, const Instruction* instr) {
   //   * target (for GuardIs and GuardType, and 0 for all others)
 
   auto deopt_label = Label(phx_builder_new_label(pb));
-  auto kind = instr->getInput(0)->getConstant();
+  auto kind = instr->inputs_[0]->getConstant();
 
   arch::Gp reg = x86::rax;
   bool is_double = false;
   if (kind != kAlwaysFail) {
-    if (instr->getInput(2)->dataType() == jit::lir::OperandBase::kDouble) {
+    if (instr->inputs_[2]->dataType() == jit::lir::OperandBase::kDouble) {
       JIT_CHECK(kind == kNotZero, "Only NotZero is supported for double");
-      auto vecd_reg = AutoTranslator::getVecD(instr->getInput(2));
+      auto vecd_reg = AutoTranslator::getVecD(instr->inputs_[2]);
       phx_x86_ptest_rr(pb, vecd_reg, vecd_reg);
       phx_x86_jz(pb, deopt_label);
       is_double = true;
     } else {
-      reg = AutoTranslator::getGp(instr->getInput(2));
+      reg = AutoTranslator::getGp(instr->inputs_[2]);
     }
   }
 
   auto emit_cmp = [&](auto reg_arg) {
     constexpr size_t kTargetIndex = 3;
-    auto target_opnd = instr->getInput(kTargetIndex);
+    auto target_opnd = instr->inputs_[kTargetIndex];
     if (target_opnd->isImm() || target_opnd->isMem()) {
       auto target = target_opnd->getConstantOrAddress();
       JIT_DCHECK(
@@ -250,7 +250,7 @@ void TranslateGuard(Environ* env, const Instruction* instr) {
       case kHasType: {
         // Compare ob_type field against target
         constexpr size_t kTargetIndex = 3;
-        auto target_opnd = instr->getInput(kTargetIndex);
+        auto target_opnd = instr->inputs_[kTargetIndex];
         if (target_opnd->isImm() || target_opnd->isMem()) {
           auto target = target_opnd->getConstantOrAddress();
           JIT_DCHECK(
@@ -275,33 +275,33 @@ void TranslateGuard(Environ* env, const Instruction* instr) {
   //   * target (for GuardIs and GuardType, and 0 for all others)
 
   auto deopt_label = Label(phx_builder_new_label(pb));
-  auto kind = instr->getInput(0)->getConstant();
+  auto kind = instr->inputs_[0]->getConstant();
 
   arch::Gp reg = arch::reg_scratch_0;
   bool is_double = false;
   uint64_t mask = 0;
   size_t sign_bit = 0;
   if (kind != kAlwaysFail) {
-    if (instr->getInput(2)->dataType() == jit::lir::OperandBase::kDouble) {
+    if (instr->inputs_[2]->dataType() == jit::lir::OperandBase::kDouble) {
       JIT_CHECK(kind == kNotZero, "Only NotZero is supported for double")
-      auto vecd_reg = AutoTranslator::getVecD(instr->getInput(2));
+      auto vecd_reg = AutoTranslator::getVecD(instr->inputs_[2]);
       phx_a64_fmov(pb, reg, vecd_reg);
       phx_a64_cbz(pb, reg, deopt_label);
       is_double = true;
     } else {
-      auto data_type = instr->getInput(2)->dataType();
+      auto data_type = instr->inputs_[2]->dataType();
       if (data_type == jit::lir::OperandBase::k8bit) {
         mask = 0xFF;
         sign_bit = 7;
         // aarch64 doesn't have 8-bit registers, use 32-bit w register.
-        reg = asmjit::a64::w(instr->getInput(2)->getPhyRegister().loc);
+        reg = asmjit::a64::w(instr->inputs_[2]->getPhyRegister().loc);
       } else if (data_type == jit::lir::OperandBase::k16bit) {
         mask = 0xFFFF;
         sign_bit = 15;
         // aarch64 doesn't have 16-bit registers, use 32-bit w register.
-        reg = asmjit::a64::w(instr->getInput(2)->getPhyRegister().loc);
+        reg = asmjit::a64::w(instr->inputs_[2]->getPhyRegister().loc);
       } else {
-        reg = AutoTranslator::getGp(instr->getInput(2));
+        reg = AutoTranslator::getGp(instr->inputs_[2]);
         sign_bit = reg.size() * CHAR_BIT - 1;
       }
     }
@@ -309,7 +309,7 @@ void TranslateGuard(Environ* env, const Instruction* instr) {
 
   auto emit_cmp = [&](auto reg_arg) {
     constexpr size_t kTargetIndex = 3;
-    auto target_opnd = instr->getInput(kTargetIndex);
+    auto target_opnd = instr->inputs_[kTargetIndex];
     if (target_opnd->isImm() || target_opnd->isMem()) {
       auto target = target_opnd->getConstantOrAddress();
       JIT_DCHECK(
@@ -368,10 +368,10 @@ void TranslateGuard(Environ* env, const Instruction* instr) {
   CINDER_UNSUPPORTED
 #endif
 
-  auto index = instr->getInput(1)->getConstant();
+  auto index = instr->inputs_[1]->getConstant();
   // skip the first four inputs in Guard, which are
   // kind, deopt_meta id, guard var, and target.
-  fillLiveValueLocations(env->code_rt, index, instr, 4, instr->getNumInputs());
+  fillLiveValueLocations(env->code_rt, index, instr, 4, instr->num_inputs_);
   env->deopt_exits.emplace_back(index, deopt_label, instr);
 }
 
@@ -380,7 +380,7 @@ void TranslateDeoptPatchpoint(Environ* env, const Instruction* instr) {
   PhxBuilder* pb = as->impl();
 
   auto patcher =
-      reinterpret_cast<JumpPatcher*>(instr->getInput(0)->getMemoryAddress());
+      reinterpret_cast<JumpPatcher*>(instr->inputs_[0]->getMemoryAddress());
 
   // Generate patchpoint by writing in an appropriately sized nop.  As a future
   // optimization, we may be able to avoid reserving space for the patchpoint if
@@ -401,9 +401,9 @@ void TranslateDeoptPatchpoint(Environ* env, const Instruction* instr) {
   phx_builder_embed(pb, stored_bytes.data(), stored_bytes.size());
 
   // Fill in deopt metadata
-  auto index = instr->getInput(1)->getConstant();
+  auto index = instr->inputs_[1]->getConstant();
   // skip the first two inputs which are the patcher and deopt metadata id
-  fillLiveValueLocations(env->code_rt, index, instr, 2, instr->getNumInputs());
+  fillLiveValueLocations(env->code_rt, index, instr, 2, instr->num_inputs_);
   auto deopt_label = Label(phx_builder_new_label(pb));
   env->deopt_exits.emplace_back(index, deopt_label, instr);
 
@@ -418,8 +418,8 @@ void TranslateCompare(Environ* env, const Instruction* instr) {
   PhxBuilder* pb = as->impl();
 
 #if defined(CINDER_X86_64)
-  const OperandBase* inp0 = instr->getInput(0);
-  const OperandBase* inp1 = instr->getInput(1);
+  const OperandBase* inp0 = instr->inputs_[0];
+  const OperandBase* inp1 = instr->inputs_[1];
 
   if (inp1->isImm() || inp1->isMem()) {
     phx_x86_cmp_ri(pb, AutoTranslator::getGp(inp0), inp1->getConstantOrAddress());
@@ -428,8 +428,8 @@ void TranslateCompare(Environ* env, const Instruction* instr) {
   } else {
     phx_x86_comisd(pb, AutoTranslator::getVecD(inp0), AutoTranslator::getVecD(inp1));
   }
-  auto output = AutoTranslator::getGp(instr->output());
-  switch (instr->opcode()) {
+  auto output = AutoTranslator::getGp((&instr->output_));
+  switch (instr->opcode_) {
     case Instruction::kEqual:
       phx_x86_sete(pb, output);
       break;
@@ -463,14 +463,14 @@ void TranslateCompare(Environ* env, const Instruction* instr) {
     default:
       JIT_ABORT("bad instruction for TranslateCompare");
   }
-  if (instr->output()->dataType() != OperandBase::k8bit) {
+  if ((&instr->output_)->dataType() != OperandBase::k8bit) {
     phx_x86_movzx_rr(pb,
-        AutoTranslator::getGp(instr->output()),
-        asmjit::x86::gpb(instr->output()->getPhyRegister().loc));
+        AutoTranslator::getGp((&instr->output_)),
+        asmjit::x86::gpb((&instr->output_)->getPhyRegister().loc));
   }
 #elif defined(CINDER_AARCH64)
-  const OperandBase* inp0 = instr->getInput(0);
-  const OperandBase* inp1 = instr->getInput(1);
+  const OperandBase* inp0 = instr->inputs_[0];
+  const OperandBase* inp1 = instr->inputs_[1];
 
   if (inp1->isMem()) {
     JIT_CHECK(inp1->sizeInBits() == 64, "Only 64-bit memory supported");
@@ -497,8 +497,8 @@ void TranslateCompare(Environ* env, const Instruction* instr) {
     phx_a64_fcmp(pb, AutoTranslator::getVecD(inp0), AutoTranslator::getVecD(inp1));
   }
 
-  auto output = AutoTranslator::getGpOutput(instr->output());
-  switch (instr->opcode()) {
+  auto output = AutoTranslator::getGpOutput((&instr->output_));
+  switch (instr->opcode_) {
     case Instruction::kEqual:
       phx_a64_cset(pb, output, PHX_COND_EQ);
       break;
@@ -542,12 +542,12 @@ void translateIntToBool(Environ* env, const Instruction* instr) {
   PhxBuilder* pb = as->impl();
 
 #if defined(CINDER_X86_64)
-  const OperandBase* input = instr->getInput(0);
-  x86::Gp output = AutoTranslator::getGp(instr->output());
+  const OperandBase* input = instr->inputs_[0];
+  x86::Gp output = AutoTranslator::getGp((&instr->output_));
   JIT_CHECK(
-      instr->output()->dataType() == OperandBase::k8bit,
+      (&instr->output_)->dataType() == OperandBase::k8bit,
       "Output should be 8bits, not {}",
-      instr->output()->dataType());
+      (&instr->output_)->dataType());
   if (input->isImm()) {
     phx_x86_mov_ri(pb, output, input->getConstant() ? 1 : 0);
   } else {
@@ -555,12 +555,12 @@ void translateIntToBool(Environ* env, const Instruction* instr) {
     phx_x86_setne(pb, output);
   }
 #elif defined(CINDER_AARCH64)
-  const OperandBase* input = instr->getInput(0);
-  a64::Gp output = AutoTranslator::getGpOutput(instr->output());
+  const OperandBase* input = instr->inputs_[0];
+  a64::Gp output = AutoTranslator::getGpOutput((&instr->output_));
   JIT_CHECK(
-      instr->output()->dataType() == OperandBase::k8bit,
+      (&instr->output_)->dataType() == OperandBase::k8bit,
       "Output should be 8bits, not {}",
-      instr->output()->dataType());
+      (&instr->output_)->dataType());
   if (input->isImm()) {
     phx_a64_mov_ri(pb, output, input->getConstant() ? 1 : 0);
   } else {
@@ -587,15 +587,15 @@ void emitStoreGenYieldPoint(
       yield->isYieldFromHandleStopAsyncIteration();
 
   auto calc_spill_offset = [&](size_t live_input_n) {
-    PhyLocation mem = yield->getInput(live_input_n)->getStackSlot();
+    PhyLocation mem = yield->inputs_[live_input_n]->getStackSlot();
     return mem.loc / kPointerSize;
   };
 
-  size_t input_n = yield->getNumInputs() - 1;
-  size_t deopt_idx = yield->getInput(input_n)->getConstant();
+  size_t input_n = yield->num_inputs_ - 1;
+  size_t deopt_idx = yield->inputs_[input_n]->getConstant();
 
   size_t live_regs_input = input_n - 1;
-  int num_live_regs = yield->getInput(live_regs_input)->getConstant();
+  int num_live_regs = yield->inputs_[live_regs_input]->getConstant();
   fillLiveValueLocations(
       env->code_rt,
       deopt_idx,
@@ -609,8 +609,8 @@ void emitStoreGenYieldPoint(
       GenYieldPoint{deopt_idx, yield_from_offset});
 
   env->unresolved_gen_entry_labels.emplace(gen_yield_point, resume_label);
-  if (yield->origin()) {
-    env->pending_debug_locs.emplace_back(resume_label, yield->origin());
+  if (yield->origin_) {
+    env->pending_debug_locs.emplace_back(resume_label, yield->origin_);
   }
 
   PhxBuilder* pb = as->impl();
@@ -640,10 +640,10 @@ void emitLoadResumedYieldInputs(
   PhxBuilder* pb = as->impl();
 
 #if defined(CINDER_X86_64)
-  PhyLocation tstate = instr->getInput(0)->getStackSlot();
+  PhyLocation tstate = instr->inputs_[0]->getStackSlot();
   phx_x86_mov_mr(pb, phx_qword_ptr(x86::rbp, tstate.loc), tstate_reg);
 
-  const lir::Operand* target = instr->output();
+  const lir::Operand* target = (&instr->output_);
 
   if (target->isStack()) {
     phx_x86_mov_mr(pb,
@@ -665,12 +665,12 @@ void emitLoadResumedYieldInputs(
       "Have an output that isn't a register or a stack slot, {}",
       target->type());
 #elif defined(CINDER_AARCH64)
-  PhyLocation tstate = instr->getInput(0)->getStackSlot();
+  PhyLocation tstate = instr->inputs_[0]->getStackSlot();
   phx_a64_str(pb,
       tstate_reg,
       arch::ptr_resolve(as, arch::fp, tstate.loc, arch::reg_scratch_0));
 
-  const lir::Operand* target = instr->output();
+  const lir::Operand* target = (&instr->output_);
 
   if (target->isStack()) {
     phx_a64_str(pb,
@@ -708,7 +708,7 @@ void translateYieldInitial(Environ* env, const Instruction* instr) {
   // Consider avoiding reloading the tstate in from memory if it was already in
   // a register before spilling. Still needs to be in memory though so it can be
   // recovered after calling JITRT_MakeGenObject* which will trash it.
-  PhyLocation tstate = instr->getInput(0)->getStackSlot();
+  PhyLocation tstate = instr->inputs_[0]->getStackSlot();
   phx_x86_mov_rm(pb, x86::rdi, phx_qword_ptr(x86::rbp, tstate.loc));
 
   // Make a generator object to be returned by the epilogue.
@@ -718,8 +718,8 @@ void translateYieldInitial(Environ* env, const Instruction* instr) {
       "Bad spill alignment");
   phx_x86_mov_ri(pb, x86::rdx, env->shadow_frames_and_spill_size / kPointerSize);
   phx_x86_mov_ri(pb, x86::rcx, reinterpret_cast<uint64_t>(env->code_rt));
-  JIT_CHECK(instr->origin()->IsInitialYield(), "expected InitialYield");
-  PyCodeObject* code = static_cast<const hir::InitialYield*>(instr->origin())
+  JIT_CHECK(instr->origin_->IsInitialYield(), "expected InitialYield");
+  PyCodeObject* code = static_cast<const hir::InitialYield*>(instr->origin_)
                            ->frameState()
                            ->code;
   phx_x86_mov_ri(pb, x86::r8, reinterpret_cast<uint64_t>(code));
@@ -775,7 +775,7 @@ void translateYieldInitial(Environ* env, const Instruction* instr) {
   // Consider avoiding reloading the tstate in from memory if it was already in
   // a register before spilling. Still needs to be in memory though so it can be
   // recovered after calling JITRT_MakeGenObject* which will trash it.
-  PhyLocation tstate = instr->getInput(0)->getStackSlot();
+  PhyLocation tstate = instr->inputs_[0]->getStackSlot();
   phx_x86_mov_rm(pb, x86::rdi, phx_qword_ptr(x86::rbp, tstate.loc));
 
   emitCall(
@@ -810,7 +810,7 @@ void translateYieldInitial(Environ* env, const Instruction* instr) {
   // Consider avoiding reloading the tstate in from memory if it was already in
   // a register before spilling. Still needs to be in memory though so it can be
   // recovered after calling JITRT_MakeGenObject* which will trash it.
-  PhyLocation tstate = instr->getInput(0)->getStackSlot();
+  PhyLocation tstate = instr->inputs_[0]->getStackSlot();
   phx_a64_ldr(pb,
       a64::x0,
       arch::ptr_resolve(as, arch::fp, tstate.loc, arch::reg_scratch_0));
@@ -848,14 +848,14 @@ void translateYieldValue(Environ* env, const Instruction* instr) {
 
 #if defined(CINDER_X86_64)
   // Make sure tstate is in RDI for use in epilogue.
-  PhyLocation tstate = instr->getInput(0)->getStackSlot();
+  PhyLocation tstate = instr->inputs_[0]->getStackSlot();
   phx_x86_mov_rm(pb, x86::rdi, phx_qword_ptr(x86::rbp, tstate.loc));
 
   // Value to send goes to RAX so it can be yielded (returned) by epilogue.
-  if (instr->getInput(1)->isImm()) {
-    phx_x86_mov_ri(pb, x86::rax, instr->getInput(1)->getConstant());
+  if (instr->inputs_[1]->isImm()) {
+    phx_x86_mov_ri(pb, x86::rax, instr->inputs_[1]->getConstant());
   } else {
-    PhyLocation value_out = instr->getInput(1)->getStackSlot();
+    PhyLocation value_out = instr->inputs_[1]->getStackSlot();
     phx_x86_mov_rm(pb, x86::rax, phx_qword_ptr(x86::rbp, value_out.loc));
   }
 
@@ -874,16 +874,16 @@ void translateYieldValue(Environ* env, const Instruction* instr) {
   emitLoadResumedYieldInputs(as, instr, RSI, x86::rcx);
 #elif defined(CINDER_AARCH64)
   // Make sure tstate is in x2 for use in epilogue.
-  PhyLocation tstate = instr->getInput(0)->getStackSlot();
+  PhyLocation tstate = instr->inputs_[0]->getStackSlot();
   phx_a64_ldr(pb,
       a64::x2,
       arch::ptr_resolve(as, arch::fp, tstate.loc, arch::reg_scratch_0));
 
   // Value to send goes to x0 so it can be yielded (returned) by epilogue.
-  if (instr->getInput(1)->isImm()) {
-    phx_a64_mov_ri(pb, a64::x0, instr->getInput(1)->getConstant());
+  if (instr->inputs_[1]->isImm()) {
+    phx_a64_mov_ri(pb, a64::x0, instr->inputs_[1]->getConstant());
   } else {
-    PhyLocation value_out = instr->getInput(1)->getStackSlot();
+    PhyLocation value_out = instr->inputs_[1]->getStackSlot();
     phx_a64_ldr(pb,
         a64::x0,
         arch::ptr_resolve(as, arch::fp, value_out.loc, arch::reg_scratch_0));
@@ -915,7 +915,7 @@ void translateYieldFrom(Environ* env, const Instruction* instr) {
   bool skip_initial_send = instr->isYieldFromSkipInitialSend();
 
   // Make sure tstate is in RDI for use in epilogue and here.
-  PhyLocation tstate = instr->getInput(0)->getStackSlot();
+  PhyLocation tstate = instr->inputs_[0]->getStackSlot();
   auto tstate_phys_reg = x86::rdi;
   phx_x86_mov_rm(pb, tstate_phys_reg, phx_qword_ptr(x86::rbp, tstate.loc));
 
@@ -923,7 +923,7 @@ void translateYieldFrom(Environ* env, const Instruction* instr) {
   // value to yield and so needs to go into RAX to be returned. Otherwise,
   // put initial send value in RSI, the same location future send values will
   // be on resume.
-  PhyLocation send_value = instr->getInput(1)->getStackSlot();
+  PhyLocation send_value = instr->inputs_[1]->getStackSlot();
   const auto send_value_phys_reg = skip_initial_send ? RAX : RSI;
   phx_x86_mov_rm(pb,
       x86::gpq(send_value_phys_reg.loc), phx_qword_ptr(x86::rbp, send_value.loc));
@@ -955,7 +955,7 @@ void translateYieldFrom(Environ* env, const Instruction* instr) {
   // point args.
 
   // Load sub-iterator into RDI
-  PhyLocation iter_slot = instr->getInput(2)->getStackSlot();
+  PhyLocation iter_slot = instr->inputs_[2]->getStackSlot();
   phx_x86_mov_rm(pb, x86::rdi, phx_qword_ptr(x86::rbp, iter_slot.loc));
 
   uint64_t func = reinterpret_cast<uint64_t>(
@@ -989,7 +989,7 @@ void translateYieldFrom(Environ* env, const Instruction* instr) {
   bool skip_initial_send = instr->isYieldFromSkipInitialSend();
 
   // Make sure tstate is in X0 for use in epilogue and here.
-  PhyLocation tstate = instr->getInput(0)->getStackSlot();
+  PhyLocation tstate = instr->inputs_[0]->getStackSlot();
   auto tstate_phys_reg = a64::x0;
   phx_a64_ldr(pb,
       tstate_phys_reg,
@@ -999,7 +999,7 @@ void translateYieldFrom(Environ* env, const Instruction* instr) {
   // value to yield and so needs to go into X0 to be returned. Otherwise,
   // put initial send value in X1, the same location future send values will
   // be on resume.
-  PhyLocation send_value = instr->getInput(1)->getStackSlot();
+  PhyLocation send_value = instr->inputs_[1]->getStackSlot();
   const auto send_value_phys_reg = skip_initial_send ? X0 : X1;
   phx_a64_ldr(pb,
       a64::x(send_value_phys_reg.loc),
@@ -1032,7 +1032,7 @@ void translateYieldFrom(Environ* env, const Instruction* instr) {
   // point args.
 
   // Load sub-iterator into X0
-  PhyLocation iter_slot = instr->getInput(2)->getStackSlot();
+  PhyLocation iter_slot = instr->inputs_[2]->getStackSlot();
   phx_a64_ldr(pb,
       a64::x0,
       arch::ptr_resolve(as, arch::fp, iter_slot.loc, arch::reg_scratch_0));
@@ -1086,9 +1086,9 @@ template <int N>
 const OperandBase* LIROperandMapper(const Instruction* instr) {
   auto num_outputs = instr->getNumOutputs();
   if (N < num_outputs) {
-    return instr->output();
+    return (&instr->output_);
   } else {
-    return instr->getInput(N - num_outputs);
+    return instr->inputs_[N - num_outputs];
   }
 }
 
@@ -1335,8 +1335,8 @@ struct AddDebugEntryAction {
     PhxBuilder* pb = env->as->impl();
     asmjit::Label label = Label(phx_builder_new_label(pb));
     phx_builder_bind(pb, label);
-    if (instr->origin()) {
-      env->pending_debug_locs.emplace_back(label, instr->origin());
+    if (instr->origin_) {
+      env->pending_debug_locs.emplace_back(label, instr->origin_);
     }
   }
 };
@@ -1938,8 +1938,8 @@ void translateLea(Environ* env, const Instruction* instr) {
   a64::Builder* as = env->as;
   PhxBuilder* pb = as->impl();
 
-  auto output = instr->output();
-  auto input = instr->getInput(0);
+  auto output = (&instr->output_);
+  auto input = instr->inputs_[0];
 
   JIT_CHECK(output->isReg(), "Expected output to be a register");
 
@@ -1966,8 +1966,8 @@ void translateCall(Environ* env, const Instruction* instr) {
   a64::Builder* as = env->as;
   PhxBuilder* pb = as->impl();
 
-  auto output = instr->output();
-  auto input = instr->getInput(0);
+  auto output = (&instr->output_);
+  auto input = instr->inputs_[0];
 
   asmjit::Label after_call = Label(phx_builder_new_label(pb));
 
@@ -2021,10 +2021,10 @@ void translateCall(Environ* env, const Instruction* instr) {
   }
   phx_builder_bind(pb, after_call);
 
-  if (instr->origin()) {
+  if (instr->origin_) {
     asmjit::Label label = Label(phx_builder_new_label(pb));
     phx_builder_bind(pb, label);
-    env->pending_debug_locs.emplace_back(label, instr->origin());
+    env->pending_debug_locs.emplace_back(label, instr->origin_);
   }
 
   if (output->type() != OperandBase::kNone) {
@@ -2059,8 +2059,8 @@ void translateMove(Environ* env, const Instruction* instr) {
   auto scratch0 = arch::reg_scratch_0;
   auto scratch1 = arch::reg_scratch_1;
 
-  const OperandBase* output = instr->output();
-  const OperandBase* input = instr->getInput(0);
+  const OperandBase* output = (&instr->output_);
+  const OperandBase* input = instr->inputs_[0];
 
   switch (output->type()) {
     case lir::OperandType::kReg:
@@ -2228,8 +2228,8 @@ void translateMovExtOp(
   a64::Builder* as = env->as;
   PhxBuilder* pb = as->impl();
 
-  auto output = AT::getGpOutput(instr->output());
-  const OperandBase* input = instr->getInput(0);
+  auto output = AT::getGpOutput((&instr->output_));
+  const OperandBase* input = instr->inputs_[0];
   int input_size = input->sizeInBits();
 
   if (input->isReg()) {
@@ -2306,8 +2306,8 @@ void translateMovSXD(Environ* env, const Instruction* instr) {
   a64::Builder* as = env->as;
   PhxBuilder* pb = as->impl();
 
-  auto output = AT::getGpOutput(instr->output());
-  const OperandBase* input = instr->getInput(0);
+  auto output = AT::getGpOutput((&instr->output_));
+  const OperandBase* input = instr->inputs_[0];
 
   if (input->isReg()) {
     auto input_reg = AT::getGp(input);
@@ -2338,9 +2338,9 @@ void translateAddSubOp(
   PhxBuilder* pb = as->impl();
 
   const OperandBase* output =
-      instr->getNumOutputs() > 0 ? instr->output() : instr->getInput(0);
-  const OperandBase* opnd0 = instr->getInput(0);
-  const OperandBase* opnd1 = instr->getInput(1);
+      instr->getNumOutputs() > 0 ? (&instr->output_) : instr->inputs_[0];
+  const OperandBase* opnd0 = instr->inputs_[0];
+  const OperandBase* opnd1 = instr->inputs_[1];
 
   JIT_CHECK(output->isReg(), "Expected output to be a register");
   JIT_CHECK(opnd0->isReg(), "Expected opnd0 to be a register");
@@ -2396,9 +2396,9 @@ void translateLogicalOp(
   PhxBuilder* pb = as->impl();
 
   const OperandBase* output =
-      instr->getNumOutputs() > 0 ? instr->output() : instr->getInput(0);
-  const OperandBase* opnd0 = instr->getInput(0);
-  const OperandBase* opnd1 = instr->getInput(1);
+      instr->getNumOutputs() > 0 ? (&instr->output_) : instr->inputs_[0];
+  const OperandBase* opnd0 = instr->inputs_[0];
+  const OperandBase* opnd1 = instr->inputs_[1];
 
   JIT_CHECK(output->isReg(), "Expected output to be a register");
   JIT_CHECK(opnd0->isReg(), "Expected opnd0 to be a register");
@@ -2456,9 +2456,9 @@ void translateMul(Environ* env, const Instruction* instr) {
   PhxBuilder* pb = as->impl();
 
   const OperandBase* output =
-      instr->getNumOutputs() > 0 ? instr->output() : instr->getInput(0);
-  const OperandBase* opnd0 = instr->getInput(0);
-  const OperandBase* opnd1 = instr->getInput(1);
+      instr->getNumOutputs() > 0 ? (&instr->output_) : instr->inputs_[0];
+  const OperandBase* opnd0 = instr->inputs_[0];
+  const OperandBase* opnd1 = instr->inputs_[1];
 
   JIT_CHECK(output->isReg(), "Expected output to be a register");
   JIT_CHECK(opnd0->isReg(), "Expected opnd0 to be a register");
@@ -2492,9 +2492,9 @@ void translateDivOp(
   PhxBuilder* pb = as->impl();
 
   const OperandBase* output =
-      instr->getNumOutputs() > 0 ? instr->output() : instr->getInput(0);
-  const OperandBase* opnd0 = instr->getInput(0);
-  const OperandBase* opnd1 = instr->getInput(1);
+      instr->getNumOutputs() > 0 ? (&instr->output_) : instr->inputs_[0];
+  const OperandBase* opnd0 = instr->inputs_[0];
+  const OperandBase* opnd1 = instr->inputs_[1];
 
   JIT_CHECK(output->isReg(), "Expected output to be a register");
   JIT_CHECK(opnd0->isReg(), "Expected opnd0 to be a register");
@@ -2534,7 +2534,7 @@ void translatePush(Environ* env, const Instruction* instr) {
   a64::Builder* as = env->as;
   PhxBuilder* pb = as->impl();
 
-  const OperandBase* operand = instr->getInput(0);
+  const OperandBase* operand = instr->inputs_[0];
 
   if (operand->isImm()) {
     phx_a64_mov_ri(pb, arch::reg_scratch_0, operand->getConstant());
@@ -2557,7 +2557,7 @@ void translatePop(Environ* env, const Instruction* instr) {
   a64::Builder* as = env->as;
   PhxBuilder* pb = as->impl();
 
-  const OperandBase* operand = instr->output();
+  const OperandBase* operand = (&instr->output_);
 
   if (operand->isReg()) {
     auto reg = AT::getGp(operand);
@@ -2577,8 +2577,8 @@ void translateExchange(Environ* env, const Instruction* instr) {
   a64::Builder* as = env->as;
   PhxBuilder* pb = as->impl();
 
-  const OperandBase* opnd0 = instr->output();
-  const OperandBase* opnd1 = instr->getInput(0);
+  const OperandBase* opnd0 = (&instr->output_);
+  const OperandBase* opnd1 = instr->inputs_[0];
 
   JIT_CHECK(opnd0->isReg(), "Expected opnd0 to be a register");
   JIT_CHECK(opnd1->isReg(), "Expected opnd1 to be a register");
@@ -2606,8 +2606,8 @@ void translateExchange(Environ* env, const Instruction* instr) {
 void translateCmp(Environ* env, const Instruction* instr) {
   PhxBuilder* pb = env->as->impl();
 
-  const OperandBase* inp0 = instr->getInput(0);
-  const OperandBase* inp1 = instr->getInput(1);
+  const OperandBase* inp0 = instr->inputs_[0];
+  const OperandBase* inp1 = instr->inputs_[1];
 
   JIT_CHECK(inp0->isReg(), "Expected first input to be a register");
 
@@ -2642,7 +2642,7 @@ void translateIncDecOp(
   a64::Builder* as = env->as;
   PhxBuilder* pb = as->impl();
 
-  auto opnd = instr->getInput(0);
+  auto opnd = instr->inputs_[0];
 
   auto emit = [&](PhxGp d, PhxGp s, int64_t imm) {
     // We have to do adds/subs here, because implicitly our LIR relies on the
@@ -2678,8 +2678,8 @@ void translateDec(Environ* env, const Instruction* instr) {
 void translateBitTest(Environ* env, const Instruction* instr) {
   PhxBuilder* pb = env->as->impl();
 
-  auto test_reg = AT::getGp(instr->getInput(0));
-  auto bit_pos = instr->getInput(1)->getConstant();
+  auto test_reg = AT::getGp(instr->inputs_[0]);
+  auto bit_pos = instr->inputs_[1]->getConstant();
 
   uint64_t mask = 1ULL << bit_pos;
   JIT_CHECK(
@@ -2693,8 +2693,8 @@ void translateTst(Environ* env, const Instruction* instr) {
   a64::Builder* as = env->as;
   PhxBuilder* pb = as->impl();
 
-  auto opnd0 = instr->getInput(0);
-  auto opnd1 = instr->getInput(1);
+  auto opnd0 = instr->inputs_[0];
+  auto opnd1 = instr->inputs_[1];
   auto data_type = opnd0->dataType();
 
   // For 8-bit and 16-bit values, shift the valid bits into the high bits of a
@@ -2726,8 +2726,8 @@ void translateTst(Environ* env, const Instruction* instr) {
 void translateSelect(Environ* env, const Instruction* instr) {
   PhxBuilder* pb = env->as->impl();
 
-  auto output = AT::getGpOutput(instr->output());
-  auto condition_op = instr->getInput(0);
+  auto output = AT::getGpOutput((&instr->output_));
+  auto condition_op = instr->inputs_[0];
   arch::Gp condition_reg;
   switch (condition_op->dataType()) {
     case jit::lir::OperandBase::k8bit:
@@ -2743,8 +2743,8 @@ void translateSelect(Environ* env, const Instruction* instr) {
       condition_reg = AT::getGp(condition_op);
       break;
   }
-  auto true_val_reg = AT::getGp(instr->getInput(1));
-  auto false_val = instr->getInput(2)->getConstant();
+  auto true_val_reg = AT::getGp(instr->inputs_[1]);
+  auto false_val = instr->inputs_[2]->getConstant();
 
   phx_a64_mov_ri(pb, arch::reg_scratch_0, false_val);
   phx_a64_cmp_ri(pb, condition_reg, 0);
