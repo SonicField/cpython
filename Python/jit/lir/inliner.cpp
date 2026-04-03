@@ -53,12 +53,12 @@ bool LIRInliner::inlineCall() {
   }
 
   // Split basic blocks of caller.
-  BasicBlock* block1 = call_instr_->basicblock();
+  BasicBlock* block1 = call_instr_->basic_block_;
   BasicBlock* block2 = block1->splitBefore(call_instr_);
 
   // Copy callee into caller.
   Function::CopyResult callee_bounds =
-      caller_->copyFrom(callee, block1, block2, call_instr_->origin());
+      caller_->copyFrom(callee, block1, block2, call_instr_->origin_);
   callee_start_ = callee_bounds.begin_bb;
   callee_end_ = callee_bounds.end_bb;
 
@@ -130,9 +130,9 @@ bool LIRInliner::checkEntryExitReturn(const Function* callee) {
 }
 
 bool LIRInliner::checkArguments() {
-  size_t numInputs = call_instr_->getNumInputs();
+  size_t numInputs = call_instr_->num_inputs_;
   for (size_t i = 1; i < numInputs; ++i) {
-    auto input = call_instr_->getInput(i);
+    auto input = call_instr_->inputs_[i];
     if (!input->isImm() && !input->isVreg()) {
       return false;
     }
@@ -143,17 +143,17 @@ bool LIRInliner::checkArguments() {
 
 bool LIRInliner::checkLoadArg(const Function* callee) {
   // Subtract by 1 since first argument is callee address.
-  size_t numInputs = call_instr_->getNumInputs() - 1;
+  size_t numInputs = call_instr_->num_inputs_ - 1;
   // Use check_load_arg to track if we are still in LoadArg instructions.
   bool check_load_arg = true;
   for (auto bb : callee->basicblocks()) {
     for (auto& instr : bb->instructions()) {
       if (check_load_arg) {
         if (instr.isLoadArg()) {
-          if (instr.getNumInputs() < 1) {
+          if (instr.num_inputs_ < 1) {
             return false;
           }
-          auto input = instr.getInput(0);
+          auto input = instr.inputs_[0];
           if (!input->isImm()) {
             return false;
           }
@@ -178,10 +178,10 @@ bool LIRInliner::checkLoadArg(const Function* callee) {
 
 lir::Function* LIRInliner::findCalleeFunction() {
   // Get the address.
-  if (call_instr_->getNumInputs() < 1) {
+  if (call_instr_->num_inputs_ < 1) {
     return nullptr;
   }
-  OperandBase* dest_operand = call_instr_->getInput(0);
+  OperandBase* dest_operand = call_instr_->inputs_[0];
   if (!dest_operand->isImm()) {
     return nullptr;
   }
@@ -264,11 +264,11 @@ void LIRInliner::resolveLoadArg(
     Instruction*& instr_it) {
   auto* instr = instr_it;
   JIT_DCHECK(
-      instr->getNumInputs() > 0 && instr->getInput(0)->isImm(),
+      instr->num_inputs_ > 0 && instr->inputs_[0]->isImm(),
       "LoadArg instruction should have at least 1 input.");
 
   // Get the corresponding parameter from the call instruction.
-  auto argument = instr->getInput(0);
+  auto argument = instr->inputs_[0];
   auto param = arguments_.at(argument->getConstant());
 
   // Based on the parameter type, resolve the kLoadArg.
@@ -284,7 +284,7 @@ void LIRInliner::resolveLoadArg(
         param->isLinked(), "Inlined arguments must be immediate or linked.");
     // Otherwise, output of kLoadArg should be a virtual register.
     // For virtual registers, delete kLoadArg and replace uses.
-    vreg_map.emplace(instr->output(), static_cast<LinkedOperand*>(param));
+    vreg_map.emplace((&instr->output_), static_cast<LinkedOperand*>(param));
     Instruction* next = instr_it->next_;
     delete bb->removeInstr(instr_it);
     instr_it = next;
@@ -302,8 +302,8 @@ void LIRInliner::resolveLinkedArgumentsUses(
     }
   };
   auto* instr = instr_it;
-  for (size_t i = 0, n = instr->getNumInputs(); i < n; i++) {
-    auto input = instr->getInput(i);
+  for (size_t i = 0, n = instr->num_inputs_; i < n; i++) {
+    auto input = instr->inputs_[i];
     if (input->isLinked()) {
       setLinkedOperand(input);
     } else if (input->isInd()) {
@@ -335,14 +335,14 @@ void LIRInliner::resolveReturnValue() {
     if (lastInstr != nullptr && lastInstr->isReturn()) {
       phi_instr->allocateLabelInput(pred);
       JIT_CHECK(
-          lastInstr->getNumInputs() > 0,
+          lastInstr->num_inputs_ > 0,
           "Return instruction should have at least 1 input operand.");
       phi_instr->appendInput(lastInstr->releaseInput(0));
       pred->removeInstr(pred->getLastInstrIter());
     }
   }
 
-  if (phi_instr->getNumInputs() == 0) {
+  if (phi_instr->num_inputs_ == 0) {
     // Callee has no return statements.
     // Remove phi instruction.
     epilogue->removeInstr(epilogue->getLastInstrIter());
@@ -350,8 +350,8 @@ void LIRInliner::resolveReturnValue() {
   } else {
     call_instr_->setOpcode(Instruction::kMove);
     // Remove all inputs.
-    while (call_instr_->getNumInputs() > 0) {
-      call_instr_->removeInput(call_instr_->getNumInputs() - 1);
+    while (call_instr_->num_inputs_ > 0) {
+      call_instr_->removeInput(call_instr_->num_inputs_ - 1);
     }
     call_instr_->allocateLinkedInput(phi_instr);
   }
