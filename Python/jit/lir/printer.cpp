@@ -63,13 +63,13 @@ void Printer::print(std::ostream& out, const BasicBlock& block) {
 
   const hir::Instr* prev_instr = nullptr;
   for (auto& instr : block.instructions()) {
-    if (getConfig().log.lir_origin && instr.origin() != prev_instr) {
-      if (instr.origin()) {
+    if (getConfig().log.lir_origin && instr.origin_ != prev_instr) {
+      if (instr.origin_) {
         out << '\n';
-        hir_printer_.Print(out, *instr.origin());
+        hir_printer_.Print(out, *instr.origin_);
         out << '\n';
       }
-      prev_instr = instr.origin();
+      prev_instr = instr.origin_;
     }
     print(out, instr);
     out << '\n';
@@ -77,7 +77,7 @@ void Printer::print(std::ostream& out, const BasicBlock& block) {
 }
 
 void Printer::print(std::ostream& out, const Instruction& instr) {
-  auto output_opnd = instr.output();
+  const auto* output_opnd = &instr.output_;
   if (output_opnd->type() == OperandBase::kNone) {
     fmt::print(out, "{:>16}   ", "");
   } else {
@@ -87,14 +87,14 @@ void Printer::print(std::ostream& out, const Instruction& instr) {
   }
   out << InstrProperty::getProperties(&instr).name;
   const char* sep = " ";
-  if (instr.opcode() == Instruction::kPhi) {
-    auto num_inputs = instr.getNumInputs();
+  if (instr.opcode_ == Instruction::kPhi) {
+    auto num_inputs = instr.num_inputs_;
     for (size_t i = 0; i < num_inputs; i += 2) {
       out << sep << "(";
-      print(out, *(instr.getInput(i)));
+      print(out, *(instr.inputs_[i]));
       sep = ", ";
       out << sep;
-      print(out, *(instr.getInput(i + 1)));
+      print(out, *(instr.inputs_[i + 1]));
       out << ")";
     }
   } else {
