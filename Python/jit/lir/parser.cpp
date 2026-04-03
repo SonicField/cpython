@@ -567,8 +567,8 @@ void Parser::fixUnknownIds() {
       largest_id = bb->id();
     }
     for (auto& instr : bb->instructions()) {
-      if (instr.id() > largest_id) {
-        largest_id = instr.id();
+      if (instr.id_ > largest_id) {
+        largest_id = instr.id_;
       }
     }
   }
@@ -577,8 +577,8 @@ void Parser::fixUnknownIds() {
   // assign ID's to instructions without ID's
   for (auto& bb : func_->basicblocks()) {
     for (auto& instr : bb->instructions()) {
-      if (instr.id() == -1) {
-        instr.setId(func_->allocateId());
+      if (instr.id_ == -1) {
+        instr.id_ = func_->allocateId();
       }
     }
   }
