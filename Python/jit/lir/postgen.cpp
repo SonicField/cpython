@@ -25,10 +25,10 @@ RewriteResult rewriteInlineHelper(function_rewrite_arg_t func) {
 // instructions)
 RewriteResult rewriteBinaryOpConstantPosition(instr_iter_t instr_iter) {
   auto instr = instr_iter;
-  auto block = instr->basicblock();
+  auto block = instr->basic_block_;
 
   if (instr->isDiv() || instr->isDivUn()) {
-    auto divisor = instr->getInput(2);
+    auto divisor = instr->inputs_[2];
     if (!divisor->isImm()) {
       return kUnchanged;
     }
@@ -54,8 +54,8 @@ RewriteResult rewriteBinaryOpConstantPosition(instr_iter_t instr_iter) {
   }
 
   bool is_commutative_or_compare = !instr->isSub();
-  auto input0 = instr->getInput(0);
-  auto input1 = instr->getInput(1);
+  auto input0 = instr->inputs_[0];
+  auto input1 = instr->inputs_[1];
 
   if (!input0->isImm()) {
     return kUnchanged;
@@ -66,7 +66,7 @@ RewriteResult rewriteBinaryOpConstantPosition(instr_iter_t instr_iter) {
     // if the operation is commutative and the second input is not also an
     // immediate, just swap the operands
     if (instr->isCompare()) {
-      instr->setOpcode(Instruction::flipComparisonDirection(instr->opcode()));
+      instr->setOpcode(Instruction::flipComparisonDirection(instr->opcode_));
     }
     auto* imm = instr->removeInput(0);
     instr->appendInput(imm);
@@ -103,17 +103,17 @@ RewriteResult rewriteBinaryOpLargeConstant(instr_iter_t instr_iter) {
   }
 
   // If first operand is an immediate, we need to swap the operands.
-  if (instr->getInput(0)->isImm()) {
+  if (instr->inputs_[0]->isImm()) {
     // another rewrite will fix this later
     return kUnchanged;
   }
 
   JIT_CHECK(
-      !instr->getInput(0)->isImm(),
+      !instr->inputs_[0]->isImm(),
       "The first input operand of a binary op instruction should not be "
       "constant");
 
-  auto in1 = instr->getInput(1);
+  auto in1 = instr->inputs_[1];
   if (!in1->isImm()) {
     return kUnchanged;
   }
@@ -135,7 +135,7 @@ RewriteResult rewriteBinaryOpLargeConstant(instr_iter_t instr_iter) {
   } else if (instr->isAnd() || instr->isOr() || instr->isXor()) {
     // and, or, and xor use a logical immediate, which is a 13-bit-encoded
     // operand that represents repeated 1 patterns.
-    size_t bits = instr->output()->sizeInBits();
+    size_t bits = (&instr->output_)->sizeInBits();
     if (asmjit::arm::Utils::isLogicalImm(constant, bits < 32 ? 32 : bits)) {
       return kUnchanged;
     }
@@ -146,7 +146,7 @@ RewriteResult rewriteBinaryOpLargeConstant(instr_iter_t instr_iter) {
   CINDER_UNSUPPORTED
 #endif
 
-  auto block = instr->basicblock();
+  auto block = instr->basic_block_;
   auto move = block->allocateInstrBefore(
       instr_iter,
       Instruction::kMove,
@@ -156,7 +156,7 @@ RewriteResult rewriteBinaryOpLargeConstant(instr_iter_t instr_iter) {
   // If the first operand is smaller in size than the second operand, replace
   // the first operand with a sign-extended version that matches the size of the
   // second operand.
-  if (instr->getInput(0)->sizeInBits() < in1->sizeInBits()) {
+  if (instr->inputs_[0]->sizeInBits() < in1->sizeInBits()) {
     auto movsx = block->allocateInstrBefore(
         instr_iter, Instruction::kMovSX, OutVReg{in1->dataType()});
     movsx->appendInput(instr->releaseInput(0));
@@ -180,13 +180,13 @@ RewriteResult rewriteMoveToMemoryLargeConstant(instr_iter_t instr_iter) {
   //     [Vreg0 + offset] = Vreg1
 
   auto instr = instr_iter;
-  auto out = instr->output();
+  auto out = (&instr->output_);
 
   if (!(instr->isMove() || instr->isMoveRelaxed()) || !out->isInd()) {
     return kUnchanged;
   }
 
-  auto input = instr->getInput(0);
+  auto input = instr->inputs_[0];
   if (!input->isImm() && !input->isMem()) {
     return kUnchanged;
   }
@@ -196,7 +196,7 @@ RewriteResult rewriteMoveToMemoryLargeConstant(instr_iter_t instr_iter) {
     return kUnchanged;
   }
 
-  auto block = instr->basicblock();
+  auto block = instr->basic_block_;
   auto move = block->allocateInstrBefore(
       instr_iter,
       Instruction::kMove,
@@ -220,7 +220,7 @@ RewriteResult rewriteGuardLargeConstant(instr_iter_t instr_iter) {
   }
 
   constexpr size_t kTargetIndex = 3;
-  auto target_opnd = instr->getInput(kTargetIndex);
+  auto target_opnd = instr->inputs_[kTargetIndex];
   if (!target_opnd->isImm() && !target_opnd->isMem()) {
     return kUnchanged;
   }
@@ -239,7 +239,7 @@ RewriteResult rewriteGuardLargeConstant(instr_iter_t instr_iter) {
   CINDER_UNSUPPORTED
 #endif
 
-  auto block = instr->basicblock();
+  auto block = instr->basic_block_;
   auto move = block->allocateInstrBefore(
       instr_iter,
       Instruction::kMove,
@@ -256,13 +256,13 @@ RewriteResult rewriteLoadArg(instr_iter_t instr_iter, Environ* env) {
     return kUnchanged;
   }
   instr->setOpcode(Instruction::kBind);
-  JIT_CHECK(instr->getNumInputs() == 1, "expected one input");
-  OperandBase* input = instr->getInput(0);
+  JIT_CHECK(instr->num_inputs_ == 1, "expected one input");
+  OperandBase* input = instr->inputs_[0];
   JIT_CHECK(input->isImm(), "expected constant arg index as input");
   auto arg_idx = input->getConstant();
   auto loc = env->arg_locations[arg_idx];
   static_cast<Operand*>(input)->setPhyRegOrStackSlot(loc);
-  static_cast<Operand*>(input)->setDataType(instr->output()->dataType());
+  static_cast<Operand*>(input)->setDataType((&instr->output_)->dataType());
   return kChanged;
 }
 
@@ -290,7 +290,7 @@ Instruction* getSecondCallResult(
     return it->second;
   }
   Instruction* src_instr = src->instr();
-  BasicBlock* src_block = src_instr->basicblock();
+  BasicBlock* src_block = src_instr->basic_block_;
   auto src_it = src_block->iterator_to(src_instr);
   JIT_CHECK(
       src_instr->isCall() || src_instr->isPhi(),
@@ -306,9 +306,9 @@ Instruction* getSecondCallResult(
     if (next_instr_ptr != nullptr) {
       Instruction* next_instr = next_instr_ptr;
       JIT_CHECK(
-          !(next_instr->isMove() && next_instr->getNumInputs() == 1 &&
-            next_instr->getInput(0)->isReg() &&
-            next_instr->getInput(0)->getPhyRegister() == RETURN_REGS[1]),
+          !(next_instr->isMove() && next_instr->num_inputs_ == 1 &&
+            next_instr->inputs_[0]->isReg() &&
+            next_instr->inputs_[0]->getPhyRegister() == RETURN_REGS[1]),
           "Call output consumed by multiple LoadSecondCallResult instructions");
     }
   }
@@ -316,7 +316,7 @@ Instruction* getSecondCallResult(
   if (instr) {
     // We want to keep using the vreg defined by instr, so move it to after
     // src_instr, rather than allocating a new one.
-    BasicBlock* instr_block = instr->basicblock();
+    BasicBlock* instr_block = instr->basic_block_;
     instr_block->removeInstr(instr);
     // Insert after src_it (which is src_instr)
     Instruction* after_src = src_it->next_;
@@ -353,12 +353,12 @@ void populateLoadSecondCallResultPhi(
     Instruction* phi1,
     Instruction* phi2,
     UnorderedMap<Operand*, Instruction*>& seen_srcs) {
-  for (size_t i = 1; i < phi1->getNumInputs(); i += 2) {
-    Operand* src1 = phi1->getInput(i)->getDefine();
+  for (size_t i = 1; i < phi1->num_inputs_; i += 2) {
+    Operand* src1 = phi1->inputs_[i]->getDefine();
     Instruction* instr2 =
         getSecondCallResult(data_type, src1, nullptr, seen_srcs);
     phi2->addOperands(
-        Lbl(phi1->getInput(i - 1)->getBasicBlock()), VReg(instr2));
+        Lbl(phi1->inputs_[i - 1]->getBasicBlock()), VReg(instr2));
   }
 }
 
@@ -373,9 +373,9 @@ RewriteResult rewriteLoadSecondCallResult(instr_iter_t instr_iter) {
     return kUnchanged;
   }
 
-  Operand* src = instr->getInput(0)->getDefine();
+  Operand* src = instr->inputs_[0]->getDefine();
   UnorderedMap<Operand*, Instruction*> seen_srcs;
-  getSecondCallResult(instr->output()->dataType(), src, instr, seen_srcs);
+  getSecondCallResult((&instr->output_)->dataType(), src, instr, seen_srcs);
   return kRemoved;
 }
 
@@ -385,7 +385,7 @@ RewriteResult rewriteLoadSecondCallResult(instr_iter_t instr_iter) {
 // mask them.
 RewriteResult rewritePromoteOutputSize(instr_iter_t instr_iter) {
   auto instr = instr_iter;
-  switch (instr->opcode()) {
+  switch (instr->opcode_) {
     case Instruction::kEqual:
     case Instruction::kNotEqual:
     case Instruction::kGreaterThanSigned:
@@ -396,8 +396,8 @@ RewriteResult rewritePromoteOutputSize(instr_iter_t instr_iter) {
     case Instruction::kGreaterThanEqualUnsigned:
     case Instruction::kLessThanUnsigned:
     case Instruction::kLessThanEqualUnsigned:
-      if (instr->output()->sizeInBits() < 32) {
-        instr->output()->setDataType(DataType::k32bit);
+      if ((&instr->output_)->sizeInBits() < 32) {
+        (&instr->output_)->setDataType(DataType::k32bit);
         return kChanged;
       }
       return kUnchanged;
