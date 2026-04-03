@@ -116,7 +116,7 @@ jit_lir_block_get_instr_at(JitLirBlock block, size_t index) {
 
 extern "C" int
 jit_lir_instr_opcode(JitLirInstr instr) {
-  return static_cast<int>(static_cast<Instruction*>(instr)->opcode());
+  return static_cast<int>(static_cast<Instruction*>(instr)->opcode_);
 }
 
 extern "C" int
@@ -141,12 +141,12 @@ jit_lir_instr_is_terminator(JitLirInstr instr) {
 
 extern "C" JitLirOperand
 jit_lir_instr_get_input(JitLirInstr instr, size_t index) {
-  return static_cast<Instruction*>(instr)->getInput(index);
+  return static_cast<Instruction*>(instr)->inputs_[index];
 }
 
 extern "C" JitLirOperand
 jit_lir_instr_output(JitLirInstr instr) {
-  return static_cast<Instruction*>(instr)->output();
+  return &static_cast<Instruction*>(instr)->output_;
 }
 
 /* ---- Operand accessors ---- */
