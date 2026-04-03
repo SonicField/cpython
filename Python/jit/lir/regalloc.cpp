@@ -403,14 +403,14 @@ void LinearScanAllocator::calculateLiveIntervals() {
     int instr_id = bb_end_id - kIdsPerInstr;
     for (Instruction* instr = bb->getLastInstr(); instr != nullptr;
          instr = instr->prev_, instr_id -= kIdsPerInstr) {
-      auto instr_opcode = instr->opcode();
+      auto instr_opcode = instr->opcode_;
       if (instr_opcode == Instruction::kPhi) {
         // ignore phi instructions
         continue;
       }
 
       // output
-      auto output_opnd = instr->output();
+      auto output_opnd = (&instr->output_);
       if (output_opnd->isVreg()) {
         if (kPyDebug) {
           auto inserted = seen_outputs.insert(output_opnd).second;
@@ -474,8 +474,8 @@ void LinearScanAllocator::calculateLiveIntervals() {
       }
 
       // inputs
-      for (size_t i = 0; i < instr->getNumInputs(); i++) {
-        const OperandBase* opnd = instr->getInput(i);
+      for (size_t i = 0; i < instr->num_inputs_; i++) {
+        const OperandBase* opnd = instr->inputs_[i];
         if (!opnd->isVreg() && !opnd->isInd()) {
           continue;
         }
@@ -496,7 +496,7 @@ void LinearScanAllocator::calculateLiveIntervals() {
 
 #if defined(CINDER_X86_64)
       if ((instr_opcode == Instruction::kMul) &&
-          (instr->getInput(0)->dataType() == OperandBase::k8bit)) {
+          (instr->inputs_[0]->dataType() == OperandBase::k8bit)) {
         // see rewriteByteMultiply
         reserveRegisters(instr_id, PhyRegisterSet(RAX));
       } else if (
@@ -504,7 +504,7 @@ void LinearScanAllocator::calculateLiveIntervals() {
           instr_opcode == Instruction::kDivUn) {
         PhyRegisterSet reserved(RAX);
 
-        if (instr->getInput(1)->dataType() != OperandBase::k8bit) {
+        if (instr->inputs_[1]->dataType() != OperandBase::k8bit) {
           reserved = reserved | RDX;
         }
 
@@ -517,8 +517,8 @@ void LinearScanAllocator::calculateLiveIntervals() {
       }
 
       if (instr_opcode == Instruction::kBind) {
-        auto& interval = getInterval(instr->output());
-        interval.allocateTo(instr->getInput(0)->getPhyRegister());
+        auto& interval = getInterval((&instr->output_));
+        interval.allocateTo(instr->inputs_[0]->getPhyRegister());
       }
     }
     // From the original paper:
@@ -534,7 +534,7 @@ void LinearScanAllocator::calculateLiveIntervals() {
        function's block.
     */
     bb->foreachPhiInstr(
-        [&live](const Instruction* phi) { live.erase(phi->output()); });
+        [&live](const Instruction* phi) { live.erase((&phi->output_)); });
 
     auto loop_iter = loop_ends.find(bb);
     if (loop_iter != loop_ends.end()) {
@@ -1091,7 +1091,7 @@ void LinearScanAllocator::rewriteLIR() {
         if (!instr_iter->isPhi()) {
           rewriteInstrInputs(instr_iter, mapping, &last_use_vregs);
 
-          if (instr_iter->output()->isInd()) {
+          if ((&instr_iter->output_)->isInd()) {
             rewriteInstrOutput(instr_iter, mapping, &last_use_vregs);
           }
           if (instr_iter->isYieldInitial()) {
@@ -1137,7 +1137,7 @@ void LinearScanAllocator::rewriteInstrOutput(
     Instruction* instr,
     const UnorderedMap<const Operand*, const LiveInterval*>& mapping,
     const UnorderedSet<const LinkedOperand*>* last_use_vregs) {
-  auto output = instr->output();
+  auto output = (&instr->output_);
   if (output->isInd()) {
     rewriteInstrOneIndirectOperand(
         output->getMemoryIndirect(), mapping, last_use_vregs);
@@ -1160,9 +1160,9 @@ void LinearScanAllocator::rewriteInstrOutput(
   // Avoid removing call instructions that may have side effects.
   // TODO: Fix HIR generator to avoid generating unused output/variables.
   // Need a separate pass in HIR to handle the dead code more gracefully.
-  if (instr->opcode() == Instruction::kCall ||
-      instr->opcode() == Instruction::kVarArgCall ||
-      instr->opcode() == Instruction::kVectorCall) {
+  if (instr->opcode_ == Instruction::kCall ||
+      instr->opcode_ == Instruction::kVarArgCall ||
+      instr->opcode_ == Instruction::kVectorCall) {
     output->setNone();
   } else {
     instr->setOpcode(Instruction::kNop);
@@ -1173,7 +1173,7 @@ void LinearScanAllocator::rewriteInstrInputs(
     Instruction* instr,
     const UnorderedMap<const Operand*, const LiveInterval*>& mapping,
     const UnorderedSet<const LinkedOperand*>* last_use_vregs) {
-  for (size_t i = 0; i < instr->getNumInputs(); i++) {
+  for (size_t i = 0; i < instr->num_inputs_; i++) {
     rewriteInstrOneInput(instr, i, mapping, last_use_vregs);
   }
 }
@@ -1183,7 +1183,7 @@ void LinearScanAllocator::rewriteInstrOneInput(
     size_t i,
     const UnorderedMap<const Operand*, const LiveInterval*>& mapping,
     const UnorderedSet<const LinkedOperand*>* last_use_vregs) {
-  auto input = instr->getInput(i);
+  auto input = instr->inputs_[i];
 
   if (input->isInd()) {
     rewriteInstrOneIndirectOperand(
@@ -1333,7 +1333,7 @@ void LinearScanAllocator::resolveEdges() {
     auto last_instr_iter = last_instr;
 
     auto last_instr_opcode =
-        last_instr != nullptr ? last_instr->opcode() : Instruction::kNone;
+        last_instr != nullptr ? last_instr->opcode_ : Instruction::kNone;
 
     // for unconditional branch
     if (successors.size() == 1) {
@@ -1344,7 +1344,7 @@ void LinearScanAllocator::resolveEdges() {
       bool is_return = last_instr_opcode == Instruction::kReturn;
       if (is_return) {
         // check if the operand is the return register
-        auto ret_opnd = last_instr->getInput(0);
+        auto ret_opnd = last_instr->inputs_[0];
         if (ret_opnd->isReg() || ret_opnd->isStack()) {
           auto reg = ret_opnd->getPhyRegOrStackSlot();
 
@@ -1362,8 +1362,8 @@ void LinearScanAllocator::resolveEdges() {
               last_instr, Instruction::kMove);
           JIT_CHECK(!ret_opnd->isFp(), "only integer should be present");
           instr->allocateImmediateInput(ret_opnd->getConstant());
-          instr->output()->setPhyRegister(arch::reg_general_return_loc);
-          instr->output()->setDataType(ret_opnd->dataType());
+          (&instr->output_)->setPhyRegister(arch::reg_general_return_loc);
+          (&instr->output_)->setDataType(ret_opnd->dataType());
         }
       }
 
@@ -1433,7 +1433,7 @@ LinearScanAllocator::resolveEdgesGenCopies(
       // In future optimizations, we can consider a way of looking up a phi by
       // vreg instead of linear scan.
       successor->foreachPhiInstr([&](const Instruction* instr) {
-        if (instr->output()->getPhyRegOrStackSlot() ==
+        if ((&instr->output_)->getPhyRegOrStackSlot() ==
             interval->allocated_loc) {
           phi = instr;
         }
@@ -1447,7 +1447,7 @@ LinearScanAllocator::resolveEdgesGenCopies(
     if (phi != nullptr) {
       auto operand = phi->getOperandByPredecessor(basicblock);
       from = operand->getPhyRegOrStackSlot();
-      to = phi->output()->getPhyRegOrStackSlot();
+      to = (&phi->output_)->getPhyRegOrStackSlot();
       data_type = operand->dataType();
     } else if (interval_starts_from_beginning) {
       // If not Phi, we need to check the original first instruction.  Please
@@ -1460,7 +1460,7 @@ LinearScanAllocator::resolveEdgesGenCopies(
       // Even though LIR is in SSA, when the successor is a loop head, the
       // first instruction could be a define of the same vreg.  In that case,
       // we don't need to generate move instructions.
-      if (succ_first_instr->output() == interval->operand) {
+      if (succ_first_(&instr->output_) == interval->operand) {
         continue;
       }
 
@@ -1516,22 +1516,22 @@ void LinearScanAllocator::rewriteLIREmitCopies(
         } else if (from == CopyGraph::kTempLoc) {
           auto instr =
               block->allocateInstrBefore(instr_iter, Instruction::kPop);
-          instr->output()->setPhyRegOrStackSlot(to);
-          instr->output()->setDataType(DataType::k64bit);
+          (&instr->output_)->setPhyRegOrStackSlot(to);
+          (&instr->output_)->setDataType(DataType::k64bit);
         } else if (to.is_register() || from.is_register()) {
           auto instr =
               block->allocateInstrBefore(instr_iter, Instruction::kMove);
           instr->allocatePhyRegOrStackInput(from)->setDataType(orig_opnd_size);
-          instr->output()->setPhyRegOrStackSlot(to);
-          instr->output()->setDataType(orig_opnd_size);
+          (&instr->output_)->setPhyRegOrStackSlot(to);
+          (&instr->output_)->setDataType(orig_opnd_size);
         } else {
           auto push =
               block->allocateInstrBefore(instr_iter, Instruction::kPush);
           push->allocatePhyRegOrStackInput(from)->setDataType(DataType::k64bit);
 
           auto pop = block->allocateInstrBefore(instr_iter, Instruction::kPop);
-          pop->output()->setPhyRegOrStackSlot(to);
-          pop->output()->setDataType(DataType::k64bit);
+          (&pop->output_)->setPhyRegOrStackSlot(to);
+          (&pop->output_)->setDataType(DataType::k64bit);
         }
         break;
       }
@@ -1544,8 +1544,8 @@ void LinearScanAllocator::rewriteLIREmitCopies(
         auto instr =
             block->allocateInstrBefore(instr_iter, Instruction::kExchange);
         instr->allocatePhyRegisterInput(from)->setDataType(orig_opnd_size);
-        instr->output()->setPhyRegOrStackSlot(to);
-        instr->output()->setDataType(orig_opnd_size);
+        (&instr->output_)->setPhyRegOrStackSlot(to);
+        (&instr->output_)->setDataType(orig_opnd_size);
         break;
       }
     }
