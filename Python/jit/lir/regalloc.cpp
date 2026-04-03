@@ -1460,7 +1460,7 @@ LinearScanAllocator::resolveEdgesGenCopies(
       // Even though LIR is in SSA, when the successor is a loop head, the
       // first instruction could be a define of the same vreg.  In that case,
       // we don't need to generate move instructions.
-      if (succ_first_(&instr->output_) == interval->operand) {
+      if ((&succ_first_instr->output_) == interval->operand) {
         continue;
       }
 
