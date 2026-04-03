@@ -63,15 +63,15 @@ void Printer::print(std::ostream& out, const BasicBlock& block) {
 
   const hir::Instr* prev_instr = nullptr;
   for (auto& instr : block.instructions()) {
-    if (getConfig().log.lir_origin && instr->origin() != prev_instr) {
-      if (instr->origin()) {
+    if (getConfig().log.lir_origin && instr.origin() != prev_instr) {
+      if (instr.origin()) {
         out << '\n';
-        hir_printer_.Print(out, *instr->origin());
+        hir_printer_.Print(out, *instr.origin());
         out << '\n';
       }
-      prev_instr = instr->origin();
+      prev_instr = instr.origin();
     }
-    print(out, *instr);
+    print(out, instr);
     out << '\n';
   }
 }

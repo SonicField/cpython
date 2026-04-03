@@ -104,10 +104,12 @@ jit_lir_block_get_id(JitLirBlock block) {
 
 extern "C" JitLirInstr
 jit_lir_block_get_instr_at(JitLirBlock block, size_t index) {
-  auto& instrs = static_cast<BasicBlock*>(block)->instructions();
-  auto it = instrs.begin();
-  std::advance(it, index);
-  return it->get();
+  auto instrs = static_cast<BasicBlock*>(block)->instructions();
+  Instruction* cur = instrs.front();
+  for (size_t i = 0; i < index && cur; i++) {
+    cur = cur->next_;
+  }
+  return cur;
 }
 
 /* ---- Instruction accessors ---- */
@@ -249,12 +251,12 @@ jit_lir_block_remove_dead_instrs(
     int (*is_live)(JitLirInstr instr, void* ctx),
     void* ctx) {
   auto* bb = static_cast<BasicBlock*>(block);
-  for (auto it = bb->instructions().begin();
-       it != bb->instructions().end();) {
-    auto to_remove = it;
-    ++it;
-    if (!is_live(to_remove->get(), ctx)) {
-      bb->removeInstr(to_remove);
+  Instruction* instr = bb->getFirstInstr();
+  while (instr) {
+    Instruction* next = instr->next_;
+    if (!is_live(instr, ctx)) {
+      delete bb->removeInstr(instr);
     }
+    instr = next;
   }
 }

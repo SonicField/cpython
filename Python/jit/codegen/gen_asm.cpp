@@ -3163,9 +3163,9 @@ void NativeGenerator::generateAssemblyBody(const asmjit::CodeHolder& code) {
     as->bind(map_get(env_.block_label_map, basicblock));
     for (auto& instr : basicblock->instructions()) {
       asmjit::BaseNode* cursor = as->cursor();
-      autogen::AutoTranslator::getInstance().translateInstr(&env_, instr.get());
-      if (instr->origin() != nullptr) {
-        env_.addAnnotation(instr.get(), cursor);
+      autogen::AutoTranslator::getInstance().translateInstr(&env_, &instr);
+      if (instr.origin() != nullptr) {
+        env_.addAnnotation(&instr, cursor);
       }
     }
   }

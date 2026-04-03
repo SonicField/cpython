@@ -148,17 +148,16 @@ void deepCopyBasicBlocks(
     for (auto& instr : bb->instructions()) {
       // Copying the instruction will also copy the output
       // (including the output type and data type).
-      bb_copy->instructions().emplace_back(
-          std::make_unique<Instruction>(bb_copy, instr.get(), origin));
-      Instruction* instr_copy = bb_copy->instructions().back().get();
-      output_index_map.emplace(instr->id(), instr_copy);
+      auto* instr_copy = new Instruction(bb_copy, &instr, origin);
+      bb_copy->appendInstr(instr_copy);
+      output_index_map.emplace(instr.id(), instr_copy);
       // Copy output.
-      Operand* output = instr->output();
+      Operand* output = instr.output();
       Operand* output_copy = instr_copy->output();
       copyOperand(block_index_map_, instr_refs, output, output_copy);
       // Copy inputs.
-      for (size_t i = 0, n = instr->getNumInputs(); i < n; ++i) {
-        OperandBase* input = instr->getInput(i);
+      for (size_t i = 0, n = instr.getNumInputs(); i < n; ++i) {
+        OperandBase* input = instr.getInput(i);
         copyInput(block_index_map_, instr_refs, input, instr_copy);
       }
     }

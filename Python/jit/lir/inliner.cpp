@@ -23,8 +23,8 @@ bool LIRInliner::inlineCalls(Function* func) {
     BasicBlock* bb = blocks[i];
 
     for (auto& instr : bb->instructions()) {
-      if (instr->isCall()) {
-        LIRInliner inliner(func, instr.get());
+      if (instr.isCall()) {
+        LIRInliner inliner(func, &instr);
         if (inliner.inlineCall()) {
           changed = true;
           // This block has been split,
@@ -111,8 +111,8 @@ bool LIRInliner::checkEntryExitReturn(const Function* callee) {
       return false;
     }
     for (auto& instr : bb->instructions()) {
-      if (instr->isReturn()) {
-        if (instr.get() != bb->getLastInstr() || bb->successors().size() != 1 ||
+      if (instr.isReturn()) {
+        if (&instr != bb->getLastInstr() || bb->successors().size() != 1 ||
             bb->successors()[0] != exit_block) {
           JIT_DLOG(
               "Expect return to be last instruction of the predecessor of the "
@@ -151,11 +151,11 @@ bool LIRInliner::checkLoadArg(const Function* callee) {
   for (auto bb : callee->basicblocks()) {
     for (auto& instr : bb->instructions()) {
       if (check_load_arg) {
-        if (instr->isLoadArg()) {
-          if (instr->getNumInputs() < 1) {
+        if (instr.isLoadArg()) {
+          if (instr.getNumInputs() < 1) {
             return false;
           }
-          auto input = instr->getInput(0);
+          auto input = instr.getInput(0);
           if (!input->isImm()) {
             return false;
           }
@@ -167,7 +167,7 @@ bool LIRInliner::checkLoadArg(const Function* callee) {
           check_load_arg = false;
         }
       } else {
-        if (instr->isLoadArg()) {
+        if (instr.isLoadArg()) {
           // kLoadArg instructions should only be at the
           // beginning of the callee.
           return false;
@@ -244,10 +244,10 @@ bool LIRInliner::resolveArguments() {
   auto const& caller_blocks = caller_->basicblocks();
   for (int i = callee_start_; i < callee_end_; i++) {
     auto bb = caller_blocks.at(i);
-    auto it = bb->instructions().begin();
+    Instruction* it = bb->getFirstInstr();
     // Use while loop since instructions may be removed.
-    while (it != bb->instructions().end()) {
-      if ((*it)->isLoadArg()) {
+    while (it != nullptr) {
+      if (it->isLoadArg()) {
         resolveLoadArg(vreg_map, bb, it);
       } else {
         // When instruction is not kLoadArg,
@@ -263,8 +263,8 @@ bool LIRInliner::resolveArguments() {
 void LIRInliner::resolveLoadArg(
     UnorderedMap<OperandBase*, LinkedOperand*>& vreg_map,
     BasicBlock* bb,
-    instr_iter_t& instr_it) {
-  auto instr = instr_it->get();
+    Instruction*& instr_it) {
+  auto* instr = instr_it;
   JIT_DCHECK(
       instr->getNumInputs() > 0 && instr->getInput(0)->isImm(),
       "LoadArg instruction should have at least 1 input.");
@@ -280,20 +280,22 @@ void LIRInliner::resolveLoadArg(
     auto* param_copy = new Operand(instr, static_cast<Operand*>(param));
     param_copy->setConstant(param->getConstant());
     instr->setInput(0, param_copy);
-    ++instr_it;
+    instr_it = instr_it->next_;
   } else {
     JIT_DCHECK(
         param->isLinked(), "Inlined arguments must be immediate or linked.");
     // Otherwise, output of kLoadArg should be a virtual register.
     // For virtual registers, delete kLoadArg and replace uses.
     vreg_map.emplace(instr->output(), static_cast<LinkedOperand*>(param));
-    instr_it = bb->instructions().erase(instr_it);
+    Instruction* next = instr_it->next_;
+    delete bb->removeInstr(instr_it);
+    instr_it = next;
   }
 }
 
 void LIRInliner::resolveLinkedArgumentsUses(
     UnorderedMap<OperandBase*, LinkedOperand*>& vreg_map,
-    std::list<std::unique_ptr<Instruction>>::iterator& instr_it) {
+    Instruction*& instr_it) {
   auto setLinkedOperand = [&](OperandBase* opnd) {
     auto new_def = map_get(vreg_map, opnd->getDefine(), nullptr);
     if (new_def != nullptr) {
@@ -301,7 +303,7 @@ void LIRInliner::resolveLinkedArgumentsUses(
       opnd_linked->setLinkedInstr(new_def->getLinkedOperand()->instr());
     }
   };
-  auto instr = instr_it->get();
+  auto* instr = instr_it;
   for (size_t i = 0, n = instr->getNumInputs(); i < n; i++) {
     auto input = instr->getInput(i);
     if (input->isLinked()) {
@@ -319,7 +321,7 @@ void LIRInliner::resolveLinkedArgumentsUses(
       }
     }
   }
-  ++instr_it;
+  instr_it = instr_it->next_;
 }
 
 void LIRInliner::resolveReturnValue() {

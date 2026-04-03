@@ -18,11 +18,11 @@ namespace jit::lir {
 namespace {
 
 RewriteResult removePhiInstructions(instr_iter_t instr_iter) {
-  auto& instr = *instr_iter;
+  auto* instr = instr_iter;
 
   if (instr->opcode() == Instruction::kPhi) {
     auto block = instr->basicblock();
-    block->removeInstr(instr_iter);
+    delete block->removeInstr(instr_iter);
     return kRemoved;
   }
 
@@ -89,7 +89,7 @@ void insertMoveToMemoryLocation(
 }
 
 int rewriteRegularFunction(instr_iter_t instr_iter) {
-  auto instr = instr_iter->get();
+  auto instr = instr_iter;
   auto block = instr->basicblock();
 
   auto num_inputs = instr->getNumInputs();
@@ -157,7 +157,7 @@ int prepareArgsArray(
     size_t first_arg,
     PhyLocation dest,
     PhyLocation size_dest) {
-  auto instr = instr_iter->get();
+  auto instr = instr_iter;
   auto block = instr->basicblock();
   constexpr size_t PTR_SIZE = sizeof(void*);
 
@@ -189,7 +189,7 @@ int prepareArgsArray(
 }
 
 int rewriteVectorCallFunctions(instr_iter_t instr_iter) {
-  auto instr = instr_iter->get();
+  auto instr = instr_iter;
 
   // For vector calls there are 4 fixed arguments:
   // * #0   - runtime helper function
@@ -250,7 +250,7 @@ int rewriteVectorCallFunctions(instr_iter_t instr_iter) {
 }
 
 int rewriteVarArgCall(instr_iter_t instr_iter) {
-  auto instr = instr_iter->get();
+  auto instr = instr_iter;
   instr->setOpcode(Instruction::kCall);
   auto res = prepareArgsArray(
       instr_iter,
@@ -268,7 +268,7 @@ int rewriteVarArgCall(instr_iter_t instr_iter) {
 //   - handle special cases such as JITRT_(Call|Invoke)Function,
 //   JITRT_(Call|Get)Method, etc.
 RewriteResult rewriteCallInstrs(instr_iter_t instr_iter, Environ* env) {
-  auto instr = instr_iter->get();
+  auto instr = instr_iter;
   if (instr->isVarArgCall()) {
     int rsp_sub = rewriteVarArgCall(instr_iter);
     env->max_arg_buffer_size = std::max<int>(env->max_arg_buffer_size, rsp_sub);
@@ -294,7 +294,7 @@ RewriteResult rewriteCallInstrs(instr_iter_t instr_iter, Environ* env) {
   instr->setNumInputs(1); // leave function self operand only
   instr->setOpcode(Instruction::kCall);
 
-  auto next_iter = std::next(instr_iter);
+  auto next_iter = instr_iter->next_;
 
   env->max_arg_buffer_size = std::max<int>(env->max_arg_buffer_size, rsp_sub);
 
@@ -328,7 +328,7 @@ RewriteResult rewriteCallInstrs(instr_iter_t instr_iter, Environ* env) {
 
 // Replaces ZEXT and SEXT with appropriate MOVE instructions.
 RewriteResult rewriteBitExtensionInstrs(instr_iter_t instr_iter) {
-  auto instr = instr_iter->get();
+  auto instr = instr_iter;
 
   bool is_sext = instr->opcode() == Instruction::kSext;
   bool is_zext = instr->opcode() == Instruction::kZext;
@@ -444,7 +444,7 @@ RewriteResult rewriteBranchInstrs(Function* function) {
 //   1. remove the move instruction when source and destination are the same
 //   2. rewrite move instruction to xor when the source operand is 0.
 RewriteResult optimizeMoveInstrs(instr_iter_t instr_iter) {
-  auto instr = instr_iter->get();
+  auto instr = instr_iter;
   auto instr_opcode = instr->opcode();
   if (instr_opcode != Instruction::kMove) {
     return kUnchanged;
@@ -479,7 +479,7 @@ RewriteResult optimizeMoveInstrs(instr_iter_t instr_iter) {
 }
 
 RewriteResult rewriteLoadInstrs(instr_iter_t instr_iter) {
-  auto instr = instr_iter->get();
+  auto instr = instr_iter;
 
   if (!(instr->isMove() || instr->isMoveRelaxed()) ||
       instr->getNumInputs() != 1 || !instr->getInput(0)->isMem()) {
@@ -528,7 +528,7 @@ RewriteResult rewriteLoadInstrs(instr_iter_t instr_iter) {
 
 // Convert CondBranch to Test and BranchCC instructions.
 void doRewriteCondBranch(instr_iter_t instr_iter, BasicBlock* next_block) {
-  auto instr = instr_iter->get();
+  auto instr = instr_iter;
 
   auto input = instr->getInput(0);
   auto block = instr->basicblock();
@@ -573,7 +573,7 @@ void doRewriteCondBranch(instr_iter_t instr_iter, BasicBlock* next_block) {
 
 // Negate BranchCC instructions based on the next (fallthrough) basic block.
 void doRewriteBranchCC(instr_iter_t instr_iter, BasicBlock* next_block) {
-  auto instr = instr_iter->get();
+  auto instr = instr_iter;
   auto block = instr->basicblock();
 
   auto true_bb = block->getTrueSuccessor();
@@ -607,13 +607,13 @@ RewriteResult rewriteCondBranch(Function* function) {
     ++iter;
 
     auto instr_iter = block->getLastInstrIter();
-    if (instr_iter == block->instructions().end()) {
+    if (instr_iter == nullptr) {
       continue;
     }
 
     BasicBlock* next_block = (iter != blocks.end() ? *iter : nullptr);
 
-    auto instr = instr_iter->get();
+    auto instr = instr_iter;
 
     if (instr->isCondBranch()) {
       doRewriteCondBranch(instr_iter, next_block);
@@ -628,7 +628,7 @@ RewriteResult rewriteCondBranch(Function* function) {
 }
 
 RewriteResult rewriteBinaryOpInstrs(instr_iter_t instr_iter) {
-  auto instr = instr_iter->get();
+  auto instr = instr_iter;
 
   // For a binary operation:
   //
@@ -686,7 +686,7 @@ RewriteResult rewriteBinaryOpInstrs(instr_iter_t instr_iter) {
 // AARCH64 only has 32-bit (W) and 64-bit (X) register operands. Rewrite 8-bit
 // and 16-bit register-to-register moves to use 32-bit registers instead.
 RewriteResult rewriteSubWordRegMoves(instr_iter_t instr_iter) {
-  auto instr = instr_iter->get();
+  auto instr = instr_iter;
   if (!instr->isMove()) {
     return kUnchanged;
   }
@@ -718,7 +718,7 @@ RewriteResult rewriteSubWordRegMoves(instr_iter_t instr_iter) {
 #if defined(CINDER_X86_64)
 // Rewrite 8-bit multiply to use single-operand imul.
 RewriteResult rewriteByteMultiply(instr_iter_t instr_iter) {
-  Instruction* instr = instr_iter->get();
+  Instruction* instr = instr_iter;
 
   if (!instr->isMul() || instr->getNumInputs() < 2) {
     return kUnchanged;
@@ -752,7 +752,7 @@ RewriteResult rewriteByteMultiply(instr_iter_t instr_iter) {
   output->setNone(); // no output means first input is also output
   if (out_reg != RAX) {
     block->allocateInstrBefore(
-        std::next(instr_iter),
+        instr_iter->next_,
         Instruction::kMove,
         OutPhyReg(out_reg, OperandBase::k8bit),
         PhyReg(AL, OperandBase::k8bit));
@@ -794,7 +794,7 @@ bool insertMoveToRegister(
 #if defined(CINDER_X86_64)
 // Rewrite division instructions to use correct registers.
 RewriteResult rewriteDivide(instr_iter_t instr_iter) {
-  Instruction* instr = instr_iter->get();
+  Instruction* instr = instr_iter;
   if (!instr->isDiv() && !instr->isDivUn()) {
     return kUnchanged;
   }
@@ -897,7 +897,7 @@ RewriteResult rewriteDivide(instr_iter_t instr_iter) {
 
   if (out_reg != RAX) {
     block->allocateInstrBefore(
-        std::next(instr_iter),
+        instr_iter->next_,
         Instruction::kMove,
         OutPhyReg(out_reg, dividend_lower->dataType()),
         PhyReg(PhyLocation::RAX, dividend_lower->dataType()));
@@ -983,10 +983,10 @@ RewriteResult optimizeMoveSequence(BasicBlock* basicblock) {
   auto changed = kUnchanged;
   RegisterToMemoryMoves registerMemoryMoves;
 
-  for (auto instr_iter = basicblock->instructions().begin();
-       instr_iter != basicblock->instructions().end();
-       ++instr_iter) {
-    auto& instr = *instr_iter;
+  for (Instruction* instr = basicblock->getFirstInstr();
+       instr != nullptr;
+       instr = instr->next_) {
+    auto instr_iter = instr;  // for backward compat with stored iters
     // TODO: do not optimize for yield for now. They need to be special cased.
     if (!instr->isAnyYield()) {
       auto out_reg = instr->output()->isReg()
@@ -1017,7 +1017,7 @@ RewriteResult optimizeMoveSequence(BasicBlock* basicblock) {
             "{}",
             old_opnd,
             *opnd,
-            *instr);
+            *opnd);
         changed = kChanged;
 
         // if the stack location operand can be replaced by the register it came
@@ -1026,7 +1026,7 @@ RewriteResult optimizeMoveSequence(BasicBlock* basicblock) {
         if (opnd->isLastUse()) {
           auto opt_iter = registerMemoryMoves.getInstrFromMemory(stack_slot);
           JIT_CHECK(opt_iter.has_value(), "There must be a def instruction.");
-          basicblock->instructions().erase(*opt_iter);
+          delete basicblock->removeInstr(*opt_iter);
         }
       });
     }

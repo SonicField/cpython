@@ -85,7 +85,7 @@ class LIRInliner {
   // fix up linked arguments that refer to outputs of kLoadArg instructions.
   void resolveLinkedArgumentsUses(
       UnorderedMap<lir::OperandBase*, lir::LinkedOperand*>& vreg_map,
-      std::list<std::unique_ptr<lir::Instruction>>::iterator& instr_it);
+      lir::Instruction*& instr_it);
 
   // Expects callee to have one empty epilogue block.
   // Expects return instructions to only appear as

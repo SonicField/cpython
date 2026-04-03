@@ -6,8 +6,6 @@
 #include "cinderx/Jit/lir/instruction.h"
 
 #include <cstring>
-#include <list>
-#include <memory>
 
 namespace jit::hir {
 class Instr;
@@ -46,8 +44,8 @@ struct ConstBlockSpan {
 // Basic block class for LIR
 class BasicBlock {
  public:
-  using InstrList = std::list<std::unique_ptr<Instruction>>;
-  using instr_iter_t = InstrList::iterator;
+  // Phase B3c-2: instr_iter_t is now Instruction* (linked list position).
+  using instr_iter_t = Instruction*;
 
   explicit BasicBlock(Function* func);
   ~BasicBlock();
@@ -88,42 +86,45 @@ class BasicBlock {
       Instruction::Opcode opcode,
       const hir::Instr* origin,
       T&&... args) {
-    instrs_.emplace_back(std::make_unique<Instruction>(this, opcode, origin));
-    auto instr = instrs_.back().get();
-
+    auto* instr = new Instruction(this, opcode, origin);
+    appendInstr(instr);
     instr->addOperands(std::forward<T>(args)...);
     return instr;
   }
 
   // Allocate an instruction and its operands and insert it before the
-  // instruction specified by iter. For the details on how to allocate
+  // instruction specified by pos. For the details on how to allocate
   // instruction operands, please refer to Instruction::addOperands() function.
   template <typename... T>
   Instruction* allocateInstrBefore(
-      instr_iter_t iter,
+      instr_iter_t pos,
       Instruction::Opcode opcode,
       T&&... args) {
     const hir::Instr* origin = nullptr;
-    if (iter != instrs_.end()) {
-      origin = (*iter)->origin();
-    } else if (iter != instrs_.begin()) {
-      origin = (*std::prev(iter))->origin();
+    if (pos != nullptr) {
+      origin = pos->origin();
+    } else if (instr_tail_ != nullptr) {
+      origin = instr_tail_->origin();
     }
 
-    auto instr = std::make_unique<Instruction>(this, opcode, origin);
-    auto res = instr.get();
-    instrs_.emplace(iter, std::move(instr));
-
-    res->addOperands(std::forward<T>(args)...);
-    return res;
+    auto* instr = new Instruction(this, opcode, origin);
+    insertInstrBefore(pos, instr);
+    instr->addOperands(std::forward<T>(args)...);
+    return instr;
   }
 
-  void appendInstr(std::unique_ptr<Instruction> instr);
+  // Append an instruction to the end of this block. Takes ownership.
+  void appendInstr(Instruction* instr);
 
-  std::unique_ptr<Instruction> removeInstr(instr_iter_t iter);
+  // Insert an instruction before pos in the linked list. Takes ownership.
+  void insertInstrBefore(Instruction* pos, Instruction* instr);
 
-  InstrList& instructions();
-  const InstrList& instructions() const;
+  // Remove an instruction from this block. Caller takes ownership of the
+  // returned pointer (must delete it or transfer elsewhere).
+  Instruction* removeInstr(instr_iter_t pos);
+
+  InstrRange instructions();
+  InstrRange instructions() const;
 
   bool isEmpty() const;
 
@@ -139,10 +140,9 @@ class BasicBlock {
 
   template <typename Func>
   void foreachPhiInstr(const Func& f) const {
-    for (auto& instr : instrs_) {
-      auto opcode = instr->opcode();
-      if (opcode == Instruction::kPhi) {
-        f(instr.get());
+    for (Instruction* instr = instr_head_; instr; instr = instr->next_) {
+      if (instr->opcode() == Instruction::kPhi) {
+        f(instr);
       }
     }
   }
@@ -181,12 +181,14 @@ class BasicBlock {
   size_t num_preds_{0};
   size_t preds_capacity_{0};
 
-  // Consider using IntrusiveList as in HIR.
-  InstrList instrs_;
+  // Phase B3c-2: intrusive doubly-linked list of instructions.
+  Instruction* instr_head_{nullptr};
+  Instruction* instr_tail_{nullptr};
+  size_t num_instrs_{0};
 
   codegen::CodeSection section_{codegen::CodeSection::kHot};
 };
 
-using instr_iter_t = BasicBlock::instr_iter_t;
+using instr_iter_t = Instruction*;
 
 } // namespace jit::lir

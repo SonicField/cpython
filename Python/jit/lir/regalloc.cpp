@@ -401,10 +401,8 @@ void LinearScanAllocator::calculateLiveIntervals() {
     }
 
     int instr_id = bb_end_id - kIdsPerInstr;
-    auto& instrs = bb->instructions();
-    for (auto instr_iter = instrs.rbegin(); instr_iter != instrs.rend();
-         ++instr_iter, instr_id -= kIdsPerInstr) {
-      auto instr = instr_iter->get();
+    for (Instruction* instr = bb->getLastInstr(); instr != nullptr;
+         instr = instr->prev_, instr_id -= kIdsPerInstr) {
       auto instr_opcode = instr->opcode();
       if (instr_opcode == Instruction::kPhi) {
         // ignore phi instructions
@@ -1070,14 +1068,12 @@ void LinearScanAllocator::rewriteLIR() {
       ++allocated_iter;
     }
 
-    auto& instrs = bb->instructions();
     bool process_input = false;
-    for (auto instr_iter = instrs.begin(); instr_iter != instrs.end();) {
+    for (Instruction* instr = bb->getFirstInstr(); instr != nullptr;) {
+      auto instr_iter = instr;
       ++instr_id;
       process_input = !process_input;
-
-      auto instr = instr_iter->get();
-      TRACE("{} - {} - {}", instr_id, process_input ? "in" : "out", *instr);
+      TRACE("{} - {} - {}", instr_id, process_input ? "in" : "out", *instr_iter);
 
       auto copies = std::make_unique<CopyGraphWithOperand>();
       // check for new allocated intervals and update register mappings
@@ -1092,26 +1088,29 @@ void LinearScanAllocator::rewriteLIR() {
 
       if (process_input) {
         // phi node inputs have to be handled by its predecessor
-        if (!instr->isPhi()) {
-          rewriteInstrInputs(instr, mapping, &last_use_vregs);
+        if (!instr_iter->isPhi()) {
+          rewriteInstrInputs(instr_iter, mapping, &last_use_vregs);
 
-          if (instr->output()->isInd()) {
-            rewriteInstrOutput(instr, mapping, &last_use_vregs);
+          if (instr_iter->output()->isInd()) {
+            rewriteInstrOutput(instr_iter, mapping, &last_use_vregs);
           }
-          if (instr->isYieldInitial()) {
+          if (instr_iter->isYieldInitial()) {
             computeInitialYieldSpillSize(mapping);
           }
         }
       } else {
-        rewriteInstrOutput(instr, mapping, &last_use_vregs);
+        rewriteInstrOutput(instr_iter, mapping, &last_use_vregs);
 
-        if (instr->isNop()) {
-          instr_iter = instrs.erase(instr_iter);
+        if (instr_iter->isNop()) {
+          Instruction* next = instr_iter->next_;
+          delete bb->removeInstr(instr_iter);
+          instr = next;
           continue;
         }
 
-        TRACE("After rewrite: {}", *instr);
-        ++instr_iter;
+        TRACE("After rewrite: {}", *instr_iter);
+        // Advance iterator after output pass (every other iteration).
+        instr = instr->next_;
       }
     }
 
@@ -1329,10 +1328,9 @@ void LinearScanAllocator::resolveEdges() {
         ? nullptr
         : blocks.at(next_block_index);
 
-    auto& instrs = basic_block->instructions();
-    bool empty = instrs.empty();
-    auto last_instr_iter = empty ? instrs.end() : std::prev(instrs.end());
-    auto last_instr = empty ? nullptr : last_instr_iter->get();
+    bool empty = basic_block->isEmpty();
+    Instruction* last_instr = basic_block->getLastInstr();
+    auto last_instr_iter = last_instr;
 
     auto last_instr_opcode =
         last_instr != nullptr ? last_instr->opcode() : Instruction::kNone;
@@ -1361,7 +1359,7 @@ void LinearScanAllocator::resolveEdges() {
         } else {
           // return <constant>, we need to shuffle the value into rax here
           auto instr = basic_block->allocateInstrBefore(
-              std::prev(instrs.end()), Instruction::kMove);
+              last_instr, Instruction::kMove);
           JIT_CHECK(!ret_opnd->isFp(), "only integer should be present");
           instr->allocateImmediateInput(ret_opnd->getConstant());
           instr->output()->setPhyRegister(arch::reg_general_return_loc);
@@ -1375,10 +1373,10 @@ void LinearScanAllocator::resolveEdges() {
           *last_instr);
 
       rewriteLIREmitCopies(
-          basic_block, basic_block->instructions().end(), std::move(copies));
+          basic_block, nullptr, std::move(copies));
 
       if (is_return) {
-        basic_block->removeInstr(last_instr_iter);
+        delete basic_block->removeInstr(last_instr_iter);
       }
 
       continue;
@@ -1616,7 +1614,7 @@ void LinearScanAllocator::resolveEdgesInsertBasicBlocks(
 
     rewriteLIREmitCopies(
         new_bb,
-        new_bb->instructions().end(),
+        nullptr,
         std::move(bb == true_bb ? true_copies : false_copies));
   };
 

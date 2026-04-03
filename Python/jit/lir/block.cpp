@@ -11,6 +11,13 @@ namespace jit::lir {
 BasicBlock::BasicBlock(Function* func) : id_(func->allocateId()), func_(func) {}
 
 BasicBlock::~BasicBlock() {
+  // Free all owned instructions.
+  Instruction* cur = instr_head_;
+  while (cur) {
+    Instruction* next = cur->next_;
+    delete cur;
+    cur = next;
+  }
   delete[] successors_;
   delete[] predecessors_;
 }
@@ -106,50 +113,87 @@ ConstBlockSpan BasicBlock::predecessors() const {
   return {predecessors_, num_preds_};
 }
 
-void BasicBlock::appendInstr(std::unique_ptr<Instruction> instr) {
-  instrs_.emplace_back(std::move(instr));
+void BasicBlock::appendInstr(Instruction* instr) {
+  instr->prev_ = instr_tail_;
+  instr->next_ = nullptr;
+  if (instr_tail_) {
+    instr_tail_->next_ = instr;
+  } else {
+    instr_head_ = instr;
+  }
+  instr_tail_ = instr;
+  num_instrs_++;
 }
 
-std::unique_ptr<Instruction> BasicBlock::removeInstr(instr_iter_t iter) {
-  auto instr = std::move(*iter);
-  instrs_.erase(iter);
+void BasicBlock::insertInstrBefore(Instruction* pos, Instruction* instr) {
+  if (pos == nullptr) {
+    // Insert at end.
+    appendInstr(instr);
+    return;
+  }
+  instr->next_ = pos;
+  instr->prev_ = pos->prev_;
+  if (pos->prev_) {
+    pos->prev_->next_ = instr;
+  } else {
+    instr_head_ = instr;
+  }
+  pos->prev_ = instr;
+  num_instrs_++;
+}
+
+Instruction* BasicBlock::removeInstr(instr_iter_t pos) {
+  Instruction* instr = pos;
+  if (instr->prev_) {
+    instr->prev_->next_ = instr->next_;
+  } else {
+    instr_head_ = instr->next_;
+  }
+  if (instr->next_) {
+    instr->next_->prev_ = instr->prev_;
+  } else {
+    instr_tail_ = instr->prev_;
+  }
+  instr->prev_ = nullptr;
+  instr->next_ = nullptr;
+  num_instrs_--;
   return instr;
 }
 
-BasicBlock::InstrList& BasicBlock::instructions() {
-  return instrs_;
+InstrRange BasicBlock::instructions() {
+  return {instr_head_, instr_tail_, num_instrs_};
 }
 
-const BasicBlock::InstrList& BasicBlock::instructions() const {
-  return instrs_;
+InstrRange BasicBlock::instructions() const {
+  return {instr_head_, instr_tail_, num_instrs_};
 }
 
 bool BasicBlock::isEmpty() const {
-  return instrs_.empty();
+  return instr_head_ == nullptr;
 }
 
 size_t BasicBlock::getNumInstrs() const {
-  return instrs_.size();
+  return num_instrs_;
 }
 
 Instruction* BasicBlock::getFirstInstr() {
-  return instrs_.empty() ? nullptr : instrs_.begin()->get();
+  return instr_head_;
 }
 
 const Instruction* BasicBlock::getFirstInstr() const {
-  return instrs_.empty() ? nullptr : instrs_.begin()->get();
+  return instr_head_;
 }
 
 Instruction* BasicBlock::getLastInstr() {
-  return instrs_.empty() ? nullptr : instrs_.rbegin()->get();
+  return instr_tail_;
 }
 
 const Instruction* BasicBlock::getLastInstr() const {
-  return instrs_.empty() ? nullptr : instrs_.rbegin()->get();
+  return instr_tail_;
 }
 
 instr_iter_t BasicBlock::getLastInstrIter() {
-  return instrs_.empty() ? instrs_.end() : std::prev(instrs_.end());
+  return instr_tail_;
 }
 
 BasicBlock* BasicBlock::insertBasicBlockBetween(BasicBlock* block) {
@@ -179,27 +223,24 @@ BasicBlock* BasicBlock::splitBefore(Instruction* instr) {
   JIT_CHECK(
       instr->opcode() != Instruction::kPhi, "cannot split block at a phi node");
 
-  // find the instruction
-  instr_iter_t it = instrs_.begin();
-  while (it != instrs_.end()) {
-    if (it->get() == instr) {
-      break;
-    } else {
-      ++it;
-    }
+  // find the instruction in this block
+  bool found = false;
+  for (Instruction* i = instr_head_; i; i = i->next_) {
+    if (i == instr) { found = true; break; }
   }
-
-  // the instruction should be in the basic block, otherwise we cannot split
-  if (it == instrs_.end()) {
+  if (!found) {
     return nullptr;
   }
 
   auto second_block = func_->allocateBasicBlockAfter(this);
-  // move all instructions after iterator
-  while (it != instrs_.end()) {
-    it->get()->setbasicblock(second_block);
-    second_block->appendInstr(std::move(*it));
-    it = instrs_.erase(it);
+  // move all instructions from instr onward to second_block
+  Instruction* cur = instr;
+  while (cur) {
+    Instruction* next = cur->next_;
+    removeInstr(cur);
+    cur->setbasicblock(second_block);
+    second_block->appendInstr(cur);
+    cur = next;
   }
 
   // fix up successors
@@ -248,12 +289,8 @@ void BasicBlock::setSection(codegen::CodeSection section) {
 }
 
 BasicBlock::instr_iter_t BasicBlock::iterator_to(Instruction* instr) {
-  for (auto it = instrs_.begin(); it != instrs_.end(); ++it) {
-    if (it->get() == instr) {
-      return it;
-    }
-  }
-  JIT_ABORT("Instruction not found in list");
+  // With intrusive linked list, the instruction IS the iterator.
+  return instr;
 }
 
 } // namespace jit::lir

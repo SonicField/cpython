@@ -24,7 +24,7 @@ RewriteResult rewriteInlineHelper(function_rewrite_arg_t func) {
 // always put it as the second operand (or move the 2nd to a register for div
 // instructions)
 RewriteResult rewriteBinaryOpConstantPosition(instr_iter_t instr_iter) {
-  auto instr = instr_iter->get();
+  auto instr = instr_iter;
   auto block = instr->basicblock();
 
   if (instr->isDiv() || instr->isDivUn()) {
@@ -95,7 +95,7 @@ RewriteResult rewriteBinaryOpLargeConstant(instr_iter_t instr_iter) {
   //     Vreg0 = Mov Imm64
   //     Vreg2 = BinOp Vreg1, VReg0
 
-  Instruction* instr = instr_iter->get();
+  Instruction* instr = instr_iter;
   if (!instr->isAdd() && !instr->isSub() && !instr->isXor() &&
       !instr->isAnd() && !instr->isOr() && !instr->isMul() &&
       !instr->isCompare()) {
@@ -179,7 +179,7 @@ RewriteResult rewriteMoveToMemoryLargeConstant(instr_iter_t instr_iter) {
   //     Vreg1 = Mov Imm64
   //     [Vreg0 + offset] = Vreg1
 
-  auto instr = instr_iter->get();
+  auto instr = instr_iter;
   auto out = instr->output();
 
   if (!(instr->isMove() || instr->isMoveRelaxed()) || !out->isInd()) {
@@ -214,7 +214,7 @@ RewriteResult rewriteMoveToMemoryLargeConstant(instr_iter_t instr_iter) {
 // ensures those immediates fit into comparison instructions (and if they do
 // not it splits them).
 RewriteResult rewriteGuardLargeConstant(instr_iter_t instr_iter) {
-  auto instr = instr_iter->get();
+  auto instr = instr_iter;
   if (!instr->isGuard()) {
     return kUnchanged;
   }
@@ -251,7 +251,7 @@ RewriteResult rewriteGuardLargeConstant(instr_iter_t instr_iter) {
 
 // Rewrite LoadArg to Bind and allocate a physical register for its input.
 RewriteResult rewriteLoadArg(instr_iter_t instr_iter, Environ* env) {
-  auto instr = instr_iter->get();
+  auto instr = instr_iter;
   if (!instr->isLoadArg()) {
     return kUnchanged;
   }
@@ -302,9 +302,9 @@ Instruction* getSecondCallResult(
     // LoadSecondCallResult. If we need to support this pattern in the future,
     // this rewrite function should probably become a standalone pass, with the
     // scope of seen_srcs expanded to the whole function.
-    auto next_it = std::next(src_it);
-    if (next_it != src_block->instructions().end()) {
-      Instruction* next_instr = next_it->get();
+    Instruction* next_instr_ptr = src_it->next_;
+    if (next_instr_ptr != nullptr) {
+      Instruction* next_instr = next_instr_ptr;
       JIT_CHECK(
           !(next_instr->isMove() && next_instr->getNumInputs() == 1 &&
             next_instr->getInput(0)->isReg() &&
@@ -317,9 +317,10 @@ Instruction* getSecondCallResult(
     // We want to keep using the vreg defined by instr, so move it to after
     // src_instr, rather than allocating a new one.
     BasicBlock* instr_block = instr->basicblock();
-    auto instr_it = instr_block->iterator_to(instr);
-    auto instr_owner = instr_block->removeInstr(instr_it);
-    src_block->instructions().insert(std::next(src_it), std::move(instr_owner));
+    instr_block->removeInstr(instr);
+    // Insert after src_it (which is src_instr)
+    Instruction* after_src = src_it->next_;
+    src_block->insertInstrBefore(after_src, instr);
     instr->setNumInputs(0);
   }
 
@@ -329,7 +330,7 @@ Instruction* getSecondCallResult(
     instr->setOpcode(new_op);
   } else {
     instr = src_block->allocateInstrBefore(
-        std::next(src_it), new_op, OutVReg(data_type));
+        src_it->next_, new_op, OutVReg(data_type));
   }
   seen_srcs[src] = instr;
   if (new_op == Instruction::kMove) {
@@ -367,7 +368,7 @@ RewriteResult rewriteLoadSecondCallResult(instr_iter_t instr_iter) {
   // after the call that defines %y. If necessary, trace through Phis,
   // inserting multiple Moves and a new Phi to reconcile them.
 
-  Instruction* instr = instr_iter->get();
+  Instruction* instr = instr_iter;
   if (!instr->isLoadSecondCallResult()) {
     return kUnchanged;
   }
@@ -383,7 +384,7 @@ RewriteResult rewriteLoadSecondCallResult(instr_iter_t instr_iter) {
 // for our comparisons so promote all of these to 32-bits so we don't need to
 // mask them.
 RewriteResult rewritePromoteOutputSize(instr_iter_t instr_iter) {
-  auto instr = instr_iter->get();
+  auto instr = instr_iter;
   switch (instr->opcode()) {
     case Instruction::kEqual:
     case Instruction::kNotEqual:

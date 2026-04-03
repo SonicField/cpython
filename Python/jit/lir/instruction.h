@@ -438,6 +438,37 @@ class Instruction {
   OperandBase** inputs_{nullptr};
   size_t num_inputs_{0};
   size_t inputs_capacity_{0};
+
+ public:
+  // Phase B3c-2: intrusive linked list pointers (owned by BasicBlock).
+  // Must be public for InstrIterator access.
+  Instruction* prev_{nullptr};
+  Instruction* next_{nullptr};
+};
+
+// Phase B3c-2: Lightweight iterator over intrusive Instruction linked list.
+struct InstrIterator {
+  Instruction* ptr;
+  InstrIterator& operator++() { ptr = ptr->next_; return *this; }
+  InstrIterator operator++(int) { auto tmp = *this; ptr = ptr->next_; return tmp; }
+  Instruction* operator->() const { return ptr; }
+  Instruction& operator*() const { return *ptr; }
+  Instruction* get() const { return ptr; }
+  bool operator==(const InstrIterator& o) const { return ptr == o.ptr; }
+  bool operator!=(const InstrIterator& o) const { return ptr != o.ptr; }
+};
+
+// Read-only range over a BasicBlock's instruction linked list.
+struct InstrRange {
+  Instruction* head_;
+  Instruction* tail_;
+  size_t size_;
+  InstrIterator begin() const { return {head_}; }
+  InstrIterator end() const { return {nullptr}; }
+  size_t size() const { return size_; }
+  bool empty() const { return head_ == nullptr; }
+  Instruction* back() const { return tail_; }
+  Instruction* front() const { return head_; }
 };
 
 // Kind of condition that a Guard instruction will execute.
