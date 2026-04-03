@@ -144,7 +144,7 @@ class BasicBlock {
   template <typename Func>
   void foreachPhiInstr(const Func& f) const {
     for (Instruction* instr = instr_head_; instr; instr = instr->next_) {
-      if (instr->opcode() == Instruction::kPhi) {
+      if (instr->opcode_ == Instruction::kPhi) {
         f(instr);
       }
     }

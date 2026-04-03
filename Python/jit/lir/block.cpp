@@ -221,7 +221,7 @@ BasicBlock* BasicBlock::splitBefore(Instruction* instr) {
   JIT_CHECK(
       func_ != nullptr, "cannot split block that doesn't belong to a function");
   JIT_CHECK(
-      instr->opcode() != Instruction::kPhi, "cannot split block at a phi node");
+      instr->opcode_ != Instruction::kPhi, "cannot split block at a phi node");
 
   // find the instruction in this block
   bool found = false;
