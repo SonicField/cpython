@@ -396,7 +396,7 @@ RewriteResult rewriteBitExtensionInstrs(instr_iter_t instr_iter) {
 // already did in static compiler), we need to also rewrite conditional branches
 // into Jcc instructions.
 RewriteResult rewriteBranchInstrs(Function* function) {
-  auto& blocks = function->basicblocks();
+  auto blocks = function->basicblocks();
   bool changed = false;
 
   for (auto iter = blocks.begin(); iter != blocks.end();) {
@@ -599,7 +599,7 @@ void doRewriteBranchCC(instr_iter_t instr_iter, BasicBlock* next_block) {
 
 // Convert CondBranch and BranchCC instructions.
 RewriteResult rewriteCondBranch(Function* function) {
-  auto& blocks = function->basicblocks();
+  auto blocks = function->basicblocks();
 
   bool changed = false;
   for (auto iter = blocks.begin(); iter != blocks.end();) {

@@ -3152,7 +3152,7 @@ const char* NativeGenerator::GetPyFunctionName() const {
 
 void NativeGenerator::generateAssemblyBody(const asmjit::CodeHolder& code) {
   auto as = env_.as;
-  auto& blocks = lir_func_->basicblocks();
+  auto blocks = lir_func_->basicblocks();
   for (auto& basicblock : blocks) {
     env_.block_label_map.emplace(basicblock, as->newLabel());
   }

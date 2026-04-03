@@ -301,7 +301,7 @@ int LinearScanAllocator::initialYieldSpillSize() const {
 }
 
 bool LinearScanAllocator::isPredefinedUsed(const Operand* operand) const {
-  auto& block = func_->basicblocks()[0];
+  auto block = func_->basicblocks()[0];
 
   for (auto& succ : block->successors()) {
     if (map_get(regalloc_blocks_, succ).livein.contains(operand)) {
@@ -327,7 +327,7 @@ LiveInterval& LinearScanAllocator::getInterval(const Operand* operand) {
 }
 
 void LinearScanAllocator::calculateLiveIntervals() {
-  const auto& basic_blocks = func_->basicblocks();
+  auto basic_blocks = func_->basicblocks();
 
   // This table maps loop headers to all their loop ends. A loop end basic
   // block is the last block of a loop starting at the loop header.
@@ -1284,7 +1284,7 @@ void LinearScanAllocator::rewriteLIRUpdateMapping(
 void LinearScanAllocator::resolveEdges() {
   // collect intervals that are live at beginning of a basic block
   UnorderedMap<BasicBlock*, std::vector<LiveInterval*>> bb_interval_map;
-  auto& blocks = func_->basicblocks();
+  auto blocks = func_->basicblocks();
 
   for (auto& interval : allocated_) {
     auto start = interval->startLocation();

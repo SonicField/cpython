@@ -23,31 +23,10 @@ JitLirBlock *jit_lir_sort_blocks_rpo(
 #ifdef __cplusplus
 #include "cinderx/Jit/lir/block.h"
 
-#include <vector>
-
 namespace jit::lir {
 
-class BasicBlockSorter {
- public:
-  explicit BasicBlockSorter(const std::vector<BasicBlock*>& blocks)
-      : blocks_(blocks) {}
-
-  std::vector<BasicBlock*> getSortedBlocks() {
-    size_t out_count = 0;
-    JitLirBlock *sorted = jit_lir_sort_blocks_rpo(
-        reinterpret_cast<JitLirBlock*>(
-            const_cast<BasicBlock**>(blocks_.data())),
-        blocks_.size(), &out_count);
-    std::vector<BasicBlock*> result(
-        reinterpret_cast<BasicBlock**>(sorted),
-        reinterpret_cast<BasicBlock**>(sorted) + out_count);
-    PyMem_RawFree(sorted);
-    return result;
-  }
-
- private:
-  const std::vector<BasicBlock*>& blocks_;
-};
+// Phase B3d: BasicBlockSorter removed — Function::sortBasicBlocks()
+// now calls jit_lir_sort_blocks_rpo() directly on raw array.
 
 } // namespace jit::lir
 #endif

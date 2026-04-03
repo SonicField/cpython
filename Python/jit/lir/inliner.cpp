@@ -15,12 +15,10 @@ namespace jit::lir {
 
 bool LIRInliner::inlineCalls(Function* func) {
   bool changed = false;
-  std::vector<BasicBlock*>& blocks = func->basicblocks();
-
-  // Do not convert to a range-based for loop because 'blocks' is updated
-  // inside the loop.
-  for (size_t i = 0; i < blocks.size(); ++i) {
-    BasicBlock* bb = blocks[i];
+  // Do not convert to a range-based for loop because basicblocks() is updated
+  // inside the loop (new blocks added during inlining).
+  for (size_t i = 0; i < func->getNumBasicBlocks(); ++i) {
+    BasicBlock* bb = func->basicblocks()[i];
 
     for (auto& instr : bb->instructions()) {
       if (instr.isCall()) {
@@ -241,7 +239,7 @@ lir::Function* LIRInliner::parseFunction(uint64_t addr) {
 bool LIRInliner::resolveArguments() {
   // Remove load arg instructions and update virtual registers.
   UnorderedMap<OperandBase*, LinkedOperand*> vreg_map;
-  auto const& caller_blocks = caller_->basicblocks();
+  auto caller_blocks = caller_->basicblocks();
   for (int i = callee_start_; i < callee_end_; i++) {
     auto bb = caller_blocks.at(i);
     Instruction* it = bb->getFirstInstr();

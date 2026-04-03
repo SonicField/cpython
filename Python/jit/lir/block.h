@@ -25,6 +25,8 @@ struct BlockSpan {
   bool empty() const { return size_ == 0; }
   BasicBlock*& operator[](size_t i) { return data_[i]; }
   BasicBlock* operator[](size_t i) const { return data_[i]; }
+  BasicBlock*& at(size_t i) { return data_[i]; }
+  BasicBlock* at(size_t i) const { return data_[i]; }
   BasicBlock*& front() { return data_[0]; }
   BasicBlock*& back() { return data_[size_ - 1]; }
 };
@@ -37,6 +39,7 @@ struct ConstBlockSpan {
   size_t size() const { return size_; }
   bool empty() const { return size_ == 0; }
   BasicBlock* operator[](size_t i) const { return data_[i]; }
+  BasicBlock* at(size_t i) const { return data_[i]; }
   BasicBlock* front() const { return data_[0]; }
   BasicBlock* back() const { return data_[size_ - 1]; }
 };

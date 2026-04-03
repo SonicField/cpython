@@ -5,6 +5,10 @@
 #include "cinderx/Jit/containers.h"
 #include "cinderx/Jit/lir/blocksorter.h"
 
+#include "pymem.h"
+
+#include <cstring>
+
 namespace jit::lir {
 
 namespace {
@@ -134,7 +138,7 @@ void connectLinkedOperands(
 // Expects blocks to be initialized into block_index_map_.
 // Copies the instructions and successors from src_blocks.
 void deepCopyBasicBlocks(
-    const std::vector<BasicBlock*>& src_blocks,
+    ConstBlockSpan src_blocks,
     UnorderedMap<int, BasicBlock*>& block_index_map_,
     const hir::Instr* origin) {
   UnorderedMap<int, Instruction*> output_index_map;
@@ -170,12 +174,34 @@ void deepCopyBasicBlocks(
 
 Function::Function(const hir::Function* hir_func) : hir_func_{hir_func} {}
 
+Function::~Function() {
+  for (size_t i = 0; i < num_blocks_; i++) {
+    delete blocks_[i];
+  }
+  PyMem_RawFree(blocks_);
+}
+
 int Function::allocateId() {
   return next_id_++;
 }
 
 void Function::setNextId(int id) {
   next_id_ = id;
+}
+
+void Function::ensureBlockCapacity(size_t needed) {
+  if (needed <= blocks_capacity_) {
+    return;
+  }
+  size_t new_cap = blocks_capacity_ ? blocks_capacity_ * 2 : 8;
+  while (new_cap < needed) {
+    new_cap *= 2;
+  }
+  BasicBlock** new_blocks = static_cast<BasicBlock**>(
+      PyMem_RawRealloc(blocks_, new_cap * sizeof(BasicBlock*)));
+  JIT_CHECK(new_blocks != nullptr, "Failed to allocate block array");
+  blocks_ = new_blocks;
+  blocks_capacity_ = new_cap;
 }
 
 Function::CopyResult Function::copyFrom(
@@ -189,20 +215,26 @@ Function::CopyResult Function::copyFrom(
 
   UnorderedMap<int, BasicBlock*> block_index_map;
 
-  // Initialize the basic blocks.
+  size_t src_count = src_func->num_blocks_;
+
+  // Initialize the basic blocks — insert before the last block (exit block).
   for (auto bb : src_func->basicblocks()) {
-    BasicBlock* bb_copy = &basic_block_store_.emplace_back(this);
+    auto* bb_copy = new BasicBlock(this);
     block_index_map.emplace(bb->id(), bb_copy);
-    // Insert basic block before the last block.
-    basic_blocks_.emplace(std::prev(basic_blocks_.end()), bb_copy);
+    // Insert before the last block.
+    ensureBlockCapacity(num_blocks_ + 1);
+    // Shift last block right to make room.
+    blocks_[num_blocks_] = blocks_[num_blocks_ - 1];
+    blocks_[num_blocks_ - 1] = bb_copy;
+    num_blocks_++;
   }
 
   deepCopyBasicBlocks(src_func->basicblocks(), block_index_map, origin);
 
-  int end = basic_blocks_.size() - 1;
-  int start = end - src_func->basic_blocks_.size();
-  BasicBlock* dest_start = basic_blocks_.at(start);
-  BasicBlock* dest_end = basic_blocks_.at(end - 1);
+  int end = num_blocks_ - 1;
+  int start = end - src_count;
+  BasicBlock* dest_start = blocks_[start];
+  BasicBlock* dest_end = blocks_[end - 1];
   prev_bb->setSuccessor(0, dest_start);
   JIT_CHECK(
       dest_end->successors().empty(),
@@ -213,46 +245,57 @@ Function::CopyResult Function::copyFrom(
 }
 
 BasicBlock* Function::allocateBasicBlock() {
-  basic_block_store_.emplace_back(this);
-  BasicBlock* new_block = &basic_block_store_.back();
-  basic_blocks_.emplace_back(new_block);
+  auto* new_block = new BasicBlock(this);
+  ensureBlockCapacity(num_blocks_ + 1);
+  blocks_[num_blocks_++] = new_block;
   return new_block;
 }
 
 BasicBlock* Function::allocateBasicBlockAfter(BasicBlock* block) {
-  auto iter = std::find_if(
-      basic_blocks_.begin(),
-      basic_blocks_.end(),
-      [block](const BasicBlock* a) -> bool { return block == a; });
-  ++iter;
-  basic_block_store_.emplace_back(this);
-  BasicBlock* new_block = &basic_block_store_.back();
-  basic_blocks_.emplace(iter, new_block);
+  // Find the block in the array.
+  size_t pos = 0;
+  while (pos < num_blocks_ && blocks_[pos] != block) {
+    pos++;
+  }
+  pos++; // insert after
+
+  auto* new_block = new BasicBlock(this);
+  ensureBlockCapacity(num_blocks_ + 1);
+  // Shift elements right to make room.
+  memmove(&blocks_[pos + 1], &blocks_[pos],
+          (num_blocks_ - pos) * sizeof(BasicBlock*));
+  blocks_[pos] = new_block;
+  num_blocks_++;
   return new_block;
 }
 
-const std::vector<BasicBlock*>& Function::basicblocks() const {
-  return basic_blocks_;
+BlockSpan Function::basicblocks() {
+  return {blocks_, num_blocks_};
 }
 
-std::vector<BasicBlock*>& Function::basicblocks() {
-  return basic_blocks_;
+ConstBlockSpan Function::basicblocks() const {
+  return {blocks_, num_blocks_};
 }
 
 BasicBlock* Function::entryBlock() const {
-  if (basic_blocks_.empty()) {
+  if (num_blocks_ == 0) {
     return nullptr;
   }
-  return basic_blocks_.front();
+  return blocks_[0];
 }
 
 size_t Function::getNumBasicBlocks() const {
-  return basic_blocks_.size();
+  return num_blocks_;
 }
 
 void Function::sortBasicBlocks() {
-  BasicBlockSorter sorter(basic_blocks_);
-  basic_blocks_ = sorter.getSortedBlocks();
+  size_t out_count = 0;
+  JitLirBlock* sorted = jit_lir_sort_blocks_rpo(
+      reinterpret_cast<JitLirBlock*>(blocks_), num_blocks_, &out_count);
+  // Copy sorted result back into our array.
+  memcpy(blocks_, sorted, out_count * sizeof(BasicBlock*));
+  num_blocks_ = out_count;
+  PyMem_RawFree(sorted);
 }
 
 const hir::Function* Function::hirFunc() const {
