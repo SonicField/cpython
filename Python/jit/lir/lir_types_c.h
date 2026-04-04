@@ -278,6 +278,14 @@ _Static_assert(sizeof(LirFunction) == 40, "LirFunction size mismatch with Functi
 #define JIT_LIR_SECTION_HOT  0
 #define JIT_LIR_SECTION_COLD 1
 
+/* ---- Utility functions ---- */
+
+/* C replacement for fitsSignedInt<32>(constant) */
+static inline int
+lir_fits_signed_int32(int64_t v) {
+    return v >= INT32_MIN && v <= INT32_MAX;
+}
+
 /* ---- Runtime assertion macros ---- */
 #define LIR_ASSERT_OPERAND_TYPE(op, expected) \
     assert((op)->type_ == (expected) && "operand type mismatch")

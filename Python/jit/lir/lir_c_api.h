@@ -214,6 +214,9 @@ LirInstruction *lir_block_alloc_instr_before(LirBasicBlock *bb,
                                               LirInstruction *before,
                                               int opcode);
 
+/* LIR inliner (C wrapper around C++ LIRInliner::inlineCalls) */
+int lir_inliner_inline_calls(void *func);
+
 /* Opcode query functions (take opcode int, not LirInstruction*) */
 int lir_instruction_is_compare(int opcode);
 int lir_instruction_is_branch_cc(int opcode);
