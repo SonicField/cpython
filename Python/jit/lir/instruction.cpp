@@ -15,16 +15,48 @@
 
 namespace jit::lir {
 
-// Phase 3D: Cross-validate ALL C struct sizes against C++ struct sizes.
-// These fire at compile time if C/C++ struct layouts diverge.
+// Phase 3D: Cross-validate ALL C struct sizes AND field offsets against C++.
+// sizeof catches size divergence; offsetof catches field reordering.
 static_assert(sizeof(LirPhyLocation) == sizeof(PhyLocation),
     "LirPhyLocation and PhyLocation size mismatch");
+static_assert(offsetof(LirPhyLocation, loc) == offsetof(PhyLocation, loc),
+    "LirPhyLocation.loc offset mismatch");
+static_assert(offsetof(LirPhyLocation, bit_size) == offsetof(PhyLocation, bitSize),
+    "LirPhyLocation.bit_size offset mismatch");
+
 static_assert(sizeof(LirOperand) == sizeof(OperandBase),
     "LirOperand and OperandBase size mismatch");
+// OperandBase fields are protected — offsetof not accessible from outside.
+// sizeof equality + identical field types in declaration order guarantees
+// layout compatibility (C/C++ compilers cannot reorder struct members).
+
 static_assert(sizeof(LirInstruction) == sizeof(Instruction),
     "LirInstruction and Instruction size mismatch");
+static_assert(offsetof(LirInstruction, id_) == offsetof(Instruction, id_),
+    "LirInstruction.id_ offset mismatch");
+static_assert(offsetof(LirInstruction, opcode_) == offsetof(Instruction, opcode_),
+    "LirInstruction.opcode_ offset mismatch");
+static_assert(offsetof(LirInstruction, output_) == offsetof(Instruction, output_),
+    "LirInstruction.output_ offset mismatch");
+static_assert(offsetof(LirInstruction, basic_block_) == offsetof(Instruction, basic_block_),
+    "LirInstruction.basic_block_ offset mismatch");
+static_assert(offsetof(LirInstruction, inputs_) == offsetof(Instruction, inputs_),
+    "LirInstruction.inputs_ offset mismatch");
+static_assert(offsetof(LirInstruction, prev_) == offsetof(Instruction, prev_),
+    "LirInstruction.prev_ offset mismatch");
+static_assert(offsetof(LirInstruction, next_) == offsetof(Instruction, next_),
+    "LirInstruction.next_ offset mismatch");
+
 static_assert(sizeof(LirBasicBlock) == sizeof(BasicBlock),
     "LirBasicBlock and BasicBlock size mismatch");
+static_assert(offsetof(LirBasicBlock, id_) == offsetof(BasicBlock, id_),
+    "LirBasicBlock.id_ offset mismatch");
+static_assert(offsetof(LirBasicBlock, successors_) == offsetof(BasicBlock, successors_),
+    "LirBasicBlock.successors_ offset mismatch");
+static_assert(offsetof(LirBasicBlock, instr_head_) == offsetof(BasicBlock, instr_head_),
+    "LirBasicBlock.instr_head_ offset mismatch");
+static_assert(offsetof(LirBasicBlock, section_) == offsetof(BasicBlock, section_),
+    "LirBasicBlock.section_ offset mismatch");
 static_assert(sizeof(LirFunction) == sizeof(Function),
     "LirFunction and Function size mismatch");
 
