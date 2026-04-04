@@ -138,7 +138,9 @@ using phx::asr;
 
 /* 32-bit register constants */
 constexpr phx::Gp w0{0,4}, w1{1,4}, w2{2,4}, w3{3,4}, w4{4,4};
+constexpr phx::Gp w5{5,4}, w6{6,4}, w7{7,4};
 constexpr phx::Gp w8{8,4}, w9{9,4}, w10{10,4};
+constexpr phx::Gp w11{11,4}, w12{12,4}, w13{13,4}, w14{14,4}, w15{15,4};
 
 /* Special registers */
 constexpr phx::Gp xzr{31, 8};  /* zero register (reads as 0, writes discarded) */

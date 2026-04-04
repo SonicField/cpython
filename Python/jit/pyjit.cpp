@@ -4129,7 +4129,11 @@ _PyJIT_Result compilePreloaderImpl(
   }
 
   register_pycode_debug_symbol(
-      preloader.code(), preloader.fullname().c_str(), *compiled_func);
+      preloader.code(),
+      preloader.fullname().c_str(),
+      compiled_func->code.data(),
+      compiled_func->code.size(),
+      compiled_func->stack_size);
 
   jit_ctx->codeCompiled(func, key, std::move(*compiled_func));
 
