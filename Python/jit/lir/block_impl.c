@@ -2,7 +2,7 @@
  * block_impl.c -- C implementation of LIR basic block operations
  *
  * Phase B1: Pure C functions operating on LirBasicBlock struct
- * defined in lir_c_api.h. Coexists with block.cpp — complex mutation
+ * defined in lir_types_c.h. Coexists with block.cpp — complex mutation
  * methods (splitBefore, insertBasicBlockBetween) remain in C++ until
  * Function is converted.
  */
@@ -19,14 +19,14 @@ LirBasicBlock *
 lir_block_new(void *function, int id) {
     LirBasicBlock *bb = (LirBasicBlock *)PyMem_RawCalloc(
         1, sizeof(LirBasicBlock));
-    bb->id = id;
-    bb->function = function;
-    bb->succs_capacity = 4;
-    bb->successors = (LirBasicBlock **)PyMem_RawCalloc(
-        bb->succs_capacity, sizeof(LirBasicBlock *));
-    bb->preds_capacity = 4;
-    bb->predecessors = (LirBasicBlock **)PyMem_RawCalloc(
-        bb->preds_capacity, sizeof(LirBasicBlock *));
+    bb->id_ = id;
+    bb->func_ = (LirFunction *)function;
+    bb->succs_capacity_ = 4;
+    bb->successors_ = (LirBasicBlock **)PyMem_RawCalloc(
+        bb->succs_capacity_, sizeof(LirBasicBlock *));
+    bb->preds_capacity_ = 4;
+    bb->predecessors_ = (LirBasicBlock **)PyMem_RawCalloc(
+        bb->preds_capacity_, sizeof(LirBasicBlock *));
     return bb;
 }
 
@@ -34,63 +34,63 @@ void
 lir_block_free(LirBasicBlock *bb) {
     if (bb == NULL) return;
     /* Free all owned instructions */
-    LirInstruction *cur = bb->instr_head;
+    LirInstruction *cur = bb->instr_head_;
     while (cur != NULL) {
-        LirInstruction *next = cur->next;
+        LirInstruction *next = cur->next_;
         lir_instruction_free(cur);
         cur = next;
     }
-    PyMem_RawFree(bb->successors);
-    PyMem_RawFree(bb->predecessors);
+    PyMem_RawFree(bb->successors_);
+    PyMem_RawFree(bb->predecessors_);
     PyMem_RawFree(bb);
 }
 
 /* ---- Getters ---- */
 
-int lir_block_id(const LirBasicBlock *bb) { return bb->id; }
-void lir_block_set_id(LirBasicBlock *bb, int id) { bb->id = id; }
+int lir_block_id(const LirBasicBlock *bb) { return bb->id_; }
+void lir_block_set_id(LirBasicBlock *bb, int id) { bb->id_ = id; }
 
-void *lir_block_function(const LirBasicBlock *bb) { return bb->function; }
+void *lir_block_function(const LirBasicBlock *bb) { return bb->func_; }
 
-int lir_block_section(const LirBasicBlock *bb) { return bb->section; }
+int lir_block_section(const LirBasicBlock *bb) { return bb->section_; }
 void lir_block_set_section(LirBasicBlock *bb, int section) {
-    bb->section = section;
+    bb->section_ = (LirCodeSection)section;
 }
 
-size_t lir_block_num_succs(const LirBasicBlock *bb) { return bb->num_succs; }
+size_t lir_block_num_succs(const LirBasicBlock *bb) { return bb->num_succs_; }
 LirBasicBlock *lir_block_get_succ(const LirBasicBlock *bb, size_t i) {
-    assert(i < bb->num_succs);
-    return bb->successors[i];
+    assert(i < bb->num_succs_);
+    return bb->successors_[i];
 }
 
-size_t lir_block_num_preds(const LirBasicBlock *bb) { return bb->num_preds; }
+size_t lir_block_num_preds(const LirBasicBlock *bb) { return bb->num_preds_; }
 LirBasicBlock *lir_block_get_pred(const LirBasicBlock *bb, size_t i) {
-    assert(i < bb->num_preds);
-    return bb->predecessors[i];
+    assert(i < bb->num_preds_);
+    return bb->predecessors_[i];
 }
 
 LirBasicBlock *lir_block_true_successor(const LirBasicBlock *bb) {
-    assert(bb->num_succs >= 1);
-    return bb->successors[0];
+    assert(bb->num_succs_ >= 1);
+    return bb->successors_[0];
 }
 
 LirBasicBlock *lir_block_false_successor(const LirBasicBlock *bb) {
-    assert(bb->num_succs >= 2);
-    return bb->successors[1];
+    assert(bb->num_succs_ >= 2);
+    return bb->successors_[1];
 }
 
-size_t lir_block_num_instrs(const LirBasicBlock *bb) { return bb->num_instrs; }
+size_t lir_block_num_instrs(const LirBasicBlock *bb) { return bb->num_instrs_; }
 
 int lir_block_is_empty(const LirBasicBlock *bb) {
-    return bb->instr_head == NULL;
+    return bb->instr_head_ == NULL;
 }
 
 LirInstruction *lir_block_first_instr(const LirBasicBlock *bb) {
-    return bb->instr_head;
+    return bb->instr_head_;
 }
 
 LirInstruction *lir_block_last_instr(const LirBasicBlock *bb) {
-    return bb->instr_tail;
+    return bb->instr_tail_;
 }
 
 /* ---- Successor/predecessor mutation ---- */
@@ -104,70 +104,70 @@ grow_ptr_array(void ***arr, size_t *cap) {
 
 void
 lir_block_add_successor(LirBasicBlock *bb, LirBasicBlock *succ) {
-    if (bb->num_succs >= bb->succs_capacity) {
-        grow_ptr_array((void ***)&bb->successors, &bb->succs_capacity);
+    if (bb->num_succs_ >= bb->succs_capacity_) {
+        grow_ptr_array((void ***)&bb->successors_, &bb->succs_capacity_);
     }
-    bb->successors[bb->num_succs++] = succ;
+    bb->successors_[bb->num_succs_++] = succ;
 
-    if (succ->num_preds >= succ->preds_capacity) {
-        grow_ptr_array((void ***)&succ->predecessors, &succ->preds_capacity);
+    if (succ->num_preds_ >= succ->preds_capacity_) {
+        grow_ptr_array((void ***)&succ->predecessors_, &succ->preds_capacity_);
     }
-    succ->predecessors[succ->num_preds++] = bb;
+    succ->predecessors_[succ->num_preds_++] = bb;
 }
 
 void
 lir_block_swap_successors(LirBasicBlock *bb) {
-    if (bb->num_succs < 2) return;
-    LirBasicBlock *tmp = bb->successors[0];
-    bb->successors[0] = bb->successors[1];
-    bb->successors[1] = tmp;
+    if (bb->num_succs_ < 2) return;
+    LirBasicBlock *tmp = bb->successors_[0];
+    bb->successors_[0] = bb->successors_[1];
+    bb->successors_[1] = tmp;
 }
 
 /* ---- Instruction list operations ---- */
 
 void
 lir_block_append_instr(LirBasicBlock *bb, LirInstruction *instr) {
-    instr->basic_block = bb;
-    instr->prev = bb->instr_tail;
-    instr->next = NULL;
-    if (bb->instr_tail != NULL) {
-        bb->instr_tail->next = instr;
+    instr->basic_block_ = bb;
+    instr->prev_ = bb->instr_tail_;
+    instr->next_ = NULL;
+    if (bb->instr_tail_ != NULL) {
+        bb->instr_tail_->next_ = instr;
     } else {
-        bb->instr_head = instr;
+        bb->instr_head_ = instr;
     }
-    bb->instr_tail = instr;
-    bb->num_instrs++;
+    bb->instr_tail_ = instr;
+    bb->num_instrs_++;
 }
 
 LirInstruction *
 lir_block_remove_instr(LirBasicBlock *bb, LirInstruction *instr) {
-    if (instr->prev != NULL) {
-        instr->prev->next = instr->next;
+    if (instr->prev_ != NULL) {
+        instr->prev_->next_ = instr->next_;
     } else {
-        bb->instr_head = instr->next;
+        bb->instr_head_ = instr->next_;
     }
-    if (instr->next != NULL) {
-        instr->next->prev = instr->prev;
+    if (instr->next_ != NULL) {
+        instr->next_->prev_ = instr->prev_;
     } else {
-        bb->instr_tail = instr->prev;
+        bb->instr_tail_ = instr->prev_;
     }
-    instr->prev = NULL;
-    instr->next = NULL;
-    bb->num_instrs--;
+    instr->prev_ = NULL;
+    instr->next_ = NULL;
+    bb->num_instrs_--;
     return instr;  /* caller takes ownership */
 }
 
 void
 lir_block_insert_instr_before(LirBasicBlock *bb, LirInstruction *before,
                               LirInstruction *instr) {
-    instr->basic_block = bb;
-    instr->next = before;
-    instr->prev = before->prev;
-    if (before->prev != NULL) {
-        before->prev->next = instr;
+    instr->basic_block_ = bb;
+    instr->next_ = before;
+    instr->prev_ = before->prev_;
+    if (before->prev_ != NULL) {
+        before->prev_->next_ = instr;
     } else {
-        bb->instr_head = instr;
+        bb->instr_head_ = instr;
     }
-    before->prev = instr;
-    bb->num_instrs++;
+    before->prev_ = instr;
+    bb->num_instrs_++;
 }

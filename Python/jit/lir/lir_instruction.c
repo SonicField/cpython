@@ -1,7 +1,7 @@
 /*
  * lir_instruction.c -- C implementation of LIR instruction lifecycle
  *
- * Phase B: Operates on the LirInstruction C struct defined in lir_c_api.h.
+ * Phase B: Operates on the LirInstruction C struct defined in lir_types_c.h.
  * Coexists with instruction.cpp until all consumers use the C API.
  */
 
@@ -19,16 +19,16 @@ LirInstruction *
 lir_instruction_create(LirBasicBlock *basic_block, int opcode, const void *origin) {
     LirInstruction *inst = (LirInstruction *)PyMem_RawCalloc(
         1, sizeof(LirInstruction));
-    inst->opcode = opcode;
-    inst->basic_block = basic_block;
-    inst->origin = origin;
-    inst->output.parent_instr = inst;
-    inst->output.type = JIT_LIR_OPTYPE_NONE;
-    inst->output.data_type = JIT_LIR_DT_OBJECT;
-    inst->inputs = (LirOperand **)PyMem_RawMalloc(
+    inst->opcode_ = opcode;
+    inst->basic_block_ = basic_block;
+    inst->origin_ = origin;
+    inst->output_.parent_instr_ = inst;
+    inst->output_.type_ = JIT_LIR_OPTYPE_NONE;
+    inst->output_.data_type_ = JIT_LIR_DT_OBJECT;
+    inst->inputs_ = (LirOperand **)PyMem_RawMalloc(
         INITIAL_INPUT_CAPACITY * sizeof(LirOperand *));
-    inst->num_inputs = 0;
-    inst->inputs_capacity = INITIAL_INPUT_CAPACITY;
+    inst->num_inputs_ = 0;
+    inst->inputs_capacity_ = INITIAL_INPUT_CAPACITY;
     return inst;
 }
 
@@ -36,14 +36,14 @@ void
 lir_instruction_free(LirInstruction *inst) {
     if (inst == NULL) return;
     /* Free owned input operands */
-    for (size_t i = 0; i < inst->num_inputs; i++) {
-        lir_operand_free(inst->inputs[i]);
+    for (size_t i = 0; i < inst->num_inputs_; i++) {
+        lir_operand_free(inst->inputs_[i]);
     }
-    PyMem_RawFree(inst->inputs);
+    PyMem_RawFree(inst->inputs_);
     /* Free indirect in output if present */
-    if (!inst->output.is_linked &&
-        inst->output.type == JIT_LIR_OPTYPE_IND) {
-        lir_memind_free(inst->output.value.indirect);
+    if (!inst->output_.is_linked_ &&
+        inst->output_.type_ == JIT_LIR_OPTYPE_IND) {
+        lir_memind_free(inst->output_.value_.indirect);
     }
     PyMem_RawFree(inst);
 }
@@ -52,55 +52,55 @@ lir_instruction_free(LirInstruction *inst) {
 
 int
 lir_instruction_id(const LirInstruction *inst) {
-    return inst->id;
+    return inst->id_;
 }
 
 int
 lir_instruction_opcode(const LirInstruction *inst) {
-    return inst->opcode;
+    return inst->opcode_;
 }
 
 LirOperand *
 lir_instruction_output(LirInstruction *inst) {
-    return &inst->output;
+    return &inst->output_;
 }
 
 size_t
 lir_instruction_num_inputs(const LirInstruction *inst) {
-    return inst->num_inputs;
+    return inst->num_inputs_;
 }
 
 LirOperand *
 lir_instruction_get_input(const LirInstruction *inst, size_t index) {
-    return inst->inputs[index];
+    return inst->inputs_[index];
 }
 
 LirBasicBlock *
 lir_instruction_basic_block(const LirInstruction *inst) {
-    return inst->basic_block;
+    return inst->basic_block_;
 }
 
 const void *
 lir_instruction_origin(const LirInstruction *inst) {
-    return inst->origin;
+    return inst->origin_;
 }
 
 /* ---- Input allocation ---- */
 
 static void
 ensure_input_capacity(LirInstruction *inst) {
-    if (inst->num_inputs >= inst->inputs_capacity) {
-        size_t new_cap = inst->inputs_capacity * 2;
-        inst->inputs = (LirOperand **)PyMem_RawRealloc(
-            inst->inputs, new_cap * sizeof(LirOperand *));
-        inst->inputs_capacity = new_cap;
+    if (inst->num_inputs_ >= inst->inputs_capacity_) {
+        size_t new_cap = inst->inputs_capacity_ * 2;
+        inst->inputs_ = (LirOperand **)PyMem_RawRealloc(
+            inst->inputs_, new_cap * sizeof(LirOperand *));
+        inst->inputs_capacity_ = new_cap;
     }
 }
 
 static LirOperand *
 append_input(LirInstruction *inst, LirOperand *op) {
     ensure_input_capacity(inst);
-    inst->inputs[inst->num_inputs++] = op;
+    inst->inputs_[inst->num_inputs_++] = op;
     return op;
 }
 
@@ -157,19 +157,19 @@ lir_instruction_alloc_addr_input(LirInstruction *inst, void *addr) {
 
 void
 lir_instruction_set_opcode(LirInstruction *inst, int opcode) {
-    inst->opcode = opcode;
+    inst->opcode_ = opcode;
 }
 
 void
 lir_instruction_set_id(LirInstruction *inst, int id) {
-    inst->id = id;
+    inst->id_ = id;
 }
 
 void
 lir_instruction_foreach_input(const LirInstruction *inst,
                                void (*cb)(LirOperand *, void *),
                                void *ctx) {
-    for (size_t i = 0; i < inst->num_inputs; i++) {
-        cb(inst->inputs[i], ctx);
+    for (size_t i = 0; i < inst->num_inputs_; i++) {
+        cb(inst->inputs_[i], ctx);
     }
 }

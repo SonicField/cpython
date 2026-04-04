@@ -1,8 +1,8 @@
 /*
  * lir_c_api.h -- C-compatible accessor API for LIR types
  *
- * Phase 3D: Provides opaque pointer accessors for LIR Function, BasicBlock,
- * Instruction, and OperandBase so that algorithm files can be written in pure C.
+ * Phase 3D: Function declarations for C callers of LIR operations.
+ * Struct definitions are in lir_types_c.h (single source of truth).
  *
  * Only functions with active .c callers are declared here.
  * Do NOT add speculative wrapper functions — convert the underlying
@@ -12,188 +12,19 @@
 #ifndef JIT_LIR_C_API_H
 #define JIT_LIR_C_API_H
 
-#include <stddef.h>
-#include <stdint.h>
+#include "cinderx/Jit/lir/lir_types_c.h"
+
+#include <assert.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* Opaque handles for LIR types */
+/* Opaque handles for LIR types (used by files that don't need struct access) */
 typedef void* JitLirFunc;
 typedef void* JitLirBlock;
 typedef void* JitLirInstr;
 typedef void* JitLirOperand;
-
-/*
- * ---- Phase B1: C struct definitions for LIR core types ----
- *
- * These structs will eventually REPLACE the C++ class hierarchy.
- * For now they coexist — C files use these structs via the C API,
- * C++ files continue using the C++ classes.
- *
- * When all consumers are converted to C, the C++ classes are deleted
- * and these structs become the sole implementation.
- */
-
-/* Forward declarations for struct cross-references */
-typedef struct LirOperand LirOperand;
-typedef struct LirMemoryIndirect LirMemoryIndirect;
-typedef struct LirInstruction LirInstruction;
-
-/* PhyLocation: physical register or stack slot.
- * Matches codegen::PhyLocation layout (int loc + size_t bitSize). */
-typedef struct {
-    int loc;
-    size_t bit_size;
-} LirPhyLocation;
-
-#define LIR_REG_INVALID (-1)
-
-/* Memory indirect reference: [base + index * (2^multiplier) + offset] */
-struct LirMemoryIndirect {
-    LirInstruction *parent;
-    LirOperand *base_reg;       /* owned, may be NULL */
-    LirOperand *index_reg;      /* owned, may be NULL */
-    uint8_t multiplier;
-    int32_t offset;
-};
-
-/* Unified operand: replaces OperandBase, Operand, and LinkedOperand.
- * When is_linked=1, value.def_opnd points to the defining instruction's
- * output operand — all getters delegate through it.
- * When is_linked=0, type/data_type/value hold the operand's own data. */
-struct LirOperand {
-    LirInstruction *parent_instr;
-    uint8_t is_linked;
-    uint8_t last_use;
-    uint8_t type;       /* OperandType enum (kNone..kLabel) */
-    uint8_t data_type;  /* DataType enum (k8bit..kObject) */
-    union {
-        uint64_t imm;              /* kImm: integer constant (or bit-cast double) */
-        void *mem_addr;            /* kMem: memory address */
-        void *label;               /* kLabel: BasicBlock* */
-        LirMemoryIndirect *indirect; /* kInd: memory indirect (owned) */
-        LirPhyLocation phy_loc;    /* kReg, kStack: physical location */
-        LirOperand *def_opnd;      /* is_linked=1: defining operand */
-    } value;
-};
-
-/* Instruction: the basic unit of LIR. Has one output operand (embedded)
- * and a growable array of input operands (owned pointers).
- * prev/next form a doubly-linked intrusive list within a BasicBlock. */
-typedef struct LirBasicBlock LirBasicBlock;
-
-struct LirInstruction {
-    int id;
-    int opcode;                  /* Instruction::Opcode as int */
-    LirOperand output;           /* embedded output operand */
-    LirBasicBlock *basic_block;
-    const void *origin;          /* hir::Instr* (opaque) */
-    LirOperand **inputs;         /* owned array of input operand pointers */
-    size_t num_inputs;
-    size_t inputs_capacity;
-    LirInstruction *prev;        /* intrusive list link */
-    LirInstruction *next;        /* intrusive list link */
-};
-
-/* BasicBlock: a sequence of instructions with predecessor/successor edges. */
-struct LirBasicBlock {
-    int id;
-    int section;                 /* CodeSection enum (hot=0, cold=1) */
-    void *function;              /* Function* (opaque) */
-    LirInstruction *instr_head;  /* intrusive doubly-linked list */
-    LirInstruction *instr_tail;
-    size_t num_instrs;
-    LirBasicBlock **successors;  /* growable array */
-    size_t num_succs;
-    size_t succs_capacity;
-    LirBasicBlock **predecessors; /* growable array */
-    size_t num_preds;
-    size_t preds_capacity;
-};
-
-/* Function: owns a list of basic blocks. Manages ID allocation. */
-typedef struct {
-    LirBasicBlock **blocks;     /* growable array of owned blocks */
-    size_t num_blocks;
-    size_t blocks_capacity;
-    int next_id;                /* next ID for blocks/instructions */
-    const void *hir_func;       /* hir::Function* (opaque) */
-} LirFunction;
-
-/* ---- Static size assertions ----
- * Catch layout changes at compile time. If a struct changes size,
- * the build will fail here before any runtime corruption can occur.
- * Update the expected values after intentional layout changes. */
-#ifdef __cplusplus
-static_assert(sizeof(LirPhyLocation) == 16, "LirPhyLocation size changed");
-static_assert(sizeof(LirOperand) == 32, "LirOperand size changed");
-static_assert(sizeof(LirMemoryIndirect) == 32, "LirMemoryIndirect size changed");
-static_assert(sizeof(LirInstruction) == 96, "LirInstruction size changed");
-static_assert(sizeof(LirBasicBlock) == 88, "LirBasicBlock size changed");
-static_assert(sizeof(LirFunction) == 40, "LirFunction size changed");
-#else
-_Static_assert(sizeof(LirPhyLocation) == 16, "LirPhyLocation size changed");
-_Static_assert(sizeof(LirOperand) == 32, "LirOperand size changed");
-_Static_assert(sizeof(LirMemoryIndirect) == 32, "LirMemoryIndirect size changed");
-_Static_assert(sizeof(LirInstruction) == 96, "LirInstruction size changed");
-_Static_assert(sizeof(LirBasicBlock) == 88, "LirBasicBlock size changed");
-_Static_assert(sizeof(LirFunction) == 40, "LirFunction size changed");
-#endif
-
-/* ---- Runtime assertion macros ----
- * Per Alex's directive: use macros and assertions for type safety,
- * not C++ types. These catch at runtime what C++ virtual dispatch
- * caught at compile time. */
-#define LIR_ASSERT_OPERAND_TYPE(op, expected) \
-    assert((op)->type == (expected) && "operand type mismatch")
-
-#define LIR_ASSERT_NOT_LINKED(op) \
-    assert(!(op)->is_linked && "expected direct operand, got linked")
-
-#define LIR_ASSERT_IS_LINKED(op) \
-    assert((op)->is_linked && "expected linked operand, got direct")
-
-#define LIR_ASSERT_FP_OPERAND(op) \
-    assert((op)->data_type == JIT_LIR_DT_DOUBLE && "expected FP operand")
-
-#define LIR_ASSERT_VALID_OPTYPE(t) \
-    assert((t) >= JIT_LIR_OPTYPE_NONE && (t) <= JIT_LIR_OPTYPE_LABEL \
-           && "invalid operand type")
-
-#define LIR_ASSERT_VALID_DATATYPE(dt) \
-    assert((dt) >= JIT_LIR_DT_8BIT && (dt) <= JIT_LIR_DT_OBJECT \
-           && "invalid data type")
-
-/* ---- Enum constants ---- */
-
-/* Code section constants (must match codegen::CodeSection enum) */
-#define JIT_LIR_SECTION_HOT  0
-#define JIT_LIR_SECTION_COLD 1
-
-/* Operand type constants (must match lir::OperandType enum) */
-#define JIT_LIR_OPTYPE_NONE  0
-#define JIT_LIR_OPTYPE_VREG  1
-#define JIT_LIR_OPTYPE_REG   2
-#define JIT_LIR_OPTYPE_STACK 3
-#define JIT_LIR_OPTYPE_MEM   4
-#define JIT_LIR_OPTYPE_IND   5
-#define JIT_LIR_OPTYPE_IMM   6
-#define JIT_LIR_OPTYPE_LABEL 7
-
-/* FlagEffects constants (must match lir::FlagEffects enum) */
-#define JIT_LIR_FLAG_NONE       0
-#define JIT_LIR_FLAG_SET        1
-#define JIT_LIR_FLAG_INVALIDATE 2
-
-/* DataType constants (must match lir::DataType enum) */
-#define JIT_LIR_DT_8BIT   0
-#define JIT_LIR_DT_16BIT  1
-#define JIT_LIR_DT_32BIT  2
-#define JIT_LIR_DT_64BIT  3
-#define JIT_LIR_DT_DOUBLE 4
-#define JIT_LIR_DT_OBJECT 5
 
 /* ---- Opaque pointer API (functions with active .c callers) ---- */
 

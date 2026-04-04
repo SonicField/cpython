@@ -15,7 +15,14 @@
 
 namespace jit::lir {
 
-// Phase B5: These fire at compile time if C/C++ struct layouts diverge.
+// Phase 3D: Cross-validate ALL C struct sizes against C++ struct sizes.
+// These fire at compile time if C/C++ struct layouts diverge.
+static_assert(sizeof(LirPhyLocation) == sizeof(PhyLocation),
+    "LirPhyLocation and PhyLocation size mismatch");
+static_assert(sizeof(LirOperand) == sizeof(OperandBase),
+    "LirOperand and OperandBase size mismatch");
+static_assert(sizeof(LirInstruction) == sizeof(Instruction),
+    "LirInstruction and Instruction size mismatch");
 static_assert(sizeof(LirBasicBlock) == sizeof(BasicBlock),
     "LirBasicBlock and BasicBlock size mismatch");
 static_assert(sizeof(LirFunction) == sizeof(Function),
