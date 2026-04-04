@@ -6,11 +6,13 @@
  */
 
 #include "cinderx/python.h"
+#include "internal/pycore_object.h"
 #include "cinderx/module_state.h"
 #include "cinderx/Jit/pyjit.h"
 #include "cinderx/Jit/config.h"
 #include "cinderx/Jit/global_cache.h"
 #include "cinderx/Jit/generators_rt.h"
+#include "cinderx/Jit/frame.h"
 #include "cinderx/Common/code.h"
 #include "cinderx/Common/log.h"
 #include "cinderx/Common/watchers_c.h"
@@ -208,6 +210,31 @@ static int phoenix_exec(PyObject* m) {
     /* Initialize CodeExtra index — needed by the counting trampoline
        and inline caches to store per-code-object JIT metadata */
     initCodeExtraIndex();
+
+#if defined(ENABLE_LIGHTWEIGHT_FRAMES) && PY_VERSION_HEX < 0x030E0000
+    /* Create the frame reifier — required for lightweight frames.
+       The reifier acts as f_funcobj in lightweight _PyInterpreterFrames,
+       allowing CPython to materialize a full frame when needed (e.g.,
+       sys._getframe(), traceback). Must be created before any JIT
+       compilation since the codegen embeds the reifier pointer. */
+    {
+        Ref<PyTypeObject> frame_reifier_type = Ref<PyTypeObject>::steal(
+            (PyTypeObject*)PyType_FromSpec(&jit::JitFrameReifier_Spec));
+        if (frame_reifier_type == nullptr) {
+            PyErr_SetString(PyExc_RuntimeError,
+                "Phoenix: failed to create JitFrameReifier type");
+            return -1;
+        }
+        PyObject* reifier = _PyObject_New(frame_reifier_type);
+        if (reifier == nullptr) {
+            return -1;
+        }
+        ((jit::JitFrameReifier*)reifier)->vectorcall =
+            (vectorcallfunc)jit::jitFrameReifierVectorcall;
+        state->setFrameReifier(reifier);
+        _Py_SetImmortal(reifier);
+    }
+#endif
 
     /* Initialize the JIT */
     int ret = jit::initialize();
