@@ -294,6 +294,123 @@ lir_memind_set(LirMemoryIndirect *mi,
     }
 }
 
+/* ---- Additional operand constructors ---- */
+
+LirOperand *
+lir_operand_new_with_type(LirInstruction *parent, uint8_t data_type,
+                          uint8_t type, uint64_t data) {
+    LirOperand *op = lir_operand_new(parent);
+    op->type_ = type;
+    op->data_type_ = data_type;
+    op->value_.constant = data;
+    return op;
+}
+
+LirOperand *
+lir_operand_new_fp(LirInstruction *parent, uint8_t type, double data) {
+    LirOperand *op = lir_operand_new(parent);
+    op->type_ = type;
+    op->data_type_ = JIT_LIR_DT_DOUBLE;
+    memcpy(&op->value_.constant, &data, sizeof(data));
+    return op;
+}
+
+LirOperand *
+lir_operand_new_copy(LirInstruction *parent, const LirOperand *src) {
+    LirOperand *op = lir_operand_new(parent);
+    op->type_ = src->type_;
+    op->data_type_ = src->data_type_;
+    /* value_ is NOT copied (same as C++ Operand copy ctor behavior) */
+    return op;
+}
+
+/* ---- Additional operand setters ---- */
+
+void
+lir_operand_set_phy_reg_or_stack(LirOperand *op, LirPhyLocation loc) {
+    if (loc.loc < 0) {
+        lir_operand_set_stack_slot(op, loc);
+    } else {
+        lir_operand_set_phy_register(op, loc);
+    }
+}
+
+LirPhyLocation
+lir_operand_get_phy_reg_or_stack(const LirOperand *op) {
+    const LirOperand *r = resolve(op);
+    assert(r->type_ == JIT_LIR_OPTYPE_REG || r->type_ == JIT_LIR_OPTYPE_STACK);
+    return r->value_.phy_loc;
+}
+
+/* ---- Operand setMemoryIndirect ---- */
+
+void
+lir_operand_set_memory_indirect_instr(LirOperand *op,
+                                       LirInstruction *base, int32_t offset) {
+    assert(!op->is_linked_);
+    /* Free existing indirect if present */
+    if (op->type_ == JIT_LIR_OPTYPE_IND && op->value_.indirect) {
+        lir_memind_free(op->value_.indirect);
+    }
+    op->type_ = JIT_LIR_OPTYPE_IND;
+    LirMemoryIndirect *ind = lir_memind_new(op->parent_instr_);
+    lir_memind_set_linked(ind, base, NULL, 0, offset);
+    op->value_.indirect = ind;
+}
+
+void
+lir_operand_set_memory_indirect_phy(LirOperand *op,
+                                     LirPhyLocation base, int32_t offset) {
+    assert(!op->is_linked_);
+    if (op->type_ == JIT_LIR_OPTYPE_IND && op->value_.indirect) {
+        lir_memind_free(op->value_.indirect);
+    }
+    op->type_ = JIT_LIR_OPTYPE_IND;
+    LirPhyLocation invalid = {LIR_REG_INVALID, 0};
+    LirMemoryIndirect *ind = lir_memind_new(op->parent_instr_);
+    lir_memind_set(ind, base, invalid, 0, offset);
+    op->value_.indirect = ind;
+}
+
+void
+lir_operand_set_memory_indirect_phy3(LirOperand *op,
+                                      LirPhyLocation base,
+                                      LirPhyLocation index_reg,
+                                      uint8_t multiplier) {
+    assert(!op->is_linked_);
+    if (op->type_ == JIT_LIR_OPTYPE_IND && op->value_.indirect) {
+        lir_memind_free(op->value_.indirect);
+    }
+    op->type_ = JIT_LIR_OPTYPE_IND;
+    LirMemoryIndirect *ind = lir_memind_new(op->parent_instr_);
+    lir_memind_set(ind, base, index_reg, multiplier, 0);
+    op->value_.indirect = ind;
+}
+
+/* ---- MemoryIndirect getters ---- */
+
+LirOperand *
+lir_memind_base_reg(const LirMemoryIndirect *mi) {
+    return mi->base_reg_;
+}
+
+LirOperand *
+lir_memind_index_reg(const LirMemoryIndirect *mi) {
+    return mi->index_reg_;
+}
+
+uint8_t
+lir_memind_multiplier(const LirMemoryIndirect *mi) {
+    return mi->multiplier_;
+}
+
+int32_t
+lir_memind_offset(const LirMemoryIndirect *mi) {
+    return mi->offset_;
+}
+
+/* ---- MemoryIndirect setters ---- */
+
 void
 lir_memind_set_linked(LirMemoryIndirect *mi,
                       LirInstruction *base, LirInstruction *index,

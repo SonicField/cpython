@@ -139,6 +139,24 @@ void lir_operand_set_data_type(LirOperand *op, uint8_t dt);
 void lir_operand_set_last_use(LirOperand *op);
 void lir_operand_set_none(LirOperand *op);
 void lir_operand_set_linked_instr(LirOperand *op, LirInstruction *def);
+void lir_operand_set_phy_reg_or_stack(LirOperand *op, LirPhyLocation loc);
+LirPhyLocation lir_operand_get_phy_reg_or_stack(const LirOperand *op);
+void lir_operand_set_memory_indirect_instr(LirOperand *op,
+                                            LirInstruction *base, int32_t offset);
+void lir_operand_set_memory_indirect_phy(LirOperand *op,
+                                          LirPhyLocation base, int32_t offset);
+void lir_operand_set_memory_indirect_phy3(LirOperand *op,
+                                           LirPhyLocation base,
+                                           LirPhyLocation index_reg,
+                                           uint8_t multiplier);
+LirOperand *lir_operand_new_with_type(LirInstruction *parent, uint8_t data_type,
+                                       uint8_t type, uint64_t data);
+LirOperand *lir_operand_new_fp(LirInstruction *parent, uint8_t type, double data);
+LirOperand *lir_operand_new_copy(LirInstruction *parent, const LirOperand *src);
+LirOperand *lir_memind_base_reg(const LirMemoryIndirect *mi);
+LirOperand *lir_memind_index_reg(const LirMemoryIndirect *mi);
+uint8_t lir_memind_multiplier(const LirMemoryIndirect *mi);
+int32_t lir_memind_offset(const LirMemoryIndirect *mi);
 
 void lir_memind_set(LirMemoryIndirect *mi,
                     LirPhyLocation base, LirPhyLocation index,
