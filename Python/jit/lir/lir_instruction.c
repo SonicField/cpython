@@ -278,3 +278,148 @@ lir_instruction_foreach_input(const LirInstruction *inst,
         cb(inst->inputs_[i], ctx);
     }
 }
+
+/* ---- Opcode query functions ---- */
+
+int
+lir_instruction_is_compare(int opcode) {
+    switch (opcode) {
+        case JIT_LIR_OP_EQUAL:
+        case JIT_LIR_OP_NOTEQUAL:
+        case JIT_LIR_OP_GREATERTHANSIGNED:
+        case JIT_LIR_OP_LESSTHANSIGNED:
+        case JIT_LIR_OP_GREATERTHANEQUALSIGNED:
+        case JIT_LIR_OP_LESSTHANEQUALSIGNED:
+        case JIT_LIR_OP_GREATERTHANUNSIGNED:
+        case JIT_LIR_OP_LESSTHANUNSIGNED:
+        case JIT_LIR_OP_GREATERTHANEQUALUNSIGNED:
+        case JIT_LIR_OP_LESSTHANEQUALUNSIGNED:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+int
+lir_instruction_is_branch_cc(int opcode) {
+    switch (opcode) {
+        case JIT_LIR_OP_BRANCHC:
+        case JIT_LIR_OP_BRANCHNC:
+        case JIT_LIR_OP_BRANCHO:
+        case JIT_LIR_OP_BRANCHNO:
+        case JIT_LIR_OP_BRANCHS:
+        case JIT_LIR_OP_BRANCHNS:
+        case JIT_LIR_OP_BRANCHZ:
+        case JIT_LIR_OP_BRANCHNZ:
+        case JIT_LIR_OP_BRANCHA:
+        case JIT_LIR_OP_BRANCHB:
+        case JIT_LIR_OP_BRANCHBE:
+        case JIT_LIR_OP_BRANCHAE:
+        case JIT_LIR_OP_BRANCHL:
+        case JIT_LIR_OP_BRANCHG:
+        case JIT_LIR_OP_BRANCHLE:
+        case JIT_LIR_OP_BRANCHGE:
+        case JIT_LIR_OP_BRANCHE:
+        case JIT_LIR_OP_BRANCHNE:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+int
+lir_instruction_is_any_branch(int opcode) {
+    return (opcode == JIT_LIR_OP_CONDBRANCH) || lir_instruction_is_branch_cc(opcode);
+}
+
+int
+lir_instruction_is_terminator(int opcode) {
+    return opcode == JIT_LIR_OP_RETURN;
+}
+
+int
+lir_instruction_is_any_yield(int opcode) {
+    switch (opcode) {
+        case JIT_LIR_OP_YIELDFROM:
+        case JIT_LIR_OP_YIELDFROMHANDLESTOPASYNCITERATION:
+        case JIT_LIR_OP_YIELDFROMSKIPINITIALSEND:
+        case JIT_LIR_OP_YIELDINITIAL:
+        case JIT_LIR_OP_YIELDVALUE:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+/* ---- Opcode manipulation ---- */
+
+#define CASE_FLIP(op1, op2) \
+    case op1: return op2;   \
+    case op2: return op1;
+
+int
+lir_instruction_negate_branch_cc(int opcode) {
+    switch (opcode) {
+        CASE_FLIP(JIT_LIR_OP_BRANCHC, JIT_LIR_OP_BRANCHNC)
+        CASE_FLIP(JIT_LIR_OP_BRANCHO, JIT_LIR_OP_BRANCHNO)
+        CASE_FLIP(JIT_LIR_OP_BRANCHS, JIT_LIR_OP_BRANCHNS)
+        CASE_FLIP(JIT_LIR_OP_BRANCHZ, JIT_LIR_OP_BRANCHNZ)
+        CASE_FLIP(JIT_LIR_OP_BRANCHA, JIT_LIR_OP_BRANCHBE)
+        CASE_FLIP(JIT_LIR_OP_BRANCHB, JIT_LIR_OP_BRANCHAE)
+        CASE_FLIP(JIT_LIR_OP_BRANCHL, JIT_LIR_OP_BRANCHGE)
+        CASE_FLIP(JIT_LIR_OP_BRANCHG, JIT_LIR_OP_BRANCHLE)
+        CASE_FLIP(JIT_LIR_OP_BRANCHE, JIT_LIR_OP_BRANCHNE)
+        default:
+            assert(0 && "Not a conditional branch opcode");
+            return opcode;
+    }
+}
+
+int
+lir_instruction_flip_branch_cc_direction(int opcode) {
+    switch (opcode) {
+        CASE_FLIP(JIT_LIR_OP_BRANCHA, JIT_LIR_OP_BRANCHB)
+        CASE_FLIP(JIT_LIR_OP_BRANCHAE, JIT_LIR_OP_BRANCHBE)
+        CASE_FLIP(JIT_LIR_OP_BRANCHL, JIT_LIR_OP_BRANCHG)
+        CASE_FLIP(JIT_LIR_OP_BRANCHLE, JIT_LIR_OP_BRANCHGE)
+        default:
+            assert(0 && "Unable to flip branch condition for opcode");
+            return opcode;
+    }
+}
+
+int
+lir_instruction_flip_comparison_direction(int opcode) {
+    switch (opcode) {
+        CASE_FLIP(JIT_LIR_OP_GREATERTHANEQUALSIGNED, JIT_LIR_OP_LESSTHANEQUALSIGNED)
+        CASE_FLIP(JIT_LIR_OP_GREATERTHANEQUALUNSIGNED, JIT_LIR_OP_LESSTHANEQUALUNSIGNED)
+        CASE_FLIP(JIT_LIR_OP_GREATERTHANSIGNED, JIT_LIR_OP_LESSTHANSIGNED)
+        CASE_FLIP(JIT_LIR_OP_GREATERTHANUNSIGNED, JIT_LIR_OP_LESSTHANUNSIGNED)
+        case JIT_LIR_OP_EQUAL: return JIT_LIR_OP_EQUAL;
+        case JIT_LIR_OP_NOTEQUAL: return JIT_LIR_OP_NOTEQUAL;
+        default:
+            assert(0 && "Unable to flip comparison direction for opcode");
+            return opcode;
+    }
+}
+
+int
+lir_instruction_compare_to_branch_cc(int opcode) {
+    switch (opcode) {
+        case JIT_LIR_OP_EQUAL: return JIT_LIR_OP_BRANCHE;
+        case JIT_LIR_OP_NOTEQUAL: return JIT_LIR_OP_BRANCHNE;
+        case JIT_LIR_OP_GREATERTHANUNSIGNED: return JIT_LIR_OP_BRANCHA;
+        case JIT_LIR_OP_LESSTHANUNSIGNED: return JIT_LIR_OP_BRANCHB;
+        case JIT_LIR_OP_GREATERTHANEQUALUNSIGNED: return JIT_LIR_OP_BRANCHAE;
+        case JIT_LIR_OP_LESSTHANEQUALUNSIGNED: return JIT_LIR_OP_BRANCHBE;
+        case JIT_LIR_OP_GREATERTHANSIGNED: return JIT_LIR_OP_BRANCHG;
+        case JIT_LIR_OP_LESSTHANSIGNED: return JIT_LIR_OP_BRANCHL;
+        case JIT_LIR_OP_GREATERTHANEQUALSIGNED: return JIT_LIR_OP_BRANCHGE;
+        case JIT_LIR_OP_LESSTHANEQUALSIGNED: return JIT_LIR_OP_BRANCHLE;
+        default:
+            assert(0 && "Not a compare opcode");
+            return opcode;
+    }
+}
+
+#undef CASE_FLIP

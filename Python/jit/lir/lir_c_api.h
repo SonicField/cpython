@@ -190,6 +190,19 @@ void lir_instruction_foreach_input(const LirInstruction *inst,
                                     void (*cb)(LirOperand *, void *),
                                     void *ctx);
 
+/* Opcode query functions (take opcode int, not LirInstruction*) */
+int lir_instruction_is_compare(int opcode);
+int lir_instruction_is_branch_cc(int opcode);
+int lir_instruction_is_any_branch(int opcode);
+int lir_instruction_is_terminator(int opcode);
+int lir_instruction_is_any_yield(int opcode);
+
+/* Opcode manipulation */
+int lir_instruction_negate_branch_cc(int opcode);
+int lir_instruction_flip_branch_cc_direction(int opcode);
+int lir_instruction_flip_comparison_direction(int opcode);
+int lir_instruction_compare_to_branch_cc(int opcode);
+
 /* BasicBlock lifecycle (block_impl.c) */
 LirBasicBlock *lir_block_create(void *function, int id);
 void lir_block_free(LirBasicBlock *bb);
