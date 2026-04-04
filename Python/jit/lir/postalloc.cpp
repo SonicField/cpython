@@ -48,44 +48,39 @@ void insertMoveToMemoryLocation(
         !fitsSignedInt<32>(constant) ||
 #endif
         operand->isFp()) {
-      block->allocateInstrBefore(
-          instr_iter,
-          Instruction::kMove,
-          OutPhyReg{temp, data_type},
-          Imm{constant, data_type});
-      block->allocateInstrBefore(
-          instr_iter,
-          Instruction::kMove,
-          OutInd{base, index, data_type},
-          PhyReg{temp, data_type});
+      auto* m1 = block->allocateInstrBefore(instr_iter, Instruction::kMove);
+      m1->output_.setPhyRegister(temp);
+      m1->output_.setDataType(data_type);
+      m1->allocateImmediateInput(constant)->setDataType(data_type);
+
+      auto* m2 = block->allocateInstrBefore(instr_iter, Instruction::kMove);
+      m2->output_.setMemoryIndirect(base, index);
+      m2->allocatePhyRegisterInput(temp)->setDataType(data_type);
     } else {
-      block->allocateInstrBefore(
-          instr_iter,
-          Instruction::kMove,
-          OutInd{base, index, data_type},
-          Imm{constant, data_type});
+      auto* m = block->allocateInstrBefore(instr_iter, Instruction::kMove);
+      m->output_.setMemoryIndirect(base, index);
+      m->allocateImmediateInput(constant)->setDataType(data_type);
     }
     return;
   }
 
   if (operand->isReg()) {
     PhyLocation loc = operand->getPhyRegister();
-    block->allocateInstrBefore(
-        instr_iter,
-        Instruction::kMove,
-        OutInd{base, index, data_type},
-        PhyReg{loc});
+    auto* m = block->allocateInstrBefore(instr_iter, Instruction::kMove);
+    m->output_.setMemoryIndirect(base, index);
+    m->allocatePhyRegisterInput(loc);
     return;
   }
 
   PhyLocation loc = operand->getStackSlot();
-  block->allocateInstrBefore(
-      instr_iter, Instruction::kMove, OutPhyReg{temp, data_type}, Stk{loc});
-  block->allocateInstrBefore(
-      instr_iter,
-      Instruction::kMove,
-      OutInd{base, index, data_type},
-      PhyReg{temp, data_type});
+  auto* m1 = block->allocateInstrBefore(instr_iter, Instruction::kMove);
+  m1->output_.setPhyRegister(temp);
+  m1->output_.setDataType(data_type);
+  m1->allocateStackInput(loc);
+
+  auto* m2 = block->allocateInstrBefore(instr_iter, Instruction::kMove);
+  m2->output_.setMemoryIndirect(base, index);
+  m2->allocatePhyRegisterInput(temp)->setDataType(data_type);
 }
 
 int rewriteRegularFunction(instr_iter_t instr_iter) {
@@ -104,15 +99,14 @@ int rewriteRegularFunction(instr_iter_t instr_iter) {
     if (operand->isFp()) {
       if (fp_arg_reg < FP_ARGUMENT_REGS.size()) {
         if (operand_imm) {
-          block->allocateInstrBefore(
-              instr_iter,
-              Instruction::kMove,
-              OutPhyReg(arch::reg_scratch_0_loc),
-              Imm(operand->getConstant()));
+          auto* mi = block->allocateInstrBefore(
+              instr_iter, Instruction::kMove);
+          mi->output_.setPhyRegister(arch::reg_scratch_0_loc);
+          mi->allocateImmediateInput(operand->getConstant());
         }
         auto move = block->allocateInstrBefore(instr_iter, Instruction::kMove);
-        (&move->output_)->setPhyRegister(FP_ARGUMENT_REGS[fp_arg_reg++]);
-        (&move->output_)->setDataType(OperandBase::kDouble);
+        move->output_.setPhyRegister(FP_ARGUMENT_REGS[fp_arg_reg++]);
+        move->output_.setDataType(OperandBase::kDouble);
 
         if (operand_imm) {
           move->allocatePhyRegisterInput(arch::reg_scratch_0_loc);
@@ -133,8 +127,8 @@ int rewriteRegularFunction(instr_iter_t instr_iter) {
 
     if (arg_reg < ARGUMENT_REGS.size()) {
       auto move = block->allocateInstrBefore(instr_iter, Instruction::kMove);
-      (&move->output_)->setPhyRegister(ARGUMENT_REGS[arg_reg++]);
-      (&move->output_)->setDataType(operand->dataType());
+      move->output_.setPhyRegister(ARGUMENT_REGS[arg_reg++]);
+      move->output_.setDataType(operand->dataType());
       move->appendInput(instr->releaseInput(i));
     } else {
       insertMoveToMemoryLocation(
@@ -167,18 +161,18 @@ int prepareArgsArray(
   int rsp_sub = ((num_allocs % 2) ? num_allocs + 1 : num_allocs) * PTR_SIZE;
 
   // lea dest, [sp + kVectorcallArgsOffset * PTR_SIZE]
-  block->allocateInstrBefore(
-      instr_iter,
-      Instruction::kLea,
-      OutPhyReg(dest),
-      Ind(arch::reg_stack_pointer_loc, kVectorcallArgsOffset * PTR_SIZE));
+  auto* lea = block->allocateInstrBefore(instr_iter, Instruction::kLea);
+  lea->output_.setPhyRegister(dest);
+  lea->allocateMemoryIndirectInput(
+      arch::reg_stack_pointer_loc,
+      (int32_t)(kVectorcallArgsOffset * PTR_SIZE));
 
   // mov arg2, num_args
-  block->allocateInstrBefore(
-      instr_iter,
-      Instruction::kMove,
-      OutPhyReg(size_dest, lir::OperandBase::k64bit),
-      Imm(num_args | flags, lir::OperandBase::k64bit));
+  auto* mov = block->allocateInstrBefore(instr_iter, Instruction::kMove);
+  mov->output_.setPhyRegister(size_dest);
+  mov->output_.setDataType(lir::OperandBase::k64bit);
+  mov->allocateImmediateInput(num_args | flags)->setDataType(
+      lir::OperandBase::k64bit);
 
   for (size_t i = first_arg; i < first_arg + num_args; i++) {
     auto arg = instr->inputs_[i];
@@ -204,8 +198,8 @@ int rewriteVectorCallFunctions(instr_iter_t instr_iter) {
   // first argument
   auto block = instr->basic_block_;
   auto move = block->allocateInstrBefore(instr_iter, Instruction::kMove);
-  (&move->output_)->setPhyRegister(ARGUMENT_REGS[0]);
-  (&move->output_)->setDataType(instr->inputs_[2]->dataType());
+  move->output_.setPhyRegister(ARGUMENT_REGS[0]);
+  move->output_.setDataType(instr->inputs_[2]->dataType());
   move->appendInput(instr->releaseInput(2)); // callable
 
   constexpr PhyLocation TMP_REG = arch::reg_scratch_0_loc;
@@ -221,29 +215,28 @@ int rewriteVectorCallFunctions(instr_iter_t instr_iter) {
   auto last_input = instr->releaseInput(instr->num_inputs_ - 1);
   if (last_input->isImm()) {
     JIT_DCHECK(last_input->getConstant() == 0, "kwnames must be 0 or variable");
-    block->allocateInstrBefore(
-        instr_iter,
-        Instruction::kXor,
-        PhyReg(ARGUMENT_REGS[3]),
-        PhyReg(ARGUMENT_REGS[3]));
+    auto* xor_instr = block->allocateInstrBefore(
+        instr_iter, Instruction::kXor);
+    xor_instr->allocatePhyRegisterInput(ARGUMENT_REGS[3]);
+    xor_instr->allocatePhyRegisterInput(ARGUMENT_REGS[3]);
   } else {
     auto move_2 = block->allocateInstrBefore(
-        instr_iter, Instruction::kMove, OutPhyReg(ARGUMENT_REGS[3]));
+        instr_iter, Instruction::kMove);
+    move_2->output_.setPhyRegister(ARGUMENT_REGS[3]);
     move_2->appendInput(last_input);
 
     // Subtract the length of kwnames (always a tuple) from nargsf (arg2)
     size_t ob_size_offs = offsetof(PyVarObject, ob_size);
-    block->allocateInstrBefore(
-        instr_iter,
-        Instruction::kMove,
-        OutPhyReg(TMP_REG),
-        Ind(ARGUMENT_REGS[3], (int32_t)ob_size_offs));
+    auto* load = block->allocateInstrBefore(
+        instr_iter, Instruction::kMove);
+    load->output_.setPhyRegister(TMP_REG);
+    load->allocateMemoryIndirectInput(
+        ARGUMENT_REGS[3], (int32_t)ob_size_offs);
 
-    block->allocateInstrBefore(
-        instr_iter,
-        Instruction::kSub,
-        PhyReg(ARGUMENT_REGS[2]),
-        PhyReg(TMP_REG));
+    auto* sub = block->allocateInstrBefore(
+        instr_iter, Instruction::kSub);
+    sub->allocatePhyRegisterInput(ARGUMENT_REGS[2]);
+    sub->allocatePhyRegisterInput(TMP_REG);
   }
 
   return rsp_sub;
@@ -307,19 +300,15 @@ RewriteResult rewriteCallInstrs(instr_iter_t instr_iter, Environ* env) {
       : arch::reg_general_return_loc;
 
   if (!output->isReg() || output->getPhyRegister() != kReturnRegister) {
+    auto* m = block->allocateInstrBefore(next_iter, Instruction::kMove);
     if (output->isReg()) {
-      block->allocateInstrBefore(
-          next_iter,
-          Instruction::kMove,
-          OutPhyReg(output->getPhyRegister(), output->dataType()),
-          PhyReg(kReturnRegister, output->dataType()));
+      m->output_.setPhyRegister(output->getPhyRegister());
     } else {
-      block->allocateInstrBefore(
-          next_iter,
-          Instruction::kMove,
-          OutStk(output->getStackSlot(), output->dataType()),
-          PhyReg(kReturnRegister, output->dataType()));
+      m->output_.setStackSlot(output->getStackSlot());
     }
+    m->output_.setDataType(output->dataType());
+    m->allocatePhyRegisterInput(kReturnRegister)->setDataType(
+        output->dataType());
   }
   output->setNone();
 
@@ -471,7 +460,8 @@ RewriteResult optimizeMoveInstrs(instr_iter_t instr_iter) {
     auto data_type = out->dataType();
     out->setNone();
     instr->setNumInputs(0);
-    instr->addOperands(PhyReg{reg, data_type}, PhyReg{reg, data_type});
+    instr->allocatePhyRegisterInput(reg)->setDataType(data_type);
+    instr->allocatePhyRegisterInput(reg)->setDataType(data_type);
     return kChanged;
   }
 
@@ -515,11 +505,9 @@ RewriteResult rewriteLoadInstrs(instr_iter_t instr_iter) {
 #endif
 
   auto block = instr->basic_block_;
-  block->allocateInstrBefore(
-      instr_iter,
-      Instruction::kMove,
-      OutPhyReg(out->getPhyRegister()),
-      Imm(mem_addr, in->dataType()));
+  auto* m = block->allocateInstrBefore(instr_iter, Instruction::kMove);
+  m->output_.setPhyRegister(out->getPhyRegister());
+  m->allocateImmediateInput(mem_addr)->setDataType(in->dataType());
 
   static_cast<Operand*>(in)->setMemoryIndirect(out->getPhyRegister());
 
@@ -535,11 +523,9 @@ void doRewriteCondBranch(instr_iter_t instr_iter, BasicBlock* next_block) {
 
   // insert test Reg, Reg instruction
   auto size = input->dataType();
-  block->allocateInstrBefore(
-      instr_iter,
-      Instruction::kTest,
-      PhyReg(input->getPhyRegister(), size),
-      PhyReg(input->getPhyRegister(), size));
+  auto* test = block->allocateInstrBefore(instr_iter, Instruction::kTest);
+  test->allocatePhyRegisterInput(input->getPhyRegister())->setDataType(size);
+  test->allocatePhyRegisterInput(input->getPhyRegister())->setDataType(size);
 
   // convert the current CondBranch instruction to a BranchCC instruction
   auto true_block = block->getTrueSuccessor();
@@ -740,22 +726,21 @@ RewriteResult rewriteByteMultiply(instr_iter_t instr_iter) {
 
   BasicBlock* block = instr->basic_block_;
   if (in_reg != AL) {
-    block->allocateInstrBefore(
-        instr_iter,
-        Instruction::kMove,
-        OutPhyReg(AL, OperandBase::k8bit),
-        PhyReg(in_reg, OperandBase::k8bit));
+    auto* m = block->allocateInstrBefore(instr_iter, Instruction::kMove);
+    m->output_.setPhyRegister(AL);
+    m->output_.setDataType(OperandBase::k8bit);
+    m->allocatePhyRegisterInput(in_reg)->setDataType(OperandBase::k8bit);
     input0->setPhyRegister(AL);
   }
   // asmjit only recognizes 8-bit imul if RAX is passed as 16-bit.
   input0->setDataType(OperandBase::k16bit);
   output->setNone(); // no output means first input is also output
   if (out_reg != RAX) {
-    block->allocateInstrBefore(
-        instr_iter->next_,
-        Instruction::kMove,
-        OutPhyReg(out_reg, OperandBase::k8bit),
-        PhyReg(AL, OperandBase::k8bit));
+    auto* m = block->allocateInstrBefore(
+        instr_iter->next_, Instruction::kMove);
+    m->output_.setPhyRegister(out_reg);
+    m->output_.setDataType(OperandBase::k8bit);
+    m->allocatePhyRegisterInput(AL)->setDataType(OperandBase::k8bit);
   }
   return kChanged;
 }
@@ -772,14 +757,16 @@ bool insertMoveToRegister(
   }
 
   auto data_type = op->dataType();
-  auto move = block->allocateInstrBefore(
-      instr_iter, Instruction::kMove, OutPhyReg(location, data_type));
+  auto move = block->allocateInstrBefore(instr_iter, Instruction::kMove);
+  move->output_.setPhyRegister(location);
+  move->output_.setDataType(data_type);
   if (op->isReg()) {
-    move->addOperands(PhyReg(op->getPhyRegister(), data_type));
+    move->allocatePhyRegisterInput(op->getPhyRegister())->setDataType(
+        data_type);
   } else if (op->isImm()) {
-    move->addOperands(Imm(op->getConstant(), data_type));
+    move->allocateImmediateInput(op->getConstant())->setDataType(data_type);
   } else if (op->isStack()) {
-    move->addOperands(Stk(op->getStackSlot(), data_type));
+    move->allocateStackInput(op->getStackSlot())->setDataType(data_type);
   } else if (op->isMem()) {
     JIT_ABORT("Unsupported: div from mem");
   } else {
@@ -837,8 +824,9 @@ RewriteResult rewriteDivide(instr_iter_t instr_iter) {
         instr_iter,
         dividend_lower->isImm() ? Instruction::kMove
             : instr->isDiv()    ? Instruction::kMovSX
-                                : Instruction::kMovZX,
-        OutPhyReg(AX, OperandBase::k16bit));
+                                : Instruction::kMovZX);
+    move->output_.setPhyRegister(AX);
+    move->output_.setDataType(OperandBase::k16bit);
 
     if (dividend_lower->isImm()) {
       dividend_lower->setDataType(OperandBase::k16bit);
@@ -850,7 +838,7 @@ RewriteResult rewriteDivide(instr_iter_t instr_iter) {
 
     instr->removeInput(0); // Imm/rdx, no longer used
 
-    instr->addOperands(PhyReg(AX, OperandBase::k16bit));
+    instr->allocatePhyRegisterInput(AX)->setDataType(OperandBase::k16bit);
     instr->appendInput(divisor_removed);
     changed = true;
   } else {
@@ -881,12 +869,15 @@ RewriteResult rewriteDivide(instr_iter_t instr_iter) {
           default:
             Py_UNREACHABLE();
         }
-        block->allocateInstrBefore(
-            instr_iter, extend, OutPhyReg(RDX), PhyReg(RAX));
+        auto* ext = block->allocateInstrBefore(instr_iter, extend);
+        ext->output_.setPhyRegister(RDX);
+        ext->allocatePhyRegisterInput(RAX);
       } else {
         // zero rdx
-        block->allocateInstrBefore(
-            instr_iter, Instruction::kXor, PhyReg(RDX), PhyReg(RDX));
+        auto* xor_instr = block->allocateInstrBefore(
+            instr_iter, Instruction::kXor);
+        xor_instr->allocatePhyRegisterInput(RDX);
+        xor_instr->allocatePhyRegisterInput(RDX);
       }
 
       dividend_upper->setPhyRegister(PhyLocation::RDX);
@@ -896,11 +887,12 @@ RewriteResult rewriteDivide(instr_iter_t instr_iter) {
   }
 
   if (out_reg != RAX) {
-    block->allocateInstrBefore(
-        instr_iter->next_,
-        Instruction::kMove,
-        OutPhyReg(out_reg, dividend_lower->dataType()),
-        PhyReg(PhyLocation::RAX, dividend_lower->dataType()));
+    auto* m = block->allocateInstrBefore(
+        instr_iter->next_, Instruction::kMove);
+    m->output_.setPhyRegister(out_reg);
+    m->output_.setDataType(dividend_lower->dataType());
+    m->allocatePhyRegisterInput(PhyLocation::RAX)->setDataType(
+        dividend_lower->dataType());
     changed = true;
   }
   output->setNone();
