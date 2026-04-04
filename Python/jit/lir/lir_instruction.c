@@ -153,6 +153,106 @@ lir_instruction_alloc_addr_input(LirInstruction *inst, void *addr) {
     return append_input(inst, op);
 }
 
+/* ---- Input manipulation ---- */
+
+void
+lir_instruction_set_input(LirInstruction *inst, size_t i, LirOperand *input) {
+    assert(i < inst->num_inputs_);
+    lir_operand_free(inst->inputs_[i]);
+    inst->inputs_[i] = input;
+    if (input) {
+        input->parent_instr_ = inst;
+    }
+}
+
+LirOperand *
+lir_instruction_append_input(LirInstruction *inst, LirOperand *operand) {
+    ensure_input_capacity(inst);
+    inst->inputs_[inst->num_inputs_] = NULL;
+    inst->num_inputs_++;
+    lir_instruction_set_input(inst, inst->num_inputs_ - 1, operand);
+    return operand;
+}
+
+LirOperand *
+lir_instruction_release_input(LirInstruction *inst, size_t index) {
+    assert(index < inst->num_inputs_);
+    LirOperand *op = inst->inputs_[index];
+    if (op) {
+        op->parent_instr_ = NULL;
+    }
+    inst->inputs_[index] = NULL;
+    return op;
+}
+
+LirOperand *
+lir_instruction_remove_input(LirInstruction *inst, size_t index) {
+    LirOperand *op = lir_instruction_release_input(inst, index);
+    /* Shift remaining inputs left */
+    for (size_t i = index; i + 1 < inst->num_inputs_; i++) {
+        inst->inputs_[i] = inst->inputs_[i + 1];
+    }
+    inst->num_inputs_--;
+    inst->inputs_[inst->num_inputs_] = NULL;
+    return op;
+}
+
+LirOperand *
+lir_instruction_prepend_input(LirInstruction *inst, LirOperand *operand) {
+    ensure_input_capacity(inst);
+    /* Shift all existing inputs right */
+    for (size_t i = inst->num_inputs_; i > 0; i--) {
+        inst->inputs_[i] = inst->inputs_[i - 1];
+    }
+    inst->inputs_[0] = NULL;
+    inst->num_inputs_++;
+    lir_instruction_set_input(inst, 0, operand);
+    return operand;
+}
+
+void
+lir_instruction_set_num_inputs(LirInstruction *inst, size_t n) {
+    if (n > inst->num_inputs_) {
+        size_t new_cap = inst->inputs_capacity_;
+        while (new_cap < n) new_cap = new_cap == 0 ? 4 : new_cap * 2;
+        if (new_cap > inst->inputs_capacity_) {
+            inst->inputs_ = (LirOperand **)PyMem_RawRealloc(
+                inst->inputs_, new_cap * sizeof(LirOperand *));
+            inst->inputs_capacity_ = new_cap;
+        }
+        for (size_t i = inst->num_inputs_; i < n; i++) {
+            inst->inputs_[i] = NULL;
+        }
+    } else if (n < inst->num_inputs_) {
+        for (size_t i = n; i < inst->num_inputs_; i++) {
+            lir_operand_free(inst->inputs_[i]);
+            inst->inputs_[i] = NULL;
+        }
+    }
+    inst->num_inputs_ = n;
+}
+
+/* ---- Query methods ---- */
+
+int
+lir_instruction_get_num_outputs(const LirInstruction *inst) {
+    return inst->output_.type_ == JIT_LIR_OPTYPE_NONE ? 0 : 1;
+}
+
+LirOperand *
+lir_instruction_get_operand_by_predecessor(const LirInstruction *inst,
+                                            const LirBasicBlock *pred) {
+    /* Caller must ensure inst is a Phi instruction. Phi inputs are pairs:
+     * [label, value, label, value, ...]. We search for pred in the labels. */
+    for (size_t i = 0; i < inst->num_inputs_; i += 2) {
+        if (inst->inputs_[i]->type_ == JIT_LIR_OPTYPE_LABEL &&
+            (LirBasicBlock *)inst->inputs_[i]->value_.block == pred) {
+            return inst->inputs_[i + 1];
+        }
+    }
+    return NULL;
+}
+
 /* ---- Mutation ---- */
 
 void
@@ -163,6 +263,11 @@ lir_instruction_set_opcode(LirInstruction *inst, int opcode) {
 void
 lir_instruction_set_id(LirInstruction *inst, int id) {
     inst->id_ = id;
+}
+
+void
+lir_instruction_set_basic_block(LirInstruction *inst, LirBasicBlock *bb) {
+    inst->basic_block_ = bb;
 }
 
 void
