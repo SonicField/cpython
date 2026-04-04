@@ -36,6 +36,14 @@ void lir_instruction_free(LirInstruction *inst);
 /* From block_impl.c */
 LirBasicBlock *lir_block_new(void *function, int id);
 void lir_block_free(LirBasicBlock *bb);
+void lir_block_fixup_phis(LirBasicBlock *bb,
+                          LirBasicBlock *old_pred, LirBasicBlock *new_pred);
+void lir_block_append_instr(LirBasicBlock *bb, LirInstruction *instr);
+LirInstruction *lir_block_remove_instr(LirBasicBlock *bb, LirInstruction *instr);
+
+/* From function_impl.c */
+LirBasicBlock *lir_function_alloc_block_after(LirFunction *func,
+                                               LirBasicBlock *after);
 
 /* From lir_c_api.h (blocksorter) */
 JitLirBlock *jit_lir_sort_blocks_rpo(

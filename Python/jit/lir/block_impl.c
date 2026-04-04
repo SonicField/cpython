@@ -205,6 +205,99 @@ lir_block_fixup_phis(LirBasicBlock *bb,
     }
 }
 
+/* ---- Block splitting ---- */
+
+LirBasicBlock *
+lir_block_insert_between(LirBasicBlock *bb, LirBasicBlock *succ_block) {
+    /* Find succ_block in bb's successors */
+    size_t idx = bb->num_succs_;
+    for (size_t i = 0; i < bb->num_succs_; i++) {
+        if (bb->successors_[i] == succ_block) {
+            idx = i;
+            break;
+        }
+    }
+    assert(idx < bb->num_succs_ && "succ_block must be a successor of bb");
+
+    /* Allocate new block after bb */
+    LirBasicBlock *new_block = lir_function_alloc_block_after(bb->func_, bb);
+
+    /* Replace successor: bb -> new_block instead of bb -> succ_block */
+    bb->successors_[idx] = new_block;
+
+    /* Add bb as predecessor of new_block */
+    if (new_block->num_preds_ >= new_block->preds_capacity_) {
+        grow_ptr_array((void ***)&new_block->predecessors_, &new_block->preds_capacity_);
+    }
+    new_block->predecessors_[new_block->num_preds_++] = bb;
+
+    /* Remove bb from succ_block's predecessors */
+    for (size_t i = 0; i < succ_block->num_preds_; i++) {
+        if (succ_block->predecessors_[i] == bb) {
+            for (size_t j = i; j + 1 < succ_block->num_preds_; j++) {
+                succ_block->predecessors_[j] = succ_block->predecessors_[j + 1];
+            }
+            succ_block->num_preds_--;
+            break;
+        }
+    }
+
+    /* new_block -> succ_block */
+    lir_block_add_successor(new_block, succ_block);
+
+    return new_block;
+}
+
+LirBasicBlock *
+lir_block_split_before(LirBasicBlock *bb, LirInstruction *instr) {
+    assert(bb->func_ != NULL && "cannot split block without function");
+    assert(instr->opcode_ != JIT_LIR_OP_PHI && "cannot split at phi");
+
+    /* Verify instruction is in this block */
+    int found = 0;
+    for (LirInstruction *i = bb->instr_head_; i != NULL; i = i->next_) {
+        if (i == instr) { found = 1; break; }
+    }
+    if (!found) return NULL;
+
+    /* Allocate second block after this one */
+    LirBasicBlock *second = lir_function_alloc_block_after(bb->func_, bb);
+
+    /* Move all instructions from instr onward to second block */
+    LirInstruction *cur = instr;
+    while (cur != NULL) {
+        LirInstruction *next = cur->next_;
+        lir_block_remove_instr(bb, cur);
+        cur->basic_block_ = second;
+        lir_block_append_instr(second, cur);
+        cur = next;
+    }
+
+    /* Fix up successors: move bb's successors to second */
+    for (size_t i = 0; i < bb->num_succs_; i++) {
+        LirBasicBlock *succ = bb->successors_[i];
+        /* Fix phis in successor */
+        lir_block_fixup_phis(succ, bb, second);
+        /* Add succ as successor of second */
+        if (second->num_succs_ >= second->succs_capacity_) {
+            grow_ptr_array((void ***)&second->successors_, &second->succs_capacity_);
+        }
+        second->successors_[second->num_succs_++] = succ;
+        /* Replace bb with second in succ's predecessors */
+        for (size_t j = 0; j < succ->num_preds_; j++) {
+            if (succ->predecessors_[j] == bb) {
+                succ->predecessors_[j] = second;
+            }
+        }
+    }
+
+    /* Clear bb's successors and add second as sole successor */
+    bb->num_succs_ = 0;
+    lir_block_add_successor(bb, second);
+
+    return second;
+}
+
 /* ---- Instruction insertion ---- */
 
 void
