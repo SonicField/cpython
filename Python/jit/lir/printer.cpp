@@ -38,23 +38,23 @@ void Printer::print(std::ostream& out, const BasicBlock& block) {
     if (is_sorted) {
       std::vector<BasicBlock*> sorted(span.begin(), span.end());
       std::sort(sorted.begin(), sorted.end(), [](auto a, auto b) {
-        return a->id() < b->id();
+        return a->id_ < b->id_;
       });
       out << which;
       for (auto* b : sorted) {
-        out << " %" << b->id();
+        out << " %" << b->id_;
       }
     } else {
       out << which;
       for (auto b : span) {
-        out << " %" << b->id();
+        out << " %" << b->id_;
       }
     }
   };
 
   print_blocks(" - preds:", block.predecessors());
   print_blocks(" - succs:", block.successors(), false);
-  auto section = block.section();
+  auto section = block.section_;
   // Avoid printing hot sections to keep the printouts a bit less noisy.
   if (section != codegen::CodeSection::kHot) {
     out << " - section: " << codeSectionName(section);
@@ -134,7 +134,7 @@ void Printer::print(std::ostream& out, const OperandBase& operand) {
       fmt::print(out, "{0}({0:#x})", operand.getConstant());
       break;
     case OperandBase::kLabel:
-      out << "BB%" << operand.getBasicBlock()->id();
+      out << "BB%" << operand.getBasicBlock()->id_;
       break;
     case OperandBase::kNone:
       out << "<!!!None!!!>";

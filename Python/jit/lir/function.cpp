@@ -90,7 +90,7 @@ void copyOperand(
     }
     case OperandBase::kLabel: {
       operand_copy->setBasicBlock(
-          map_get_strict(block_index_map, operand->getBasicBlock()->id()));
+          map_get_strict(block_index_map, operand->getBasicBlock()->id_));
       break;
     }
     case OperandBase::kInd: {
@@ -145,9 +145,9 @@ void deepCopyBasicBlocks(
   UnorderedMap<LinkedOperand*, int> instr_refs;
 
   for (auto bb : src_blocks) {
-    BasicBlock* bb_copy = map_get_strict(block_index_map_, bb->id());
+    BasicBlock* bb_copy = map_get_strict(block_index_map_, bb->id_);
     for (auto succ : bb->successors()) {
-      bb_copy->addSuccessor(map_get_strict(block_index_map_, succ->id()));
+      bb_copy->addSuccessor(map_get_strict(block_index_map_, succ->id_));
     }
     for (auto& instr : bb->instructions()) {
       // Copying the instruction will also copy the output
@@ -226,7 +226,7 @@ Function::CopyResult Function::copyFrom(
   // Initialize the basic blocks — insert before the last block (exit block).
   for (auto bb : src_func->basicblocks()) {
     auto* bb_copy = new BasicBlock(this);
-    block_index_map.emplace(bb->id(), bb_copy);
+    block_index_map.emplace(bb->id_, bb_copy);
     // Insert before the last block.
     ensureBlockCapacity(num_blocks_ + 1);
     // Shift last block right to make room.

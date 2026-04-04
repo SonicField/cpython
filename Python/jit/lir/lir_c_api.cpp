@@ -67,28 +67,28 @@ jit_lir_block_get_succ(JitLirBlock block, size_t index) {
 extern "C" JitLirInstr
 jit_lir_block_get_last_instr(JitLirBlock block) {
   return const_cast<Instruction*>(
-      static_cast<BasicBlock*>(block)->getLastInstr());
+      static_cast<BasicBlock*>(block)->instr_tail_);
 }
 
 extern "C" JitLirInstr
 jit_lir_block_get_first_instr(JitLirBlock block) {
   return const_cast<Instruction*>(
-      static_cast<BasicBlock*>(block)->getFirstInstr());
+      static_cast<BasicBlock*>(block)->instr_head_);
 }
 
 extern "C" size_t
 jit_lir_block_num_instrs(JitLirBlock block) {
-  return static_cast<BasicBlock*>(block)->getNumInstrs();
+  return static_cast<BasicBlock*>(block)->num_instrs_;
 }
 
 extern "C" JitLirBlock
 jit_lir_block_get_false_succ(JitLirBlock block) {
-  return static_cast<BasicBlock*>(block)->getFalseSuccessor();
+  return static_cast<BasicBlock*>(block)->successors_[1];
 }
 
 extern "C" int
 jit_lir_block_get_section(JitLirBlock block) {
-  return static_cast<int>(static_cast<BasicBlock*>(block)->section());
+  return static_cast<int>(static_cast<BasicBlock*>(block)->section_);
 }
 
 extern "C" void
@@ -99,7 +99,7 @@ jit_lir_block_set_section(JitLirBlock block, int section) {
 
 extern "C" int
 jit_lir_block_get_id(JitLirBlock block) {
-  return static_cast<BasicBlock*>(block)->id();
+  return static_cast<BasicBlock*>(block)->id_;
 }
 
 extern "C" JitLirInstr
@@ -251,7 +251,7 @@ jit_lir_block_remove_dead_instrs(
     int (*is_live)(JitLirInstr instr, void* ctx),
     void* ctx) {
   auto* bb = static_cast<BasicBlock*>(block);
-  Instruction* instr = bb->getFirstInstr();
+  Instruction* instr = bb->instr_head_;
   while (instr) {
     Instruction* next = instr->next_;
     if (!is_live(instr, ctx)) {

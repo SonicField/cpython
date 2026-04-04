@@ -563,8 +563,8 @@ void Parser::fixUnknownIds() {
   // find largest ID
   int largest_id = -1;
   for (auto& bb : func_->basicblocks()) {
-    if (bb->id() > largest_id) {
-      largest_id = bb->id();
+    if (bb->id_ > largest_id) {
+      largest_id = bb->id_;
     }
     for (auto& instr : bb->instructions()) {
       if (instr.id_ > largest_id) {

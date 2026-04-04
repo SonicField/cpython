@@ -338,7 +338,7 @@ void LinearScanAllocator::calculateLiveIntervals() {
 
   int total_instrs = 0;
   for (auto& bb : basic_blocks) {
-    total_instrs += bb->getNumInstrs();
+    total_instrs += bb->num_instrs_;
   }
   int total_ids = total_instrs * 2 + basic_blocks.size();
 
@@ -364,7 +364,7 @@ void LinearScanAllocator::calculateLiveIntervals() {
     // x + 2N + 1   <- bb_end_id of bb M, bb_start_id of block M + 1
     constexpr int kIdsPerInstr = 2;
     auto bb_end_id = total_ids;
-    auto bb_instrs = bb->getNumInstrs() * kIdsPerInstr;
+    auto bb_instrs = bb->num_instrs_ * kIdsPerInstr;
     total_ids -= bb_instrs;
     total_ids--;
     auto bb_start_id = total_ids;
@@ -374,7 +374,7 @@ void LinearScanAllocator::calculateLiveIntervals() {
             .emplace(
                 std::piecewise_construct,
                 std::forward_as_tuple(bb),
-                std::forward_as_tuple(bb, bb_start_id, bb->getFirstInstr()))
+                std::forward_as_tuple(bb, bb_start_id, bb->instr_head_))
             .first;
 
     auto successors = bb->successors();
@@ -401,7 +401,7 @@ void LinearScanAllocator::calculateLiveIntervals() {
     }
 
     int instr_id = bb_end_id - kIdsPerInstr;
-    for (Instruction* instr = bb->getLastInstr(); instr != nullptr;
+    for (Instruction* instr = bb->instr_tail_; instr != nullptr;
          instr = instr->prev_, instr_id -= kIdsPerInstr) {
       auto instr_opcode = instr->opcode_;
       if (instr_opcode == Instruction::kPhi) {
@@ -1040,7 +1040,7 @@ void LinearScanAllocator::rewriteLIR() {
   int instr_id = -1;
   for (BasicBlock* bb : func_->basicblocks()) {
     ++instr_id;
-    TRACE("{} - Start basic block {}", instr_id, bb->id());
+    TRACE("{} - Start basic block {}", instr_id, bb->id_);
 
     // Remove mappings that end at the last basic block.
     // Inter-basic block resolution will be done later separately.
@@ -1069,7 +1069,7 @@ void LinearScanAllocator::rewriteLIR() {
     }
 
     bool process_input = false;
-    for (Instruction* instr = bb->getFirstInstr(); instr != nullptr;) {
+    for (Instruction* instr = bb->instr_head_; instr != nullptr;) {
       auto instr_iter = instr;
       ++instr_id;
       process_input = !process_input;
@@ -1121,7 +1121,7 @@ void LinearScanAllocator::rewriteLIR() {
         JIT_CHECK(
             index != -1,
             "Can't find predecessor block {} in phi instruction: {}",
-            bb->id(),
+            bb->id_,
             *phi);
         rewriteInstrOneInput(phi, index, mapping, nullptr /* last_use_vregs */);
       });
@@ -1328,8 +1328,8 @@ void LinearScanAllocator::resolveEdges() {
         ? nullptr
         : func_->basicblocks()[next_block_index];
 
-    bool empty = basic_block->isEmpty();
-    Instruction* last_instr = basic_block->getLastInstr();
+    bool empty = (basic_block->instr_head_ == nullptr);
+    Instruction* last_instr = basic_block->instr_tail_;
     auto last_instr_iter = last_instr;
 
     auto last_instr_opcode =
@@ -1486,8 +1486,8 @@ LinearScanAllocator::resolveEdgesGenCopies(
           from,
           to,
           data_type,
-          basicblock->id(),
-          successor->id());
+          basicblock->id_,
+          successor->id_);
       copies->addEdge(from.loc, to.loc, data_type);
     }
   }

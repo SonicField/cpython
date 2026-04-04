@@ -412,7 +412,7 @@ RewriteResult rewriteBranchInstrs(Function* function) {
       continue;
     }
 
-    auto last_instr = block->getLastInstr();
+    auto last_instr = block->instr_tail_;
     auto last_opcode =
         last_instr != nullptr ? last_instr->opcode_ : Instruction::kNone;
     if (last_opcode == Instruction::kReturn) {
@@ -420,7 +420,7 @@ RewriteResult rewriteBranchInstrs(Function* function) {
     }
 
     auto successor = succs[0];
-    if (successor == next_block && next_block->section() == block->section()) {
+    if (successor == next_block && next_block->section_ == block->section_) {
       continue;
     }
 
@@ -564,7 +564,7 @@ void doRewriteCondBranch(instr_iter_t instr_iter, BasicBlock* next_block) {
   instr->allocateLabelInput(target_block);
 
   if (fallthrough_block != next_block ||
-      block->section() != next_block->section()) {
+      block->section_ != next_block->section_) {
     auto fallthrough_branch =
         block->allocateInstr(Instruction::kBranch, instr->origin_);
     fallthrough_branch->allocateLabelInput(fallthrough_block);
@@ -590,7 +590,7 @@ void doRewriteBranchCC(instr_iter_t instr_iter, BasicBlock* next_block) {
   }
 
   if (fallthrough_bb != next_block ||
-      block->section() != next_block->section()) {
+      block->section_ != next_block->section_) {
     auto fallthrough_branch =
         block->allocateInstr(Instruction::kBranch, instr->origin_);
     fallthrough_branch->allocateLabelInput(fallthrough_bb);
@@ -983,7 +983,7 @@ RewriteResult optimizeMoveSequence(BasicBlock* basicblock) {
   auto changed = kUnchanged;
   RegisterToMemoryMoves registerMemoryMoves;
 
-  for (Instruction* instr = basicblock->getFirstInstr();
+  for (Instruction* instr = basicblock->instr_head_;
        instr != nullptr;
        instr = instr->next_) {
     auto instr_iter = instr;  // for backward compat with stored iters

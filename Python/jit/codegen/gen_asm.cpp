@@ -3158,7 +3158,7 @@ void NativeGenerator::generateAssemblyBody(const asmjit::CodeHolder& code) {
   }
 
   for (lir::BasicBlock* basicblock : blocks) {
-    CodeSection section = basicblock->section();
+    CodeSection section = basicblock->section_;
     CodeSectionOverride section_override{as, &code, &metadata_, section};
     as->bind(map_get(env_.block_label_map, basicblock));
     for (auto& instr : basicblock->instructions()) {

@@ -26,7 +26,7 @@ Instruction::Instruction(
     BasicBlock* basic_block,
     Opcode opcode,
     const hir::Instr* origin)
-    : id_(basic_block->function()->allocateId()),
+    : id_(basic_block->func_->allocateId()),
       opcode_(opcode),
       output_(this),
       basic_block_(basic_block),
@@ -36,7 +36,7 @@ Instruction::Instruction(
     BasicBlock* bb,
     Instruction* instr,
     const hir::Instr* origin)
-    : id_(bb->function()->allocateId()),
+    : id_(bb->func_->allocateId()),
       opcode_(instr->opcode_),
       output_(this, &instr->output_),
       basic_block_(bb),

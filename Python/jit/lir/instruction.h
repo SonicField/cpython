@@ -15,7 +15,7 @@ class Instr;
 
 namespace lir {
 
-class BasicBlock;
+struct BasicBlock;
 
 /*
  * FlagEffects describes the effect an LIR instruction has on the machine's

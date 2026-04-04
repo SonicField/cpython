@@ -110,7 +110,7 @@ bool LIRInliner::checkEntryExitReturn(const Function* callee) {
     }
     for (auto& instr : bb->instructions()) {
       if (instr.isReturn()) {
-        if (&instr != bb->getLastInstr() || bb->successors().size() != 1 ||
+        if (&instr != bb->instr_tail_ || bb->successors().size() != 1 ||
             bb->successors()[0] != exit_block) {
           JIT_DLOG(
               "Expect return to be last instruction of the predecessor of the "
@@ -242,7 +242,7 @@ bool LIRInliner::resolveArguments() {
   auto caller_blocks = caller_->basicblocks();
   for (int i = callee_start_; i < callee_end_; i++) {
     auto bb = caller_blocks.at(i);
-    Instruction* it = bb->getFirstInstr();
+    Instruction* it = bb->instr_head_;
     // Use while loop since instructions may be removed.
     while (it != nullptr) {
       if (it->isLoadArg()) {
@@ -331,7 +331,7 @@ void LIRInliner::resolveReturnValue() {
 
   // Find return instructions from predecessor of epilogue.
   for (auto pred : epilogue->predecessors()) {
-    auto lastInstr = pred->getLastInstr();
+    auto lastInstr = pred->instr_tail_;
     if (lastInstr != nullptr && lastInstr->isReturn()) {
       phi_instr->allocateLabelInput(pred);
       JIT_CHECK(

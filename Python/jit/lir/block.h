@@ -44,9 +44,8 @@ struct ConstBlockSpan {
   BasicBlock* back() const { return data_[size_ - 1]; }
 };
 
-// Basic block class for LIR
-class BasicBlock {
- public:
+// Basic block for LIR — Phase B4b: struct with public fields.
+struct BasicBlock {
   // Phase B3c-2: instr_iter_t is now Instruction* (linked list position).
   using instr_iter_t = Instruction*;
 
@@ -172,7 +171,7 @@ class BasicBlock {
   // InstrList.
   instr_iter_t iterator_to(Instruction* instr);
 
- private:
+  // Phase B4b: all fields public.
   int id_;
   Function* func_;
 

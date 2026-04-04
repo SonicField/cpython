@@ -326,8 +326,8 @@ std::unique_ptr<jit::lir::Function> LIRGenerator::TranslateFunction() {
         auto target_lir_false_bb = bb_map[condbranch->false_bb()].first;
         last_bb->addSuccessor(target_lir_true_bb);
         last_bb->addSuccessor(target_lir_false_bb);
-        last_bb->getLastInstr()->allocateLabelInput(target_lir_true_bb);
-        last_bb->getLastInstr()->allocateLabelInput(target_lir_false_bb);
+        last_bb->instr_tail_->allocateLabelInput(target_lir_true_bb);
+        last_bb->instr_tail_->allocateLabelInput(target_lir_false_bb);
         break;
       }
       case Opcode::kReturn: {

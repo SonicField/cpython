@@ -12,7 +12,7 @@
 
 namespace jit::lir {
 
-class BasicBlock;
+struct BasicBlock;
 class Instruction;
 class OperandBase;
 class Operand;

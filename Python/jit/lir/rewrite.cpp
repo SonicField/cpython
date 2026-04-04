@@ -73,7 +73,7 @@ void Rewrite::runOneStage(int stage) {
 
     if (has_instruction_rewrites) {
       for (auto& bb : function_->basicblocks()) {
-        for (Instruction* instr = bb->getFirstInstr(); instr != nullptr;) {
+        for (Instruction* instr = bb->instr_head_; instr != nullptr;) {
           Instruction* cur = instr;
           instr = instr->next_;
 
