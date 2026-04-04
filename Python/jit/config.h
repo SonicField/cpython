@@ -208,20 +208,33 @@ struct Config {
   AsmSyntax asm_syntax{AsmSyntax::ATT};
 };
 
+// Global config instance — defined in config.cpp, accessible for inlining.
+extern Config g_jit_config;
+
 // Get the JIT's current config object.
-const Config& getConfig();
+inline const Config& getConfig() {
+  return g_jit_config;
+}
 
 // Get the JIT's current config object with the intent of modifying it.
-Config& getMutableConfig();
+inline Config& getMutableConfig() {
+  return g_jit_config;
+}
 
 // Check that the JIT is initialized.  Though it might be paused and or
 // finalizing, it's not necessarily usable.
-bool isJitInitialized();
+inline bool isJitInitialized() {
+  return getConfig().state != State::kNotInitialized;
+}
 
 // Check that the JIT is initialized and is currently usable.
-bool isJitUsable();
+inline bool isJitUsable() {
+  return getConfig().state == State::kRunning;
+}
 
 // Check that the JIT is initialized but currently paused and unusable.
-bool isJitPaused();
+inline bool isJitPaused() {
+  return getConfig().state == State::kPaused;
+}
 
 } // namespace jit
