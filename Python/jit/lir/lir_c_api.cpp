@@ -19,11 +19,21 @@
 #include "cinderx/Jit/lir/instruction.h"
 #include "cinderx/Jit/lir/operand.h"
 
+// Phase B5: Include lir_types_c.h for cross-struct size validation.
+#include "cinderx/Jit/lir/lir_types_c.h"
+
 using jit::codegen::CodeSection;
 using jit::lir::BasicBlock;
 using jit::lir::Function;
 using jit::lir::Instruction;
 using jit::lir::OperandBase;
+
+// Phase B5: Cross-validate C struct sizes against C++ struct sizes.
+// These fire at compile time if the layouts diverge.
+static_assert(sizeof(LirBasicBlock) == sizeof(BasicBlock),
+    "LirBasicBlock and BasicBlock size mismatch");
+static_assert(sizeof(LirFunction) == sizeof(Function),
+    "LirFunction and Function size mismatch");
 
 /* ---- Function accessors ---- */
 

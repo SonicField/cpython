@@ -7,6 +7,14 @@
 
 namespace jit::lir {
 
+// Phase B5: Verify that Operand/LinkedOperand add no data members beyond
+// OperandBase. This is a prerequisite for safe deletion through OperandBase*
+// after vtable removal.
+static_assert(sizeof(OperandBase) == sizeof(Operand),
+    "Operand must not add data members beyond OperandBase");
+static_assert(sizeof(OperandBase) == sizeof(LinkedOperand),
+    "LinkedOperand must not add data members beyond OperandBase");
+
 OperandBase::OperandBase(Instruction* parent) : parent_instr_{parent} {}
 
 OperandBase::OperandBase(const OperandBase& ob)
