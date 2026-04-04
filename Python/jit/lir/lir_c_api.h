@@ -208,6 +208,12 @@ void lir_instruction_foreach_input(const LirInstruction *inst,
                                     void (*cb)(LirOperand *, void *),
                                     void *ctx);
 
+/* Allocate instruction before position in block (C equivalent of
+ * BasicBlock::allocateInstrBefore with no variadic args) */
+LirInstruction *lir_block_alloc_instr_before(LirBasicBlock *bb,
+                                              LirInstruction *before,
+                                              int opcode);
+
 /* Opcode query functions (take opcode int, not LirInstruction*) */
 int lir_instruction_is_compare(int opcode);
 int lir_instruction_is_branch_cc(int opcode);
