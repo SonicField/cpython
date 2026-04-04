@@ -327,7 +327,9 @@ void LIRInliner::resolveReturnValue() {
 
   // Create phi instruction.
   auto phi_instr =
-      epilogue->allocateInstr(Instruction::kPhi, nullptr, OutVReg());
+      epilogue->allocateInstr(Instruction::kPhi, nullptr);
+  phi_instr->output_.setVirtualRegister();
+  phi_instr->output_.setDataType(OperandBase::kObject);
 
   // Find return instructions from predecessor of epilogue.
   for (auto pred : epilogue->predecessors()) {

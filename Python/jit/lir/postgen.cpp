@@ -37,11 +37,10 @@ RewriteResult rewriteBinaryOpConstantPosition(instr_iter_t instr_iter) {
     auto constant = divisor->getConstant();
     auto constant_size = divisor->dataType();
 
-    auto move = block->allocateInstrBefore(
-        instr_iter,
-        Instruction::kMove,
-        OutVReg{constant_size},
-        Imm{constant, constant_size});
+    auto move = block->allocateInstrBefore(instr_iter, Instruction::kMove);
+    move->output_.setVirtualRegister();
+    move->output_.setDataType(constant_size);
+    move->allocateImmediateInput(constant)->setDataType(constant_size);
 
     instr->setInput(2, new LinkedOperand(move));
     return kChanged;
@@ -77,11 +76,10 @@ RewriteResult rewriteBinaryOpConstantPosition(instr_iter_t instr_iter) {
   auto constant = input0->getConstant();
   auto constant_size = input0->dataType();
 
-  auto move = block->allocateInstrBefore(
-      instr_iter,
-      Instruction::kMove,
-      OutVReg{constant_size},
-      Imm{constant, constant_size});
+  auto move = block->allocateInstrBefore(instr_iter, Instruction::kMove);
+  move->output_.setVirtualRegister();
+  move->output_.setDataType(constant_size);
+  move->allocateImmediateInput(constant)->setDataType(constant_size);
   instr->setInput(0, new LinkedOperand(move));
 
   return kChanged;
@@ -147,18 +145,19 @@ RewriteResult rewriteBinaryOpLargeConstant(instr_iter_t instr_iter) {
 #endif
 
   auto block = instr->basic_block_;
-  auto move = block->allocateInstrBefore(
-      instr_iter,
-      Instruction::kMove,
-      OutVReg{},
-      Imm{constant, in1->dataType()});
+  auto move = block->allocateInstrBefore(instr_iter, Instruction::kMove);
+  move->output_.setVirtualRegister();
+  move->output_.setDataType(OperandBase::kObject);
+  move->allocateImmediateInput(constant)->setDataType(in1->dataType());
 
   // If the first operand is smaller in size than the second operand, replace
   // the first operand with a sign-extended version that matches the size of the
   // second operand.
   if (instr->inputs_[0]->sizeInBits() < in1->sizeInBits()) {
     auto movsx = block->allocateInstrBefore(
-        instr_iter, Instruction::kMovSX, OutVReg{in1->dataType()});
+        instr_iter, Instruction::kMovSX);
+    movsx->output_.setVirtualRegister();
+    movsx->output_.setDataType(in1->dataType());
     movsx->appendInput(instr->releaseInput(0));
     instr->setInput(0, new LinkedOperand(movsx));
   }
@@ -197,11 +196,10 @@ RewriteResult rewriteMoveToMemoryLargeConstant(instr_iter_t instr_iter) {
   }
 
   auto block = instr->basic_block_;
-  auto move = block->allocateInstrBefore(
-      instr_iter,
-      Instruction::kMove,
-      OutVReg(),
-      Imm(constant, input->dataType()));
+  auto move = block->allocateInstrBefore(instr_iter, Instruction::kMove);
+  move->output_.setVirtualRegister();
+  move->output_.setDataType(OperandBase::kObject);
+  move->allocateImmediateInput(constant)->setDataType(input->dataType());
 
   // Replace the constant input with the move.
   instr->setInput(0, new LinkedOperand(move));
@@ -240,11 +238,11 @@ RewriteResult rewriteGuardLargeConstant(instr_iter_t instr_iter) {
 #endif
 
   auto block = instr->basic_block_;
-  auto move = block->allocateInstrBefore(
-      instr_iter,
-      Instruction::kMove,
-      OutVReg(),
-      Imm(target_imm, target_opnd->dataType()));
+  auto move = block->allocateInstrBefore(instr_iter, Instruction::kMove);
+  move->output_.setVirtualRegister();
+  move->output_.setDataType(OperandBase::kObject);
+  move->allocateImmediateInput(target_imm)->setDataType(
+      target_opnd->dataType());
   instr->setInput(kTargetIndex, new LinkedOperand(move));
   return kChanged;
 }
@@ -329,12 +327,13 @@ Instruction* getSecondCallResult(
   if (instr) {
     instr->setOpcode(new_op);
   } else {
-    instr = src_block->allocateInstrBefore(
-        src_it->next_, new_op, OutVReg(data_type));
+    instr = src_block->allocateInstrBefore(src_it->next_, new_op);
+    instr->output_.setVirtualRegister();
+    instr->output_.setDataType(data_type);
   }
   seen_srcs[src] = instr;
   if (new_op == Instruction::kMove) {
-    instr->addOperands(PhyReg(RETURN_REGS[1], data_type));
+    instr->allocatePhyRegisterInput(RETURN_REGS[1])->setDataType(data_type);
   } else {
     // instr is now a Phi (either newly-created or a replacement for
     // instr). Recursively populate its inputs with the second result of all
@@ -357,8 +356,8 @@ void populateLoadSecondCallResultPhi(
     Operand* src1 = phi1->inputs_[i]->getDefine();
     Instruction* instr2 =
         getSecondCallResult(data_type, src1, nullptr, seen_srcs);
-    phi2->addOperands(
-        Lbl(phi1->inputs_[i - 1]->getBasicBlock()), VReg(instr2));
+    phi2->allocateLabelInput(phi1->inputs_[i - 1]->getBasicBlock());
+    phi2->allocateLinkedInput(instr2);
   }
 }
 
