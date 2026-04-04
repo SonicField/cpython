@@ -36,6 +36,11 @@ class OperandBase {
 
   OperandBase(const OperandBase& ob);
 
+  // Phase B5: Delete copy assignment — raw MemoryIndirect* in value_.indirect
+  // would be shallow-copied, creating double-free risk. Copy constructor
+  // deliberately skips value_ (safe); assignment must not silently shallow-copy.
+  OperandBase& operator=(const OperandBase&) = delete;
+
 #define OPERAND_TYPE_DEFINES(V, ...) \
   using OperandType::k##V;           \
                                      \
