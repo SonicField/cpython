@@ -44,6 +44,7 @@ LirInstruction *lir_block_remove_instr(LirBasicBlock *bb, LirInstruction *instr)
 /* From function_impl.c */
 LirBasicBlock *lir_function_alloc_block_after(LirFunction *func,
                                                LirBasicBlock *after);
+int lir_function_allocate_id(LirFunction *func);
 
 /* From lir_c_api.h (blocksorter) */
 JitLirBlock *jit_lir_sort_blocks_rpo(

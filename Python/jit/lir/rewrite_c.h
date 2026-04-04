@@ -34,6 +34,13 @@ extern "C" {
 #define LIR_MAX_STAGES 4
 
 /*
+ * Function-level rewrite callback.
+ * Called once per iteration with the whole function.
+ * Returns LIR_REWRITE_UNCHANGED or LIR_REWRITE_CHANGED.
+ */
+typedef int (*LirFuncRewriteFn)(LirFunction *func, void *env);
+
+/*
  * Instruction rewrite callback.
  * Takes the instruction pointer and an opaque environment pointer.
  * Returns LIR_REWRITE_UNCHANGED, LIR_REWRITE_CHANGED, or LIR_REWRITE_REMOVED.
@@ -44,8 +51,10 @@ typedef int (*LirInstrRewriteFn)(LirInstruction *instr, void *env);
  * A single stage's rewrite function list.
  */
 typedef struct {
-    LirInstrRewriteFn funcs[LIR_MAX_REWRITES_PER_STAGE];
-    int count;
+    LirFuncRewriteFn func_rewrites[LIR_MAX_REWRITES_PER_STAGE];
+    int func_count;
+    LirInstrRewriteFn instr_rewrites[LIR_MAX_REWRITES_PER_STAGE];
+    int instr_count;
 } LirRewriteStage;
 
 /*
@@ -68,8 +77,11 @@ typedef struct {
 /* Initialize a rewrite context. */
 void lir_rewrite_init(LirRewrite *rw, LirFunction *func, void *env);
 
-/* Register a rewrite function for a given stage. */
-void lir_rewrite_add(LirRewrite *rw, int stage, LirInstrRewriteFn fn);
+/* Register a function-level rewrite for a given stage. */
+void lir_rewrite_add_func(LirRewrite *rw, int stage, LirFuncRewriteFn fn);
+
+/* Register an instruction-level rewrite for a given stage. */
+void lir_rewrite_add_instr(LirRewrite *rw, int stage, LirInstrRewriteFn fn);
 
 /*
  * Run all registered rewrites.

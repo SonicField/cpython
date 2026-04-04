@@ -314,3 +314,27 @@ lir_block_insert_instr_before(LirBasicBlock *bb, LirInstruction *before,
     before->prev_ = instr;
     bb->num_instrs_++;
 }
+
+/*
+ * Allocate a new instruction and insert it before 'before' in the block.
+ * If before is NULL, appends to the end. This is the C equivalent of
+ * BasicBlock::allocateInstrBefore(pos, opcode) with no variadic args.
+ */
+LirInstruction *
+lir_block_alloc_instr_before(LirBasicBlock *bb, LirInstruction *before,
+                              int opcode) {
+    const void *origin = NULL;
+    if (before != NULL) {
+        origin = before->origin_;
+    } else if (bb->instr_tail_ != NULL) {
+        origin = bb->instr_tail_->origin_;
+    }
+    LirInstruction *instr = lir_instruction_create(bb, opcode, origin);
+    instr->id_ = lir_function_allocate_id(bb->func_);
+    if (before != NULL) {
+        lir_block_insert_instr_before(bb, before, instr);
+    } else {
+        lir_block_append_instr(bb, instr);
+    }
+    return instr;
+}
