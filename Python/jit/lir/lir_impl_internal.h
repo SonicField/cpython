@@ -39,6 +39,8 @@ void lir_block_free(LirBasicBlock *bb);
 void lir_block_fixup_phis(LirBasicBlock *bb,
                           LirBasicBlock *old_pred, LirBasicBlock *new_pred);
 void lir_block_append_instr(LirBasicBlock *bb, LirInstruction *instr);
+void lir_block_insert_instr_before(LirBasicBlock *bb, LirInstruction *before,
+                                   LirInstruction *instr);
 LirInstruction *lir_block_remove_instr(LirBasicBlock *bb, LirInstruction *instr);
 
 /* From function_impl.c */

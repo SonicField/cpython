@@ -13,6 +13,7 @@
 #include "cinderx/Jit/lir/lir_impl_internal.h"
 #include "cinderx/Jit/jit_config_c.h"
 
+#include "Python.h"
 #include "pycore_hashtable.h"
 
 #include <assert.h>
