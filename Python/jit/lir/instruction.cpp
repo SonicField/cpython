@@ -26,9 +26,20 @@ static_assert(offsetof(LirPhyLocation, bit_size) == offsetof(PhyLocation, bitSiz
 
 static_assert(sizeof(LirOperand) == sizeof(OperandBase),
     "LirOperand and OperandBase size mismatch");
-// OperandBase fields are protected — offsetof not accessible from outside.
-// sizeof equality + identical field types in declaration order guarantees
-// layout compatibility (C/C++ compilers cannot reorder struct members).
+static_assert(offsetof(LirOperand, parent_instr_) == offsetof(OperandBase, parent_instr_),
+    "LirOperand.parent_instr_ offset mismatch");
+static_assert(offsetof(LirOperand, last_use_) == offsetof(OperandBase, last_use_),
+    "LirOperand.last_use_ offset mismatch");
+static_assert(offsetof(LirOperand, is_linked_) == offsetof(OperandBase, is_linked_),
+    "LirOperand.is_linked_ offset mismatch");
+static_assert(offsetof(LirOperand, type_) == offsetof(OperandBase, type_),
+    "LirOperand.type_ offset mismatch");
+static_assert(offsetof(LirOperand, data_type_) == offsetof(OperandBase, data_type_),
+    "LirOperand.data_type_ offset mismatch");
+static_assert(offsetof(LirOperand, value_) == offsetof(OperandBase, value_),
+    "LirOperand.value_ offset mismatch");
+static_assert(offsetof(LirOperand, def_opnd_) == offsetof(OperandBase, def_opnd_),
+    "LirOperand.def_opnd_ offset mismatch");
 
 static_assert(sizeof(LirInstruction) == sizeof(Instruction),
     "LirInstruction and Instruction size mismatch");

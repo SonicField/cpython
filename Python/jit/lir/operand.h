@@ -90,7 +90,9 @@ class OperandBase {
 
   bool isLinked() const { return is_linked_; }
 
- protected:
+ // Phase B4d: All fields public for C struct compatibility.
+ // B5 devirtualized dispatch — protected modifier no longer guards invariants.
+ public:
   // Phase B5: Free owned MemoryIndirect before type change.
   void clearIndirect() {
     if (type_ == kInd && value_.indirect) {
