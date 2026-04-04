@@ -6,11 +6,20 @@
 #include "cinderx/Jit/lir/block.h"
 #include "cinderx/Jit/lir/function.h"
 
+// Phase B5: Cross-validate C struct sizes against C++ struct sizes.
+#include "cinderx/Jit/lir/lir_types_c.h"
+
 #include <array>
 #include <cstring>
 #include <utility>
 
 namespace jit::lir {
+
+// Phase B5: These fire at compile time if C/C++ struct layouts diverge.
+static_assert(sizeof(LirBasicBlock) == sizeof(BasicBlock),
+    "LirBasicBlock and BasicBlock size mismatch");
+static_assert(sizeof(LirFunction) == sizeof(Function),
+    "LirFunction and Function size mismatch");
 
 #define COUNT_INSTR(...) +1
 constexpr size_t kNumOpcodes = FOREACH_INSTR_TYPE(COUNT_INSTR);
