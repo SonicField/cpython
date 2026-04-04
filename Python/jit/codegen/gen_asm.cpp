@@ -67,6 +67,21 @@ namespace jit::codegen {
 
 namespace {
 
+// Check if LIR dumping is enabled — respects both the config flag and
+// PYTHONJITDUMPLIR env var (needed when the C++ FlagProcessor doesn't
+// pick up the flag due to init ordering).
+static bool shouldDumpLir() {
+  if (getConfig().log.dump_lir) {
+    return true;
+  }
+  static int env_checked = -1;
+  if (env_checked == -1) {
+    const char* env = getenv("PYTHONJITDUMPLIR");
+    env_checked = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+  }
+  return env_checked == 1;
+}
+
 #define ASM_CHECK_THROW(exp)                         \
   {                                                  \
     auto err = (exp);                                \
@@ -1263,7 +1278,7 @@ void* NativeGenerator::getVectorcallEntry() {
       lir_func = lirgen.TranslateFunction())
 
   JIT_LOGIF(
-      getConfig().log.dump_lir,
+      shouldDumpLir(),
       "LIR for {} after generation:\n{}",
       GetFunction()->fullname,
       *lir_func);
@@ -1275,7 +1290,7 @@ void* NativeGenerator::getVectorcallEntry() {
       post_gen.run())
 
   JIT_LOGIF(
-      getConfig().log.dump_lir,
+      shouldDumpLir(),
       "LIR for {} after postgen rewrites:\n{}",
       GetFunction()->fullname,
       *lir_func);
@@ -1309,7 +1324,7 @@ void* NativeGenerator::getVectorcallEntry() {
   }
 
   JIT_LOGIF(
-      getConfig().log.dump_lir,
+      shouldDumpLir(),
       "LIR for {} after register allocation:\n{}",
       GetFunction()->fullname,
       *lir_func);
@@ -1321,7 +1336,7 @@ void* NativeGenerator::getVectorcallEntry() {
       post_rewrite.run())
 
   JIT_LOGIF(
-      getConfig().log.dump_lir,
+      shouldDumpLir(),
       "LIR for {} after postalloc rewrites:\n{}",
       GetFunction()->fullname,
       *lir_func);
