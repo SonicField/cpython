@@ -14,6 +14,7 @@
 #include <iterator>
 
 #include "cinderx/Jit/codegen/code_section.h"
+#include "cinderx/Jit/codegen/environ.h"
 #include "cinderx/Jit/lir/block.h"
 #include "cinderx/Jit/lir/function.h"
 #include "cinderx/Jit/lir/instruction.h"
@@ -260,4 +261,19 @@ jit_lir_block_remove_dead_instrs(
     }
     instr = next;
   }
+}
+
+/* ---- Environ accessors for C callers ---- */
+
+extern "C" LirPhyLocation
+jit_environ_get_arg_location(void* env_ptr, size_t index) {
+  auto* env = static_cast<jit::codegen::Environ*>(env_ptr);
+  auto loc = env->arg_locations[index];
+  return LirPhyLocation{loc.loc, loc.bitSize};
+}
+
+extern "C" LirPhyLocation
+jit_environ_get_return_reg(int index) {
+  auto loc = jit::codegen::RETURN_REGS[index];
+  return LirPhyLocation{loc.loc, loc.bitSize};
 }

@@ -263,6 +263,27 @@ rewrite_promote_output_size(LirInstruction *instr, void *env) {
 #endif
 
 /* ================================================================
+ * Callback: rewriteLoadArg (stage 1)
+ * Rewrite LoadArg → Bind with physical register for its input.
+ * ================================================================ */
+
+static int
+rewrite_load_arg(LirInstruction *instr, void *env) {
+    if (instr->opcode_ != JIT_LIR_OP_LOADARG) {
+        return LIR_REWRITE_UNCHANGED;
+    }
+    instr->opcode_ = JIT_LIR_OP_BIND;
+    assert(instr->num_inputs_ == 1);
+    LirOperand *input = instr->inputs_[0];
+    assert(input->type_ == JIT_LIR_OPTYPE_IMM);
+    uint64_t arg_idx = input->value_.constant;
+    LirPhyLocation loc = jit_environ_get_arg_location(env, (size_t)arg_idx);
+    lir_operand_set_phy_reg_or_stack(input, loc);
+    lir_operand_set_data_type(input, instr->output_.data_type_);
+    return LIR_REWRITE_CHANGED;
+}
+
+/* ================================================================
  * Callback: removePhiInstructions (from postalloc, stage 0)
  * ================================================================ */
 
@@ -306,5 +327,7 @@ lir_postgen_rewrite_init(LirRewrite *rw, LirFunction *func, void *env) {
     lir_rewrite_add_instr(rw, 1, rewrite_promote_output_size);
 #endif
 
-    /* TODO: rewriteLoadArg, rewriteLoadSecondCallResult */
+    lir_rewrite_add_instr(rw, 1, rewrite_load_arg);
+
+    /* TODO: rewriteLoadSecondCallResult (needs _Py_hashtable) */
 }

@@ -214,6 +214,10 @@ LirInstruction *lir_block_alloc_instr_before(LirBasicBlock *bb,
                                               LirInstruction *before,
                                               int opcode);
 
+/* Environ accessors (C wrappers around codegen::Environ fields) */
+LirPhyLocation jit_environ_get_arg_location(void *env, size_t index);
+LirPhyLocation jit_environ_get_return_reg(int index);
+
 /* LIR inliner (C wrapper around C++ LIRInliner::inlineCalls) */
 int lir_inliner_inline_calls(void *func);
 
