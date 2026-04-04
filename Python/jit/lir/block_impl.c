@@ -157,6 +157,56 @@ lir_block_remove_instr(LirBasicBlock *bb, LirInstruction *instr) {
     return instr;  /* caller takes ownership */
 }
 
+/* ---- Successor mutation ---- */
+
+void
+lir_block_set_successor(LirBasicBlock *bb, size_t index, LirBasicBlock *new_succ) {
+    assert(index < bb->num_succs_);
+    LirBasicBlock *old_succ = bb->successors_[index];
+
+    /* Remove bb from old_succ's predecessors */
+    for (size_t i = 0; i < old_succ->num_preds_; i++) {
+        if (old_succ->predecessors_[i] == bb) {
+            for (size_t j = i; j + 1 < old_succ->num_preds_; j++) {
+                old_succ->predecessors_[j] = old_succ->predecessors_[j + 1];
+            }
+            old_succ->num_preds_--;
+            break;
+        }
+    }
+
+    /* Set new successor */
+    bb->successors_[index] = new_succ;
+
+    /* Add bb to new_succ's predecessors */
+    if (new_succ->num_preds_ >= new_succ->preds_capacity_) {
+        grow_ptr_array((void ***)&new_succ->predecessors_, &new_succ->preds_capacity_);
+    }
+    new_succ->predecessors_[new_succ->num_preds_++] = bb;
+}
+
+/* ---- Phi fixup ---- */
+
+void
+lir_block_fixup_phis(LirBasicBlock *bb,
+                     LirBasicBlock *old_pred, LirBasicBlock *new_pred) {
+    /* Iterate phi instructions at the start of the block */
+    for (LirInstruction *instr = bb->instr_head_; instr != NULL; instr = instr->next_) {
+        if (instr->opcode_ != JIT_LIR_OP_PHI) {
+            continue;
+        }
+        for (size_t i = 0; i < instr->num_inputs_; i++) {
+            LirOperand *op = instr->inputs_[i];
+            if (op->type_ == JIT_LIR_OPTYPE_LABEL &&
+                op->value_.block == old_pred) {
+                op->value_.block = new_pred;
+            }
+        }
+    }
+}
+
+/* ---- Instruction insertion ---- */
+
 void
 lir_block_insert_instr_before(LirBasicBlock *bb, LirInstruction *before,
                               LirInstruction *instr) {
