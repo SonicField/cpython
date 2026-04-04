@@ -13,6 +13,8 @@
 #include "cinderx/Jit/lir/lir_impl_internal.h"
 #include "cinderx/Jit/jit_config_c.h"
 
+#include "pycore_hashtable.h"
+
 #include <assert.h>
 #include <stdint.h>
 
@@ -299,12 +301,118 @@ remove_phi_instructions(LirInstruction *instr, void *env) {
 }
 
 /* ================================================================
+ * Callback: rewriteLoadSecondCallResult (stage 1)
+ *
+ * Replaces LoadSecondCallResult with a Move from the second return
+ * register (RDX/X1), inserted immediately after the Call instruction.
+ * Handles Phi chains recursively.
+ * ================================================================ */
+
+/* Forward declaration for mutual recursion */
+static void populate_load_second_call_result_phi(
+    uint8_t data_type, LirInstruction *phi1, LirInstruction *phi2,
+    _Py_hashtable_t *seen_srcs);
+
+static LirInstruction *
+get_second_call_result(uint8_t data_type, LirOperand *src,
+                       LirInstruction *instr, _Py_hashtable_t *seen_srcs) {
+    /* Check if already handled */
+    LirInstruction *cached = (LirInstruction *)_Py_hashtable_get(seen_srcs, src);
+    if (cached != NULL) {
+        return cached;
+    }
+
+    LirInstruction *src_instr = src->parent_instr_;
+    LirBasicBlock *src_block = src_instr->basic_block_;
+
+    assert(src_instr->opcode_ == JIT_LIR_OP_CALL ||
+           src_instr->opcode_ == JIT_LIR_OP_PHI);
+
+    if (src_instr->opcode_ == JIT_LIR_OP_CALL) {
+        /* Verify this Call hasn't already been handled */
+        LirInstruction *next_instr = src_instr->next_;
+        if (next_instr != NULL) {
+            LirPhyLocation ret1 = jit_environ_get_return_reg(1);
+            assert(!(next_instr->opcode_ == JIT_LIR_OP_MOVE &&
+                     next_instr->num_inputs_ == 1 &&
+                     next_instr->inputs_[0]->type_ == JIT_LIR_OPTYPE_REG &&
+                     next_instr->inputs_[0]->value_.phy_loc.loc == ret1.loc));
+        }
+    }
+
+    if (instr != NULL) {
+        /* Reuse existing instruction — move it after src_instr */
+        LirBasicBlock *instr_block = instr->basic_block_;
+        lir_block_remove_instr(instr_block, instr);
+        LirInstruction *after_src = src_instr->next_;
+        if (after_src != NULL) {
+            lir_block_insert_instr_before(src_block, after_src, instr);
+        } else {
+            lir_block_append_instr(src_block, instr);
+        }
+        lir_instruction_set_num_inputs(instr, 0);
+    }
+
+    int new_op = (src_instr->opcode_ == JIT_LIR_OP_CALL)
+        ? JIT_LIR_OP_MOVE : JIT_LIR_OP_PHI;
+
+    if (instr != NULL) {
+        instr->opcode_ = new_op;
+    } else {
+        instr = lir_block_alloc_instr_before(src_block, src_instr->next_, new_op);
+        lir_operand_set_virtual_register(&instr->output_);
+        lir_operand_set_data_type(&instr->output_, data_type);
+    }
+
+    _Py_hashtable_set(seen_srcs, src, instr);
+
+    if (new_op == JIT_LIR_OP_MOVE) {
+        LirPhyLocation ret1 = jit_environ_get_return_reg(1);
+        lir_operand_set_data_type(
+            lir_instruction_alloc_phyreg_input(instr, ret1), data_type);
+    } else {
+        populate_load_second_call_result_phi(data_type, src_instr, instr, seen_srcs);
+    }
+
+    return instr;
+}
+
+static void
+populate_load_second_call_result_phi(
+    uint8_t data_type, LirInstruction *phi1, LirInstruction *phi2,
+    _Py_hashtable_t *seen_srcs) {
+    for (size_t i = 1; i < phi1->num_inputs_; i += 2) {
+        LirOperand *src1 = lir_operand_get_define(phi1->inputs_[i]);
+        LirInstruction *instr2 =
+            get_second_call_result(data_type, src1, NULL, seen_srcs);
+        lir_instruction_alloc_label_input(
+            phi2, (LirBasicBlock *)phi1->inputs_[i - 1]->value_.block);
+        lir_instruction_alloc_linked_input(phi2, instr2);
+    }
+}
+
+static int
+rewrite_load_second_call_result(LirInstruction *instr, void *env) {
+    if (instr->opcode_ != JIT_LIR_OP_LOADSECONDCALLRESULT) {
+        return LIR_REWRITE_UNCHANGED;
+    }
+
+    LirOperand *src = lir_operand_get_define(instr->inputs_[0]);
+    _Py_hashtable_t *seen_srcs = _Py_hashtable_new(
+        _Py_hashtable_hash_ptr, _Py_hashtable_compare_direct);
+
+    get_second_call_result(instr->output_.data_type_, src, instr, seen_srcs);
+
+    _Py_hashtable_destroy(seen_srcs);
+    return LIR_REWRITE_REMOVED;
+}
+
+/* ================================================================
  * Public init — registers ALL converted callbacks
  *
- * Remaining unconverted:
- * - rewriteLoadArg: needs Environ->arg_locations (C struct access)
- * - rewriteLoadSecondCallResult: needs UnorderedMap (_Py_hashtable)
- *   + RETURN_REGS constant
+ * ALL 8 postgen callbacks converted to C.
+ *
+ * Remaining ARM64 gaps (deferred, not blocking):
  * - ARM64 rewriteBinaryOpLargeConstant body: needs asmjit arm Utils
  * - ARM64 rewriteGuardLargeConstant body: needs asmjit arm Utils
  * ================================================================ */
@@ -329,5 +437,5 @@ lir_postgen_rewrite_init(LirRewrite *rw, LirFunction *func, void *env) {
 
     lir_rewrite_add_instr(rw, 1, rewrite_load_arg);
 
-    /* TODO: rewriteLoadSecondCallResult (needs _Py_hashtable) */
+    lir_rewrite_add_instr(rw, 1, rewrite_load_second_call_result);
 }
