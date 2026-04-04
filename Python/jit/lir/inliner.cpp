@@ -17,7 +17,7 @@ bool LIRInliner::inlineCalls(Function* func) {
   bool changed = false;
   // Do not convert to a range-based for loop because basicblocks() is updated
   // inside the loop (new blocks added during inlining).
-  for (size_t i = 0; i < func->getNumBasicBlocks(); ++i) {
+  for (size_t i = 0; i < func->num_blocks_; ++i) {
     BasicBlock* bb = func->basicblocks()[i];
 
     for (auto& instr : bb->instructions()) {
@@ -89,7 +89,7 @@ bool LIRInliner::checkEntryExitReturn(const Function* callee) {
     JIT_DLOG("Callee has no basic block.");
     return false;
   }
-  const BasicBlock* entry_block = callee->entryBlock();
+  const BasicBlock* entry_block = callee->blocks_[0];
   if (!entry_block->predecessors().empty()) {
     JIT_DLOG("Expect entry block to have no predecessors.");
     return false;
@@ -358,7 +358,7 @@ void LIRInliner::resolveReturnValue() {
 }
 
 std::string_view LIRInliner::callerName() {
-  if (auto hir_func = caller_->hirFunc()) {
+  if (auto hir_func = caller_->hir_func_) {
     return hir_func->fullname;
   }
   return "<unnamed LIR function>";

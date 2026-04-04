@@ -13,7 +13,7 @@ class Instr;
 
 namespace jit::lir {
 
-class Function;
+struct Function;
 
 // Lightweight non-owning view over a BasicBlock* array (range-for compatible).
 struct BlockSpan {

@@ -39,7 +39,8 @@ jit_lir_func_get_block(JitLirFunc func, size_t index) {
 
 extern "C" JitLirBlock
 jit_lir_func_entry_block(JitLirFunc func) {
-  return static_cast<Function*>(func)->entryBlock();
+  auto* f = static_cast<Function*>(func);
+  return f->num_blocks_ > 0 ? f->blocks_[0] : nullptr;
 }
 
 /* ---- BasicBlock accessors ---- */

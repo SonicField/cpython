@@ -16,7 +16,7 @@ void jit_lir_mark_cold_blocks(void* func);
 #ifdef __cplusplus
 namespace jit::lir {
 
-class Function;
+struct Function;
 
 // Mark cold basic blocks in the LIR function.
 //

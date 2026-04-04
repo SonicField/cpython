@@ -10,8 +10,7 @@ class Function;
 
 namespace jit::lir {
 
-class Function {
- public:
+struct Function {
   struct CopyResult {
     int begin_bb;
     int end_bb;
@@ -60,7 +59,7 @@ class Function {
 
   const hir::Function* hirFunc() const;
 
- private:
+  // Phase B4c: all fields public.
   const hir::Function* hir_func_;
 
   void ensureBlockCapacity(size_t needed);

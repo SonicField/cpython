@@ -22,7 +22,7 @@ int jit_lir_verify_post_regalloc(void* func, FILE *err);
 
 namespace jit::lir {
 
-class Function;
+struct Function;
 
 // Verifies the following properties of a LIR function:
 //

@@ -1316,7 +1316,7 @@ void LinearScanAllocator::resolveEdges() {
     }
   }
 
-  for (size_t block_index = 0; block_index < func_->getNumBasicBlocks(); block_index++) {
+  for (size_t block_index = 0; block_index < func_->num_blocks_; block_index++) {
     auto basic_block = func_->basicblocks()[block_index];
     auto successors = basic_block->successors();
     if (successors.empty()) {
@@ -1324,7 +1324,7 @@ void LinearScanAllocator::resolveEdges() {
     }
 
     auto next_block_index = block_index + 1;
-    auto next_basic_block = next_block_index == func_->getNumBasicBlocks()
+    auto next_basic_block = next_block_index == func_->num_blocks_
         ? nullptr
         : func_->basicblocks()[next_block_index];
 
