@@ -17,6 +17,16 @@ static_assert(sizeof(OperandBase) == sizeof(LinkedOperand),
 
 OperandBase::OperandBase(Instruction* parent) : parent_instr_{parent} {}
 
+// Phase B5: Non-virtual destructor. Frees owned MemoryIndirect when type_ ==
+// kInd. Safe for deletion through OperandBase* because Operand/LinkedOperand
+// add zero data members.
+OperandBase::~OperandBase() {
+  if (!is_linked_ && type_ == kInd && value_.indirect) {
+    delete value_.indirect;
+    value_.indirect = nullptr;
+  }
+}
+
 OperandBase::OperandBase(const OperandBase& ob)
     : parent_instr_{ob.parent_instr_},
       last_use_{ob.last_use_},
@@ -67,13 +77,12 @@ void OperandBase::setLastUse() {
 
 uint64_t OperandBase::getConstant() const {
   if (is_linked_) return def_opnd_->getConstant();
-  return std::get<uint64_t>(value_);
+  return value_.constant;
 }
 
 double OperandBase::getFPConstant() const {
   if (is_linked_) return def_opnd_->getFPConstant();
-  auto value = std::get<uint64_t>(value_);
-  return bit_cast<double>(value);
+  return bit_cast<double>(value_.constant);
 }
 
 PhyLocation OperandBase::getPhyRegister() const {
@@ -83,7 +92,7 @@ PhyLocation OperandBase::getPhyRegister() const {
       "Trying to treat operand [type={},val={:#x}] as a physical register",
       type_,
       rawValue());
-  return std::get<PhyLocation>(value_);
+  return value_.phy_loc;
 }
 
 PhyLocation OperandBase::getStackSlot() const {
@@ -93,7 +102,7 @@ PhyLocation OperandBase::getStackSlot() const {
       "Trying to treat operand [type={},val={:#x}] as a stack slot",
       type_,
       rawValue());
-  return std::get<PhyLocation>(value_);
+  return value_.phy_loc;
 }
 
 PhyLocation OperandBase::getPhyRegOrStackSlot() const {
@@ -120,7 +129,7 @@ void* OperandBase::getMemoryAddress() const {
       "Trying to treat operand [type={},val={:#x}] as a memory address",
       type_,
       rawValue());
-  return std::get<void*>(value_);
+  return value_.address;
 }
 
 MemoryIndirect* OperandBase::getMemoryIndirect() const {
@@ -130,7 +139,7 @@ MemoryIndirect* OperandBase::getMemoryIndirect() const {
       "Trying to treat operand [type={},val={:#x}] as a memory indirect",
       type_,
       rawValue());
-  return std::get<std::unique_ptr<MemoryIndirect>>(value_).get();
+  return value_.indirect;
 }
 
 BasicBlock* OperandBase::getBasicBlock() const {
@@ -140,13 +149,13 @@ BasicBlock* OperandBase::getBasicBlock() const {
       "Trying to treat operand [type={},val={:#x}] as a basic block address",
       type_,
       rawValue());
-  return std::get<BasicBlock*>(value_);
+  return value_.block;
 }
 
 uint64_t OperandBase::getConstantOrAddress() const {
   if (is_linked_) return def_opnd_->getConstantOrAddress();
-  if (auto v = std::get_if<uint64_t>(&value_)) {
-    return *v;
+  if (type_ == kImm) {
+    return value_.constant;
   }
   return reinterpret_cast<uint64_t>(getMemoryAddress());
 }
@@ -172,24 +181,31 @@ OperandBase::Type OperandBase::type() const {
 }
 
 uint64_t OperandBase::rawValue() const {
-  if (const auto ptr = std::get_if<uint64_t>(&value_)) {
-    return *ptr;
-  } else if (const auto void_ptr = std::get_if<void*>(&value_)) {
-    return reinterpret_cast<uint64_t>(*void_ptr);
-  } else if (const auto bb_ptr = std::get_if<BasicBlock*>(&value_)) {
-    return reinterpret_cast<uint64_t>(*bb_ptr);
-  } else if (
-      const auto mem_ptr =
-          std::get_if<std::unique_ptr<MemoryIndirect>>(&value_)) {
-    return reinterpret_cast<uint64_t>(mem_ptr->get());
-  } else if (const auto phy_ptr = std::get_if<PhyLocation>(&value_)) {
-    return static_cast<uint64_t>(phy_ptr->loc);
+  switch (type_) {
+    case kImm:
+      return value_.constant;
+    case kMem:
+      return reinterpret_cast<uint64_t>(value_.address);
+    case kLabel:
+      return reinterpret_cast<uint64_t>(value_.block);
+    case kInd:
+      return reinterpret_cast<uint64_t>(value_.indirect);
+    case kReg:
+    case kStack:
+      return static_cast<uint64_t>(value_.phy_loc.loc);
+    case kVreg:
+    case kNone:
+      return 0;
   }
-
-  JIT_ABORT("Unknown operand value type, has index {}", value_.index());
+  JIT_ABORT("Unknown operand type");
 }
 
 MemoryIndirect::MemoryIndirect(Instruction* parent) : parent_(parent) {}
+
+MemoryIndirect::~MemoryIndirect() {
+  delete base_reg_;
+  delete index_reg_;
+}
 
 void MemoryIndirect::setMemoryIndirect(Instruction* base, int32_t offset) {
   setMemoryIndirect(base, nullptr /* index */, 0, offset);
@@ -218,11 +234,11 @@ void MemoryIndirect::setMemoryIndirect(
 }
 
 OperandBase* MemoryIndirect::getBaseRegOperand() const {
-  return base_reg_.get();
+  return base_reg_;
 }
 
 OperandBase* MemoryIndirect::getIndexRegOperand() const {
-  return index_reg_.get();
+  return index_reg_;
 }
 
 uint8_t MemoryIndirect::getMultipiler() const {
@@ -234,28 +250,31 @@ int32_t MemoryIndirect::getOffset() const {
 }
 
 void MemoryIndirect::setBaseIndex(
-    std::unique_ptr<OperandBase>& base_index_opnd,
+    OperandBase*& base_index_opnd,
     Instruction* base_index) {
+  delete base_index_opnd;
   if (base_index != nullptr) {
-    base_index_opnd = std::make_unique<LinkedOperand>(parent_, base_index);
+    base_index_opnd = new LinkedOperand(parent_, base_index);
   } else {
-    base_index_opnd.reset();
-  }
-}
-void MemoryIndirect::setBaseIndex(
-    std::unique_ptr<OperandBase>& base_index_opnd,
-    PhyLocation base_index) {
-  if (base_index != PhyLocation::REG_INVALID) {
-    auto operand = std::make_unique<Operand>(parent_);
-    operand->setPhyRegister(base_index);
-    base_index_opnd = std::move(operand);
-  } else {
-    base_index_opnd.reset();
+    base_index_opnd = nullptr;
   }
 }
 
 void MemoryIndirect::setBaseIndex(
-    std::unique_ptr<OperandBase>& base_index_opnd,
+    OperandBase*& base_index_opnd,
+    PhyLocation base_index) {
+  delete base_index_opnd;
+  if (base_index != PhyLocation::REG_INVALID) {
+    auto* operand = new Operand(parent_);
+    operand->setPhyRegister(base_index);
+    base_index_opnd = operand;
+  } else {
+    base_index_opnd = nullptr;
+  }
+}
+
+void MemoryIndirect::setBaseIndex(
+    OperandBase*& base_index_opnd,
     std::variant<Instruction*, PhyLocation> base_index) {
   if (Instruction** instrp = std::get_if<Instruction*>(&base_index)) {
     setBaseIndex(base_index_opnd, *instrp);
@@ -282,36 +301,40 @@ Operand::Operand(
     : OperandBase(parent) {
   type_ = type;
   data_type_ = data_type;
-  value_ = data;
+  value_.constant = data;
 }
 
 Operand::Operand(Instruction* parent, Operand::Type type, double data)
     : OperandBase(parent) {
   type_ = type;
   data_type_ = kDouble;
-  value_ = bit_cast<uint64_t>(data);
+  value_.constant = bit_cast<uint64_t>(data);
 }
 
 void Operand::setConstant(uint64_t n, DataType data_type) {
+  clearIndirect();
   type_ = kImm;
-  value_ = n;
+  value_.constant = n;
   data_type_ = data_type;
 }
 
 void Operand::setFPConstant(double n) {
+  clearIndirect();
   type_ = kImm;
   data_type_ = kDouble;
-  value_ = bit_cast<uint64_t>(n);
+  value_.constant = bit_cast<uint64_t>(n);
 }
 
 void Operand::setPhyRegister(PhyLocation reg) {
+  clearIndirect();
   type_ = kReg;
-  value_ = reg;
+  value_.phy_loc = reg;
 }
 
 void Operand::setStackSlot(PhyLocation slot) {
+  clearIndirect();
   type_ = kStack;
-  value_ = slot;
+  value_.phy_loc = slot;
 }
 
 void Operand::setPhyRegOrStackSlot(PhyLocation loc) {
@@ -323,29 +346,73 @@ void Operand::setPhyRegOrStackSlot(PhyLocation loc) {
 }
 
 void Operand::setMemoryAddress(void* addr) {
+  clearIndirect();
   type_ = kMem;
-  value_ = addr;
+  value_.address = addr;
 }
 
 void Operand::setBasicBlock(BasicBlock* block) {
+  clearIndirect();
   type_ = kLabel;
   data_type_ = kObject;
-  value_ = block;
+  value_.block = block;
 }
 
 void Operand::setDataType(DataType data_type) {
   data_type_ = data_type;
-  if (auto loc_ptr = std::get_if<PhyLocation>(&value_)) {
-    loc_ptr->bitSize = bitSize(data_type);
+  if (type_ == kReg || type_ == kStack) {
+    value_.phy_loc.bitSize = bitSize(data_type);
   }
 }
 
 void Operand::setNone() {
+  clearIndirect();
   type_ = kNone;
 }
 
 void Operand::setVirtualRegister() {
+  clearIndirect();
   type_ = kVreg;
+}
+
+// Phase B5: Explicit setMemoryIndirect overloads replace template.
+void Operand::setMemoryIndirect(Instruction* base, int32_t offset) {
+  clearIndirect();
+  type_ = kInd;
+  auto* ind = new MemoryIndirect(instr());
+  ind->setMemoryIndirect(base, offset);
+  value_.indirect = ind;
+}
+
+void Operand::setMemoryIndirect(PhyLocation base, int32_t offset) {
+  clearIndirect();
+  type_ = kInd;
+  auto* ind = new MemoryIndirect(instr());
+  ind->setMemoryIndirect(base, offset);
+  value_.indirect = ind;
+}
+
+void Operand::setMemoryIndirect(
+    PhyLocation base,
+    PhyLocation index_reg,
+    uint8_t multiplier) {
+  clearIndirect();
+  type_ = kInd;
+  auto* ind = new MemoryIndirect(instr());
+  ind->setMemoryIndirect(base, index_reg, multiplier);
+  value_.indirect = ind;
+}
+
+void Operand::setMemoryIndirect(
+    std::variant<Instruction*, PhyLocation> base,
+    std::variant<Instruction*, PhyLocation> index,
+    uint8_t multiplier,
+    int32_t offset) {
+  clearIndirect();
+  type_ = kInd;
+  auto* ind = new MemoryIndirect(instr());
+  ind->setMemoryIndirect(base, index, multiplier, offset);
+  value_.indirect = ind;
 }
 
 LinkedOperand::LinkedOperand(Instruction* def_instr) {

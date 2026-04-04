@@ -7,7 +7,6 @@
 #include "cinderx/Jit/lir/type.h"
 
 #include <cstdint>
-#include <memory>
 #include <variant>
 
 namespace jit::lir {
@@ -31,7 +30,9 @@ class OperandBase {
   OperandBase() = default;
   explicit OperandBase(Instruction* parent);
 
-  virtual ~OperandBase() = default;
+  // Phase B5: Non-virtual destructor. Operand/LinkedOperand add no data
+  // members, so destruction through OperandBase* is safe.
+  ~OperandBase();
 
   OperandBase(const OperandBase& ob);
 
@@ -85,6 +86,14 @@ class OperandBase {
   bool isLinked() const { return is_linked_; }
 
  protected:
+  // Phase B5: Free owned MemoryIndirect before type change.
+  void clearIndirect() {
+    if (type_ == kInd && value_.indirect) {
+      delete value_.indirect;
+      value_.indirect = nullptr;
+    }
+  }
+
   // Raw value accessor for diagnostics (works on non-linked operands only).
   uint64_t rawValue() const;
 
@@ -95,13 +104,17 @@ class OperandBase {
   // Fields from Operand (unused when is_linked_):
   Type type_{kNone};
   DataType data_type_{kObject};
-  std::variant<
-      uint64_t,
-      void*,
-      BasicBlock*,
-      std::unique_ptr<MemoryIndirect>,
-      PhyLocation>
-      value_;
+
+  // Phase B5: Tagged union replaces std::variant. type_ is the discriminator.
+  // kImm → constant, kMem → address, kLabel → block, kInd → indirect,
+  // kReg/kStack → phy_loc, kNone/kVreg → unused.
+  union {
+    uint64_t constant;
+    void* address;
+    BasicBlock* block;
+    MemoryIndirect* indirect;
+    PhyLocation phy_loc;
+  } value_{};
 
   // Field from LinkedOperand (unused when !is_linked_):
   Operand* def_opnd_{nullptr};
@@ -111,6 +124,7 @@ class OperandBase {
 class MemoryIndirect {
  public:
   explicit MemoryIndirect(Instruction* parent);
+  ~MemoryIndirect();
 
   void setMemoryIndirect(Instruction* base, int32_t offset);
   void setMemoryIndirect(PhyLocation base, int32_t offset = 0);
@@ -133,20 +147,16 @@ class MemoryIndirect {
   int32_t getOffset() const;
 
  private:
+  // Phase B5: Raw pointers replace unique_ptr<OperandBase>.
+  void setBaseIndex(OperandBase*& base_index_opnd, Instruction* base_index);
+  void setBaseIndex(OperandBase*& base_index_opnd, PhyLocation base_index);
   void setBaseIndex(
-      std::unique_ptr<OperandBase>& base_index_opnd,
-      Instruction* base_index);
-  void setBaseIndex(
-      std::unique_ptr<OperandBase>& base_index_opnd,
-      PhyLocation base_index);
-
-  void setBaseIndex(
-      std::unique_ptr<OperandBase>& base_index_opnd,
+      OperandBase*& base_index_opnd,
       std::variant<Instruction*, PhyLocation> base_index);
 
   Instruction* parent_{nullptr};
-  std::unique_ptr<OperandBase> base_reg_;
-  std::unique_ptr<OperandBase> index_reg_;
+  OperandBase* base_reg_{nullptr};
+  OperandBase* index_reg_{nullptr};
   uint8_t multiplier_{0};
   int32_t offset_{0};
 };
@@ -161,7 +171,7 @@ class Operand : public OperandBase {
   Operand() = default;
   explicit Operand(Instruction* parent);
 
-  ~Operand() override = default;
+  ~Operand() = default;
 
   // Only copies simple fields (type and data type) from operand.
   // The value_ field is not copied.
@@ -178,13 +188,19 @@ class Operand : public OperandBase {
   void setPhyRegOrStackSlot(PhyLocation loc);
   void setMemoryAddress(void* addr);
 
-  template <typename... Args>
-  void setMemoryIndirect(Args&&... args) {
-    type_ = kInd;
-    auto ind = std::make_unique<MemoryIndirect>(instr());
-    ind->setMemoryIndirect(std::forward<Args>(args)...);
-    value_ = std::move(ind);
-  }
+  // Phase B5: Explicit overloads replace variadic template (no more
+  // std::make_unique / std::move into variant).
+  void setMemoryIndirect(Instruction* base, int32_t offset);
+  void setMemoryIndirect(PhyLocation base, int32_t offset = 0);
+  void setMemoryIndirect(
+      PhyLocation base,
+      PhyLocation index_reg,
+      uint8_t multiplier);
+  void setMemoryIndirect(
+      std::variant<Instruction*, PhyLocation> base,
+      std::variant<Instruction*, PhyLocation> index,
+      uint8_t multiplier,
+      int32_t offset);
 
   void setBasicBlock(BasicBlock* block);
   void setDataType(DataType data_type);
@@ -204,7 +220,7 @@ class LinkedOperand : public OperandBase {
   explicit LinkedOperand(Instruction* def);
   LinkedOperand(Instruction* parent, Instruction* def);
 
-  ~LinkedOperand() override = default;
+  ~LinkedOperand() = default;
 
   Operand* getLinkedOperand();
   const Operand* getLinkedOperand() const;
