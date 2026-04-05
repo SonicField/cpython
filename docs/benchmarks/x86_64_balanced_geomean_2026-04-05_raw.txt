@@ -1,0 +1,396 @@
+Precondition checks: PASS
+WARNING: Running on x86_64, designed for aarch64. Results may differ.
+
+========================================================================
+CinderX JIT vs Vanilla Python — Per-Benchmark Subprocess ABBA
+========================================================================
+Platform:     x86_64
+Reps:         3 ABBA cycles per benchmark
+Compile mode: auto
+
+*** COMPARE LIKE WITH LIKE ***
+Results from --compile=auto and --compile=force are NOT comparable.
+  auto:  JIT compiles after adaptive interpreter specialises (production)
+  force: JIT compiles immediately via force_compile (dev/debug)
+Current: --compile=auto  --reps=3  --iters=50000  --blocks=15
+
+JIT ON:  /data/users/alexturner/phoenix/cpython/python
+JIT OFF: /data/users/alexturner/phoenix/cpython-vanilla/python -I
+
+Benchmarks:   24 (each in isolated subprocess)
+
+[1/24] fibonacci
+  Run 1/12: JIT_ON  (rep 1) ... 200.55ms
+  Run 2/12: JIT_OFF (rep 1) ... 499.45ms
+  Run 3/12: JIT_OFF (rep 1) ... 495.76ms
+  Run 4/12: JIT_ON  (rep 1) ... 201.75ms
+  Run 5/12: JIT_ON  (rep 2) ... 197.66ms
+  Run 6/12: JIT_OFF (rep 2) ... 502.08ms
+  Run 7/12: JIT_OFF (rep 2) ... 494.04ms
+  Run 8/12: JIT_ON  (rep 2) ... 198.53ms
+  Run 9/12: JIT_ON  (rep 3) ... 194.84ms
+  Run 10/12: JIT_OFF (rep 3) ... 492.22ms
+  Run 11/12: JIT_OFF (rep 3) ... 490.52ms
+  Run 12/12: JIT_ON  (rep 3) ... 194.12ms
+
+[2/24] richards_full
+  Run 1/12: JIT_ON  (rep 1) ... 261.27ms
+  Run 2/12: JIT_OFF (rep 1) ... 497.04ms
+  Run 3/12: JIT_OFF (rep 1) ... 499.38ms
+  Run 4/12: JIT_ON  (rep 1) ... 268.21ms
+  Run 5/12: JIT_ON  (rep 2) ... 263.32ms
+  Run 6/12: JIT_OFF (rep 2) ... 500.09ms
+  Run 7/12: JIT_OFF (rep 2) ... 505.60ms
+  Run 8/12: JIT_ON  (rep 2) ... 259.97ms
+  Run 9/12: JIT_ON  (rep 3) ... 261.60ms
+  Run 10/12: JIT_OFF (rep 3) ... 499.94ms
+  Run 11/12: JIT_OFF (rep 3) ... 501.51ms
+  Run 12/12: JIT_ON  (rep 3) ... 261.58ms
+
+[3/24] richards_slots
+  Run 1/12: JIT_ON  (rep 1) ... 445.87ms
+  Run 2/12: JIT_OFF (rep 1) ... 497.33ms
+  Run 3/12: JIT_OFF (rep 1) ... 491.96ms
+  Run 4/12: JIT_ON  (rep 1) ... 440.68ms
+  Run 5/12: JIT_ON  (rep 2) ... 440.01ms
+  Run 6/12: JIT_OFF (rep 2) ... 489.32ms
+  Run 7/12: JIT_OFF (rep 2) ... 486.40ms
+  Run 8/12: JIT_ON  (rep 2) ... 439.09ms
+  Run 9/12: JIT_ON  (rep 3) ... 432.84ms
+  Run 10/12: JIT_OFF (rep 3) ... 488.28ms
+  Run 11/12: JIT_OFF (rep 3) ... 487.40ms
+  Run 12/12: JIT_ON  (rep 3) ... 449.07ms
+
+[4/24] nqueens
+  Run 1/12: JIT_ON  (rep 1) ... 297.20ms
+  Run 2/12: JIT_OFF (rep 1) ... 491.55ms
+  Run 3/12: JIT_OFF (rep 1) ... 500.46ms
+  Run 4/12: JIT_ON  (rep 1) ... 301.90ms
+  Run 5/12: JIT_ON  (rep 2) ... 300.35ms
+  Run 6/12: JIT_OFF (rep 2) ... 490.64ms
+  Run 7/12: JIT_OFF (rep 2) ... 492.06ms
+  Run 8/12: JIT_ON  (rep 2) ... 298.66ms
+  Run 9/12: JIT_ON  (rep 3) ... 295.09ms
+  Run 10/12: JIT_OFF (rep 3) ... 489.67ms
+  Run 11/12: JIT_OFF (rep 3) ... 492.27ms
+  Run 12/12: JIT_ON  (rep 3) ... 301.21ms
+
+[5/24] spectral_norm
+  Run 1/12: JIT_ON  (rep 1) ... 388.09ms
+  Run 2/12: JIT_OFF (rep 1) ... 470.47ms
+  Run 3/12: JIT_OFF (rep 1) ... 472.32ms
+  Run 4/12: JIT_ON  (rep 1) ... 389.35ms
+  Run 5/12: JIT_ON  (rep 2) ... 385.03ms
+  Run 6/12: JIT_OFF (rep 2) ... 471.32ms
+  Run 7/12: JIT_OFF (rep 2) ... 504.07ms
+  Run 8/12: JIT_ON  (rep 2) ... 388.64ms
+  Run 9/12: JIT_ON  (rep 3) ... 383.48ms
+  Run 10/12: JIT_OFF (rep 3) ... 467.12ms
+  Run 11/12: JIT_OFF (rep 3) ... 465.55ms
+  Run 12/12: JIT_ON  (rep 3) ... 390.30ms
+
+[6/24] float_arith
+  Run 1/12: JIT_ON  (rep 1) ... 523.62ms
+  Run 2/12: JIT_OFF (rep 1) ... 466.52ms
+  Run 3/12: JIT_OFF (rep 1) ... 487.07ms
+  Run 4/12: JIT_ON  (rep 1) ... 473.64ms
+  Run 5/12: JIT_ON  (rep 2) ... 479.29ms
+  Run 6/12: JIT_OFF (rep 2) ... 476.08ms
+  Run 7/12: JIT_OFF (rep 2) ... 463.41ms
+  Run 8/12: JIT_ON  (rep 2) ... 479.19ms
+  Run 9/12: JIT_ON  (rep 3) ... 489.79ms
+  Run 10/12: JIT_OFF (rep 3) ... 465.09ms
+  Run 11/12: JIT_OFF (rep 3) ... 465.06ms
+  Run 12/12: JIT_ON  (rep 3) ... 476.85ms
+
+[7/24] gen_simple
+  Run 1/12: JIT_ON  (rep 1) ... 687.89ms
+  Run 2/12: JIT_OFF (rep 1) ... 488.78ms
+  Run 3/12: JIT_OFF (rep 1) ... 488.62ms
+  Run 4/12: JIT_ON  (rep 1) ... 669.26ms
+  Run 5/12: JIT_ON  (rep 2) ... 664.39ms
+  Run 6/12: JIT_OFF (rep 2) ... 490.34ms
+  Run 7/12: JIT_OFF (rep 2) ... 485.97ms
+  Run 8/12: JIT_ON  (rep 2) ... 660.86ms
+  Run 9/12: JIT_ON  (rep 3) ... 717.65ms
+  Run 10/12: JIT_OFF (rep 3) ... 485.84ms
+  Run 11/12: JIT_OFF (rep 3) ... 498.22ms
+  Run 12/12: JIT_ON  (rep 3) ... 703.71ms
+
+[8/24] gen_nested
+  Run 1/12: JIT_ON  (rep 1) ... 520.68ms
+  Run 2/12: JIT_OFF (rep 1) ... 519.99ms
+  Run 3/12: JIT_OFF (rep 1) ... 528.49ms
+  Run 4/12: JIT_ON  (rep 1) ... 520.14ms
+  Run 5/12: JIT_ON  (rep 2) ... 647.58ms
+  Run 6/12: JIT_OFF (rep 2) ... 531.38ms
+  Run 7/12: JIT_OFF (rep 2) ... 519.77ms
+  Run 8/12: JIT_ON  (rep 2) ... 527.79ms
+  Run 9/12: JIT_ON  (rep 3) ... 514.73ms
+  Run 10/12: JIT_OFF (rep 3) ... 526.91ms
+  Run 11/12: JIT_OFF (rep 3) ... 524.35ms
+  Run 12/12: JIT_ON  (rep 3) ... 516.31ms
+
+[9/24] list_comp
+  Run 1/12: JIT_ON  (rep 1) ... 497.01ms
+  Run 2/12: JIT_OFF (rep 1) ... 502.63ms
+  Run 3/12: JIT_OFF (rep 1) ... 508.52ms
+  Run 4/12: JIT_ON  (rep 1) ... 502.68ms
+  Run 5/12: JIT_ON  (rep 2) ... 515.37ms
+  Run 6/12: JIT_OFF (rep 2) ... 510.39ms
+  Run 7/12: JIT_OFF (rep 2) ... 519.41ms
+  Run 8/12: JIT_ON  (rep 2) ... 512.37ms
+  Run 9/12: JIT_ON  (rep 3) ... 513.23ms
+  Run 10/12: JIT_OFF (rep 3) ... 526.19ms
+  Run 11/12: JIT_OFF (rep 3) ... 526.19ms
+  Run 12/12: JIT_ON  (rep 3) ... 508.92ms
+
+[10/24] dict_ops
+  Run 1/12: JIT_ON  (rep 1) ... 470.25ms
+  Run 2/12: JIT_OFF (rep 1) ... 488.97ms
+  Run 3/12: JIT_OFF (rep 1) ... 493.78ms
+  Run 4/12: JIT_ON  (rep 1) ... 468.37ms
+  Run 5/12: JIT_ON  (rep 2) ... 457.97ms
+  Run 6/12: JIT_OFF (rep 2) ... 469.65ms
+  Run 7/12: JIT_OFF (rep 2) ... 465.54ms
+  Run 8/12: JIT_ON  (rep 2) ... 463.68ms
+  Run 9/12: JIT_ON  (rep 3) ... 465.26ms
+  Run 10/12: JIT_OFF (rep 3) ... 465.10ms
+  Run 11/12: JIT_OFF (rep 3) ... 478.70ms
+  Run 12/12: JIT_ON  (rep 3) ... 484.51ms
+
+[11/24] func_calls
+  Run 1/12: JIT_ON  (rep 1) ... 501.51ms
+  Run 2/12: JIT_OFF (rep 1) ... 546.66ms
+  Run 3/12: JIT_OFF (rep 1) ... 503.41ms
+  Run 4/12: JIT_ON  (rep 1) ... 490.88ms
+  Run 5/12: JIT_ON  (rep 2) ... 492.03ms
+  Run 6/12: JIT_OFF (rep 2) ... 552.92ms
+  Run 7/12: JIT_OFF (rep 2) ... 562.78ms
+  Run 8/12: JIT_ON  (rep 2) ... 501.26ms
+  Run 9/12: JIT_ON  (rep 3) ... 502.93ms
+  Run 10/12: JIT_OFF (rep 3) ... 499.70ms
+  Run 11/12: JIT_OFF (rep 3) ... 505.76ms
+  Run 12/12: JIT_ON  (rep 3) ... 509.97ms
+
+[12/24] import_callee
+  Run 1/12: JIT_ON  (rep 1) ... 475.35ms
+  Run 2/12: JIT_OFF (rep 1) ... 488.95ms
+  Run 3/12: JIT_OFF (rep 1) ... 488.17ms
+  Run 4/12: JIT_ON  (rep 1) ... 485.90ms
+  Run 5/12: JIT_ON  (rep 2) ... 486.36ms
+  Run 6/12: JIT_OFF (rep 2) ... 488.41ms
+  Run 7/12: JIT_OFF (rep 2) ... 493.71ms
+  Run 8/12: JIT_ON  (rep 2) ... 481.05ms
+  Run 9/12: JIT_ON  (rep 3) ... 481.75ms
+  Run 10/12: JIT_OFF (rep 3) ... 487.99ms
+  Run 11/12: JIT_OFF (rep 3) ... 504.26ms
+  Run 12/12: JIT_ON  (rep 3) ... 482.48ms
+
+[13/24] try_except_callee
+  Run 1/12: JIT_ON  (rep 1) ... 510.53ms
+  Run 2/12: JIT_OFF (rep 1) ... 486.93ms
+  Run 3/12: JIT_OFF (rep 1) ... 487.74ms
+  Run 4/12: JIT_ON  (rep 1) ... 514.13ms
+  Run 5/12: JIT_ON  (rep 2) ... 527.88ms
+  Run 6/12: JIT_OFF (rep 2) ... 510.95ms
+  Run 7/12: JIT_OFF (rep 2) ... 495.47ms
+  Run 8/12: JIT_ON  (rep 2) ... 515.99ms
+  Run 9/12: JIT_ON  (rep 3) ... 550.65ms
+  Run 10/12: JIT_OFF (rep 3) ... 494.30ms
+  Run 11/12: JIT_OFF (rep 3) ... 495.51ms
+  Run 12/12: JIT_ON  (rep 3) ... 510.96ms
+
+[14/24] store_subscr
+  Run 1/12: JIT_ON  (rep 1) ... 460.92ms
+  Run 2/12: JIT_OFF (rep 1) ... 456.13ms
+  Run 3/12: JIT_OFF (rep 1) ... 522.46ms
+  Run 4/12: JIT_ON  (rep 1) ... 461.08ms
+  Run 5/12: JIT_ON  (rep 2) ... 453.29ms
+  Run 6/12: JIT_OFF (rep 2) ... 520.95ms
+  Run 7/12: JIT_OFF (rep 2) ... 518.64ms
+  Run 8/12: JIT_ON  (rep 2) ... 462.50ms
+  Run 9/12: JIT_ON  (rep 3) ... 463.45ms
+  Run 10/12: JIT_OFF (rep 3) ... 462.41ms
+  Run 11/12: JIT_OFF (rep 3) ... 456.83ms
+  Run 12/12: JIT_ON  (rep 3) ... 470.91ms
+
+[15/24] int_arith
+  Run 1/12: JIT_ON  (rep 1) ... 445.93ms
+  Run 2/12: JIT_OFF (rep 1) ... 463.99ms
+  Run 3/12: JIT_OFF (rep 1) ... 471.52ms
+  Run 4/12: JIT_ON  (rep 1) ... 443.14ms
+  Run 5/12: JIT_ON  (rep 2) ... 443.65ms
+  Run 6/12: JIT_OFF (rep 2) ... 460.45ms
+  Run 7/12: JIT_OFF (rep 2) ... 464.89ms
+  Run 8/12: JIT_ON  (rep 2) ... 454.99ms
+  Run 9/12: JIT_ON  (rep 3) ... 456.16ms
+  Run 10/12: JIT_OFF (rep 3) ... 460.73ms
+  Run 11/12: JIT_OFF (rep 3) ... 464.12ms
+  Run 12/12: JIT_ON  (rep 3) ... 438.30ms
+
+[16/24] context_manager
+  Run 1/12: JIT_ON  (rep 1) ... 528.06ms
+  Run 2/12: JIT_OFF (rep 1) ... 492.24ms
+  Run 3/12: JIT_OFF (rep 1) ... 499.25ms
+  Run 4/12: JIT_ON  (rep 1) ... 485.57ms
+  Run 5/12: JIT_ON  (rep 2) ... 487.93ms
+  Run 6/12: JIT_OFF (rep 2) ... 492.85ms
+  Run 7/12: JIT_OFF (rep 2) ... 495.38ms
+  Run 8/12: JIT_ON  (rep 2) ... 483.05ms
+  Run 9/12: JIT_ON  (rep 3) ... 485.99ms
+  Run 10/12: JIT_OFF (rep 3) ... 538.22ms
+  Run 11/12: JIT_OFF (rep 3) ... 494.96ms
+  Run 12/12: JIT_ON  (rep 3) ... 530.26ms
+
+[17/24] kwargs_dispatch
+  Run 1/12: JIT_ON  (rep 1) ... 472.69ms
+  Run 2/12: JIT_OFF (rep 1) ... 479.44ms
+  Run 3/12: JIT_OFF (rep 1) ... 468.71ms
+  Run 4/12: JIT_ON  (rep 1) ... 465.40ms
+  Run 5/12: JIT_ON  (rep 2) ... 483.83ms
+  Run 6/12: JIT_OFF (rep 2) ... 471.70ms
+  Run 7/12: JIT_OFF (rep 2) ... 478.26ms
+  Run 8/12: JIT_ON  (rep 2) ... 469.67ms
+  Run 9/12: JIT_ON  (rep 3) ... 466.44ms
+  Run 10/12: JIT_OFF (rep 3) ... 476.18ms
+  Run 11/12: JIT_OFF (rep 3) ... 475.91ms
+  Run 12/12: JIT_ON  (rep 3) ... 472.91ms
+
+[18/24] positional_dispatch
+  Run 1/12: JIT_ON  (rep 1) ... 466.89ms
+  Run 2/12: JIT_OFF (rep 1) ... 502.80ms
+  Run 3/12: JIT_OFF (rep 1) ... 508.26ms
+  Run 4/12: JIT_ON  (rep 1) ... 450.13ms
+  Run 5/12: JIT_ON  (rep 2) ... 451.88ms
+  Run 6/12: JIT_OFF (rep 2) ... 512.36ms
+  Run 7/12: JIT_OFF (rep 2) ... 507.69ms
+  Run 8/12: JIT_ON  (rep 2) ... 452.97ms
+  Run 9/12: JIT_ON  (rep 3) ... 452.79ms
+  Run 10/12: JIT_OFF (rep 3) ... 501.93ms
+  Run 11/12: JIT_OFF (rep 3) ... 505.08ms
+  Run 12/12: JIT_ON  (rep 3) ... 455.15ms
+
+[19/24] dunder_protocol
+  Run 1/12: JIT_ON  (rep 1) ... 404.26ms
+  Run 2/12: JIT_OFF (rep 1) ... 500.79ms
+  Run 3/12: JIT_OFF (rep 1) ... 483.61ms
+  Run 4/12: JIT_ON  (rep 1) ... 391.43ms
+  Run 5/12: JIT_ON  (rep 2) ... 395.68ms
+  Run 6/12: JIT_OFF (rep 2) ... 487.64ms
+  Run 7/12: JIT_OFF (rep 2) ... 518.79ms
+  Run 8/12: JIT_ON  (rep 2) ... 397.88ms
+  Run 9/12: JIT_ON  (rep 3) ... 392.95ms
+  Run 10/12: JIT_OFF (rep 3) ... 490.16ms
+  Run 11/12: JIT_OFF (rep 3) ... 488.57ms
+  Run 12/12: JIT_ON  (rep 3) ... 386.77ms
+
+[20/24] nn_module_forward
+  Run 1/12: JIT_ON  (rep 1) ... 532.55ms
+  Run 2/12: JIT_OFF (rep 1) ... 474.31ms
+  Run 3/12: JIT_OFF (rep 1) ... 468.69ms
+  Run 4/12: JIT_ON  (rep 1) ... 523.04ms
+  Run 5/12: JIT_ON  (rep 2) ... 530.56ms
+  Run 6/12: JIT_OFF (rep 2) ... 475.63ms
+  Run 7/12: JIT_OFF (rep 2) ... 473.65ms
+  Run 8/12: JIT_ON  (rep 2) ... 520.43ms
+  Run 9/12: JIT_ON  (rep 3) ... 528.21ms
+  Run 10/12: JIT_OFF (rep 3) ... 480.51ms
+  Run 11/12: JIT_OFF (rep 3) ... 473.85ms
+  Run 12/12: JIT_ON  (rep 3) ... 523.55ms
+
+[21/24] nbody
+  Run 1/12: JIT_ON  (rep 1) ... 429.44ms
+  Run 2/12: JIT_OFF (rep 1) ... 469.85ms
+  Run 3/12: JIT_OFF (rep 1) ... 463.77ms
+  Run 4/12: JIT_ON  (rep 1) ... 432.65ms
+  Run 5/12: JIT_ON  (rep 2) ... 428.02ms
+  Run 6/12: JIT_OFF (rep 2) ... 468.47ms
+  Run 7/12: JIT_OFF (rep 2) ... 487.97ms
+  Run 8/12: JIT_ON  (rep 2) ... 426.99ms
+  Run 9/12: JIT_ON  (rep 3) ... 429.86ms
+  Run 10/12: JIT_OFF (rep 3) ... 463.46ms
+  Run 11/12: JIT_OFF (rep 3) ... 469.76ms
+  Run 12/12: JIT_ON  (rep 3) ... 462.13ms
+
+[22/24] decorator_chain
+  Run 1/12: JIT_ON  (rep 1) ... 487.57ms
+  Run 2/12: JIT_OFF (rep 1) ... 489.08ms
+  Run 3/12: JIT_OFF (rep 1) ... 491.45ms
+  Run 4/12: JIT_ON  (rep 1) ... 483.90ms
+  Run 5/12: JIT_ON  (rep 2) ... 480.58ms
+  Run 6/12: JIT_OFF (rep 2) ... 487.39ms
+  Run 7/12: JIT_OFF (rep 2) ... 477.39ms
+  Run 8/12: JIT_ON  (rep 2) ... 485.09ms
+  Run 9/12: JIT_ON  (rep 3) ... 498.77ms
+  Run 10/12: JIT_OFF (rep 3) ... 474.06ms
+  Run 11/12: JIT_OFF (rep 3) ... 484.69ms
+  Run 12/12: JIT_ON  (rep 3) ... 494.31ms
+
+[23/24] deep_class_super
+  Run 1/12: JIT_ON  (rep 1) ... 523.22ms
+  Run 2/12: JIT_OFF (rep 1) ... 495.30ms
+  Run 3/12: JIT_OFF (rep 1) ... 492.66ms
+  Run 4/12: JIT_ON  (rep 1) ... 515.80ms
+  Run 5/12: JIT_ON  (rep 2) ... 520.03ms
+  Run 6/12: JIT_OFF (rep 2) ... 484.76ms
+  Run 7/12: JIT_OFF (rep 2) ... 504.23ms
+  Run 8/12: JIT_ON  (rep 2) ... 517.67ms
+  Run 9/12: JIT_ON  (rep 3) ... 536.49ms
+  Run 10/12: JIT_OFF (rep 3) ... 484.60ms
+  Run 11/12: JIT_OFF (rep 3) ... 494.72ms
+  Run 12/12: JIT_ON  (rep 3) ... 524.91ms
+
+[24/24] pytorch_cm
+  Run 1/12: JIT_ON  (rep 1) ... 484.52ms
+  Run 2/12: JIT_OFF (rep 1) ... 479.80ms
+  Run 3/12: JIT_OFF (rep 1) ... 482.05ms
+  Run 4/12: JIT_ON  (rep 1) ... 503.01ms
+  Run 5/12: JIT_ON  (rep 2) ... 499.36ms
+  Run 6/12: JIT_OFF (rep 2) ... 475.90ms
+  Run 7/12: JIT_OFF (rep 2) ... 482.96ms
+  Run 8/12: JIT_ON  (rep 2) ... 513.03ms
+  Run 9/12: JIT_ON  (rep 3) ... 488.73ms
+  Run 10/12: JIT_OFF (rep 3) ... 478.92ms
+  Run 11/12: JIT_OFF (rep 3) ... 485.87ms
+  Run 12/12: JIT_ON  (rep 3) ... 483.81ms
+
+===========================================================================
+CinderX JIT Performance Comparison (x86_64)
+===========================================================================
+
+Benchmark                 Vanilla    CinderX   Speedup      Δ%
+-----------------------------------------------------------------
+  fibonacci              495.68ms   197.91ms     2.50x   60.1% **
+  richards_full          500.59ms   262.66ms     1.91x   47.5% **
+  richards_slots         490.12ms   441.26ms     1.11x   10.0% **
+  nqueens                492.77ms   299.07ms     1.65x   39.3% **
+  spectral_norm          475.14ms   387.48ms     1.23x   18.4% **
+  float_arith            470.54ms   487.06ms     0.97x   -3.5%   
+  gen_simple             489.63ms   683.96ms     0.72x  -39.7% !!
+  gen_nested             525.15ms   541.20ms     0.97x   -3.1%   
+  list_comp              515.55ms   508.26ms     1.01x    1.4%   
+  dict_ops               476.96ms   468.34ms     1.02x    1.8%   
+  func_calls             528.54ms   499.76ms     1.06x    5.4% **
+  import_callee          491.91ms   482.15ms     1.02x    2.0%   
+  try_except_callee      495.15ms   521.69ms     0.95x   -5.4% !!
+  store_subscr           489.57ms   462.03ms     1.06x    5.6% **
+  int_arith              464.28ms   447.03ms     1.04x    3.7%   
+  context_manager        502.15ms   500.15ms     1.00x    0.4%   
+  kwargs_dispatch        475.03ms   471.82ms     1.01x    0.7%   
+  positional_dispatch    506.35ms   454.97ms     1.11x   10.1% **
+  dunder_protocol        494.93ms   394.83ms     1.25x   20.2% **
+  nn_module_forward      474.44ms   526.39ms     0.90x  -11.0% !!
+  nbody                  470.55ms   434.85ms     1.08x    7.6% **
+  decorator_chain        484.01ms   488.37ms     0.99x   -0.9%   
+  deep_class_super       492.71ms   523.02ms     0.94x   -6.2% !!
+  pytorch_cm             480.92ms   495.41ms     0.97x   -3.0%   
+-----------------------------------------------------------------
+  TOTAL                11782.67ms 10979.66ms     1.07x    6.8%
+  GEOMETRIC MEAN                               1.10x  (24 benchmarks)
+===========================================================================
+
+** = JIT >5% faster   !! = JIT >5% slower
+
+Exception ignored in tp_clear of: <class 'dict'>
+ValueError: Invalid dict watcher ID -1
