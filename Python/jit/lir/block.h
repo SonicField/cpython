@@ -46,6 +46,9 @@ struct ConstBlockSpan {
 
 // Basic block for LIR — Phase B4b: struct with public fields.
 struct BasicBlock {
+  void* operator new(size_t size) { return PyMem_RawCalloc(1, size); }
+  void operator delete(void* ptr) { PyMem_RawFree(ptr); }
+
   // Phase B3c-2: instr_iter_t is now Instruction* (linked list position).
   using instr_iter_t = Instruction*;
 

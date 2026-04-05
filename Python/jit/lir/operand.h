@@ -31,7 +31,7 @@ class OperandBase {
   // Use PyMem_RawMalloc for all operand allocation — matches C-side
   // lir_operand_free() which uses PyMem_RawFree. Fixes ASAN
   // alloc-dealloc mismatch at the C/C++ boundary.
-  void* operator new(size_t size) { return PyMem_RawMalloc(size); }
+  void* operator new(size_t size) { return PyMem_RawCalloc(1, size); }
   void operator delete(void* ptr) { PyMem_RawFree(ptr); }
 
   OperandBase() = default;
@@ -137,6 +137,9 @@ class OperandBase {
 // Memory reference: [base_reg + index_reg * (2^index_multiplier) + offset]
 class MemoryIndirect {
  public:
+  void* operator new(size_t size) { return PyMem_RawCalloc(1, size); }
+  void operator delete(void* ptr) { PyMem_RawFree(ptr); }
+
   explicit MemoryIndirect(Instruction* parent);
   ~MemoryIndirect();
 

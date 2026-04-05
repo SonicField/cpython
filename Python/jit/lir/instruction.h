@@ -193,7 +193,7 @@ class Instruction {
   // Use PyMem_RawMalloc for all Instruction allocation — matches C-side
   // lir_instruction_free() which uses PyMem_RawFree. Fixes ASAN
   // alloc-dealloc mismatch at the C/C++ boundary.
-  void* operator new(size_t size) { return PyMem_RawMalloc(size); }
+  void* operator new(size_t size) { return PyMem_RawCalloc(1, size); }
   void operator delete(void* ptr) { PyMem_RawFree(ptr); }
 
   // instruction type
