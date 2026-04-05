@@ -13,6 +13,7 @@
 #define JIT_LIR_C_API_H
 
 #include "cinderx/Jit/lir/lir_types_c.h"
+#include "jit/phoenix_asm/phoenix_asm.h"
 
 #include <assert.h>
 
