@@ -957,6 +957,87 @@ autogen_c_translateMove(void *env, const LirInstruction *instr) {
 }
 
 /* ================================================================
+ * TranslateCompare — cross-architecture
+ * ================================================================ */
+
+void
+autogen_c_TranslateCompare(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+
+    const LirOperand *inp0 = instr->inputs_[0];
+    const LirOperand *inp1 = instr->inputs_[1];
+
+#if defined(CINDER_X86_64)
+    if (inp1->type_ == JIT_LIR_OPTYPE_IMM ||
+        inp1->type_ == JIT_LIR_OPTYPE_MEM) {
+        phx_x86_cmp_ri(pb, operand_to_gp(inp0),
+                        lir_operand_get_constant_or_address(inp1));
+    } else if (!lir_operand_is_fp(inp1)) {
+        phx_x86_cmp_rr(pb, operand_to_gp(inp0), operand_to_gp(inp1));
+    } else {
+        phx_x86_comisd(pb, operand_to_fp(inp0), operand_to_fp(inp1));
+    }
+
+    PhxGp output = operand_to_gp(&instr->output_);
+    switch (instr->opcode_) {
+        case JIT_LIR_OP_EQUAL:                  phx_x86_sete(pb, output); break;
+        case JIT_LIR_OP_NOTEQUAL:               phx_x86_setne(pb, output); break;
+        case JIT_LIR_OP_GREATERTHANSIGNED:       phx_x86_setg(pb, output); break;
+        case JIT_LIR_OP_GREATERTHANEQUALSIGNED:  phx_x86_setge(pb, output); break;
+        case JIT_LIR_OP_LESSTHANSIGNED:          phx_x86_setl(pb, output); break;
+        case JIT_LIR_OP_LESSTHANEQUALSIGNED:     phx_x86_setle(pb, output); break;
+        case JIT_LIR_OP_GREATERTHANUNSIGNED:     phx_x86_seta(pb, output); break;
+        case JIT_LIR_OP_GREATERTHANEQUALUNSIGNED:phx_x86_setae(pb, output); break;
+        case JIT_LIR_OP_LESSTHANUNSIGNED:        phx_x86_setb(pb, output); break;
+        case JIT_LIR_OP_LESSTHANEQUALUNSIGNED:   phx_x86_setbe(pb, output); break;
+        default: assert(0 && "bad instruction for TranslateCompare");
+    }
+
+    if (instr->output_.data_type_ != JIT_LIR_DT_8BIT) {
+        int reg_id = lir_operand_get_phy_register(&instr->output_).loc;
+        PhxGp full = operand_to_gp(&instr->output_);
+        PhxGp byte_reg = {(uint8_t)reg_id, 1};
+        phx_x86_movzx_rr(pb, full, byte_reg);
+    }
+
+#elif defined(CINDER_AARCH64)
+    if (inp1->type_ == JIT_LIR_OPTYPE_MEM) {
+        uint64_t address = lir_operand_get_constant_or_address(inp1);
+        phx_a64_mov_ri(pb, A64_SCRATCH_0, address);
+        phx_a64_ldr(pb, A64_SCRATCH_0, phx_ptr(A64_SCRATCH_0, 0));
+        phx_a64_cmp_rr(pb, operand_to_gp(inp0), A64_SCRATCH_0);
+    } else if (inp1->type_ == JIT_LIR_OPTYPE_IMM) {
+        uint64_t constant = lir_operand_get_constant_or_address(inp1);
+        if (is_add_sub_imm(constant)) {
+            phx_a64_cmp_ri(pb, operand_to_gp(inp0), constant);
+        } else {
+            phx_a64_mov_ri(pb, A64_SCRATCH_0, constant);
+            phx_a64_cmp_rr(pb, operand_to_gp(inp0), A64_SCRATCH_0);
+        }
+    } else if (!lir_operand_is_fp(inp1)) {
+        phx_a64_cmp_rr(pb, operand_to_gp(inp0), operand_to_gp(inp1));
+    } else {
+        phx_a64_fcmp(pb, operand_to_vecd(inp0), operand_to_vecd(inp1));
+    }
+
+    PhxGp output = operand_to_gp_output(&instr->output_);
+    switch (instr->opcode_) {
+        case JIT_LIR_OP_EQUAL:                  phx_a64_cset(pb, output, PHX_COND_EQ); break;
+        case JIT_LIR_OP_NOTEQUAL:               phx_a64_cset(pb, output, PHX_COND_NE); break;
+        case JIT_LIR_OP_GREATERTHANSIGNED:       phx_a64_cset(pb, output, PHX_COND_GT); break;
+        case JIT_LIR_OP_GREATERTHANEQUALSIGNED:  phx_a64_cset(pb, output, PHX_COND_GE); break;
+        case JIT_LIR_OP_LESSTHANSIGNED:          phx_a64_cset(pb, output, PHX_COND_LT); break;
+        case JIT_LIR_OP_LESSTHANEQUALSIGNED:     phx_a64_cset(pb, output, PHX_COND_LE); break;
+        case JIT_LIR_OP_GREATERTHANUNSIGNED:     phx_a64_cset(pb, output, PHX_COND_HI); break;
+        case JIT_LIR_OP_GREATERTHANEQUALUNSIGNED:phx_a64_cset(pb, output, PHX_COND_HS); break;
+        case JIT_LIR_OP_LESSTHANUNSIGNED:        phx_a64_cset(pb, output, PHX_COND_LO); break;
+        case JIT_LIR_OP_LESSTHANEQUALUNSIGNED:   phx_a64_cset(pb, output, PHX_COND_LS); break;
+        default: assert(0 && "bad instruction for TranslateCompare");
+    }
+#endif
+}
+
+/* ================================================================
  * TranslateDeoptPatchpoint — cross-architecture
  * ================================================================ */
 
