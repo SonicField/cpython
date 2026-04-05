@@ -496,7 +496,8 @@ postalloc_rewrite_byte_multiply(LirInstruction *instr, void *env) {
 }
 #endif
 
-/* ---- Helper: move operand to a specific physical register ---- */
+#if defined(CINDER_X86_64)
+/* ---- Helper: move operand to a specific physical register (x86_64) ---- */
 
 static int
 insert_move_to_register(LirBasicBlock *block, LirInstruction *before,
@@ -652,6 +653,7 @@ postalloc_rewrite_divide(LirInstruction *instr, void *env) {
 
     return changed ? LIR_REWRITE_CHANGED : LIR_REWRITE_UNCHANGED;
 }
+#endif /* CINDER_X86_64 — insert_move_to_register + rewriteDivide */
 
 /* ================================================================
  * Callback: rewriteCallInstrs (stage 0, instruction-level)
