@@ -742,4 +742,215 @@ autogen_c_translateLea(void *env, const LirInstruction *instr) {
     }
 }
 
+/* ---- ptrIndirect: resolve MemoryIndirect to PhxMem ---- */
+
+static PhxMem
+ptr_indirect(PhxBuilder *pb, PhxGp scratch0, PhxGp scratch1,
+             const LirMemoryIndirect *indirect) {
+    LirOperand *base_op = lir_memind_base_reg(indirect);
+    PhxGp base = get_gp_or_sp(base_op);
+    LirOperand *index_op = lir_memind_index_reg(indirect);
+    int32_t offset = lir_memind_offset(indirect);
+
+    if (index_op != NULL) {
+        lea_index(pb, scratch1, base, operand_to_gp(index_op),
+                  lir_memind_multiplier(indirect));
+        base = scratch1;
+    }
+
+    return jit_arch_ptr_resolve(pb, base, offset, scratch0, 8);
+}
+
+/* ---- loadToReg: load from PhxMem into register operand ---- */
+
+static void
+load_to_reg(PhxBuilder *pb, const LirOperand *output, PhxMem input) {
+    if (lir_operand_is_fp(output)) {
+        phx_a64_ldr_fp(pb, operand_to_vecd(output), input);
+    } else {
+        switch (output->data_type_) {
+            case JIT_LIR_DT_8BIT:
+                phx_a64_ldrb(pb, operand_to_gp_output(output), input);
+                break;
+            case JIT_LIR_DT_16BIT:
+                phx_a64_ldrh(pb, operand_to_gp_output(output), input);
+                break;
+            default:
+                phx_a64_ldr(pb, operand_to_gp(output), input);
+                break;
+        }
+    }
+}
+
+/* ---- storeFromReg: store from register operand to PhxMem ---- */
+
+static void
+store_from_reg(PhxBuilder *pb, const LirOperand *input, PhxMem output) {
+    if (lir_operand_is_fp(input)) {
+        phx_a64_str_fp(pb, operand_to_vecd(input), output);
+    } else {
+        int reg = lir_operand_get_phy_register(input).loc;
+        switch (input->data_type_) {
+            case JIT_LIR_DT_8BIT:
+                phx_a64_strb(pb, PHX_REG_GP(reg, 4), output);
+                break;
+            case JIT_LIR_DT_16BIT:
+                phx_a64_strh(pb, PHX_REG_GP(reg, 4), output);
+                break;
+            default:
+                phx_a64_str(pb, operand_to_gp(input), output);
+                break;
+        }
+    }
+}
+
+/* ---- Move ---- */
+
+void
+autogen_c_translateMove(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+
+    const LirOperand *output = &instr->output_;
+    const LirOperand *input = instr->inputs_[0];
+
+    switch (output->type_) {
+    case JIT_LIR_OPTYPE_REG:
+        switch (input->type_) {
+        case JIT_LIR_OPTYPE_REG:
+            if (lir_operand_is_fp(output)) {
+                if (lir_operand_is_fp(input)) {
+                    phx_a64_fmov(pb, operand_to_vecd(output),
+                                 operand_to_vecd(input));
+                } else {
+                    phx_a64_fmov(pb, operand_to_vecd(output),
+                                 operand_to_gp(input));
+                }
+            } else {
+                if (lir_operand_is_fp(input)) {
+                    phx_a64_fmov(pb, operand_to_gp(output),
+                                 operand_to_vecd(input));
+                } else {
+                    phx_a64_mov_rr(pb, operand_to_gp(output),
+                                   operand_to_gp(input));
+                }
+            }
+            break;
+        case JIT_LIR_OPTYPE_STACK: {
+            int32_t loc = lir_operand_get_stack_slot(input).loc;
+            PhxMem ptr = jit_arch_ptr_resolve(pb, A64_FP, loc,
+                                              A64_SCRATCH_0, 8);
+            if (lir_operand_is_fp(output)) {
+                phx_a64_ldr_fp(pb, operand_to_vecd(output), ptr);
+            } else {
+                switch (output->data_type_) {
+                    case JIT_LIR_DT_8BIT:
+                        phx_a64_ldrb(pb, operand_to_gp_output(output), ptr);
+                        break;
+                    case JIT_LIR_DT_16BIT:
+                        phx_a64_ldrh(pb, operand_to_gp_output(output), ptr);
+                        break;
+                    default:
+                        phx_a64_ldr(pb, operand_to_gp(output), ptr);
+                        break;
+                }
+            }
+            break;
+        }
+        case JIT_LIR_OPTYPE_MEM:
+            phx_a64_mov_ri(pb, A64_SCRATCH_0,
+                (uint64_t)(uintptr_t)lir_operand_get_mem_address(input));
+            load_to_reg(pb, output, phx_ptr(A64_SCRATCH_0, 0));
+            break;
+        case JIT_LIR_OPTYPE_IND: {
+            LirMemoryIndirect *ind = lir_operand_get_indirect(input);
+            PhxMem ptr = ptr_indirect(pb, A64_SCRATCH_0, A64_SCRATCH_1, ind);
+            load_to_reg(pb, output, ptr);
+            break;
+        }
+        case JIT_LIR_OPTYPE_IMM:
+            if (lir_operand_is_fp(output)) {
+                phx_a64_mov_ri(pb, A64_SCRATCH_0,
+                    lir_operand_get_constant(input));
+                phx_a64_fmov(pb, operand_to_vecd(output), A64_SCRATCH_0);
+            } else {
+                phx_a64_mov_ri(pb, operand_to_gp(output),
+                    lir_operand_get_constant(input));
+            }
+            break;
+        default:
+            assert(0 && "Unsupported input type for Move:Reg");
+        }
+        break;
+
+    case JIT_LIR_OPTYPE_STACK: {
+        int32_t loc = lir_operand_get_stack_slot(output).loc;
+        PhxMem ptr = jit_arch_ptr_resolve(pb, A64_FP, loc, A64_SCRATCH_0, 8);
+        if (input->type_ == JIT_LIR_OPTYPE_REG) {
+            store_from_reg(pb, input, ptr);
+        } else if (input->type_ == JIT_LIR_OPTYPE_IMM) {
+            phx_a64_mov_ri(pb, A64_SCRATCH_0,
+                lir_operand_get_constant(input));
+            phx_a64_str(pb, A64_SCRATCH_0, ptr);
+        } else {
+            assert(0 && "Unsupported input type for Move:Stk");
+        }
+        break;
+    }
+
+    case JIT_LIR_OPTYPE_MEM: {
+        phx_a64_mov_ri(pb, A64_SCRATCH_0,
+            (uint64_t)(uintptr_t)lir_operand_get_mem_address(output));
+        if (input->type_ == JIT_LIR_OPTYPE_REG) {
+            if (lir_operand_is_fp(input)) {
+                phx_a64_str_fp(pb, operand_to_vecd(input),
+                    phx_ptr(A64_SCRATCH_0, 0));
+            } else {
+                phx_a64_str(pb, operand_to_gp(input),
+                    phx_ptr(A64_SCRATCH_0, 0));
+            }
+        } else if (input->type_ == JIT_LIR_OPTYPE_IMM) {
+            phx_a64_mov_ri(pb, A64_SCRATCH_1,
+                lir_operand_get_constant(input));
+            phx_a64_str(pb, A64_SCRATCH_1, phx_ptr(A64_SCRATCH_0, 0));
+        } else {
+            assert(0 && "Unsupported input type for Move:Mem");
+        }
+        break;
+    }
+
+    case JIT_LIR_OPTYPE_IND: {
+        LirMemoryIndirect *ind = lir_operand_get_indirect(output);
+        PhxMem ptr = ptr_indirect(pb, A64_SCRATCH_0, A64_SCRATCH_1, ind);
+        if (input->type_ == JIT_LIR_OPTYPE_REG) {
+            store_from_reg(pb, input, ptr);
+        } else if (input->type_ == JIT_LIR_OPTYPE_IMM) {
+            int reg_id = A64_SCRATCH_1.id;
+            switch (output->data_type_) {
+                case JIT_LIR_DT_8BIT:
+                    phx_a64_mov_ri(pb, PHX_REG_GP(reg_id, 4),
+                        lir_operand_get_constant(input));
+                    phx_a64_strb(pb, PHX_REG_GP(reg_id, 4), ptr);
+                    break;
+                case JIT_LIR_DT_16BIT:
+                    phx_a64_mov_ri(pb, PHX_REG_GP(reg_id, 4),
+                        lir_operand_get_constant(input));
+                    phx_a64_strh(pb, PHX_REG_GP(reg_id, 4), ptr);
+                    break;
+                default:
+                    phx_a64_mov_ri(pb, A64_SCRATCH_1,
+                        lir_operand_get_constant(input));
+                    phx_a64_str(pb, A64_SCRATCH_1, ptr);
+                    break;
+            }
+        } else {
+            assert(0 && "Unsupported input type for Move:Ind");
+        }
+        break;
+    }
+
+    default:
+        assert(0 && "Unsupported output type for Move");
+    }
+}
+
 #endif /* CINDER_AARCH64 */
