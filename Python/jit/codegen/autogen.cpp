@@ -1354,9 +1354,6 @@ END_RULE_TABLE
 // Only yield rule table entries remain here (yield functions are cross-arch,
 // defined above with #if CINDER_X86_64 / #elif CINDER_AARCH64 branches).
 
-namespace {
-using AT = AutoTranslator;
-
 // Dead ARM64 translate* functions deleted — replaced by autogen_translate_c.c
 // Dead ARM64 rule table entries deleted — C dispatch handles all non-yield opcodes
 
