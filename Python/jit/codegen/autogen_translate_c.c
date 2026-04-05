@@ -88,12 +88,12 @@ operand_to_gp_output(const LirOperand *op) {
 
 #if defined(CINDER_X86_64)
 
-/* ---- Helper: convert LIR operand to PhxXmm register (x86_64) ---- */
+/* ---- Helper: convert LIR operand to FP register (x86_64 XMM) ---- */
 
-static inline PhxXmm
-operand_to_xmm(const LirOperand *op) {
-    int reg = lir_operand_get_phy_register(op).loc - PHYLOC_VECD_REG_BASE;
-    return phx_xmm(reg);
+static inline PhxGp
+operand_to_fp(const LirOperand *op) {
+    int reg = lir_operand_get_phy_register(op).loc;
+    return (PhxGp){(uint8_t)reg, 8};
 }
 
 #elif defined(CINDER_AARCH64)
