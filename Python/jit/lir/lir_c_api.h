@@ -217,6 +217,18 @@ LirInstruction *lir_block_alloc_instr_before(LirBasicBlock *bb,
 /* Environ accessors (C wrappers around codegen::Environ fields) */
 LirPhyLocation jit_environ_get_arg_location(void *env, size_t index);
 LirPhyLocation jit_environ_get_return_reg(int index);
+int jit_environ_get_max_arg_buffer(void *env);
+void jit_environ_update_max_arg_buffer(void *env, int size);
+
+/* Architecture register constants (C wrappers around codegen::arch) */
+size_t jit_arch_num_arg_regs(void);
+size_t jit_arch_num_fp_arg_regs(void);
+LirPhyLocation jit_arch_arg_reg(size_t index);
+LirPhyLocation jit_arch_fp_arg_reg(size_t index);
+LirPhyLocation jit_arch_scratch_0_loc(void);
+LirPhyLocation jit_arch_stack_pointer_loc(void);
+LirPhyLocation jit_arch_general_return_loc(void);
+LirPhyLocation jit_arch_double_return_loc(void);
 
 /* LIR inliner (C wrapper around C++ LIRInliner::inlineCalls) */
 int lir_inliner_inline_calls(void *func);

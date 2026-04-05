@@ -277,3 +277,54 @@ jit_environ_get_return_reg(int index) {
   auto loc = jit::codegen::RETURN_REGS[index];
   return LirPhyLocation{loc.loc, loc.bitSize};
 }
+
+extern "C" int
+jit_environ_get_max_arg_buffer(void* env_ptr) {
+  return static_cast<jit::codegen::Environ*>(env_ptr)->max_arg_buffer_size;
+}
+
+extern "C" void
+jit_environ_update_max_arg_buffer(void* env_ptr, int size) {
+  auto* env = static_cast<jit::codegen::Environ*>(env_ptr);
+  if (size > env->max_arg_buffer_size) {
+    env->max_arg_buffer_size = size;
+  }
+}
+
+/* ---- Architecture register constants ---- */
+
+static LirPhyLocation phyloc_from(jit::codegen::PhyLocation loc) {
+  return LirPhyLocation{loc.loc, loc.bitSize};
+}
+
+extern "C" size_t jit_arch_num_arg_regs(void) {
+  return jit::codegen::ARGUMENT_REGS.size();
+}
+
+extern "C" size_t jit_arch_num_fp_arg_regs(void) {
+  return jit::codegen::FP_ARGUMENT_REGS.size();
+}
+
+extern "C" LirPhyLocation jit_arch_arg_reg(size_t index) {
+  return phyloc_from(jit::codegen::ARGUMENT_REGS[index]);
+}
+
+extern "C" LirPhyLocation jit_arch_fp_arg_reg(size_t index) {
+  return phyloc_from(jit::codegen::FP_ARGUMENT_REGS[index]);
+}
+
+extern "C" LirPhyLocation jit_arch_scratch_0_loc(void) {
+  return phyloc_from(jit::codegen::arch::reg_scratch_0_loc);
+}
+
+extern "C" LirPhyLocation jit_arch_stack_pointer_loc(void) {
+  return phyloc_from(jit::codegen::arch::reg_stack_pointer_loc);
+}
+
+extern "C" LirPhyLocation jit_arch_general_return_loc(void) {
+  return phyloc_from(jit::codegen::arch::reg_general_return_loc);
+}
+
+extern "C" LirPhyLocation jit_arch_double_return_loc(void) {
+  return phyloc_from(jit::codegen::arch::reg_double_return_loc);
+}

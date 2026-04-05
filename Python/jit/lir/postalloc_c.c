@@ -654,9 +654,585 @@ postalloc_rewrite_divide(LirInstruction *instr, void *env) {
 }
 
 /* ================================================================
- * Public init — registers the converted callbacks
+ * Callback: rewriteCallInstrs (stage 0, instruction-level)
  *
- * 10 callbacks converted (8 cross-platform + 2 x86_64).
+ * Rewrites call instructions:
+ *   - Move function arguments to the correct registers.
+ *   - Handle VectorCall, VarArgCall, and regular Call variants.
+ *   - Track max stack argument buffer size in Environ.
+ * ================================================================ */
+
+/* Helper: allocate a memory-indirect input operand */
+static LirOperand *
+alloc_memind_input(LirInstruction *inst, LirPhyLocation base, int32_t offset) {
+    LirOperand *op = lir_operand_new(inst);
+    lir_operand_set_memory_indirect_phy(op, base, offset);
+    lir_instruction_append_input(inst, op);
+    return op;
+}
+
+/*
+ * Insert a move from an operand to a memory location [base + index].
+ * Handles > 32-bit immediates, FP values, stack operands.
+ */
+static void
+insert_move_to_memory_location(
+    LirBasicBlock *block,
+    LirInstruction *before,
+    LirPhyLocation base,
+    int32_t index,
+    const LirOperand *operand,
+    LirPhyLocation temp)
+{
+    uint8_t data_type = operand->data_type_;
+
+    if (operand->type_ == JIT_LIR_OPTYPE_IMM) {
+        uint64_t constant = lir_operand_get_constant(operand);
+        if (
+#if defined(CINDER_X86_64)
+            !lir_fits_signed_int32((int64_t)constant) ||
+#endif
+            lir_operand_is_fp(operand)) {
+            /* Load constant to temp register first */
+            LirInstruction *m1 = lir_block_alloc_instr_before(
+                block, before, JIT_LIR_OP_MOVE);
+            lir_operand_set_phy_register(&m1->output_, temp);
+            lir_operand_set_data_type(&m1->output_, data_type);
+            lir_operand_set_data_type(
+                lir_instruction_alloc_imm_input(m1, constant, data_type),
+                data_type);
+
+            LirInstruction *m2 = lir_block_alloc_instr_before(
+                block, before, JIT_LIR_OP_MOVE);
+            lir_operand_set_memory_indirect_phy(&m2->output_, base, index);
+            lir_operand_set_data_type(
+                lir_instruction_alloc_phyreg_input(m2, temp), data_type);
+        } else {
+            LirInstruction *m = lir_block_alloc_instr_before(
+                block, before, JIT_LIR_OP_MOVE);
+            lir_operand_set_memory_indirect_phy(&m->output_, base, index);
+            lir_operand_set_data_type(
+                lir_instruction_alloc_imm_input(m, constant, data_type),
+                data_type);
+        }
+        return;
+    }
+
+    if (operand->type_ == JIT_LIR_OPTYPE_REG) {
+        LirPhyLocation loc = lir_operand_get_phy_register(operand);
+        LirInstruction *m = lir_block_alloc_instr_before(
+            block, before, JIT_LIR_OP_MOVE);
+        lir_operand_set_memory_indirect_phy(&m->output_, base, index);
+        lir_instruction_alloc_phyreg_input(m, loc);
+        return;
+    }
+
+    /* Stack operand: load to temp, then store to memory */
+    LirPhyLocation loc = lir_operand_get_stack_slot(operand);
+    LirInstruction *m1 = lir_block_alloc_instr_before(
+        block, before, JIT_LIR_OP_MOVE);
+    lir_operand_set_phy_register(&m1->output_, temp);
+    lir_operand_set_data_type(&m1->output_, data_type);
+    lir_instruction_alloc_stack_input(m1, loc);
+
+    LirInstruction *m2 = lir_block_alloc_instr_before(
+        block, before, JIT_LIR_OP_MOVE);
+    lir_operand_set_memory_indirect_phy(&m2->output_, base, index);
+    lir_operand_set_data_type(
+        lir_instruction_alloc_phyreg_input(m2, temp), data_type);
+}
+
+/*
+ * Rewrite regular function call: move arguments to argument registers,
+ * spill excess to stack.
+ */
+static int
+rewrite_regular_function(LirInstruction *instr) {
+    LirBasicBlock *block = instr->basic_block_;
+    size_t num_inputs = instr->num_inputs_;
+    size_t arg_reg = 0;
+    size_t fp_arg_reg = 0;
+    int stack_arg_size = 0;
+
+    size_t num_arg_regs = jit_arch_num_arg_regs();
+    size_t num_fp_arg_regs = jit_arch_num_fp_arg_regs();
+    LirPhyLocation scratch_0 = jit_arch_scratch_0_loc();
+    LirPhyLocation sp = jit_arch_stack_pointer_loc();
+
+    for (size_t i = 1; i < num_inputs; i++) {
+        LirOperand *operand = instr->inputs_[i];
+        int operand_imm = (operand->type_ == JIT_LIR_OPTYPE_IMM);
+
+        if (lir_operand_is_fp(operand)) {
+            if (fp_arg_reg < num_fp_arg_regs) {
+                if (operand_imm) {
+                    LirInstruction *mi = lir_block_alloc_instr_before(
+                        block, instr, JIT_LIR_OP_MOVE);
+                    lir_operand_set_phy_register(&mi->output_, scratch_0);
+                    lir_instruction_alloc_imm_input(mi,
+                        lir_operand_get_constant(operand),
+                        operand->data_type_);
+                }
+                LirPhyLocation fp_reg = jit_arch_fp_arg_reg(fp_arg_reg++);
+                LirInstruction *move = lir_block_alloc_instr_before(
+                    block, instr, JIT_LIR_OP_MOVE);
+                lir_operand_set_phy_register(&move->output_, fp_reg);
+                lir_operand_set_data_type(&move->output_, JIT_LIR_DT_DOUBLE);
+
+                if (operand_imm) {
+                    lir_instruction_alloc_phyreg_input(move, scratch_0);
+                } else {
+                    lir_instruction_append_input(move,
+                        lir_instruction_release_input(instr, i));
+                }
+            } else {
+                insert_move_to_memory_location(
+                    block, instr, sp, stack_arg_size, operand, scratch_0);
+                stack_arg_size += (int)sizeof(void*);
+            }
+            continue;
+        }
+
+        if (arg_reg < num_arg_regs) {
+            LirPhyLocation areg = jit_arch_arg_reg(arg_reg++);
+            LirInstruction *move = lir_block_alloc_instr_before(
+                block, instr, JIT_LIR_OP_MOVE);
+            lir_operand_set_phy_register(&move->output_, areg);
+            lir_operand_set_data_type(&move->output_, operand->data_type_);
+            lir_instruction_append_input(move,
+                lir_instruction_release_input(instr, i));
+        } else {
+            insert_move_to_memory_location(
+                block, instr, sp, stack_arg_size, operand, scratch_0);
+            stack_arg_size += (int)sizeof(void*);
+        }
+    }
+
+    return stack_arg_size;
+}
+
+/*
+ * Build an argument array on the stack for vectorcall/vararg.
+ */
+static int
+prepare_args_array(
+    LirInstruction *instr,
+    size_t num_args,
+    size_t flags,
+    size_t first_arg,
+    LirPhyLocation dest,
+    LirPhyLocation size_dest)
+{
+    LirBasicBlock *block = instr->basic_block_;
+    const size_t PTR_SIZE = sizeof(void*);
+
+    /* offset on the stack where arg reservation starts */
+    const int kVectorcallArgsOffset = 1;
+    size_t num_allocs = num_args + kVectorcallArgsOffset;
+    int rsp_sub = (int)(((num_allocs % 2) ? num_allocs + 1 : num_allocs)
+                        * PTR_SIZE);
+
+    LirPhyLocation sp = jit_arch_stack_pointer_loc();
+    LirPhyLocation scratch_0 = jit_arch_scratch_0_loc();
+
+    /* lea dest, [sp + kVectorcallArgsOffset * PTR_SIZE] */
+    LirInstruction *lea = lir_block_alloc_instr_before(
+        block, instr, JIT_LIR_OP_LEA);
+    lir_operand_set_phy_register(&lea->output_, dest);
+    alloc_memind_input(lea, sp, (int32_t)(kVectorcallArgsOffset * PTR_SIZE));
+
+    /* mov size_dest, num_args | flags */
+    LirInstruction *mov = lir_block_alloc_instr_before(
+        block, instr, JIT_LIR_OP_MOVE);
+    lir_operand_set_phy_register(&mov->output_, size_dest);
+    lir_operand_set_data_type(&mov->output_, JIT_LIR_DT_64BIT);
+    lir_operand_set_data_type(
+        lir_instruction_alloc_imm_input(mov, num_args | flags, JIT_LIR_DT_64BIT),
+        JIT_LIR_DT_64BIT);
+
+    for (size_t i = first_arg; i < first_arg + num_args; i++) {
+        LirOperand *arg = instr->inputs_[i];
+        int32_t arg_offset = (int32_t)((i - first_arg) * PTR_SIZE);
+        insert_move_to_memory_location(
+            block, instr, dest, arg_offset, arg, scratch_0);
+    }
+    return rsp_sub;
+}
+
+/*
+ * Rewrite vectorcall: set up callable, args array, nargsf, kwnames.
+ */
+static int
+rewrite_vectorcall_functions(LirInstruction *instr) {
+    /* For vector calls there are 4 fixed arguments:
+     * #0   - runtime helper function
+     * #1   - flags to be added to nargsf
+     * #2   - callable
+     * #n-1 - kwnames */
+    const int kFirstArg = 3;
+
+    size_t flag = lir_operand_get_constant(instr->inputs_[1]);
+    size_t num_args = instr->num_inputs_ - kFirstArg - 1;
+
+    LirBasicBlock *block = instr->basic_block_;
+    LirPhyLocation arg0 = jit_arch_arg_reg(0);
+    LirPhyLocation arg1 = jit_arch_arg_reg(1);
+    LirPhyLocation arg2 = jit_arch_arg_reg(2);
+    LirPhyLocation arg3 = jit_arch_arg_reg(3);
+
+    /* first argument: callable */
+    LirInstruction *move = lir_block_alloc_instr_before(
+        block, instr, JIT_LIR_OP_MOVE);
+    lir_operand_set_phy_register(&move->output_, arg0);
+    lir_operand_set_data_type(&move->output_, instr->inputs_[2]->data_type_);
+    lir_instruction_append_input(move,
+        lir_instruction_release_input(instr, 2));
+
+    int rsp_sub = prepare_args_array(
+        instr, num_args,
+        flag | PY_VECTORCALL_ARGUMENTS_OFFSET,
+        kFirstArg, arg1, arg2);
+
+    /* kwnames: last input */
+    LirOperand *last_input = lir_instruction_release_input(
+        instr, instr->num_inputs_ - 1);
+    if (last_input->type_ == JIT_LIR_OPTYPE_IMM) {
+        assert(lir_operand_get_constant(last_input) == 0);
+        /* xor arg3, arg3 */
+        LirInstruction *xor_instr = lir_block_alloc_instr_before(
+            block, instr, JIT_LIR_OP_XOR);
+        lir_instruction_alloc_phyreg_input(xor_instr, arg3);
+        lir_instruction_alloc_phyreg_input(xor_instr, arg3);
+    } else {
+        LirInstruction *move_2 = lir_block_alloc_instr_before(
+            block, instr, JIT_LIR_OP_MOVE);
+        lir_operand_set_phy_register(&move_2->output_, arg3);
+        lir_instruction_append_input(move_2, last_input);
+
+        /* Subtract kwnames tuple length from nargsf */
+        size_t ob_size_offs = offsetof(PyVarObject, ob_size);
+        LirPhyLocation tmp_reg = jit_arch_scratch_0_loc();
+        LirInstruction *load = lir_block_alloc_instr_before(
+            block, instr, JIT_LIR_OP_MOVE);
+        lir_operand_set_phy_register(&load->output_, tmp_reg);
+        alloc_memind_input(load, arg3, (int32_t)ob_size_offs);
+
+        LirInstruction *sub = lir_block_alloc_instr_before(
+            block, instr, JIT_LIR_OP_SUB);
+        lir_instruction_alloc_phyreg_input(sub, arg2);
+        lir_instruction_alloc_phyreg_input(sub, tmp_reg);
+    }
+
+    return rsp_sub;
+}
+
+/*
+ * Rewrite vararg call: build args array, set opcode to Call.
+ */
+static int
+rewrite_vararg_call(LirInstruction *instr) {
+    LirPhyLocation arg0 = jit_arch_arg_reg(0);
+    LirPhyLocation arg1 = jit_arch_arg_reg(1);
+
+    instr->opcode_ = JIT_LIR_OP_CALL;
+    int res = prepare_args_array(
+        instr,
+        instr->num_inputs_ - 1, /* func is 1st argument */
+        0,
+        1,
+        arg0,
+        arg1);
+    lir_instruction_set_num_inputs(instr, 1);
+    return res;
+}
+
+static int
+postalloc_rewrite_call(LirInstruction *instr, void *env) {
+    if (instr->opcode_ == JIT_LIR_OP_VARARGCALL) {
+        int rsp_sub = rewrite_vararg_call(instr);
+        jit_environ_update_max_arg_buffer(env, rsp_sub);
+        return LIR_REWRITE_CHANGED;
+    }
+
+    if (instr->opcode_ != JIT_LIR_OP_CALL &&
+        instr->opcode_ != JIT_LIR_OP_VECTORCALL) {
+        return LIR_REWRITE_UNCHANGED;
+    }
+
+    LirOperand *output = &instr->output_;
+    if (instr->opcode_ == JIT_LIR_OP_CALL &&
+        instr->num_inputs_ == 1 &&
+        output->type_ == JIT_LIR_OPTYPE_NONE) {
+        return LIR_REWRITE_UNCHANGED;
+    }
+
+    int rsp_sub = 0;
+    LirBasicBlock *block = instr->basic_block_;
+
+    if (instr->opcode_ == JIT_LIR_OP_VECTORCALL) {
+        rsp_sub = rewrite_vectorcall_functions(instr);
+    } else {
+        rsp_sub = rewrite_regular_function(instr);
+    }
+
+    lir_instruction_set_num_inputs(instr, 1); /* leave function operand only */
+    instr->opcode_ = JIT_LIR_OP_CALL;
+
+    LirInstruction *next_iter = instr->next_;
+
+    jit_environ_update_max_arg_buffer(env, rsp_sub);
+
+    if (output->type_ == JIT_LIR_OPTYPE_NONE) {
+        return LIR_REWRITE_CHANGED;
+    }
+
+    LirPhyLocation return_reg = lir_operand_is_fp(output)
+        ? jit_arch_double_return_loc()
+        : jit_arch_general_return_loc();
+
+    if (!(output->type_ == JIT_LIR_OPTYPE_REG &&
+          lir_operand_get_phy_register(output).loc == return_reg.loc)) {
+        LirInstruction *m = lir_block_alloc_instr_before(
+            block, next_iter, JIT_LIR_OP_MOVE);
+        if (output->type_ == JIT_LIR_OPTYPE_REG) {
+            lir_operand_set_phy_register(&m->output_,
+                lir_operand_get_phy_register(output));
+        } else {
+            lir_operand_set_stack_slot(&m->output_,
+                lir_operand_get_stack_slot(output));
+        }
+        lir_operand_set_data_type(&m->output_, output->data_type_);
+        lir_operand_set_data_type(
+            lir_instruction_alloc_phyreg_input(m, return_reg),
+            output->data_type_);
+    }
+    lir_operand_set_none(output);
+
+    return LIR_REWRITE_CHANGED;
+}
+
+/* ================================================================
+ * Callback: optimizeMoveSequence (function-level, stage 1)
+ *
+ * Track register-to-memory moves within a basic block.
+ * Replace stack inputs with the register they came from.
+ * Delete spills that become dead after replacement.
+ * ================================================================ */
+
+#define REG_MEM_TRACK_MAX 64
+
+typedef struct {
+    int32_t reg_loc;
+    int32_t mem_loc;
+} RegMemEntry;
+
+typedef struct {
+    int32_t mem_loc;
+    int32_t reg_loc;
+    LirInstruction *instr;
+} MemRegEntry;
+
+typedef struct {
+    RegMemEntry r2m[REG_MEM_TRACK_MAX];
+    int r2m_count;
+    MemRegEntry m2r[REG_MEM_TRACK_MAX];
+    int m2r_count;
+} RegMemTracker;
+
+static void
+tracker_clear(RegMemTracker *t) {
+    t->r2m_count = 0;
+    t->m2r_count = 0;
+}
+
+/* Remove entry for a register from both maps */
+static void
+tracker_invalidate_register(RegMemTracker *t, int32_t reg) {
+    for (int i = 0; i < t->r2m_count; i++) {
+        if (t->r2m[i].reg_loc == reg) {
+            int32_t mem = t->r2m[i].mem_loc;
+            /* Remove from r2m */
+            t->r2m[i] = t->r2m[--t->r2m_count];
+            /* Remove corresponding m2r */
+            for (int j = 0; j < t->m2r_count; j++) {
+                if (t->m2r[j].mem_loc == mem) {
+                    t->m2r[j] = t->m2r[--t->m2r_count];
+                    break;
+                }
+            }
+            return;
+        }
+    }
+}
+
+/* Remove entry for a memory location from both maps */
+static void
+tracker_invalidate_memory(RegMemTracker *t, int32_t mem) {
+    for (int i = 0; i < t->m2r_count; i++) {
+        if (t->m2r[i].mem_loc == mem) {
+            int32_t reg = t->m2r[i].reg_loc;
+            /* Remove from m2r */
+            t->m2r[i] = t->m2r[--t->m2r_count];
+            /* Remove corresponding r2m */
+            for (int j = 0; j < t->r2m_count; j++) {
+                if (t->r2m[j].reg_loc == reg) {
+                    t->r2m[j] = t->r2m[--t->r2m_count];
+                    break;
+                }
+            }
+            return;
+        }
+    }
+}
+
+static void
+tracker_invalidate(RegMemTracker *t, int32_t loc) {
+    if (loc >= 0)
+        tracker_invalidate_register(t, loc);
+    else
+        tracker_invalidate_memory(t, loc);
+}
+
+static void
+tracker_add(RegMemTracker *t, int32_t reg, int32_t mem,
+            LirInstruction *instr)
+{
+    tracker_invalidate_memory(t, mem);
+    tracker_invalidate_register(t, reg);
+
+    if (t->r2m_count < REG_MEM_TRACK_MAX) {
+        t->r2m[t->r2m_count].reg_loc = reg;
+        t->r2m[t->r2m_count].mem_loc = mem;
+        t->r2m_count++;
+    }
+    if (t->m2r_count < REG_MEM_TRACK_MAX) {
+        t->m2r[t->m2r_count].mem_loc = mem;
+        t->m2r[t->m2r_count].reg_loc = reg;
+        t->m2r[t->m2r_count].instr = instr;
+        t->m2r_count++;
+    }
+}
+
+static int32_t
+tracker_get_reg_from_mem(const RegMemTracker *t, int32_t mem) {
+    for (int i = 0; i < t->m2r_count; i++) {
+        if (t->m2r[i].mem_loc == mem)
+            return t->m2r[i].reg_loc;
+    }
+    return LIR_REG_INVALID;
+}
+
+static LirInstruction *
+tracker_get_instr_from_mem(const RegMemTracker *t, int32_t mem) {
+    for (int i = 0; i < t->m2r_count; i++) {
+        if (t->m2r[i].mem_loc == mem)
+            return t->m2r[i].instr;
+    }
+    return NULL;
+}
+
+static int
+optimize_move_sequence_block(LirBasicBlock *block) {
+    int changed = 0;
+    RegMemTracker tracker;
+    tracker_clear(&tracker);
+
+    for (LirInstruction *instr = block->instr_head_;
+         instr != NULL;
+         instr = instr->next_) {
+
+        /* Skip yields — they need special handling */
+        if (lir_instruction_is_any_yield(instr->opcode_)) {
+            /* still process output/invalidation below */
+        } else {
+            int32_t out_reg = (instr->output_.type_ == JIT_LIR_OPTYPE_REG)
+                ? lir_operand_get_phy_register(&instr->output_).loc
+                : LIR_REG_INVALID;
+            /* for moves only we can generate A = Move A, which gets optimized out */
+            if (instr->opcode_ == JIT_LIR_OP_MOVE) {
+                out_reg = LIR_REG_INVALID;
+            }
+
+            for (size_t i = 0; i < instr->num_inputs_; i++) {
+                LirOperand *operand = instr->inputs_[i];
+                if (operand->type_ != JIT_LIR_OPTYPE_STACK) {
+                    continue;
+                }
+
+                int32_t stack_slot = lir_operand_get_stack_slot(operand).loc;
+                int32_t reg = tracker_get_reg_from_mem(&tracker, stack_slot);
+                if (reg == LIR_REG_INVALID || reg == out_reg) {
+                    continue;
+                }
+
+                uint8_t data_type = operand->data_type_;
+                LirPhyLocation reg_loc = {reg, 64};
+                lir_operand_set_phy_register(operand, reg_loc);
+                assert(jit_lir_bit_size(data_type) ==
+                       jit_lir_bit_size(operand->data_type_));
+                changed = 1;
+
+                /* If last use, delete the spill instruction */
+                if (operand->last_use_) {
+                    LirInstruction *spill =
+                        tracker_get_instr_from_mem(&tracker, stack_slot);
+                    assert(spill != NULL);
+                    lir_instruction_free(
+                        lir_block_remove_instr(block, spill));
+                }
+            }
+        }
+
+        /* Update tracking */
+        int is_move = (instr->opcode_ == JIT_LIR_OP_MOVE);
+        int is_push = (instr->opcode_ == JIT_LIR_OP_PUSH);
+        int is_pop = (instr->opcode_ == JIT_LIR_OP_POP);
+
+        if (is_move || is_push || is_pop) {
+            if (is_move) {
+                LirOperand *out = &instr->output_;
+                LirOperand *in = instr->inputs_[0];
+                if (out->type_ == JIT_LIR_OPTYPE_STACK &&
+                    in->type_ == JIT_LIR_OPTYPE_REG) {
+                    tracker_add(&tracker,
+                        lir_operand_get_phy_register(in).loc,
+                        lir_operand_get_stack_slot(out).loc,
+                        instr);
+                } else {
+                    if (out->type_ == JIT_LIR_OPTYPE_STACK ||
+                        out->type_ == JIT_LIR_OPTYPE_REG) {
+                        tracker_invalidate(&tracker,
+                            lir_operand_get_phy_reg_or_stack(out).loc);
+                    }
+                }
+            } else if (is_pop) {
+                LirOperand *opnd = &instr->output_;
+                if (opnd->type_ == JIT_LIR_OPTYPE_STACK ||
+                    opnd->type_ == JIT_LIR_OPTYPE_REG) {
+                    tracker_invalidate(&tracker,
+                        lir_operand_get_phy_reg_or_stack(opnd).loc);
+                }
+            }
+        } else {
+            /* Non-move/push/pop: clear all tracking */
+            tracker_clear(&tracker);
+        }
+    }
+    return changed;
+}
+
+static int
+postalloc_optimize_move_sequence(LirFunction *func, void *env) {
+    int changed = 0;
+    for (size_t bi = 0; bi < func->num_blocks_; bi++) {
+        if (optimize_move_sequence_block(func->blocks_[bi]))
+            changed = 1;
+    }
+    return changed ? LIR_REWRITE_CHANGED : LIR_REWRITE_UNCHANGED;
+}
+
+/* ================================================================
+ * Public init — registers ALL 12 callbacks
  * ================================================================ */
 
 void
@@ -664,6 +1240,7 @@ lir_postalloc_rewrite_init(LirRewrite *rw, LirFunction *func, void *env) {
     lir_rewrite_init(rw, func, env);
 
     /* Stage 0: instruction-level */
+    lir_rewrite_add_instr(rw, 0, postalloc_rewrite_call);
     lir_rewrite_add_instr(rw, 0, postalloc_remove_phi);
     lir_rewrite_add_instr(rw, 0, postalloc_rewrite_bit_extension);
     lir_rewrite_add_instr(rw, 0, postalloc_rewrite_load);
@@ -679,6 +1256,9 @@ lir_postalloc_rewrite_init(LirRewrite *rw, LirFunction *func, void *env) {
 #elif defined(CINDER_AARCH64)
     lir_rewrite_add_instr(rw, 0, postalloc_rewrite_subword_reg_moves);
 #endif
+
+    /* Stage 1: function-level optimizations */
+    lir_rewrite_add_func(rw, 1, postalloc_optimize_move_sequence);
 
     /* Stage 1: instruction-level optimizations */
     lir_rewrite_add_instr(rw, 1, postalloc_optimize_move);
