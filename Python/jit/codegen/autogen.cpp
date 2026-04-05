@@ -1076,13 +1076,7 @@ BEGIN_RULES(Instruction::kMoveRelaxed)
 END_RULES
 
 
-BEGIN_RULES(Instruction::kGuard)
-  GEN(ANY, CALL_C(TranslateGuard));
-END_RULES
-
-BEGIN_RULES(Instruction::kDeoptPatchpoint)
-  GEN(ANY, CALL_C(TranslateDeoptPatchpoint));
-END_RULES
+// Guard + DeoptPatchpoint handled by C dispatch — rules deleted.
 
 BEGIN_RULES(Instruction::kNegate)
   GEN("r", ASM(neg, OP(0)))
@@ -1298,28 +1292,7 @@ BEGIN_RULES(Instruction::kBranchNE)
   GEN("b", ASM(jne, LBL(0)))
 END_RULES
 
-#define DEF_COMPARE_OP_RULES(name, fpcomp) \
-BEGIN_RULES(Instruction::name) \
-  GEN("Rrr", CALL_C(TranslateCompare)) \
-  GEN("Rri", CALL_C(TranslateCompare)) \
-  GEN("Rrm", CALL_C(TranslateCompare)) \
-  if (fpcomp) { \
-    GEN("Rxx", CALL_C(TranslateCompare)) \
-  } \
-END_RULES
-
-DEF_COMPARE_OP_RULES(kEqual, true)
-DEF_COMPARE_OP_RULES(kNotEqual, true)
-DEF_COMPARE_OP_RULES(kGreaterThanUnsigned, true)
-DEF_COMPARE_OP_RULES(kGreaterThanEqualUnsigned, true)
-DEF_COMPARE_OP_RULES(kLessThanUnsigned, true)
-DEF_COMPARE_OP_RULES(kLessThanEqualUnsigned, true)
-DEF_COMPARE_OP_RULES(kGreaterThanSigned, false)
-DEF_COMPARE_OP_RULES(kGreaterThanEqualSigned, false)
-DEF_COMPARE_OP_RULES(kLessThanSigned, false)
-DEF_COMPARE_OP_RULES(kLessThanEqualSigned, false)
-
-#undef DEF_COMPARE_OP_RULES
+// Compare ops handled by C dispatch — rules deleted.
 
 BEGIN_RULES(Instruction::kInc)
   GEN("r", ASM(inc, OP(0)))
@@ -1371,10 +1344,7 @@ BEGIN_RULES(Instruction::kSelect)
               ASM(cmovnz, OP(0), OP(2)))
 END_RULES
 
-BEGIN_RULES(Instruction::kIntToBool)
-  GEN("Rr", CALL_C(translateIntToBool))
-  GEN("Ri", CALL_C(translateIntToBool))
-END_RULES
+// IntToBool handled by C dispatch — rules deleted.
 
 END_RULE_TABLE
 // clang-format on
