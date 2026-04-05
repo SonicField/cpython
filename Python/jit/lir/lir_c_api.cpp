@@ -20,6 +20,8 @@
 #include "cinderx/Jit/lir/function.h"
 #include "cinderx/Jit/lir/instruction.h"
 #include "cinderx/Jit/lir/operand.h"
+#include "cinderx/Jit/threaded_compile.h"
+#include "cinderx/Jit/code_runtime.h"
 
 using jit::codegen::CodeSection;
 using jit::lir::BasicBlock;
@@ -369,4 +371,33 @@ jit_environ_add_pending_debug_loc(void* env_ptr, PhxLabel label,
 extern "C" int
 jit_gen_data_footer_saved_ip_offset(void) {
   return (int)offsetof(jit::GenDataFooter, savedIP);
+}
+
+extern "C" void*
+jit_environ_get_code_rt(void* env_ptr) {
+  return static_cast<jit::codegen::Environ*>(env_ptr)->code_rt;
+}
+
+extern "C" void
+jit_environ_add_deopt_exit(void* env_ptr, size_t index, PhxLabel label,
+                            const LirInstruction* instr) {
+  auto* env = static_cast<jit::codegen::Environ*>(env_ptr);
+  asmjit::Label asmjit_label(label);
+  env->deopt_exits.emplace_back(
+      index, asmjit_label,
+      reinterpret_cast<const jit::lir::Instruction*>(instr));
+}
+
+extern "C" void
+jit_fill_live_value_locations(void* code_rt_ptr, size_t deopt_idx,
+                               const LirInstruction* instr_ptr,
+                               size_t begin_input, size_t end_input) {
+  auto* code_rt = static_cast<jit::CodeRuntime*>(code_rt_ptr);
+  auto* instr = reinterpret_cast<const jit::lir::Instruction*>(instr_ptr);
+  jit::codegen::ThreadedCompileSerialize guard;
+  auto& deopt_meta = code_rt->getDeoptMetadata(deopt_idx);
+  for (size_t i = begin_input; i < end_input; i++) {
+    auto loc = instr->inputs_[i]->getPhyRegOrStackSlot();
+    deopt_meta.live_values[i - begin_input].location = loc;
+  }
 }

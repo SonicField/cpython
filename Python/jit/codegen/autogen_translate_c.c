@@ -21,7 +21,10 @@
 #include "jit/phoenix_asm/arm64.h"
 #endif
 
+#include "Python.h"
+
 #include <assert.h>
+#include <limits.h>
 #include <stdint.h>
 
 /* Forward declarations for C functions defined elsewhere */
@@ -951,6 +954,177 @@ autogen_c_translateMove(void *env, const LirInstruction *instr) {
     default:
         assert(0 && "Unsupported output type for Move");
     }
+}
+
+/* ================================================================
+ * TranslateGuard — cross-architecture (x86_64 + ARM64)
+ * ================================================================ */
+
+void
+autogen_c_TranslateGuard(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+
+    PhxLabel deopt_label = phx_builder_new_label(pb);
+    uint64_t kind = lir_operand_get_constant(instr->inputs_[0]);
+
+#if defined(CINDER_X86_64)
+    PhxGp reg = PHX_RAX;
+    int is_double = 0;
+
+    if (kind != JIT_GUARD_ALWAYS_FAIL) {
+        if (instr->inputs_[2]->data_type_ == JIT_LIR_DT_DOUBLE) {
+            assert(kind == JIT_GUARD_NOT_ZERO);
+            PhxGp vecd_reg = operand_to_fp(instr->inputs_[2]);
+            phx_x86_ptest_rr(pb, vecd_reg, vecd_reg);
+            phx_x86_jz(pb, deopt_label);
+            is_double = 1;
+        } else {
+            reg = operand_to_gp(instr->inputs_[2]);
+        }
+    }
+
+    if (!is_double) {
+        switch (kind) {
+            case JIT_GUARD_NOT_ZERO:
+                phx_x86_test_rr(pb, reg, reg);
+                phx_x86_jz(pb, deopt_label);
+                break;
+            case JIT_GUARD_NOT_NEGATIVE:
+                phx_x86_test_rr(pb, reg, reg);
+                phx_x86_js(pb, deopt_label);
+                break;
+            case JIT_GUARD_ZERO:
+                phx_x86_test_rr(pb, reg, reg);
+                phx_x86_jnz(pb, deopt_label);
+                break;
+            case JIT_GUARD_ALWAYS_FAIL:
+                phx_x86_jmp_label(pb, deopt_label);
+                break;
+            case JIT_GUARD_IS: {
+                const LirOperand *target_opnd = instr->inputs_[3];
+                if (target_opnd->type_ == JIT_LIR_OPTYPE_IMM ||
+                    target_opnd->type_ == JIT_LIR_OPTYPE_MEM) {
+                    uint64_t target = lir_operand_get_constant_or_address(target_opnd);
+                    phx_x86_cmp_ri(pb, reg, target);
+                } else {
+                    phx_x86_cmp_rr(pb, reg, operand_to_gp(target_opnd));
+                }
+                phx_x86_jne(pb, deopt_label);
+                break;
+            }
+            case JIT_GUARD_HAS_TYPE: {
+                const LirOperand *target_opnd = instr->inputs_[3];
+                if (target_opnd->type_ == JIT_LIR_OPTYPE_IMM ||
+                    target_opnd->type_ == JIT_LIR_OPTYPE_MEM) {
+                    uint64_t target = lir_operand_get_constant_or_address(target_opnd);
+                    phx_x86_cmp_mi(pb,
+                        phx_qword_ptr(reg, offsetof(PyObject, ob_type)),
+                        target);
+                } else {
+                    phx_x86_cmp_mr(pb,
+                        phx_qword_ptr(reg, offsetof(PyObject, ob_type)),
+                        operand_to_gp(target_opnd));
+                }
+                phx_x86_jne(pb, deopt_label);
+                break;
+            }
+        }
+    }
+
+#elif defined(CINDER_AARCH64)
+    PhxGp reg = A64_SCRATCH_0;
+    int is_double = 0;
+    uint64_t mask = 0;
+    size_t sign_bit = 0;
+
+    if (kind != JIT_GUARD_ALWAYS_FAIL) {
+        if (instr->inputs_[2]->data_type_ == JIT_LIR_DT_DOUBLE) {
+            assert(kind == JIT_GUARD_NOT_ZERO);
+            PhxGp vecd_reg = operand_to_vecd(instr->inputs_[2]);
+            phx_a64_fmov(pb, reg, vecd_reg);
+            phx_a64_cbz(pb, reg, deopt_label);
+            is_double = 1;
+        } else {
+            uint8_t dt = instr->inputs_[2]->data_type_;
+            int rloc = lir_operand_get_phy_register(instr->inputs_[2]).loc;
+            if (dt == JIT_LIR_DT_8BIT) {
+                mask = 0xFF;
+                sign_bit = 7;
+                reg = PHX_REG_GP(rloc, 4);
+            } else if (dt == JIT_LIR_DT_16BIT) {
+                mask = 0xFFFF;
+                sign_bit = 15;
+                reg = PHX_REG_GP(rloc, 4);
+            } else {
+                reg = operand_to_gp(instr->inputs_[2]);
+                sign_bit = (size_t)reg.size * CHAR_BIT - 1;
+            }
+        }
+    }
+
+    if (!is_double) {
+        switch (kind) {
+            case JIT_GUARD_NOT_ZERO:
+                if (mask) {
+                    phx_a64_tst_ri(pb, reg, mask);
+                    phx_a64_b_eq(pb, deopt_label);
+                } else {
+                    phx_a64_cbz(pb, reg, deopt_label);
+                }
+                break;
+            case JIT_GUARD_NOT_NEGATIVE:
+                phx_a64_tbnz(pb, reg, sign_bit, deopt_label);
+                break;
+            case JIT_GUARD_ZERO:
+                if (mask) {
+                    phx_a64_tst_ri(pb, reg, mask);
+                    phx_a64_b_ne(pb, deopt_label);
+                } else {
+                    phx_a64_cbnz(pb, reg, deopt_label);
+                }
+                break;
+            case JIT_GUARD_ALWAYS_FAIL:
+                phx_a64_b(pb, deopt_label);
+                break;
+            case JIT_GUARD_IS: {
+                const LirOperand *target_opnd = instr->inputs_[3];
+                if (target_opnd->type_ == JIT_LIR_OPTYPE_IMM ||
+                    target_opnd->type_ == JIT_LIR_OPTYPE_MEM) {
+                    uint64_t target = lir_operand_get_constant_or_address(target_opnd);
+                    phx_a64_cmp_ri(pb, reg, target);
+                } else {
+                    phx_a64_cmp_rr(pb, reg, operand_to_gp(target_opnd));
+                }
+                phx_a64_b_ne(pb, deopt_label);
+                break;
+            }
+            case JIT_GUARD_HAS_TYPE: {
+                PhxMem ob_type_ptr = jit_arch_ptr_offset(
+                    reg, offsetof(PyObject, ob_type), 8);
+                phx_a64_ldr(pb, A64_SCRATCH_0, ob_type_ptr);
+
+                const LirOperand *target_opnd = instr->inputs_[3];
+                if (target_opnd->type_ == JIT_LIR_OPTYPE_IMM ||
+                    target_opnd->type_ == JIT_LIR_OPTYPE_MEM) {
+                    uint64_t target = lir_operand_get_constant_or_address(target_opnd);
+                    phx_a64_cmp_ri(pb, A64_SCRATCH_0, target);
+                } else {
+                    phx_a64_cmp_rr(pb, A64_SCRATCH_0,
+                                   operand_to_gp(target_opnd));
+                }
+                phx_a64_b_ne(pb, deopt_label);
+                break;
+            }
+        }
+    }
+#endif
+
+    /* Common: fill live value locations and record deopt exit */
+    uint64_t index = lir_operand_get_constant(instr->inputs_[1]);
+    void *code_rt = jit_environ_get_code_rt(env);
+    jit_fill_live_value_locations(code_rt, index, instr, 4,
+                                  instr->num_inputs_);
+    jit_environ_add_deopt_exit(env, index, deopt_label, instr);
 }
 
 /* ---- Call ---- */

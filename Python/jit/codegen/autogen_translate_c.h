@@ -14,6 +14,9 @@
 extern "C" {
 #endif
 
+/* Cross-architecture translate* functions */
+void autogen_c_TranslateGuard(void *env, const LirInstruction *instr);
+
 #if defined(CINDER_AARCH64)
 
 void autogen_c_translateUnreachable(void *env, const LirInstruction *instr);

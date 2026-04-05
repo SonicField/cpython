@@ -271,6 +271,14 @@ _Static_assert(sizeof(LirFunction) == 40, "LirFunction size mismatch with Functi
 #define JIT_LIR_OP_YIELDVALUE 85
 #define JIT_LIR_NUM_OPCODES 86
 
+/* InstrGuardKind constants (must match lir::InstrGuardKind enum) */
+#define JIT_GUARD_ALWAYS_FAIL 0
+#define JIT_GUARD_HAS_TYPE    1
+#define JIT_GUARD_IS          2
+#define JIT_GUARD_NOT_NEGATIVE 3
+#define JIT_GUARD_NOT_ZERO    4
+#define JIT_GUARD_ZERO        5
+
 /* FlagEffects constants (must match lir::FlagEffects enum) */
 #define JIT_LIR_FLAG_NONE       0
 #define JIT_LIR_FLAG_SET        1

@@ -240,6 +240,14 @@ void jit_environ_add_pending_debug_loc(void *env, PhxLabel label,
                                         const void *origin);
 int jit_gen_data_footer_saved_ip_offset(void);
 
+/* Environ fields for TranslateGuard */
+void *jit_environ_get_code_rt(void *env);
+void jit_environ_add_deopt_exit(void *env, size_t index, PhxLabel label,
+                                 const LirInstruction *instr);
+void jit_fill_live_value_locations(void *code_rt, size_t deopt_idx,
+                                    const LirInstruction *instr,
+                                    size_t begin_input, size_t end_input);
+
 /* LIR inliner (C wrapper around C++ LIRInliner::inlineCalls) */
 int lir_inliner_inline_calls(void *func);
 
