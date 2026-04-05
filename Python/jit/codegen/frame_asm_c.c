@@ -5,6 +5,7 @@
  * Each function takes (void *env) instead of this->.
  */
 
+#include "cinderx/Jit/codegen/arch/detection.h"
 #include "cinderx/Jit/lir/lir_c_api.h"
 #include "cinderx/Jit/lir/lir_types_c.h"
 #include "cinderx/Jit/codegen/phylocation.h"
@@ -96,8 +97,13 @@ frame_asm_c_load_tstate(void *env, PhxGp dst_reg) {
 
 #if defined(CINDER_X86_64)
     if (tstate_offset != -1) {
-        PhxMem tls = phx_fs_ptr(tstate_offset);
-        phx_x86_mov_rm(pb, dst_reg, tls);
+        /* TLS access via FS segment — needs phoenix-asm support for
+         * segment-override memory operands. For now, fall back to
+         * calling _PyThreadState_GetCurrent directly. */
+        phx_x86_mov_ri(pb, PHX_R11,
+            (int64_t)(uintptr_t)_PyThreadState_GetCurrent);
+        phx_x86_call_r(pb, PHX_R11);
+        phx_x86_mov_rr(pb, dst_reg, PHX_RAX);
     } else {
         phx_x86_mov_ri(pb, PHX_R11,
             (int64_t)(uintptr_t)_PyThreadState_GetCurrent);
