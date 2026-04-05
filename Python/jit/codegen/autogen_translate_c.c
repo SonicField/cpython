@@ -491,4 +491,111 @@ autogen_c_translateBitTest(void *env, const LirInstruction *instr) {
     phx_a64_tst_ri(pb, test_reg, mask);
 }
 
+/* ---- MovZX/MovSX/MovSXD ---- */
+
+static void
+translate_mov_ext_op(void *env, const LirInstruction *instr, int is_signed) {
+    PhxBuilder *pb = get_builder(env);
+
+    PhxGp output = operand_to_gp_output(&instr->output_);
+    const LirOperand *input = instr->inputs_[0];
+    size_t input_size = lir_operand_size_in_bits(input);
+
+    if (input->type_ == JIT_LIR_OPTYPE_REG) {
+        PhxGp input_reg = operand_to_gp(input);
+        switch (input_size) {
+            case 8:
+                if (is_signed) phx_a64_sxtb(pb, output, input_reg);
+                else           phx_a64_uxtb(pb, output, input_reg);
+                break;
+            case 16:
+                if (is_signed) phx_a64_sxth(pb, output, input_reg);
+                else           phx_a64_uxth(pb, output, input_reg);
+                break;
+            case 32:
+                phx_a64_mov_rr(pb, PHX_REG_GP(output.id, 4),
+                               PHX_REG_GP(input_reg.id, 4));
+                break;
+            default:
+                assert(0 && "Unsupported input size for mov ext");
+        }
+    } else if (input->type_ == JIT_LIR_OPTYPE_STACK) {
+        int32_t loc = lir_operand_get_stack_slot(input).loc;
+        int32_t access_sz = (int32_t)(input_size / 8);
+        PhxMem ptr = jit_arch_ptr_resolve(pb, A64_FP, loc, A64_SCRATCH_0,
+                                          access_sz);
+        switch (input_size) {
+            case 8:
+                if (is_signed) phx_a64_ldrsb(pb, output, ptr);
+                else           phx_a64_ldrb(pb, output, ptr);
+                break;
+            case 16:
+                if (is_signed) phx_a64_ldrsh(pb, output, ptr);
+                else           phx_a64_ldrh(pb, output, ptr);
+                break;
+            case 32: {
+                PhxGp w_out = PHX_REG_GP(output.id, 4);
+                PhxMem ptr32 = jit_arch_ptr_resolve(pb, A64_FP, loc,
+                                                    A64_SCRATCH_0, 4);
+                phx_a64_ldr(pb, w_out, ptr32);
+                break;
+            }
+            default:
+                assert(0 && "Unsupported input size for mov ext");
+        }
+    } else {
+        assert(0 && "Unsupported operand type for mov ext");
+    }
+}
+
+void autogen_c_translateMovZX(void *env, const LirInstruction *instr) {
+    translate_mov_ext_op(env, instr, 0);
+}
+void autogen_c_translateMovSX(void *env, const LirInstruction *instr) {
+    translate_mov_ext_op(env, instr, 1);
+}
+
+void
+autogen_c_translateMovSXD(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+
+    PhxGp output = operand_to_gp_output(&instr->output_);
+    const LirOperand *input = instr->inputs_[0];
+
+    if (input->type_ == JIT_LIR_OPTYPE_REG) {
+        phx_a64_sxtw(pb, output, operand_to_gp(input));
+    } else if (input->type_ == JIT_LIR_OPTYPE_STACK) {
+        int32_t loc = lir_operand_get_stack_slot(input).loc;
+        PhxMem ptr = jit_arch_ptr_resolve(pb, A64_FP, loc, A64_SCRATCH_0, 4);
+        phx_a64_ldrsw(pb, output, ptr);
+    } else {
+        assert(0 && "Unsupported operand type for MovSXD");
+    }
+}
+
+/* ---- Tst ---- */
+
+void
+autogen_c_translateTst(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+
+    const LirOperand *opnd0 = instr->inputs_[0];
+    const LirOperand *opnd1 = instr->inputs_[1];
+    uint8_t dt = opnd0->data_type_;
+
+    int shift = 0;
+    if (dt == JIT_LIR_DT_8BIT) shift = 24;
+    else if (dt == JIT_LIR_DT_16BIT) shift = 16;
+
+    if (shift) {
+        PhxGp w0 = PHX_REG_GP(lir_operand_get_phy_register(opnd0).loc, 4);
+        PhxGp w1 = PHX_REG_GP(lir_operand_get_phy_register(opnd1).loc, 4);
+        phx_a64_lsl(pb, A64_SCRATCH_0_W, w0, shift);
+        phx_a64_lsl(pb, A64_SCRATCH_1_W, w1, shift);
+        phx_a64_tst_rr(pb, A64_SCRATCH_0_W, A64_SCRATCH_1_W);
+    } else {
+        phx_a64_tst_rr(pb, operand_to_gp(opnd0), operand_to_gp(opnd1));
+    }
+}
+
 #endif /* CINDER_AARCH64 */

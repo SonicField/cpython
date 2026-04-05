@@ -32,6 +32,10 @@ void autogen_c_translatePop(void *env, const LirInstruction *instr);
 void autogen_c_translateExchange(void *env, const LirInstruction *instr);
 void autogen_c_translateCmp(void *env, const LirInstruction *instr);
 void autogen_c_translateBitTest(void *env, const LirInstruction *instr);
+void autogen_c_translateMovZX(void *env, const LirInstruction *instr);
+void autogen_c_translateMovSX(void *env, const LirInstruction *instr);
+void autogen_c_translateMovSXD(void *env, const LirInstruction *instr);
+void autogen_c_translateTst(void *env, const LirInstruction *instr);
 
 #endif /* CINDER_AARCH64 */
 
