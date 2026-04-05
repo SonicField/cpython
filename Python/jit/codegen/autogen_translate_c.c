@@ -602,6 +602,128 @@ autogen_c_translateTst(void *env, const LirInstruction *instr) {
     }
 }
 
+/* ---- FP arithmetic (FADD, FSUB, FMUL, FDIV) ---- */
+
+void
+autogen_c_translateFadd(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *output =
+        (instr->output_.type_ != JIT_LIR_OPTYPE_NONE)
+        ? &instr->output_ : instr->inputs_[0];
+    PhxGp out = operand_to_vecd(output);
+    PhxGp r0 = operand_to_vecd(instr->inputs_[0]);
+    PhxGp r1 = operand_to_vecd(instr->inputs_[1]);
+    phx_a64_fadd(pb, out, r0, r1);
+}
+
+void
+autogen_c_translateFsub(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *output =
+        (instr->output_.type_ != JIT_LIR_OPTYPE_NONE)
+        ? &instr->output_ : instr->inputs_[0];
+    PhxGp out = operand_to_vecd(output);
+    PhxGp r0 = operand_to_vecd(instr->inputs_[0]);
+    PhxGp r1 = operand_to_vecd(instr->inputs_[1]);
+    phx_a64_fsub(pb, out, r0, r1);
+}
+
+void
+autogen_c_translateFmul(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *output =
+        (instr->output_.type_ != JIT_LIR_OPTYPE_NONE)
+        ? &instr->output_ : instr->inputs_[0];
+    PhxGp out = operand_to_vecd(output);
+    PhxGp r0 = operand_to_vecd(instr->inputs_[0]);
+    PhxGp r1 = operand_to_vecd(instr->inputs_[1]);
+    phx_a64_fmul(pb, out, r0, r1);
+}
+
+void
+autogen_c_translateFdiv(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *output =
+        (instr->output_.type_ != JIT_LIR_OPTYPE_NONE)
+        ? &instr->output_ : instr->inputs_[0];
+    PhxGp out = operand_to_vecd(output);
+    PhxGp r0 = operand_to_vecd(instr->inputs_[0]);
+    PhxGp r1 = operand_to_vecd(instr->inputs_[1]);
+    phx_a64_fdiv(pb, out, r0, r1);
+}
+
+/* ---- Negate/Invert ---- */
+
+void
+autogen_c_translateNegate(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *output =
+        (instr->output_.type_ != JIT_LIR_OPTYPE_NONE)
+        ? &instr->output_ : instr->inputs_[0];
+    PhxGp out = operand_to_gp(output);
+    PhxGp r0 = operand_to_gp(instr->inputs_[0]);
+    /* ARM64 neg is SUB from zero register */
+    PhxGp xzr = PHX_REG_GP(31, out.size);
+    phx_a64_sub_rrr(pb, out, xzr, r0);
+}
+
+void
+autogen_c_translateInvert(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *output =
+        (instr->output_.type_ != JIT_LIR_OPTYPE_NONE)
+        ? &instr->output_ : instr->inputs_[0];
+    PhxGp out = operand_to_gp(output);
+    PhxGp r0 = operand_to_gp(instr->inputs_[0]);
+    phx_a64_mvn(pb, out, r0);
+}
+
+/* ---- Branch opcodes ---- */
+
+static int
+opcode_to_arm64_cond(int opcode) {
+    switch (opcode) {
+        case JIT_LIR_OP_BRANCHNZ: return PHX_COND_NE;
+        case JIT_LIR_OP_BRANCHZ:  return PHX_COND_EQ;
+        case JIT_LIR_OP_BRANCHA:  return PHX_COND_HI;
+        case JIT_LIR_OP_BRANCHB:  return PHX_COND_LO;
+        case JIT_LIR_OP_BRANCHAE: return PHX_COND_HS;
+        case JIT_LIR_OP_BRANCHBE: return PHX_COND_LS;
+        case JIT_LIR_OP_BRANCHG:  return PHX_COND_GT;
+        case JIT_LIR_OP_BRANCHL:  return PHX_COND_LT;
+        case JIT_LIR_OP_BRANCHGE: return PHX_COND_GE;
+        case JIT_LIR_OP_BRANCHLE: return PHX_COND_LE;
+        case JIT_LIR_OP_BRANCHE:  return PHX_COND_EQ;
+        case JIT_LIR_OP_BRANCHNE: return PHX_COND_NE;
+        case JIT_LIR_OP_BRANCHC:  return PHX_COND_CS;
+        case JIT_LIR_OP_BRANCHNC: return PHX_COND_CC;
+        case JIT_LIR_OP_BRANCHO:  return PHX_COND_VS;
+        case JIT_LIR_OP_BRANCHNO: return PHX_COND_VC;
+        case JIT_LIR_OP_BRANCHS:  return PHX_COND_MI;
+        case JIT_LIR_OP_BRANCHNS: return PHX_COND_PL;
+        default: return -1;
+    }
+}
+
+void
+autogen_c_translateBranch(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    LirBasicBlock *target = (LirBasicBlock *)lir_operand_get_basic_block(
+        instr->inputs_[0]);
+    PhxLabel label = jit_environ_get_block_label(env, target);
+    phx_a64_b(pb, label);
+}
+
+void
+autogen_c_translateCondBranch(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    int cond = opcode_to_arm64_cond(instr->opcode_);
+    LirBasicBlock *target = (LirBasicBlock *)lir_operand_get_basic_block(
+        instr->inputs_[0]);
+    PhxLabel label = jit_environ_get_block_label(env, target);
+    phx_a64_b_cond(pb, cond, label);
+}
+
 /* ---- IntToBool ---- */
 
 void
@@ -1388,6 +1510,58 @@ autogen_c_dispatch(void *env, const LirInstruction *instr) {
     case JIT_LIR_OP_DIVUN:
         autogen_c_translateDivUn(env, instr);
         return 1;
+    case JIT_LIR_OP_FADD:
+        autogen_c_translateFadd(env, instr);
+        return 1;
+    case JIT_LIR_OP_FSUB:
+        autogen_c_translateFsub(env, instr);
+        return 1;
+    case JIT_LIR_OP_FMUL:
+        autogen_c_translateFmul(env, instr);
+        return 1;
+    case JIT_LIR_OP_FDIV:
+        autogen_c_translateFdiv(env, instr);
+        return 1;
+    case JIT_LIR_OP_NEGATE:
+        autogen_c_translateNegate(env, instr);
+        return 1;
+    case JIT_LIR_OP_INVERT:
+        autogen_c_translateInvert(env, instr);
+        return 1;
+    case JIT_LIR_OP_BRANCH:
+        autogen_c_translateBranch(env, instr);
+        return 1;
+    case JIT_LIR_OP_BRANCHNZ:
+    case JIT_LIR_OP_BRANCHZ:
+    case JIT_LIR_OP_BRANCHA:
+    case JIT_LIR_OP_BRANCHB:
+    case JIT_LIR_OP_BRANCHAE:
+    case JIT_LIR_OP_BRANCHBE:
+    case JIT_LIR_OP_BRANCHG:
+    case JIT_LIR_OP_BRANCHL:
+    case JIT_LIR_OP_BRANCHGE:
+    case JIT_LIR_OP_BRANCHLE:
+    case JIT_LIR_OP_BRANCHC:
+    case JIT_LIR_OP_BRANCHNC:
+    case JIT_LIR_OP_BRANCHO:
+    case JIT_LIR_OP_BRANCHNO:
+    case JIT_LIR_OP_BRANCHS:
+    case JIT_LIR_OP_BRANCHNS:
+    case JIT_LIR_OP_BRANCHE:
+    case JIT_LIR_OP_BRANCHNE:
+        autogen_c_translateCondBranch(env, instr);
+        return 1;
+    case JIT_LIR_OP_LSHIFT:
+    case JIT_LIR_OP_RSHIFT:
+    case JIT_LIR_OP_RSHIFTUN:
+    case JIT_LIR_OP_NOP:
+    case JIT_LIR_OP_LOADARG:
+    case JIT_LIR_OP_LOADSECONDCALLRESULT:
+    case JIT_LIR_OP_RETURN:
+        /* These opcodes should not appear in autogen — they're handled
+         * earlier in the pipeline or are no-ops. Return 0 to let C++
+         * trie handle them (which will also fail — they have no rules). */
+        return 0;
     case JIT_LIR_OP_INC:
         autogen_c_translateInc(env, instr);
         return 1;

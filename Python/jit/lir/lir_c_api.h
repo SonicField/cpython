@@ -260,6 +260,9 @@ void jit_environ_add_pending_deopt_patcher(void *env, void *patcher,
 int jit_environ_shadow_frames_and_spill_size(void *env);
 void *jit_environ_get_gen_resume_entry_label(void *env);
 
+/* Block→Label mapping for branch targets */
+PhxLabel jit_environ_get_block_label(void *env, const LirBasicBlock *block);
+
 /* LIR inliner (C wrapper around C++ LIRInliner::inlineCalls) */
 int lir_inliner_inline_calls(void *func);
 

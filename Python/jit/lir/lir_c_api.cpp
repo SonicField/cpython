@@ -425,6 +425,15 @@ jit_environ_add_pending_deopt_patcher(void* env_ptr, void* patcher_ptr,
       patcher, asmjit::Label(patchpoint), asmjit::Label(deopt_exit));
 }
 
+extern "C" PhxLabel
+jit_environ_get_block_label(void* env_ptr, const LirBasicBlock* block) {
+  auto* env = static_cast<jit::codegen::Environ*>(env_ptr);
+  auto* bb = reinterpret_cast<const jit::lir::BasicBlock*>(block);
+  auto it = env->block_label_map.find(const_cast<jit::lir::BasicBlock*>(bb));
+  JIT_CHECK(it != env->block_label_map.end(), "Block label not found");
+  return it->second;
+}
+
 extern "C" int
 jit_environ_shadow_frames_and_spill_size(void* env_ptr) {
   return static_cast<jit::codegen::Environ*>(env_ptr)->shadow_frames_and_spill_size;
