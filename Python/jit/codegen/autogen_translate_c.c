@@ -10,6 +10,7 @@
  */
 
 #include "cinderx/Jit/lir/lir_c_api.h"
+#include "cinderx/Jit/lir/lir_impl_internal.h"
 #include "cinderx/Jit/lir/lir_types_c.h"
 #include "cinderx/Jit/codegen/phylocation.h"
 
