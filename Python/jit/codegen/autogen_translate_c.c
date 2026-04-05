@@ -957,6 +957,39 @@ autogen_c_translateMove(void *env, const LirInstruction *instr) {
 }
 
 /* ================================================================
+ * TranslateDeoptPatchpoint — cross-architecture
+ * ================================================================ */
+
+void
+autogen_c_TranslateDeoptPatchpoint(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+
+    void *patcher = lir_operand_get_mem_address(instr->inputs_[0]);
+
+#if defined(CINDER_X86_64) && defined(Py_GIL_DISABLED)
+    phx_builder_align(pb, 8);
+#endif
+
+    PhxLabel patchpoint_label = phx_builder_new_label(pb);
+    phx_builder_bind(pb, patchpoint_label);
+
+    const uint8_t *bytes_data;
+    size_t bytes_size;
+    jit_jump_patcher_stored_bytes(patcher, &bytes_data, &bytes_size);
+    phx_builder_embed(pb, bytes_data, bytes_size);
+
+    uint64_t index = lir_operand_get_constant(instr->inputs_[1]);
+    void *code_rt = jit_environ_get_code_rt(env);
+    jit_fill_live_value_locations(code_rt, index, instr, 2,
+                                  instr->num_inputs_);
+
+    PhxLabel deopt_label = phx_builder_new_label(pb);
+    jit_environ_add_deopt_exit(env, index, deopt_label, instr);
+    jit_environ_add_pending_deopt_patcher(env, patcher,
+                                          patchpoint_label, deopt_label);
+}
+
+/* ================================================================
  * TranslateGuard — cross-architecture (x86_64 + ARM64)
  * ================================================================ */
 

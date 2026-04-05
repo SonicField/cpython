@@ -249,6 +249,13 @@ void jit_fill_live_value_locations(void *code_rt, size_t deopt_idx,
                                     const LirInstruction *instr,
                                     size_t begin_input, size_t end_input);
 
+/* Environ fields for TranslateDeoptPatchpoint */
+void jit_jump_patcher_stored_bytes(void *patcher,
+                                    const uint8_t **data, size_t *size);
+void jit_environ_add_pending_deopt_patcher(void *env, void *patcher,
+                                            PhxLabel patchpoint,
+                                            PhxLabel deopt_exit);
+
 /* LIR inliner (C wrapper around C++ LIRInliner::inlineCalls) */
 int lir_inliner_inline_calls(void *func);
 

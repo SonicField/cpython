@@ -16,6 +16,7 @@ extern "C" {
 
 /* Cross-architecture translate* functions */
 void autogen_c_TranslateGuard(void *env, const LirInstruction *instr);
+void autogen_c_TranslateDeoptPatchpoint(void *env, const LirInstruction *instr);
 
 #if defined(CINDER_AARCH64)
 

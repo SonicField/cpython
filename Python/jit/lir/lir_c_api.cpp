@@ -22,6 +22,7 @@
 #include "cinderx/Jit/lir/operand.h"
 #include "cinderx/Jit/threaded_compile.h"
 #include "cinderx/Jit/code_runtime.h"
+#include "cinderx/Jit/code_patcher.h"
 
 using jit::codegen::CodeSection;
 using jit::lir::BasicBlock;
@@ -400,4 +401,22 @@ jit_fill_live_value_locations(void* code_rt_ptr, size_t deopt_idx,
     auto loc = instr->inputs_[i]->getPhyRegOrStackSlot();
     deopt_meta.live_values[i - begin_input].location = loc;
   }
+}
+
+extern "C" void
+jit_jump_patcher_stored_bytes(void* patcher_ptr,
+                               const uint8_t** data, size_t* size) {
+  auto* patcher = static_cast<jit::JumpPatcher*>(patcher_ptr);
+  auto bytes = patcher->storedBytes();
+  *data = bytes.data();
+  *size = bytes.size();
+}
+
+extern "C" void
+jit_environ_add_pending_deopt_patcher(void* env_ptr, void* patcher_ptr,
+                                       PhxLabel patchpoint, PhxLabel deopt_exit) {
+  auto* env = static_cast<jit::codegen::Environ*>(env_ptr);
+  auto* patcher = static_cast<jit::JumpPatcher*>(patcher_ptr);
+  env->pending_deopt_patchers.emplace_back(
+      patcher, asmjit::Label(patchpoint), asmjit::Label(deopt_exit));
 }
