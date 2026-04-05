@@ -19,6 +19,16 @@ void autogen_c_TranslateGuard(void *env, const LirInstruction *instr);
 void autogen_c_TranslateCompare(void *env, const LirInstruction *instr);
 void autogen_c_TranslateDeoptPatchpoint(void *env, const LirInstruction *instr);
 
+/*
+ * C dispatch table — replaces C++ trie/DSL for converted opcodes.
+ * Returns 1 if the instruction was handled by C code.
+ * Returns 0 if it should fall through to C++ AutoTranslator (Yield*, etc).
+ * Call from translateInstr() before the C++ pattern lookup.
+ */
+#if defined(CINDER_AARCH64)
+int autogen_c_dispatch(void *env, const LirInstruction *instr);
+#endif
+
 #if defined(CINDER_AARCH64)
 
 void autogen_c_translateUnreachable(void *env, const LirInstruction *instr);

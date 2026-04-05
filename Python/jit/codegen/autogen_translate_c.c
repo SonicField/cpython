@@ -1319,4 +1319,114 @@ autogen_c_translateCall(void *env, const LirInstruction *instr) {
     }
 }
 
+/* ================================================================
+ * C dispatch table — replaces C++ trie/DSL for converted opcodes.
+ * Returns 1 if handled, 0 to fall through to C++ AutoTranslator.
+ * ================================================================ */
+
+int
+autogen_c_dispatch(void *env, const LirInstruction *instr) {
+    switch (instr->opcode_) {
+    case JIT_LIR_OP_BIND:
+        return 1; /* no-op */
+    case JIT_LIR_OP_GUARD:
+        autogen_c_TranslateGuard(env, instr);
+        return 1;
+    case JIT_LIR_OP_DEOPTPATCHPOINT:
+        autogen_c_TranslateDeoptPatchpoint(env, instr);
+        return 1;
+    case JIT_LIR_OP_EQUAL:
+    case JIT_LIR_OP_NOTEQUAL:
+    case JIT_LIR_OP_GREATERTHANSIGNED:
+    case JIT_LIR_OP_LESSTHANSIGNED:
+    case JIT_LIR_OP_GREATERTHANEQUALSIGNED:
+    case JIT_LIR_OP_LESSTHANEQUALSIGNED:
+    case JIT_LIR_OP_GREATERTHANUNSIGNED:
+    case JIT_LIR_OP_LESSTHANUNSIGNED:
+    case JIT_LIR_OP_GREATERTHANEQUALUNSIGNED:
+    case JIT_LIR_OP_LESSTHANEQUALUNSIGNED:
+        autogen_c_TranslateCompare(env, instr);
+        return 1;
+    case JIT_LIR_OP_UNREACHABLE:
+        autogen_c_translateUnreachable(env, instr);
+        return 1;
+    case JIT_LIR_OP_ADD:
+        autogen_c_translateAdd(env, instr);
+        return 1;
+    case JIT_LIR_OP_SUB:
+        autogen_c_translateSub(env, instr);
+        return 1;
+    case JIT_LIR_OP_AND:
+        autogen_c_translateAnd(env, instr);
+        return 1;
+    case JIT_LIR_OP_OR:
+        autogen_c_translateOr(env, instr);
+        return 1;
+    case JIT_LIR_OP_XOR:
+        autogen_c_translateXor(env, instr);
+        return 1;
+    case JIT_LIR_OP_MUL:
+        autogen_c_translateMul(env, instr);
+        return 1;
+    case JIT_LIR_OP_DIV:
+        autogen_c_translateDiv(env, instr);
+        return 1;
+    case JIT_LIR_OP_DIVUN:
+        autogen_c_translateDivUn(env, instr);
+        return 1;
+    case JIT_LIR_OP_INC:
+        autogen_c_translateInc(env, instr);
+        return 1;
+    case JIT_LIR_OP_DEC:
+        autogen_c_translateDec(env, instr);
+        return 1;
+    case JIT_LIR_OP_PUSH:
+        autogen_c_translatePush(env, instr);
+        return 1;
+    case JIT_LIR_OP_POP:
+        autogen_c_translatePop(env, instr);
+        return 1;
+    case JIT_LIR_OP_EXCHANGE:
+        autogen_c_translateExchange(env, instr);
+        return 1;
+    case JIT_LIR_OP_CMP:
+        autogen_c_translateCmp(env, instr);
+        return 1;
+    case JIT_LIR_OP_BITTEST:
+        autogen_c_translateBitTest(env, instr);
+        return 1;
+    case JIT_LIR_OP_TEST:
+    case JIT_LIR_OP_TEST32:
+        autogen_c_translateTst(env, instr);
+        return 1;
+    case JIT_LIR_OP_MOVZX:
+        autogen_c_translateMovZX(env, instr);
+        return 1;
+    case JIT_LIR_OP_MOVSX:
+        autogen_c_translateMovSX(env, instr);
+        return 1;
+    case JIT_LIR_OP_MOVSXD:
+        autogen_c_translateMovSXD(env, instr);
+        return 1;
+    case JIT_LIR_OP_INTTOBOOL:
+        autogen_c_translateIntToBool(env, instr);
+        return 1;
+    case JIT_LIR_OP_SELECT:
+        autogen_c_translateSelect(env, instr);
+        return 1;
+    case JIT_LIR_OP_LEA:
+        autogen_c_translateLea(env, instr);
+        return 1;
+    case JIT_LIR_OP_CALL:
+        autogen_c_translateCall(env, instr);
+        return 1;
+    case JIT_LIR_OP_MOVE:
+    case JIT_LIR_OP_MOVERELAXED:
+        autogen_c_translateMove(env, instr);
+        return 1;
+    default:
+        return 0; /* Yield*, Nop, etc. — fall through to C++ */
+    }
+}
+
 #endif /* CINDER_AARCH64 */
