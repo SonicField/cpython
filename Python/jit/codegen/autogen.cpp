@@ -1359,6 +1359,10 @@ using AT = AutoTranslator;
 
 // Dead ARM64 translate* functions deleted — replaced by autogen_translate_c.c
 // Dead ARM64 rule table entries deleted — C dispatch handles all non-yield opcodes
+
+// clang-format off
+BEGIN_RULE_TABLE
+
 BEGIN_RULES(Instruction::kYieldInitial)
   GEN(ANY, CALL_C(translateYieldInitial))
 END_RULES
