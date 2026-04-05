@@ -956,6 +956,12 @@ autogen_c_translateMove(void *env, const LirInstruction *instr) {
     }
 }
 
+#endif /* CINDER_AARCH64 — ARM64-only translate* functions end here */
+
+/* ================================================================
+ * Cross-architecture translate* functions (compiled on both arches)
+ * ================================================================ */
+
 /* ================================================================
  * TranslateCompare — cross-architecture
  * ================================================================ */
@@ -1241,7 +1247,8 @@ autogen_c_TranslateGuard(void *env, const LirInstruction *instr) {
     jit_environ_add_deopt_exit(env, index, deopt_label, instr);
 }
 
-/* ---- Call ---- */
+#if defined(CINDER_AARCH64)
+/* ---- Call (ARM64 only) ---- */
 
 #define A64_SCRATCH_BR  PHX_REG_GP(16, 8)  /* X16 — branch scratch */
 #define A64_X0          PHX_REG_GP(0, 8)
