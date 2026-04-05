@@ -90,7 +90,7 @@ lir_instruction_origin(const LirInstruction *inst) {
 static void
 ensure_input_capacity(LirInstruction *inst) {
     if (inst->num_inputs_ >= inst->inputs_capacity_) {
-        size_t new_cap = inst->inputs_capacity_ * 2;
+        size_t new_cap = inst->inputs_capacity_ == 0 ? 4 : inst->inputs_capacity_ * 2;
         inst->inputs_ = (LirOperand **)PyMem_RawRealloc(
             inst->inputs_, new_cap * sizeof(LirOperand *));
         inst->inputs_capacity_ = new_cap;
