@@ -336,7 +336,7 @@ get_second_call_result(uint8_t data_type, LirOperand *src,
             LirPhyLocation ret1 = jit_environ_get_return_reg(1);
             assert(!(next_instr->opcode_ == JIT_LIR_OP_MOVE &&
                      next_instr->num_inputs_ == 1 &&
-                     next_lir_operand_type(instr->inputs_[0]) == JIT_LIR_OPTYPE_REG &&
+                     lir_operand_type(next_instr->inputs_[0]) == JIT_LIR_OPTYPE_REG &&
                      lir_operand_get_phy_register(next_instr->inputs_[0]).loc == ret1.loc));
         }
     }
