@@ -1683,7 +1683,15 @@ def _worker_jit(args):
         if cinderjit_mod:
             enable_specialised_opcodes(cinderjit_mod)
 
-    n_iter = 100_000
+    # Per-benchmark iteration counts.  Heavy benchmarks get fewer
+    # iterations so the full suite finishes in ≤5 minutes while
+    # preserving speedup ratios (validated against old n_iter=100K).
+    _PER_BENCH_ITERS = {
+        "fibonacci":      10_000,   # was 100K → ~1.5s vanilla (was ~15s)
+        "spectral_norm":  20_000,   # was 100K → ~1.2s vanilla (was ~5.8s)
+    }
+    _DEFAULT_ITERS = 100_000
+
     n_warmup = 3
     n_measure = 5
 
@@ -1702,6 +1710,8 @@ def _worker_jit(args):
     }
 
     for name, func in benchmarks:
+        n_iter = _PER_BENCH_ITERS.get(name, _DEFAULT_ITERS)
+
         # Warmup
         for _ in range(n_warmup):
             func(n_iter)
@@ -1846,7 +1856,7 @@ def cmd_jit(args):
                 else:
                     print("FAILED")
 
-                time.sleep(1)  # Let CPU settle
+                time.sleep(0.25)  # Let CPU settle
 
         all_on[bench_name] = on_times
         all_off[bench_name] = off_times
