@@ -21,6 +21,17 @@ void autogen_c_translateAdd(void *env, const LirInstruction *instr);
 void autogen_c_translateSub(void *env, const LirInstruction *instr);
 void autogen_c_translateInc(void *env, const LirInstruction *instr);
 void autogen_c_translateDec(void *env, const LirInstruction *instr);
+void autogen_c_translateAnd(void *env, const LirInstruction *instr);
+void autogen_c_translateOr(void *env, const LirInstruction *instr);
+void autogen_c_translateXor(void *env, const LirInstruction *instr);
+void autogen_c_translateMul(void *env, const LirInstruction *instr);
+void autogen_c_translateDiv(void *env, const LirInstruction *instr);
+void autogen_c_translateDivUn(void *env, const LirInstruction *instr);
+void autogen_c_translatePush(void *env, const LirInstruction *instr);
+void autogen_c_translatePop(void *env, const LirInstruction *instr);
+void autogen_c_translateExchange(void *env, const LirInstruction *instr);
+void autogen_c_translateCmp(void *env, const LirInstruction *instr);
+void autogen_c_translateBitTest(void *env, const LirInstruction *instr);
 
 #endif /* CINDER_AARCH64 */
 
