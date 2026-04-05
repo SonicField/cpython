@@ -233,6 +233,13 @@ LirPhyLocation jit_arch_double_return_loc(void);
 /* Environ assembler builder accessor (returns PhxBuilder*) */
 void *jit_environ_get_phx_builder(void *env);
 
+/* Environ fields for translateCall (ARM64) */
+int jit_environ_is_generator(void *env);
+int jit_environ_saved_ip_fp_offset(void *env);
+void jit_environ_add_pending_debug_loc(void *env, PhxLabel label,
+                                        const void *origin);
+int jit_gen_data_footer_saved_ip_offset(void);
+
 /* LIR inliner (C wrapper around C++ LIRInliner::inlineCalls) */
 int lir_inliner_inline_calls(void *func);
 

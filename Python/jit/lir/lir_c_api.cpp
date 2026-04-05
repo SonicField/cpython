@@ -15,6 +15,7 @@
 
 #include "cinderx/Jit/codegen/code_section.h"
 #include "cinderx/Jit/codegen/environ.h"
+#include "cinderx/Jit/gen_data_footer.h"
 #include "cinderx/Jit/lir/block.h"
 #include "cinderx/Jit/lir/function.h"
 #include "cinderx/Jit/lir/instruction.h"
@@ -333,4 +334,39 @@ extern "C" void*
 jit_environ_get_phx_builder(void* env_ptr) {
   auto* env = static_cast<jit::codegen::Environ*>(env_ptr);
   return env->as->impl();
+}
+
+extern "C" int
+jit_environ_is_generator(void* env_ptr) {
+#if defined(CINDER_AARCH64)
+  return static_cast<jit::codegen::Environ*>(env_ptr)->is_generator ? 1 : 0;
+#else
+  (void)env_ptr;
+  return 0;
+#endif
+}
+
+extern "C" int
+jit_environ_saved_ip_fp_offset(void* env_ptr) {
+#if defined(CINDER_AARCH64)
+  return static_cast<jit::codegen::Environ*>(env_ptr)->saved_ip_fp_offset;
+#else
+  (void)env_ptr;
+  return 0;
+#endif
+}
+
+extern "C" void
+jit_environ_add_pending_debug_loc(void* env_ptr, PhxLabel label,
+                                   const void* origin) {
+  auto* env = static_cast<jit::codegen::Environ*>(env_ptr);
+  asmjit::Label asmjit_label(label);
+  env->pending_debug_locs.emplace_back(
+      asmjit_label,
+      static_cast<const jit::hir::Instr*>(origin));
+}
+
+extern "C" int
+jit_gen_data_footer_saved_ip_offset(void) {
+  return (int)offsetof(jit::GenDataFooter, savedIP);
 }

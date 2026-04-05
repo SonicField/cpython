@@ -953,4 +953,82 @@ autogen_c_translateMove(void *env, const LirInstruction *instr) {
     }
 }
 
+/* ---- Call ---- */
+
+#define A64_SCRATCH_BR  PHX_REG_GP(16, 8)  /* X16 — branch scratch */
+#define A64_X0          PHX_REG_GP(0, 8)
+#define A64_W0          PHX_REG_GP(0, 4)
+#define A64_D0          PHX_REG_FP(0, 8)
+#define A64_X29         PHX_REG_GP(29, 8)
+
+void
+autogen_c_translateCall(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+
+    const LirOperand *output = &instr->output_;
+    const LirOperand *input = instr->inputs_[0];
+
+    PhxLabel after_call = phx_builder_new_label(pb);
+
+    int is_gen = jit_environ_is_generator(env);
+    int saved_ip_off = jit_environ_saved_ip_fp_offset(env);
+    int gen_footer_off = jit_gen_data_footer_saved_ip_offset();
+
+    /* Helper: emit saved-IP store + BLR pattern */
+    #define EMIT_SAVE_IP_AND_BLR()                                          \
+        phx_a64_adr(pb, A64_SCRATCH_0, after_call);                         \
+        if (is_gen) {                                                       \
+            phx_a64_str(pb, A64_SCRATCH_0,                                  \
+                phx_ptr(A64_X29, gen_footer_off));                          \
+        } else {                                                            \
+            phx_a64_str(pb, A64_SCRATCH_0,                                  \
+                jit_arch_ptr_resolve(pb, A64_FP, saved_ip_off,              \
+                                    A64_SCRATCH_1, 8));                     \
+        }                                                                   \
+        phx_a64_blr(pb, A64_SCRATCH_BR)
+
+    if (input->type_ == JIT_LIR_OPTYPE_REG) {
+        PhxGp target = operand_to_gp(input);
+        if (target.id != A64_SCRATCH_BR.id) {
+            phx_a64_mov_rr(pb, A64_SCRATCH_BR, target);
+        }
+        EMIT_SAVE_IP_AND_BLR();
+    } else if (input->type_ == JIT_LIR_OPTYPE_IMM) {
+        phx_a64_mov_ri(pb, A64_SCRATCH_BR, lir_operand_get_constant(input));
+        EMIT_SAVE_IP_AND_BLR();
+    } else if (input->type_ == JIT_LIR_OPTYPE_STACK) {
+        int32_t loc = lir_operand_get_stack_slot(input).loc;
+        phx_a64_ldr(pb, A64_SCRATCH_BR,
+            jit_arch_ptr_resolve(pb, A64_FP, loc, A64_SCRATCH_0, 8));
+        EMIT_SAVE_IP_AND_BLR();
+    } else {
+        assert(0 && "Unsupported operand type for Call");
+    }
+
+    #undef EMIT_SAVE_IP_AND_BLR
+
+    phx_builder_bind(pb, after_call);
+
+    /* Debug location */
+    if (instr->origin_) {
+        PhxLabel label = phx_builder_new_label(pb);
+        phx_builder_bind(pb, label);
+        jit_environ_add_pending_debug_loc(env, label, instr->origin_);
+    }
+
+    /* Move return value to output register */
+    if (output->type_ != JIT_LIR_OPTYPE_NONE) {
+        if (lir_operand_is_fp(output)) {
+            phx_a64_fmov(pb, operand_to_vecd(output), A64_D0);
+        } else {
+            PhxGp out_reg = operand_to_gp(output);
+            if (out_reg.size <= 4) {
+                phx_a64_mov_rr(pb, out_reg, A64_W0);
+            } else {
+                phx_a64_mov_rr(pb, out_reg, A64_X0);
+            }
+        }
+    }
+}
+
 #endif /* CINDER_AARCH64 */
