@@ -338,3 +338,15 @@ lir_block_alloc_instr_before(LirBasicBlock *bb, LirInstruction *before,
     }
     return instr;
 }
+
+/**
+ * Allocate a new instruction and append it at the end of the block.
+ * Uses the given origin (may be NULL).
+ */
+LirInstruction *
+lir_block_alloc_instr(LirBasicBlock *bb, int opcode, const void *origin) {
+    LirInstruction *instr = lir_instruction_create(bb, opcode, origin);
+    instr->id_ = lir_function_allocate_id(bb->func_);
+    lir_block_append_instr(bb, instr);
+    return instr;
+}
