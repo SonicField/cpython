@@ -598,4 +598,148 @@ autogen_c_translateTst(void *env, const LirInstruction *instr) {
     }
 }
 
+/* ---- IntToBool ---- */
+
+void
+autogen_c_translateIntToBool(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *input = instr->inputs_[0];
+    PhxGp output = operand_to_gp_output(&instr->output_);
+
+    assert(instr->output_.data_type_ == JIT_LIR_DT_8BIT);
+
+    if (input->type_ == JIT_LIR_OPTYPE_IMM) {
+        phx_a64_mov_ri(pb, output,
+            lir_operand_get_constant(input) ? 1 : 0);
+    } else {
+        phx_a64_cmp_ri(pb, operand_to_gp(input), 0);
+        phx_a64_cset(pb, output, PHX_COND_NE);
+    }
+}
+
+/* ---- Select ---- */
+
+void
+autogen_c_translateSelect(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+
+    PhxGp output = operand_to_gp_output(&instr->output_);
+    const LirOperand *condition_op = instr->inputs_[0];
+    uint8_t cond_dt = condition_op->data_type_;
+
+    PhxGp condition_reg;
+    if (cond_dt == JIT_LIR_DT_8BIT || cond_dt == JIT_LIR_DT_16BIT) {
+        int reg_id = lir_operand_get_phy_register(condition_op).loc;
+        condition_reg = PHX_REG_GP(reg_id, 4);
+        uint64_t mask = (1ULL << jit_lir_bit_size(cond_dt)) - 1;
+        phx_a64_and_rri(pb, condition_reg, condition_reg, mask);
+    } else {
+        condition_reg = operand_to_gp(condition_op);
+    }
+
+    PhxGp true_val_reg = operand_to_gp(instr->inputs_[1]);
+    uint64_t false_val = lir_operand_get_constant(instr->inputs_[2]);
+
+    phx_a64_mov_ri(pb, A64_SCRATCH_0, false_val);
+    phx_a64_cmp_ri(pb, condition_reg, 0);
+    phx_a64_csel(pb, output, true_val_reg, A64_SCRATCH_0, PHX_COND_NE);
+}
+
+/* ---- Lea helpers ---- */
+
+static PhxGp
+get_gp_or_sp(const LirOperand *op) {
+    int reg = lir_operand_get_phy_register(op).loc;
+    /* Register 31 on ARM64 is SP in this context */
+    return PHX_REG_GP(reg, 8);
+}
+
+static void
+lea_index(PhxBuilder *pb, PhxGp output, PhxGp base, PhxGp index,
+          uint8_t multiplier) {
+    switch (multiplier) {
+        case 0:
+            phx_a64_add_rrr(pb, output, base, index);
+            break;
+        case 1:
+            phx_a64_add_rrr_shifted(pb, output, base, index, 0/*LSL*/, 1);
+            break;
+        case 2:
+            phx_a64_add_rrr_shifted(pb, output, base, index, 0/*LSL*/, 2);
+            break;
+        case 3:
+            phx_a64_add_rrr_shifted(pb, output, base, index, 0/*LSL*/, 3);
+            break;
+        default: {
+            phx_a64_mov_ri(pb, A64_SCRATCH_0, (uint64_t)1 << multiplier);
+            phx_a64_madd(pb, output, index, A64_SCRATCH_0, base);
+            break;
+        }
+    }
+}
+
+static void
+lea_indirect(PhxBuilder *pb, PhxGp output, PhxGp scratch0,
+             const LirMemoryIndirect *indirect) {
+    LirOperand *base_op = lir_memind_base_reg(indirect);
+    PhxGp base = get_gp_or_sp(base_op);
+    LirOperand *index_op = lir_memind_index_reg(indirect);
+    int32_t offset = lir_memind_offset(indirect);
+
+    if (index_op != NULL) {
+        lea_index(pb, output, base, operand_to_gp(index_op),
+                  lir_memind_multiplier(indirect));
+        base = output;
+    }
+
+    if (offset > 0) {
+        if (is_add_sub_imm((uint64_t)offset)) {
+            phx_a64_add_rri(pb, output, base, offset);
+        } else {
+            phx_a64_mov_ri(pb, scratch0, offset);
+            phx_a64_add_rrr(pb, output, base, scratch0);
+        }
+    } else if (offset < 0) {
+        if (is_add_sub_imm((uint64_t)(-offset))) {
+            phx_a64_sub_rri(pb, output, base, -offset);
+        } else {
+            phx_a64_mov_ri(pb, scratch0, -offset);
+            phx_a64_sub_rrr(pb, output, base, scratch0);
+        }
+    } else if (index_op == NULL) {
+        phx_a64_mov_rr(pb, output, base);
+    }
+}
+
+/* ---- Lea ---- */
+
+void
+autogen_c_translateLea(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+
+    const LirOperand *output = &instr->output_;
+    const LirOperand *input = instr->inputs_[0];
+
+    assert(output->type_ == JIT_LIR_OPTYPE_REG);
+
+    PhxGp out_reg = operand_to_gp(output);
+
+    if (input->type_ == JIT_LIR_OPTYPE_STACK) {
+        int32_t loc = lir_operand_get_stack_slot(input).loc;
+        if (loc >= 0) {
+            phx_a64_add_rri(pb, out_reg, A64_FP, loc);
+        } else {
+            phx_a64_sub_rri(pb, out_reg, A64_FP, -loc);
+        }
+    } else if (input->type_ == JIT_LIR_OPTYPE_MEM) {
+        uint64_t address = (uint64_t)(uintptr_t)lir_operand_get_mem_address(input);
+        phx_a64_mov_ri(pb, out_reg, address);
+    } else if (input->type_ == JIT_LIR_OPTYPE_IND) {
+        LirMemoryIndirect *ind = lir_operand_get_indirect(input);
+        lea_indirect(pb, out_reg, A64_SCRATCH_0, ind);
+    } else {
+        assert(0 && "Unsupported operand type for Lea");
+    }
+}
+
 #endif /* CINDER_AARCH64 */

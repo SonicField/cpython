@@ -36,6 +36,9 @@ void autogen_c_translateMovZX(void *env, const LirInstruction *instr);
 void autogen_c_translateMovSX(void *env, const LirInstruction *instr);
 void autogen_c_translateMovSXD(void *env, const LirInstruction *instr);
 void autogen_c_translateTst(void *env, const LirInstruction *instr);
+void autogen_c_translateIntToBool(void *env, const LirInstruction *instr);
+void autogen_c_translateSelect(void *env, const LirInstruction *instr);
+void autogen_c_translateLea(void *env, const LirInstruction *instr);
 
 #endif /* CINDER_AARCH64 */
 
