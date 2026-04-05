@@ -10,8 +10,14 @@
 #include "cinderx/Jit/codegen/phylocation.h"
 
 #include "Python.h"
+#include "internal/pycore_pystate.h"
 
 #include "jit/phoenix_asm/phoenix_asm.h"
+
+/* JITRT_AllocateAndLinkGenAndInterpreterFrame is a C++ function
+ * whose address is loaded into a register for BLR/CALL. We only
+ * need its address, not its signature, from C code. */
+extern void JITRT_AllocateAndLinkGenAndInterpreterFrame(void);
 #if defined(CINDER_X86_64)
 #include "jit/phoenix_asm/x86_64.h"
 #elif defined(CINDER_AARCH64)
