@@ -18,18 +18,19 @@ BasicBlock::~BasicBlock() {
     delete cur;
     cur = next;
   }
-  delete[] successors_;
-  delete[] predecessors_;
+  PyMem_RawFree(successors_);
+  PyMem_RawFree(predecessors_);
 }
 
 static void appendToBlockArray(
     BasicBlock**& arr, size_t& count, size_t& capacity, BasicBlock* bb) {
   if (count >= capacity) {
     size_t new_cap = capacity == 0 ? 2 : capacity * 2;
-    auto** new_arr = new BasicBlock*[new_cap]();
+    auto** new_arr = static_cast<BasicBlock**>(
+        PyMem_RawCalloc(new_cap, sizeof(BasicBlock*)));
     if (arr) {
       std::memcpy(new_arr, arr, count * sizeof(BasicBlock*));
-      delete[] arr;
+      PyMem_RawFree(arr);
     }
     arr = new_arr;
     capacity = new_cap;
