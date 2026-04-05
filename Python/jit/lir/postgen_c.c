@@ -8,6 +8,7 @@
  * LIR_REWRITE_UNCHANGED/CHANGED/REMOVED.
  */
 
+#include "cinderx/Jit/codegen/arch/detection.h"
 #include "cinderx/Jit/lir/rewrite_c.h"
 #include "cinderx/Jit/lir/lir_c_api.h"
 #include "cinderx/Jit/lir/lir_impl_internal.h"

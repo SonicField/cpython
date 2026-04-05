@@ -42,6 +42,7 @@
 #include "cinderx/Jit/lir/generator.h"
 #include "cinderx/Jit/lir/postalloc.h"
 #include "cinderx/Jit/lir/postgen.h"
+#include "cinderx/Jit/lir/rewrite_c.h"
 #include "cinderx/Jit/lir/printer.h"
 #include "cinderx/Jit/lir/regalloc.h"
 #include "cinderx/Jit/lir/verify.h"
@@ -1283,11 +1284,12 @@ void* NativeGenerator::getVectorcallEntry() {
       GetFunction()->fullname,
       *lir_func);
 
-  PostGenerationRewrite post_gen(lir_func.get(), &env_);
+  LirRewrite post_gen_rw;
+  lir_postgen_rewrite_init(&post_gen_rw, (LirFunction*)lir_func.get(), (void*)&env_);
   COMPILE_TIMER(
       GetFunction()->compilation_phase_timer,
       "LIR transformations",
-      post_gen.run())
+      lir_rewrite_run(&post_gen_rw))
 
   JIT_LOGIF(
       shouldDumpLir(),

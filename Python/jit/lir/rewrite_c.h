@@ -90,6 +90,9 @@ void lir_rewrite_add_instr(LirRewrite *rw, int stage, LirInstrRewriteFn fn);
  */
 void lir_rewrite_run(LirRewrite *rw);
 
+/* Initialize a PostGenerationRewrite (postgen_c.c). */
+void lir_postgen_rewrite_init(LirRewrite *rw, LirFunction *func, void *env);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
