@@ -72,22 +72,29 @@ run_one_stage(LirRewrite *rw, int stage) {
             }
         }
 
-        /* Instruction-level rewrites */
+        /* Instruction-level rewrites — nested fixed-point per instruction.
+         * Matches C++ runOneTypeRewrites: repeat ALL callbacks on the SAME
+         * instruction until none changes, then move to next instruction. */
         if (has_instr) {
             for (size_t bi = 0; bi < rw->function->num_blocks_; bi++) {
                 LirBasicBlock *bb = rw->function->blocks_[bi];
                 LirInstruction *instr = bb->instr_head_;
                 while (instr != NULL) {
                     LirInstruction *next = instr->next_;
-                    for (int fi = 0; fi < s->instr_count; fi++) {
-                        int result = s->instr_rewrites[fi](instr, rw->env);
-                        if (result != LIR_REWRITE_UNCHANGED) {
-                            changed = 1;
+                    int instr_changed;
+                    do {
+                        instr_changed = 0;
+                        for (int fi = 0; fi < s->instr_count; fi++) {
+                            int result = s->instr_rewrites[fi](instr, rw->env);
+                            if (result != LIR_REWRITE_UNCHANGED) {
+                                instr_changed = 1;
+                                changed = 1;
+                            }
+                            if (result == LIR_REWRITE_REMOVED) {
+                                goto next_instr;
+                            }
                         }
-                        if (result == LIR_REWRITE_REMOVED) {
-                            goto next_instr;
-                        }
-                    }
+                    } while (instr_changed);
                     next_instr:
                     instr = next;
                 }

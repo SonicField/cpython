@@ -69,11 +69,11 @@ rewrite_binary_op_constant_position(LirInstruction *instr, void *env) {
     /* Handle div/divun: divisor can't be immediate */
     if (op == JIT_LIR_OP_DIV || op == JIT_LIR_OP_DIVUN) {
         LirOperand *divisor = instr->inputs_[2];
-        if (divisor->type_ != JIT_LIR_OPTYPE_IMM) {
+        if (lir_operand_type(divisor) != JIT_LIR_OPTYPE_IMM) {
             return LIR_REWRITE_UNCHANGED;
         }
-        uint64_t constant = divisor->value_.constant;
-        uint8_t dt = divisor->data_type_;
+        uint64_t constant = lir_operand_get_constant(divisor);
+        uint8_t dt = lir_operand_data_type(divisor);
 
         LirInstruction *move = materialize_imm_to_reg(block, instr, constant, dt);
         lir_operand_set_data_type(&move->output_, dt);
@@ -92,13 +92,13 @@ rewrite_binary_op_constant_position(LirInstruction *instr, void *env) {
     LirOperand *input0 = instr->inputs_[0];
     LirOperand *input1 = instr->inputs_[1];
 
-    if (input0->type_ != JIT_LIR_OPTYPE_IMM) {
+    if (lir_operand_type(input0) != JIT_LIR_OPTYPE_IMM) {
         return LIR_REWRITE_UNCHANGED;
     }
 
     /* Commutative: swap operands */
     int is_commutative = (op != JIT_LIR_OP_SUB);
-    if (is_commutative && input1->type_ != JIT_LIR_OPTYPE_IMM) {
+    if (is_commutative && lir_operand_type(input1) != JIT_LIR_OPTYPE_IMM) {
         if (lir_instruction_is_compare(op)) {
             instr->opcode_ = lir_instruction_flip_comparison_direction(op);
         }
@@ -109,7 +109,7 @@ rewrite_binary_op_constant_position(LirInstruction *instr, void *env) {
 
     /* Non-commutative or both immediate: materialize first input */
     uint64_t constant = lir_operand_get_constant(input0);
-    uint8_t dt = input0->data_type_;
+    uint8_t dt = lir_operand_data_type(input0);
     LirInstruction *move = materialize_imm_to_reg(block, instr, constant, dt);
     lir_operand_set_data_type(&move->output_, dt);
     lir_instruction_set_input(instr, 0, make_linked(instr, move));
@@ -130,12 +130,12 @@ rewrite_binary_op_large_constant(LirInstruction *instr, void *env) {
         return LIR_REWRITE_UNCHANGED;
     }
 
-    if (instr->inputs_[0]->type_ == JIT_LIR_OPTYPE_IMM) {
+    if (lir_operand_type(instr->inputs_[0]) == JIT_LIR_OPTYPE_IMM) {
         return LIR_REWRITE_UNCHANGED; /* another rewrite will fix this */
     }
 
     LirOperand *in1 = instr->inputs_[1];
-    if (in1->type_ != JIT_LIR_OPTYPE_IMM) {
+    if (lir_operand_type(in1) != JIT_LIR_OPTYPE_IMM) {
         return LIR_REWRITE_UNCHANGED;
     }
 
@@ -152,14 +152,14 @@ rewrite_binary_op_large_constant(LirInstruction *instr, void *env) {
 #endif
 
     LirBasicBlock *block = instr->basic_block_;
-    LirInstruction *move = materialize_imm_to_reg(block, instr, constant, in1->data_type_);
+    LirInstruction *move = materialize_imm_to_reg(block, instr, constant, lir_operand_data_type(in1));
 
     /* If first operand is smaller, sign-extend it */
     if (lir_operand_size_in_bits(instr->inputs_[0]) < lir_operand_size_in_bits(in1)) {
         LirInstruction *movsx = lir_block_alloc_instr_before(
             block, instr, JIT_LIR_OP_MOVSX);
         lir_operand_set_virtual_register(&movsx->output_);
-        lir_operand_set_data_type(&movsx->output_, in1->data_type_);
+        lir_operand_set_data_type(&movsx->output_, lir_operand_data_type(in1));
         lir_instruction_append_input(movsx, lir_instruction_release_input(instr, 0));
         lir_instruction_set_input(instr, 0, make_linked(instr, movsx));
     }
@@ -180,8 +180,8 @@ rewrite_guard_large_constant(LirInstruction *instr, void *env) {
 
     const size_t kTargetIndex = 3;
     LirOperand *target_opnd = instr->inputs_[kTargetIndex];
-    if (target_opnd->type_ != JIT_LIR_OPTYPE_IMM &&
-        target_opnd->type_ != JIT_LIR_OPTYPE_MEM) {
+    if (lir_operand_type(target_opnd) != JIT_LIR_OPTYPE_IMM &&
+        lir_operand_type(target_opnd) != JIT_LIR_OPTYPE_MEM) {
         return LIR_REWRITE_UNCHANGED;
     }
 
@@ -198,7 +198,7 @@ rewrite_guard_large_constant(LirInstruction *instr, void *env) {
 
     LirBasicBlock *block = instr->basic_block_;
     LirInstruction *move = materialize_imm_to_reg(
-        block, instr, target_imm, target_opnd->data_type_);
+        block, instr, target_imm, lir_operand_data_type(target_opnd));
     lir_instruction_set_input(instr, kTargetIndex, make_linked(instr, move));
     return LIR_REWRITE_CHANGED;
 }
@@ -219,7 +219,7 @@ rewrite_move_to_memory_large_constant(LirInstruction *instr, void *env) {
     }
 
     LirOperand *input = instr->inputs_[0];
-    if (input->type_ != JIT_LIR_OPTYPE_IMM && input->type_ != JIT_LIR_OPTYPE_MEM) {
+    if (lir_operand_type(input) != JIT_LIR_OPTYPE_IMM && lir_operand_type(input) != JIT_LIR_OPTYPE_MEM) {
         return LIR_REWRITE_UNCHANGED;
     }
 
@@ -230,7 +230,7 @@ rewrite_move_to_memory_large_constant(LirInstruction *instr, void *env) {
 
     LirBasicBlock *block = instr->basic_block_;
     LirInstruction *move = materialize_imm_to_reg(
-        block, instr, constant, input->data_type_);
+        block, instr, constant, lir_operand_data_type(input));
     lir_instruction_set_input(instr, 0, make_linked(instr, move));
     return LIR_REWRITE_CHANGED;
 }
@@ -278,8 +278,8 @@ rewrite_load_arg(LirInstruction *instr, void *env) {
     instr->opcode_ = JIT_LIR_OP_BIND;
     assert(instr->num_inputs_ == 1);
     LirOperand *input = instr->inputs_[0];
-    assert(input->type_ == JIT_LIR_OPTYPE_IMM);
-    uint64_t arg_idx = input->value_.constant;
+    assert(lir_operand_type(input) == JIT_LIR_OPTYPE_IMM);
+    uint64_t arg_idx = lir_operand_get_constant(input);
     LirPhyLocation loc = jit_environ_get_arg_location(env, (size_t)arg_idx);
     lir_operand_set_phy_reg_or_stack(input, loc);
     lir_operand_set_data_type(input, instr->output_.data_type_);
@@ -336,8 +336,8 @@ get_second_call_result(uint8_t data_type, LirOperand *src,
             LirPhyLocation ret1 = jit_environ_get_return_reg(1);
             assert(!(next_instr->opcode_ == JIT_LIR_OP_MOVE &&
                      next_instr->num_inputs_ == 1 &&
-                     next_instr->inputs_[0]->type_ == JIT_LIR_OPTYPE_REG &&
-                     next_instr->inputs_[0]->value_.phy_loc.loc == ret1.loc));
+                     next_lir_operand_type(instr->inputs_[0]) == JIT_LIR_OPTYPE_REG &&
+                     lir_operand_get_phy_register(next_instr->inputs_[0]).loc == ret1.loc));
         }
     }
 
@@ -387,7 +387,7 @@ populate_load_second_call_result_phi(
         LirInstruction *instr2 =
             get_second_call_result(data_type, src1, NULL, seen_srcs);
         lir_instruction_alloc_label_input(
-            phi2, (LirBasicBlock *)phi1->inputs_[i - 1]->value_.block);
+            phi2, (LirBasicBlock *)lir_operand_get_basic_block(phi1->inputs_[i - 1]));
         lir_instruction_alloc_linked_input(phi2, instr2);
     }
 }
