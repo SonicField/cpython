@@ -1683,12 +1683,34 @@ def _worker_jit(args):
         if cinderjit_mod:
             enable_specialised_opcodes(cinderjit_mod)
 
-    # Per-benchmark iteration counts.  Heavy benchmarks get fewer
-    # iterations so the full suite finishes in ≤5 minutes while
-    # preserving speedup ratios (validated against old n_iter=100K).
+    # Per-benchmark iteration counts.  Each benchmark targets ~500ms
+    # vanilla runtime so all contribute equally to the geometric mean.
+    # Calibrated on x86_64, 2026-04-05.
     _PER_BENCH_ITERS = {
-        "fibonacci":      10_000,   # was 100K → ~1.5s vanilla (was ~15s)
-        "spectral_norm":  20_000,   # was 100K → ~1.2s vanilla (was ~5.8s)
+        "fibonacci":           3_300,
+        "richards_full":     570_000,
+        "richards_slots":    120_000,
+        "nqueens":            50_000,
+        "spectral_norm":       8_500,
+        "float_arith":     1_800_000,
+        "gen_simple":      8_700_000,
+        "gen_nested":      3_000_000,
+        "list_comp":      10_000_000,
+        "dict_ops":        3_900_000,
+        "func_calls":      2_800_000,
+        "import_callee":   1_700_000,
+        "try_except_callee": 6_400_000,
+        "store_subscr":    2_700_000,
+        "int_arith":       2_500_000,
+        "context_manager": 1_300_000,
+        "kwargs_dispatch": 1_400_000,
+        "positional_dispatch": 3_000_000,
+        "dunder_protocol":   930_000,
+        "nn_module_forward": 14_000_000,
+        "nbody":             610_000,
+        "decorator_chain": 1_400_000,
+        "deep_class_super":  300_000,
+        "pytorch_cm":        280_000,
     }
     _DEFAULT_ITERS = 100_000
 
@@ -1876,6 +1898,7 @@ def cmd_jit(args):
 
     total_on = 0
     total_off = 0
+    speedup_ratios = []
 
     for bench_name in bench_names:
         on_times = all_on.get(bench_name, [])
@@ -1898,6 +1921,8 @@ def cmd_jit(args):
         total_off += off_mean
 
         speedup = off_mean / on_mean if on_mean > 0 else 0
+        if speedup > 0:
+            speedup_ratios.append(speedup)
         delta_pct = ((off_mean - on_mean) / off_mean * 100) if off_mean > 0 else 0
 
         marker = "**" if speedup > 1.05 else ("!!" if speedup < 0.95 else "  ")
@@ -1913,6 +1938,12 @@ def cmd_jit(args):
         print(
             f"  {'TOTAL':<20} {total_off:>8.2f}ms {total_on:>8.2f}ms "
             f"{overall:>8.2f}x {overall_pct:>6.1f}%"
+        )
+    if speedup_ratios:
+        geo_mean = math.exp(sum(math.log(r) for r in speedup_ratios) / len(speedup_ratios))
+        print(
+            f"  {'GEOMETRIC MEAN':<20} {'':>8} {'':>10} "
+            f"{geo_mean:>8.2f}x  ({len(speedup_ratios)} benchmarks)"
         )
     print("=" * 75)
     print()
