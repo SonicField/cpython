@@ -293,12 +293,12 @@ postalloc_rewrite_load(LirInstruction *instr, void *env) {
 static int
 postalloc_rewrite_branch(LirFunction *func, void *env) {
     int changed = 0;
-    size_t num_blocks = lir_func_num_blocks(func);
+    size_t num_blocks = func->num_blocks_;
 
     for (size_t bi = 0; bi < num_blocks; bi++) {
-        LirBasicBlock *block = lir_func_get_block(func, bi);
+        LirBasicBlock *block = func->blocks_[bi];
         LirBasicBlock *next_block =
-            (bi + 1 < num_blocks) ? lir_func_get_block(func, bi + 1) : NULL;
+            (bi + 1 < num_blocks) ? func->blocks_[bi + 1] : NULL;
 
         if (block->num_succs_ != 1) {
             continue;
@@ -411,17 +411,17 @@ do_rewrite_branch_cc(LirInstruction *instr, LirBasicBlock *next_block) {
 static int
 postalloc_rewrite_cond_branch(LirFunction *func, void *env) {
     int changed = 0;
-    size_t num_blocks = lir_func_num_blocks(func);
+    size_t num_blocks = func->num_blocks_;
 
     for (size_t bi = 0; bi < num_blocks; bi++) {
-        LirBasicBlock *block = lir_func_get_block(func, bi);
+        LirBasicBlock *block = func->blocks_[bi];
         LirInstruction *last = block->instr_tail_;
         if (!last) {
             continue;
         }
 
         LirBasicBlock *next_block =
-            (bi + 1 < num_blocks) ? lir_func_get_block(func, bi + 1) : NULL;
+            (bi + 1 < num_blocks) ? func->blocks_[bi + 1] : NULL;
 
         int op = last->opcode_;
         if (op == JIT_LIR_OP_CONDBRANCH) {
