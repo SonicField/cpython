@@ -108,13 +108,11 @@ void AutoTranslator::translateInstr(Environ* env, const Instruction* instr)
     return;
   }
 
-#if defined(CINDER_AARCH64)
-  // Try C dispatch first — handles all converted opcodes directly.
-  // Falls through to C++ trie only for unconverted opcodes (Yield*, etc).
+  // Try C dispatch first — handles converted opcodes directly.
+  // Falls through to C++ trie only for unconverted opcodes (Yield*, ASM on x86).
   if (autogen_c_dispatch(env, reinterpret_cast<const LirInstruction*>(instr))) {
     return;
   }
-#endif
 
   auto& instr_map = map_get(instr_rule_map_, opcode);
 

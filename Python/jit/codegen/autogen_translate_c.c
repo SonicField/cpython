@@ -1322,6 +1322,10 @@ autogen_c_translateCall(void *env, const LirInstruction *instr) {
 /* ================================================================
  * C dispatch table — replaces C++ trie/DSL for converted opcodes.
  * Returns 1 if handled, 0 to fall through to C++ AutoTranslator.
+ *
+ * ARM64: handles ALL non-yield opcodes (full C codegen path).
+ * x86_64: handles cross-arch CALL_C opcodes (Guard, Compare,
+ *          DeoptPatchpoint, IntToBool). ASM() opcodes stay in trie.
  * ================================================================ */
 
 int
@@ -1329,6 +1333,8 @@ autogen_c_dispatch(void *env, const LirInstruction *instr) {
     switch (instr->opcode_) {
     case JIT_LIR_OP_BIND:
         return 1; /* no-op */
+
+    /* Cross-arch opcodes — handled on both x86_64 and ARM64 */
     case JIT_LIR_OP_GUARD:
         autogen_c_TranslateGuard(env, instr);
         return 1;
@@ -1430,3 +1436,61 @@ autogen_c_dispatch(void *env, const LirInstruction *instr) {
 }
 
 #endif /* CINDER_AARCH64 */
+
+/* ================================================================
+ * x86_64 dispatch — handles cross-arch CALL_C opcodes only.
+ * ASM() opcodes stay in the C++ trie.
+ * ================================================================ */
+
+#if defined(CINDER_X86_64)
+
+/* x86_64 IntToBool */
+static void
+x86_translateIntToBool(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *input = instr->inputs_[0];
+    PhxGp output = operand_to_gp(&instr->output_);
+
+    assert(instr->output_.data_type_ == JIT_LIR_DT_8BIT);
+
+    if (input->type_ == JIT_LIR_OPTYPE_IMM) {
+        phx_x86_mov_ri(pb, output, lir_operand_get_constant(input) ? 1 : 0);
+    } else {
+        PhxGp inp_reg = operand_to_gp(input);
+        phx_x86_test_rr(pb, inp_reg, inp_reg);
+        phx_x86_setne(pb, output);
+    }
+}
+
+int
+autogen_c_dispatch(void *env, const LirInstruction *instr) {
+    switch (instr->opcode_) {
+    case JIT_LIR_OP_BIND:
+        return 1;
+    case JIT_LIR_OP_GUARD:
+        autogen_c_TranslateGuard(env, instr);
+        return 1;
+    case JIT_LIR_OP_DEOPTPATCHPOINT:
+        autogen_c_TranslateDeoptPatchpoint(env, instr);
+        return 1;
+    case JIT_LIR_OP_EQUAL:
+    case JIT_LIR_OP_NOTEQUAL:
+    case JIT_LIR_OP_GREATERTHANSIGNED:
+    case JIT_LIR_OP_LESSTHANSIGNED:
+    case JIT_LIR_OP_GREATERTHANEQUALSIGNED:
+    case JIT_LIR_OP_LESSTHANEQUALSIGNED:
+    case JIT_LIR_OP_GREATERTHANUNSIGNED:
+    case JIT_LIR_OP_LESSTHANUNSIGNED:
+    case JIT_LIR_OP_GREATERTHANEQUALUNSIGNED:
+    case JIT_LIR_OP_LESSTHANEQUALUNSIGNED:
+        autogen_c_TranslateCompare(env, instr);
+        return 1;
+    case JIT_LIR_OP_INTTOBOOL:
+        x86_translateIntToBool(env, instr);
+        return 1;
+    default:
+        return 0; /* ASM() opcodes + Yield* — fall through to C++ trie */
+    }
+}
+
+#endif /* CINDER_X86_64 */

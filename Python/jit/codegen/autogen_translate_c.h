@@ -24,10 +24,11 @@ void autogen_c_TranslateDeoptPatchpoint(void *env, const LirInstruction *instr);
  * Returns 1 if the instruction was handled by C code.
  * Returns 0 if it should fall through to C++ AutoTranslator (Yield*, etc).
  * Call from translateInstr() before the C++ pattern lookup.
+ *
+ * ARM64: handles ALL non-yield opcodes.
+ * x86_64: handles cross-arch CALL_C opcodes (Guard, Compare, etc).
  */
-#if defined(CINDER_AARCH64)
 int autogen_c_dispatch(void *env, const LirInstruction *instr);
-#endif
 
 #if defined(CINDER_AARCH64)
 
