@@ -103,9 +103,9 @@ Instruction::Instruction(
 
 Instruction::~Instruction() {
   for (size_t i = 0; i < num_inputs_; i++) {
-    delete inputs_[i];
+    delete inputs_[i];  // Uses OperandBase::operator delete (PyMem_RawFree)
   }
-  delete[] inputs_;
+  PyMem_RawFree(inputs_);  // Match PyMem_RawCalloc in ensureInputCapacity
 }
 
 int Instruction::id() const {
@@ -183,10 +183,11 @@ void Instruction::ensureInputCapacity(size_t needed) {
   if (needed <= inputs_capacity_) return;
   size_t new_cap = inputs_capacity_ == 0 ? 4 : inputs_capacity_ * 2;
   while (new_cap < needed) new_cap *= 2;
-  auto** new_arr = new OperandBase*[new_cap]();
+  auto** new_arr = static_cast<OperandBase**>(
+      PyMem_RawCalloc(new_cap, sizeof(OperandBase*)));
   if (inputs_) {
     std::memcpy(new_arr, inputs_, num_inputs_ * sizeof(OperandBase*));
-    delete[] inputs_;
+    PyMem_RawFree(inputs_);
   }
   inputs_ = new_arr;
   inputs_capacity_ = new_cap;
