@@ -230,6 +230,9 @@ LirPhyLocation jit_arch_stack_pointer_loc(void);
 LirPhyLocation jit_arch_general_return_loc(void);
 LirPhyLocation jit_arch_double_return_loc(void);
 
+/* Environ assembler builder accessor (returns PhxBuilder*) */
+void *jit_environ_get_phx_builder(void *env);
+
 /* LIR inliner (C wrapper around C++ LIRInliner::inlineCalls) */
 int lir_inliner_inline_calls(void *func);
 

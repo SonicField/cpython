@@ -328,3 +328,9 @@ extern "C" LirPhyLocation jit_arch_general_return_loc(void) {
 extern "C" LirPhyLocation jit_arch_double_return_loc(void) {
   return phyloc_from(jit::codegen::arch::reg_double_return_loc);
 }
+
+extern "C" void*
+jit_environ_get_phx_builder(void* env_ptr) {
+  auto* env = static_cast<jit::codegen::Environ*>(env_ptr);
+  return env->as->impl();
+}
