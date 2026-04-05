@@ -424,3 +424,14 @@ jit_environ_add_pending_deopt_patcher(void* env_ptr, void* patcher_ptr,
   env->pending_deopt_patchers.emplace_back(
       patcher, asmjit::Label(patchpoint), asmjit::Label(deopt_exit));
 }
+
+extern "C" int
+jit_environ_shadow_frames_and_spill_size(void* env_ptr) {
+  return static_cast<jit::codegen::Environ*>(env_ptr)->shadow_frames_and_spill_size;
+}
+
+extern "C" void*
+jit_environ_get_gen_resume_entry_label(void* env_ptr) {
+  auto* env = static_cast<jit::codegen::Environ*>(env_ptr);
+  return &env->gen_resume_entry_label;
+}

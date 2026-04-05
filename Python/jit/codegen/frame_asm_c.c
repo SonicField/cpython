@@ -114,3 +114,48 @@ frame_asm_c_load_tstate(void *env, PhxGp dst_reg) {
     }
 #endif
 }
+
+/* ================================================================
+ * linkNormalGeneratorFrame — set up generator frame
+ * ================================================================ */
+
+void
+frame_asm_c_link_normal_generator_frame(
+    void *env, PhxGp tstate_reg, void *code_rt_ptr)
+{
+    PhxBuilder *pb = get_builder(env);
+    int spill_size = jit_environ_shadow_frames_and_spill_size(env);
+    uint64_t full_words = (uint64_t)spill_size / sizeof(void*);
+
+#if defined(CINDER_X86_64)
+    PhxGp rsi = {6, 8}, rdx = {2, 8}, rcx = {1, 8}, r8 = {8, 8};
+    PhxGp rbp = {5, 8}, rax = {0, 8};
+
+    phx_x86_mov_ri(pb, rsi, (int64_t)full_words);
+    phx_x86_mov_ri(pb, rdx, (int64_t)(uintptr_t)code_rt_ptr);
+    /* lea rcx, [gen_resume_entry_label] — need label */
+    /* For now, skip label-dependent code — will wire when label C API is ready */
+    phx_x86_mov_rr(pb, r8, rbp);
+    phx_x86_mov_ri(pb, PHX_R11,
+        (int64_t)(uintptr_t)JITRT_AllocateAndLinkGenAndInterpreterFrame);
+    phx_x86_call_r(pb, PHX_R11);
+    phx_x86_mov_rr(pb, tstate_reg, rax);
+    phx_x86_mov_rr(pb, rbp, rdx);
+
+#elif defined(CINDER_AARCH64)
+    PhxGp x1 = {1, 8}, x2 = {2, 8}, x4 = {4, 8};
+    PhxGp x0 = {0, 8};
+    PhxGp fp = {29, 8};
+    PhxGp scratch_br = {16, 8};
+
+    phx_a64_mov_ri(pb, x1, full_words);
+    phx_a64_mov_ri(pb, x2, (uint64_t)(uintptr_t)code_rt_ptr);
+    /* adr x3, gen_resume_entry_label — need label C API */
+    phx_a64_mov_rr(pb, x4, fp);
+    phx_a64_mov_ri(pb, scratch_br,
+        (uint64_t)(uintptr_t)JITRT_AllocateAndLinkGenAndInterpreterFrame);
+    phx_a64_blr(pb, scratch_br);
+    phx_a64_mov_rr(pb, tstate_reg, x0);
+    phx_a64_mov_rr(pb, fp, x1);
+#endif
+}

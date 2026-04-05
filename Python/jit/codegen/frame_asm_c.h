@@ -19,6 +19,10 @@ void frame_asm_c_init_tstate_offset(void);
 /* Emit code to load PyThreadState into dst_reg */
 void frame_asm_c_load_tstate(void *env, PhxGp dst_reg);
 
+/* Set up generator frame (allocate + link) */
+void frame_asm_c_link_normal_generator_frame(
+    void *env, PhxGp tstate_reg, void *code_rt_ptr);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

@@ -256,6 +256,10 @@ void jit_environ_add_pending_deopt_patcher(void *env, void *patcher,
                                             PhxLabel patchpoint,
                                             PhxLabel deopt_exit);
 
+/* Environ fields for frame_asm conversion */
+int jit_environ_shadow_frames_and_spill_size(void *env);
+void *jit_environ_get_gen_resume_entry_label(void *env);
+
 /* LIR inliner (C wrapper around C++ LIRInliner::inlineCalls) */
 int lir_inliner_inline_calls(void *func);
 
