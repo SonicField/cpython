@@ -93,6 +93,9 @@ void lir_rewrite_run(LirRewrite *rw);
 /* Initialize a PostGenerationRewrite (postgen_c.c). */
 void lir_postgen_rewrite_init(LirRewrite *rw, LirFunction *func, void *env);
 
+/* Initialize a PostRegAllocRewrite (postalloc_c.c). */
+void lir_postalloc_rewrite_init(LirRewrite *rw, LirFunction *func, void *env);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

@@ -40,7 +40,6 @@
 #include "cinderx/Jit/lir/dce.h"
 #include "cinderx/Jit/lir/cold_block_marker.h"
 #include "cinderx/Jit/lir/generator.h"
-#include "cinderx/Jit/lir/postalloc.h"
 #include "cinderx/Jit/lir/postgen.h"
 #include "cinderx/Jit/lir/rewrite_c.h"
 #include "cinderx/Jit/lir/printer.h"
@@ -1331,11 +1330,12 @@ void* NativeGenerator::getVectorcallEntry() {
       GetFunction()->fullname,
       *lir_func);
 
-  PostRegAllocRewrite post_rewrite(lir_func.get(), &env_);
+  LirRewrite post_alloc_rw;
+  lir_postalloc_rewrite_init(&post_alloc_rw, (LirFunction*)lir_func.get(), (void*)&env_);
   COMPILE_TIMER(
       GetFunction()->compilation_phase_timer,
       "Post Reg Alloc Rewrite",
-      post_rewrite.run())
+      lir_rewrite_run(&post_alloc_rw))
 
   JIT_LOGIF(
       shouldDumpLir(),
