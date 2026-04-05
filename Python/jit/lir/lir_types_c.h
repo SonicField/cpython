@@ -23,6 +23,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "cinderx/Jit/codegen/arch/detection.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
