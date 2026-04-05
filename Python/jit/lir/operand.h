@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "Python.h"
 #include "cinderx/Common/log.h"
 #include "cinderx/Jit/lir/arch.h"
 #include "cinderx/Jit/lir/type.h"
@@ -26,6 +27,12 @@ class MemoryIndirect;
 class OperandBase {
  public:
   using Type = OperandType;
+
+  // Use PyMem_RawMalloc for all operand allocation — matches C-side
+  // lir_operand_free() which uses PyMem_RawFree. Fixes ASAN
+  // alloc-dealloc mismatch at the C/C++ boundary.
+  void* operator new(size_t size) { return PyMem_RawMalloc(size); }
+  void operator delete(void* ptr) { PyMem_RawFree(ptr); }
 
   OperandBase() = default;
   explicit OperandBase(Instruction* parent);
