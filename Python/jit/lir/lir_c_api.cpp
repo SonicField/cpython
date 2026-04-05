@@ -371,7 +371,11 @@ jit_environ_add_pending_debug_loc(void* env_ptr, PhxLabel label,
 
 extern "C" int
 jit_gen_data_footer_saved_ip_offset(void) {
+#if defined(__aarch64__)
   return (int)offsetof(jit::GenDataFooter, savedIP);
+#else
+  return -1;  // savedIP only exists on ARM64
+#endif
 }
 
 extern "C" void*
@@ -395,7 +399,7 @@ jit_fill_live_value_locations(void* code_rt_ptr, size_t deopt_idx,
                                size_t begin_input, size_t end_input) {
   auto* code_rt = static_cast<jit::CodeRuntime*>(code_rt_ptr);
   auto* instr = reinterpret_cast<const jit::lir::Instruction*>(instr_ptr);
-  jit::codegen::ThreadedCompileSerialize guard;
+  jit::ThreadedCompileSerialize guard;
   auto& deopt_meta = code_rt->getDeoptMetadata(deopt_idx);
   for (size_t i = begin_input; i < end_input; i++) {
     auto loc = instr->inputs_[i]->getPhyRegOrStackSlot();
