@@ -221,12 +221,7 @@ void Context::recordDeopt(
   if (guilty_value != nullptr) {
     stat.types.recordType(Py_TYPE(guilty_value));
   }
-  {
-    BorrowedRef<PyCodeObject> code = code_runtime->frameState()->code();
-    const char *name = PyUnicode_AsUTF8(code->co_qualname);
-    const char *reason = guilty_value ? Py_TYPE(guilty_value)->tp_name : "guard";
-    jit_log_deopt(name ? name : "<unknown>", idx, reason);
-  }
+  /* jit_log_deopt temporarily disabled for crash investigation */
 
   // Deopt backoff: suppress JIT for code objects that deopt repeatedly.
   // When the threshold is reached, reset vectorcall on all function objects
@@ -243,7 +238,7 @@ void Context::recordDeopt(
         "Deopt backoff: {} reached {} guard failures, suppressing",
         PyUnicode_AsUTF8(code->co_qualname),
         count);
-    jit_log_backoff(PyUnicode_AsUTF8(code->co_qualname), count);
+    /* jit_log_backoff temporarily disabled for crash investigation */
     deoptBackoffSuppressFunctions(code_runtime);
   }
 }
