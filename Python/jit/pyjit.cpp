@@ -40,7 +40,7 @@
 #include "cinderx/Jit/hir/preload.h"
 #include "cinderx/Jit/inline_cache.h"
 #include "cinderx/Jit/bytecode.h"
-#include "cinderx/Jit/jit_flag_processor.h"
+#include "cinderx/Jit/jit_flag_processor_c.h"
 #include "cinderx/Jit/jit_gdb_support.h"
 #include "cinderx/Jit/jit_list.h"
 #include "cinderx/Jit/jit_time_log.h"
@@ -425,258 +425,302 @@ size_t parse_sized_argument(const std::string& val) {
   return ret_value * scale;
 }
 
-FlagProcessor initFlagProcessor() {
-  FlagProcessor flag_processor;
+// -- Flag processor callbacks (C-linkage compatible) --
+
+static void flag_cb_compile_all(const char*, void*) {
+  getMutableConfig().compile_after_n_calls = 0;
+}
+
+static void flag_cb_compile_threshold(const char* value, void*) {
+  if (value == nullptr || value[0] == '\0') {
+    getMutableConfig().compile_after_n_calls = 1;
+  } else {
+    getMutableConfig().compile_after_n_calls =
+        static_cast<uint32_t>(strtoul(value, nullptr, 10));
+  }
+}
+
+static void flag_cb_log_file(const char* value, void*) {
+  setJitLogFile(value ? value : "");
+}
+
+static void flag_cb_asm_syntax(const char* value, void*) {
+  setASMSyntax(value ? value : "");
+}
+
+static void flag_cb_dump_lir_origin(const char* value, void*) {
+  int v = (value == nullptr || value[0] == '\0') ? 1 : atoi(value);
+  getMutableConfig().log.dump_lir = true;
+  getMutableConfig().log.lir_origin = (v != 0);
+}
+
+static void flag_cb_gdb_support(const char* value, void*) {
+  int v = (value == nullptr || value[0] == '\0') ? 1 : atoi(value);
+  getMutableConfig().log.debug = (v != 0);
+  getMutableConfig().gdb.supported = (v != 0);
+}
+
+static void flag_cb_gdb_write_elf(const char* value, void*) {
+  int v = (value == nullptr || value[0] == '\0') ? 1 : atoi(value);
+  getMutableConfig().log.debug = (v != 0);
+  getMutableConfig().gdb.supported = (v != 0);
+  getMutableConfig().gdb.write_elf_objects = (v != 0);
+}
+
+static void flag_cb_disable_jit(const char* value, void*) {
+  int v = (value == nullptr || value[0] == '\0') ? 1 : atoi(value);
+  if (v && !getConfig().force_init.has_value()) {
+    getMutableConfig().force_init = false;
+  }
+}
+
+static void flag_cb_shadow_frame(const char* value, void*) {
+  // Cinder's shadow frames are not supported in Python versions later than 3.10.
+  if constexpr (PY_VERSION_HEX >= 0x030B0000) {
+    return;
+  }
+  int v = (value == nullptr || value[0] == '\0') ? 1 : atoi(value);
+  getMutableConfig().frame_mode =
+      v ? FrameMode::kShadow : FrameMode::kNormal;
+}
+
+static void flag_cb_lightweight_frame(const char* value, void*) {
+  if constexpr (PY_VERSION_HEX < 0x030C0000) {
+    JIT_DLOG(
+        "Lightweight frames are not supported in Python versions earlier "
+        "than 3.12");
+    return;
+  }
+  int v = (value == nullptr || value[0] == '\0') ? 1 : atoi(value);
+  getMutableConfig().frame_mode =
+      v ? FrameMode::kLightweight : FrameMode::kNormal;
+}
+
+static void flag_cb_attr_cache_size(const char* value, void*) {
+  uint32_t entries = 4;
+  if (value != nullptr && value[0] != '\0') {
+    entries = static_cast<uint32_t>(strtoul(value, nullptr, 10));
+  }
+  JIT_CHECK(
+      entries > 0 && entries <= 16,
+      "Using {} entries for attribute access inline "
+      "caches is not within the appropriate range",
+      entries);
+  getMutableConfig().attr_cache_size = entries;
+}
+
+static void flag_cb_jit_time(const char* value, void*) {
+  parseAndSetFuncList(value ? value : "");
+}
+
+static void flag_cb_max_code_size(const char* value, void*) {
+  getMutableConfig().max_code_size = parse_sized_argument(value ? value : "0");
+}
+
+static void flag_cb_list_file(const char* value, void*) {
+  getMutableConfig().jit_list.filename = value ? value : "";
+}
+
+static void flag_cb_perf_dumpdir(const char* value, void*) {
+  perf::perf_jitdump_dir = value ? value : "";
+}
+
+static void flag_cb_noop(const char*, void*) {}
+
+JitFlagProcessor initFlagProcessor() {
+  JitFlagProcessor fp;
+  jit_flagproc_init(&fp);
+  Config& cfg = getMutableConfig();
 
   // Flags are inspected in order of definition below.
 
-  flag_processor.addOption(
-      "jit-dump-hir-stats",
-      "PYTHONJITDUMPHIRSTATS",
-      getMutableConfig().dump_hir_stats,
+  jit_flagproc_add_bool(&fp,
+      "jit-dump-hir-stats", "PYTHONJITDUMPHIRSTATS",
+      &cfg.dump_hir_stats,
       "Dump counts of instructions and types per function");
 
-  flag_processor.addOption(
-      "jit-all",
-      "PYTHONJITALL",
-      [](uint32_t) { getMutableConfig().compile_after_n_calls = 0; },
+  jit_flagproc_add_callback(&fp,
+      "jit-all", "PYTHONJITALL",
+      flag_cb_compile_all, nullptr,
       "Enable the JIT and set it to compile all functions as soon as they are "
       "called");
 
-  flag_processor.addOption(
-      "jit-auto",
-      "PYTHONJITAUTO",
-      [](uint32_t val) { getMutableConfig().compile_after_n_calls = val; },
+  jit_flagproc_add_callback(&fp,
+      "jit-auto", "PYTHONJITAUTO",
+      flag_cb_compile_threshold, nullptr,
       "Enable auto-JIT mode, which compiles functions after the given "
       "threshold");
 
-  flag_processor.addOption(
-      "jit-debug",
-      "PYTHONJITDEBUG",
-      getMutableConfig().log.debug,
+  jit_flagproc_add_bool(&fp,
+      "jit-debug", "PYTHONJITDEBUG",
+      &cfg.log.debug,
       "JIT debug and extra logging");
 
-  flag_processor
-      .addOption(
-          "jit-log-file",
-          "PYTHONJITLOGFILE",
-          [](const std::string& log_filename) { setJitLogFile(log_filename); },
-          "write log entries to <filename> rather than stderr")
-      .withFlagParamName("filename");
+  jit_opt_set_param_name(
+      jit_flagproc_add_callback(&fp,
+          "jit-log-file", "PYTHONJITLOGFILE",
+          flag_cb_log_file, nullptr,
+          "write log entries to <filename> rather than stderr"),
+      "filename");
 
-  flag_processor
-      .addOption(
-          "jit-asm-syntax",
-          "PYTHONJITASMSYNTAX",
-          [](const std::string& asm_syntax) { setASMSyntax(asm_syntax); },
-          "set the assembly syntax used in log files")
-      .withFlagParamName("intel|att")
-      .withDebugMessageOverride("Sets the assembly syntax used in log files");
+  jit_opt_set_debug_msg(
+      jit_opt_set_param_name(
+          jit_flagproc_add_callback(&fp,
+              "jit-asm-syntax", "PYTHONJITASMSYNTAX",
+              flag_cb_asm_syntax, nullptr,
+              "set the assembly syntax used in log files"),
+          "intel|att"),
+      "Sets the assembly syntax used in log files");
 
-  flag_processor
-      .addOption(
-          "jit-debug-refcount",
-          "PYTHONJITDEBUGREFCOUNT",
-          getMutableConfig().log.debug_refcount,
-          "JIT refcount insertion debug mode")
-      .withDebugMessageOverride("Enabling");
+  jit_opt_set_debug_msg(
+      jit_flagproc_add_bool(&fp,
+          "jit-debug-refcount", "PYTHONJITDEBUGREFCOUNT",
+          &cfg.log.debug_refcount,
+          "JIT refcount insertion debug mode"),
+      "Enabling");
 
-  flag_processor.addOption(
-      "jit-debug-regalloc",
-      "PYTHONJITDEBUGREGALLOC",
-      getMutableConfig().log.debug_regalloc,
+  jit_flagproc_add_bool(&fp,
+      "jit-debug-regalloc", "PYTHONJITDEBUGREGALLOC",
+      &cfg.log.debug_regalloc,
       "Enable or disable debug logging for the register allocator");
 
-  flag_processor.addOption(
-      "jit-debug-inliner",
-      "PYTHONJITDEBUGINLINER",
-      getMutableConfig().log.debug_inliner,
+  jit_flagproc_add_bool(&fp,
+      "jit-debug-inliner", "PYTHONJITDEBUGINLINER",
+      &cfg.log.debug_inliner,
       "Enable or disable debug logging for the JIT's HIR inliner");
 
-  flag_processor
-      .addOption(
-          "jit-dump-hir",
-          "PYTHONJITDUMPHIR",
-          getMutableConfig().log.dump_hir_initial,
+  jit_opt_set_debug_msg(
+      jit_flagproc_add_bool(&fp,
+          "jit-dump-hir", "PYTHONJITDUMPHIR",
+          &cfg.log.dump_hir_initial,
           "Log the HIR representation of all functions after initial "
-          "lowering from bytecode")
-      .withDebugMessageOverride("Dump initial HIR of JITed functions");
+          "lowering from bytecode"),
+      "Dump initial HIR of JITed functions");
 
-  flag_processor
-      .addOption(
-          "jit-dump-hir-passes",
-          "PYTHONJITDUMPHIRPASSES",
-          getMutableConfig().log.dump_hir_passes,
-          "Log the HIR after each optimization pass")
-      .withDebugMessageOverride(
-          "Dump HIR of JITed functions after each individual optimization "
-          "pass");
+  jit_opt_set_debug_msg(
+      jit_flagproc_add_bool(&fp,
+          "jit-dump-hir-passes", "PYTHONJITDUMPHIRPASSES",
+          &cfg.log.dump_hir_passes,
+          "Log the HIR after each optimization pass"),
+      "Dump HIR of JITed functions after each individual optimization pass");
 
-  flag_processor
-      .addOption(
-          "jit-dump-final-hir",
-          "PYTHONJITDUMPFINALHIR",
-          getMutableConfig().log.dump_hir_final,
-          "Log the HIR after all optimizations")
-      .withDebugMessageOverride(
-          "Dump final HIR of JITed functions after all optimizations");
+  jit_opt_set_debug_msg(
+      jit_flagproc_add_bool(&fp,
+          "jit-dump-final-hir", "PYTHONJITDUMPFINALHIR",
+          &cfg.log.dump_hir_final,
+          "Log the HIR after all optimizations"),
+      "Dump final HIR of JITed functions after all optimizations");
 
-  flag_processor
-      .addOption(
-          "jit-dump-lir",
-          "PYTHONJITDUMPLIR",
-          getMutableConfig().log.dump_lir,
-          "Log the LIR representation of functions after lowering from HIR")
-      .withDebugMessageOverride("Dump initial LIR of JITed functions");
+  jit_opt_set_debug_msg(
+      jit_flagproc_add_bool(&fp,
+          "jit-dump-lir", "PYTHONJITDUMPLIR",
+          &cfg.log.dump_lir,
+          "Log the LIR representation of functions after lowering from HIR"),
+      "Dump initial LIR of JITed functions");
 
-  flag_processor.addOption(
-      "jit-dump-lir-origin",
-      "PYTHONJITDUMPLIRORIGIN",
-      [](bool value) {
-        getMutableConfig().log.dump_lir = true;
-        getMutableConfig().log.lir_origin = value;
-      },
+  jit_flagproc_add_callback(&fp,
+      "jit-dump-lir-origin", "PYTHONJITDUMPLIRORIGIN",
+      flag_cb_dump_lir_origin, nullptr,
       "Enable or disable whether LIR is displayed with HIR origin data");
 
-  flag_processor.addOption(
-      "jit-symbolize",
-      "PYTHONJITSYMBOLIZE",
-      getMutableConfig().log.symbolize_funcs,
+  jit_flagproc_add_bool(&fp,
+      "jit-symbolize", "PYTHONJITSYMBOLIZE",
+      &cfg.log.symbolize_funcs,
       "Enable or disable symbolization of functions called by JIT code");
 
-  flag_processor
-      .addOption(
-          "jit-dump-asm",
-          "PYTHONJITDUMPASM",
-          getMutableConfig().log.dump_asm,
-          "log the final compiled code, annotated with HIR instructions")
-      .withDebugMessageOverride("Dump asm of JITed functions");
+  jit_opt_set_debug_msg(
+      jit_flagproc_add_bool(&fp,
+          "jit-dump-asm", "PYTHONJITDUMPASM",
+          &cfg.log.dump_asm,
+          "log the final compiled code, annotated with HIR instructions"),
+      "Dump asm of JITed functions");
 
-  flag_processor.addOption(
+  jit_flagproc_add_bool(&fp,
       "jit-enable-inline-cache-stats-collection",
       "PYTHONJITCOLLECTINLINECACHESTATS",
-      getMutableConfig().collect_attr_cache_stats,
+      &cfg.collect_attr_cache_stats,
       "Collect inline cache stats (supported stats are cache misses for load "
       "method inline caches");
 
-  flag_processor.addOption(
-      "jit-gdb-support",
-      "PYTHONJITGDBSUPPORT",
-      [](bool value) {
-        getMutableConfig().log.debug = value;
-        getMutableConfig().gdb.supported = value;
-      },
+  jit_flagproc_add_callback(&fp,
+      "jit-gdb-support", "PYTHONJITGDBSUPPORT",
+      flag_cb_gdb_support, nullptr,
       "Enable or disable GDB support and JIT debug mode");
 
-  flag_processor.addOption(
-      "jit-gdb-write-elf",
-      "PYTHONJITGDBWRITEELF",
-      [](bool value) {
-        getMutableConfig().log.debug = value;
-        getMutableConfig().gdb.supported = value;
-        getMutableConfig().gdb.write_elf_objects = value;
-      },
+  jit_flagproc_add_callback(&fp,
+      "jit-gdb-write-elf", "PYTHONJITGDBWRITEELF",
+      flag_cb_gdb_write_elf, nullptr,
       "Debugging aid, GDB support with ELF output");
 
-  flag_processor.addOption(
-      "jit-dump-stats",
-      "PYTHONJITDUMPSTATS",
-      getMutableConfig().log.dump_stats,
+  jit_flagproc_add_bool(&fp,
+      "jit-dump-stats", "PYTHONJITDUMPSTATS",
+      &cfg.log.dump_stats,
       "Dump JIT runtime stats at shutdown");
 
-  flag_processor.addOption(
-      "jit-huge-pages",
-      "PYTHONJITHUGEPAGES",
-      getMutableConfig().use_huge_pages,
+  jit_flagproc_add_bool(&fp,
+      "jit-huge-pages", "PYTHONJITHUGEPAGES",
+      &cfg.use_huge_pages,
       "Enable or disable huge pages for compiled functions");
 
-  flag_processor.addOption(
+  jit_flagproc_add_bool(&fp,
       "jit-enable-jit-list-wildcards",
       "PYTHONJITENABLEJITLISTWILDCARDS",
-      getMutableConfig().allow_jit_list_wildcards,
+      &cfg.allow_jit_list_wildcards,
       "allow wildcards in JIT list");
 
-  flag_processor.addOption(
+  jit_flagproc_add_bool(&fp,
       "jit-all-static-functions",
       "PYTHONJITALLSTATICFUNCTIONS",
-      getMutableConfig().compile_all_static_functions,
+      &cfg.compile_all_static_functions,
       "JIT-compile all static functions");
 
-  flag_processor
-      .addOption(
-          "jit-list-file",
-          "PYTHONJITLISTFILE",
-          getMutableConfig().jit_list.filename,
-          "Load list of functions to compile from <filename>")
-      .withFlagParamName("filename");
+  jit_opt_set_param_name(
+      jit_flagproc_add_callback(&fp,
+          "jit-list-file", "PYTHONJITLISTFILE",
+          flag_cb_list_file, nullptr,
+          "Load list of functions to compile from <filename>"),
+      "filename");
 
-  flag_processor.addOption(
+  jit_flagproc_add_bool(&fp,
       "jit-list-fail-on-parse-error",
       "PYTHONJITLISTFAILONPARSEERROR",
-      getMutableConfig().jit_list.error_on_parse,
+      &cfg.jit_list.error_on_parse,
       "Raise a Python exception when a JIT list fails to parse");
 
-  flag_processor.addOption(
-      "jit-disable",
-      "PYTHONJITDISABLE",
-      [](int val) {
-        // Only update force_init if it wasn't already set.
-        if (val && !getConfig().force_init.has_value()) {
-          getMutableConfig().force_init = false;
-        }
-      },
+  jit_flagproc_add_callback(&fp,
+      "jit-disable", "PYTHONJITDISABLE",
+      flag_cb_disable_jit, nullptr,
       "disable the JIT");
 
-  flag_processor.addOption(
-      "jit-shadow-frame",
-      "PYTHONJITSHADOWFRAME",
-      [](int val) {
-        // Cinder's shadow frames are not supported in Python versions later
-        // than 3.10.
-        if constexpr (PY_VERSION_HEX >= 0x030B0000) {
-          return;
-        }
-        getMutableConfig().frame_mode =
-            val ? FrameMode::kShadow : FrameMode::kNormal;
-      },
+  jit_flagproc_add_callback(&fp,
+      "jit-shadow-frame", "PYTHONJITSHADOWFRAME",
+      flag_cb_shadow_frame, nullptr,
       "enable shadow frame mode");
 
-  flag_processor.addOption(
-      "jit-lightweight-frame",
-      "PYTHONJITLIGHTWEIGHTFRAME",
-      [](int val) {
-        if constexpr (PY_VERSION_HEX < 0x030C0000) {
-          JIT_DLOG(
-              "Lightweight frames are not supported in Python versions earlier "
-              "than 3.12");
-          return;
-        }
-        getMutableConfig().frame_mode =
-            val ? FrameMode::kLightweight : FrameMode::kNormal;
-      },
+  jit_flagproc_add_callback(&fp,
+      "jit-lightweight-frame", "PYTHONJITLIGHTWEIGHTFRAME",
+      flag_cb_lightweight_frame, nullptr,
       "Enable/disable JIT lightweight frames");
 
-  flag_processor.addOption(
-      "jit-stable-frame",
-      "PYTHONJITSTABLEFRAME",
-      getMutableConfig().stable_frame,
+  jit_flagproc_add_bool(&fp,
+      "jit-stable-frame", "PYTHONJITSTABLEFRAME",
+      &cfg.stable_frame,
       "Assume that data found in the Python frame is unchanged across "
       "function calls");
 
-  flag_processor.addOption(
+  jit_flagproc_add_size_t(&fp,
       "jit-preload-dependent-limit",
       "PYTHONJITPRELOADDEPENDENTLIMIT",
-      getMutableConfig().preload_dependent_limit,
+      &cfg.preload_dependent_limit,
       "When compiling a function, set the number of dependent functions that "
       "can be compiled along with it.");
 
   // HIR optimizations.
 
 #define HIR_OPTIMIZATION_OPTION(NAME, OPT, CLI, ENV) \
-  flag_processor.addOption(                          \
-      (CLI),                                         \
-      (ENV),                                         \
-      getMutableConfig().hir_opts.OPT,               \
+  jit_flagproc_add_bool(&fp,                         \
+      (CLI), (ENV),                                  \
+      &cfg.hir_opts.OPT,                             \
       "Enable the HIR " NAME " optimization pass")
 
   HIR_OPTIMIZATION_OPTION(
@@ -716,170 +760,154 @@ FlagProcessor initFlagProcessor() {
   HIR_OPTIMIZATION_OPTION(
       "simplify", simplify, "jit-simplify", "PYTHONJITSIMPLIFY");
 
-  flag_processor.addOption(
+  jit_flagproc_add_size_t(&fp,
       "jit-simplify-iteration-limit",
       "PYTHONJITSIMPLIFYITERATIONLIMIT",
-      getMutableConfig().simplifier.iteration_limit,
+      &cfg.simplifier.iteration_limit,
       "Set the maximum number of times the simplifier can run over a "
       "function");
-  flag_processor.addOption(
+  jit_flagproc_add_size_t(&fp,
       "jit-simplify-new-block-limit",
       "PYTHONJITSIMPLIFYNEWBLOCKLIMIT",
-      getMutableConfig().simplifier.new_block_limit,
+      &cfg.simplifier.new_block_limit,
       "Set the maximum number of blocks that can be added by the simplifier "
       "to a function");
-  flag_processor.addOption(
+  jit_flagproc_add_size_t(&fp,
       "jit-hir-inliner-cost-limit",
       "PYTHONJITHIRINLINERCOSTLIMIT",
-      getMutableConfig().inliner_cost_limit,
+      &cfg.inliner_cost_limit,
       "Limit how much the inliner is able to inline. The number's definition "
       "is only relevant to the inliner itself.");
 
-  flag_processor.addOption(
-      "jit-lir-inliner",
-      "PYTHONJITLIRINLINER",
-      getMutableConfig().lir_opts.inliner,
+  jit_flagproc_add_bool(&fp,
+      "jit-lir-inliner", "PYTHONJITLIRINLINER",
+      &cfg.lir_opts.inliner,
       "Enable the LIR inliner");
 
-  flag_processor
-      .addOption(
+  jit_opt_set_param_name(
+      jit_flagproc_add_size_t(&fp,
           "jit-batch-compile-workers",
           "PYTHONJITBATCHCOMPILEWORKERS",
-          getMutableConfig().batch_compile_workers,
-          "set the number of batch compile workers to <COUNT>")
-      .withFlagParamName("COUNT");
+          &cfg.batch_compile_workers,
+          "set the number of batch compile workers to <COUNT>"),
+      "COUNT");
 
-  flag_processor
-      .addOption(
+  jit_opt_set_hidden(
+      jit_flagproc_add_bool(&fp,
           "jit-multithreaded-compile-test",
           "PYTHONJITMULTITHREADEDCOMPILETEST",
-          getMutableConfig().multithreaded_compile_test,
-          "JIT multithreaded compile test")
-      .isHiddenFlag(true);
+          &cfg.multithreaded_compile_test,
+          "JIT multithreaded compile test"),
+      1);
 
-  flag_processor.addOption(
+  jit_flagproc_add_bool(&fp,
       "jit-list-match-line-numbers",
       "PYTHONJITLISTMATCHLINENUMBERS",
-      getMutableConfig().jit_list.match_line_numbers,
+      &cfg.jit_list.match_line_numbers,
       "JIT list match line numbers");
 
-  flag_processor
-      .addOption(
-          "jit-time",
-          "",
-          [](const std::string& flag_value) {
-            parseAndSetFuncList(flag_value);
-          },
-          "Measure time taken in compilation phases and output summary to "
-          "stderr or approperiate logfile. Only functions in comma separated "
-          "<function_list> list will be included. Comma separated list may "
-          "include wildcards, * and ?. Wildcards are processed in glob "
-          "fashion and not as regex.")
-      .withFlagParamName("function_list")
-      .withDebugMessageOverride(
-          "Will capture time taken in compilation phases and output summary");
+  jit_opt_set_debug_msg(
+      jit_opt_set_param_name(
+          jit_flagproc_add_callback(&fp,
+              "jit-time", "",
+              flag_cb_jit_time, nullptr,
+              "Measure time taken in compilation phases and output summary to "
+              "stderr or approperiate logfile. Only functions in comma separated "
+              "<function_list> list will be included. Comma separated list may "
+              "include wildcards, * and ?. Wildcards are processed in glob "
+              "fashion and not as regex."),
+          "function_list"),
+      "Will capture time taken in compilation phases and output summary");
 
-  flag_processor.addOption(
+  jit_flagproc_add_bool(&fp,
       "jit-multiple-code-sections",
       "PYTHONJITMULTIPLECODESECTIONS",
-      getMutableConfig().multiple_code_sections,
+      &cfg.multiple_code_sections,
       "Enable emitting code into multiple code sections.");
 
-  flag_processor.addOption(
+  jit_flagproc_add_size_t(&fp,
       "jit-hot-code-section-size",
       "PYTHONJITHOTCODESECTIONSIZE",
-      getMutableConfig().hot_code_section_size,
+      &cfg.hot_code_section_size,
       "Enable emitting code into multiple code sections.");
 
-  flag_processor.addOption(
+  jit_flagproc_add_size_t(&fp,
       "jit-cold-code-section-size",
       "PYTHONJITCOLDCODESECTIONSIZE",
-      getMutableConfig().cold_code_section_size,
+      &cfg.cold_code_section_size,
       "Enable emitting code into multiple code sections.");
 
-  flag_processor.addOption(
-      "jit-attr-caches",
-      "PYTHONJITATTRCACHES",
-      getMutableConfig().attr_caches,
+  jit_flagproc_add_bool(&fp,
+      "jit-attr-caches", "PYTHONJITATTRCACHES",
+      &cfg.attr_caches,
       "Use inline caches for attribute access instructions");
 
-  flag_processor.addOption(
-      "jit-attr-cache-size",
-      "PYTHONJITATTRCACHESIZE",
-      [](uint32_t entries) {
-        JIT_CHECK(
-            entries > 0 && entries <= 16,
-            "Using {} entries for attribute access inline "
-            "caches is not within the appropriate range",
-            entries);
-        getMutableConfig().attr_cache_size = entries;
-      },
+  jit_flagproc_add_callback(&fp,
+      "jit-attr-cache-size", "PYTHONJITATTRCACHESIZE",
+      flag_cb_attr_cache_size, nullptr,
       "Set the number of entries in the JIT's attribute access inline "
       "caches");
 
-  flag_processor.addOption(
+  jit_flagproc_add_bool(&fp,
       "jit-refine-static-python",
       "PYTHONJITREFINESTATICPYTHON",
-      getMutableConfig().refine_static_python,
+      &cfg.refine_static_python,
       "Add RefineType instructions to coerce Static Python types to be "
       "valid");
 
-  flag_processor.addOption(
-      "jit-perfmap",
-      "JIT_PERFMAP",
-      perf::jit_perfmap,
+  jit_flagproc_add_int(&fp,
+      "jit-perfmap", "JIT_PERFMAP",
+      &perf::jit_perfmap,
       "write out /tmp/perf-<pid>.map for JIT symbols");
 
-  flag_processor
-      .addOption(
-          "jit-perf-dumpdir",
-          "JIT_DUMPDIR",
-          perf::perf_jitdump_dir,
+  jit_opt_set_param_name(
+      jit_flagproc_add_callback(&fp,
+          "jit-perf-dumpdir", "JIT_DUMPDIR",
+          flag_cb_perf_dumpdir, nullptr,
           "absolute path to a <DIRECTORY> that exists. A perf jitdump file "
-          "will be written to this directory")
-      .withFlagParamName("DIRECTORY");
+          "will be written to this directory"),
+      "DIRECTORY");
 
-  flag_processor.addOption(
-      "jit-help", "", [] {}, "print all available JIT flags and exits");
+  jit_flagproc_add_callback(&fp,
+      "jit-help", "",
+      flag_cb_noop, nullptr,
+      "print all available JIT flags and exits");
 
-  flag_processor.addOption(
+  jit_flagproc_add_bool(&fp,
       "perf-trampoline-prefork-compilation",
       "PERFTRAMPOLINEPREFORKCOMPILATION",
-      getMutableConfig().compile_perf_trampoline_prefork,
+      &cfg.compile_perf_trampoline_prefork,
       "Compile perf trampoline pre-fork");
 
-  flag_processor.addOption(
-      "jit-max-code-size",
-      "PYTHONJITMAXCODESIZE",
-      [](const std::string& val) {
-        getMutableConfig().max_code_size = parse_sized_argument(val);
-      },
+  jit_flagproc_add_callback(&fp,
+      "jit-max-code-size", "PYTHONJITMAXCODESIZE",
+      flag_cb_max_code_size, nullptr,
       "Set the maximum code size for JIT in bytes (no suffix). For kilobytes "
       "use k or K as a suffix. "
       "Megabytes is m or M and gigabytes is g or G. 0 implies no limit.");
 
-  flag_processor.addOption(
+  jit_flagproc_add_bool(&fp,
       "jit-emit-type-annotation-guards",
       "PYTHONJITTYPEANNOTATIONGUARDS",
-      getMutableConfig().emit_type_annotation_guards,
+      &cfg.emit_type_annotation_guards,
       "Generate runtime checks that validate type annotations to specialize "
       "generated code.");
 
-  flag_processor.addOption(
+  jit_flagproc_add_bool(&fp,
       "jit-specialized-opcodes",
       "PYTHONJITSPECIALIZEDOPCODES",
-      getMutableConfig().specialized_opcodes,
+      &cfg.specialized_opcodes,
       "JIT specialized opcodes or to fall back to their generic counterparts.");
 
 #if PY_VERSION_HEX >= 0x030C0000
-  flag_processor.addOption(
+  jit_flagproc_add_bool(&fp,
       "jit-support-instrumentation",
       "PYTHONJITSUPPORTINSTRUMENTATION",
-      getMutableConfig().support_instrumentation,
+      &cfg.support_instrumentation,
       "Support instrumentation (e.g. monitoring/tracing/profiling)");
 #endif
 
-  flag_processor.setFlags(PySys_GetXOptions());
+  jit_flagproc_set_flags(&fp, PySys_GetXOptions());
 
   // T198250666: Bit of a hack but this makes other things easier.  In 3.12 all
   // functions need access to the runtime PyFunctionObject, which prevents
@@ -896,7 +924,7 @@ FlagProcessor initFlagProcessor() {
     getMutableConfig().hir_opts.inliner = false;
   }
 
-  return flag_processor;
+  return fp;
 }
 
 /*
@@ -3636,11 +3664,13 @@ int initialize() {
     getMutableConfig().force_init = force_init;
   }
 
-  FlagProcessor flag_processor = initFlagProcessor();
-  if (flag_processor.hasHandled("jit-help")) {
-    std::cout << flag_processor.jitXOptionHelpMessage() << '\n';
+  JitFlagProcessor flag_processor = initFlagProcessor();
+  if (jit_flagproc_has_handled(&flag_processor, "jit-help")) {
+    jit_flagproc_print_help(&flag_processor, stdout);
+    jit_flagproc_free(&flag_processor);
     return -2;
   }
+  jit_flagproc_free(&flag_processor);
 
   // Handle force_init = false case only after parsing all flags.
   if (getConfig().force_init == std::make_optional(false)) {
