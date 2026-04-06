@@ -96,7 +96,7 @@ operand_to_gp_output(const LirOperand *op) {
 
 static inline PhxGp
 operand_to_fp(const LirOperand *op) {
-    int reg = lir_operand_get_phy_register(op).loc;
+    int reg = lir_operand_get_phy_register(op).loc - PHYLOC_VECD_REG_BASE;
     return (PhxGp){(uint8_t)reg, 8};
 }
 
