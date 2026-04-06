@@ -193,8 +193,15 @@ frame_asm_c_link_normal_generator_frame(
 
     phx_x86_mov_ri(pb, rsi, (int64_t)full_words);
     phx_x86_mov_ri(pb, rdx, (int64_t)(uintptr_t)code_rt_ptr);
-    /* lea rcx, [gen_resume_entry_label] — need label */
-    /* For now, skip label-dependent code — will wire when label C API is ready */
+    {
+        /* lea rcx, [gen_resume_entry_label] */
+        PhxLabel *lbl = (PhxLabel *)jit_environ_get_gen_resume_entry_label(env);
+        PhxMem label_mem = {0};
+        label_mem.is_label_rel = 1;
+        label_mem.label_id = lbl->id;
+        label_mem.size = 8;
+        phx_x86_lea(pb, rcx, label_mem);
+    }
     phx_x86_mov_rr(pb, r8, rbp);
     phx_x86_mov_ri(pb, PHX_R11,
         (int64_t)(uintptr_t)JITRT_AllocateAndLinkGenAndInterpreterFrame);
@@ -210,7 +217,12 @@ frame_asm_c_link_normal_generator_frame(
 
     phx_a64_mov_ri(pb, x1, full_words);
     phx_a64_mov_ri(pb, x2, (uint64_t)(uintptr_t)code_rt_ptr);
-    /* adr x3, gen_resume_entry_label — need label C API */
+    {
+        /* adr x3, gen_resume_entry_label */
+        PhxLabel *lbl = (PhxLabel *)jit_environ_get_gen_resume_entry_label(env);
+        PhxGp x3 = {3, 8};
+        phx_a64_adr(pb, x3, *lbl);
+    }
     phx_a64_mov_rr(pb, x4, fp);
     phx_a64_mov_ri(pb, scratch_br,
         (uint64_t)(uintptr_t)JITRT_AllocateAndLinkGenAndInterpreterFrame);
