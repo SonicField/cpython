@@ -20,10 +20,9 @@
 #include "jit/phoenix_asm/phoenix_asm.h"
 #include "cinderx/Jit/codegen/register_preserver_c.h"
 
-/* JITRT_AllocateAndLinkGenAndInterpreterFrame is a C++ function
- * whose address is loaded into a register for BLR/CALL. We only
- * need its address, not its signature, from C code. */
-extern void JITRT_AllocateAndLinkGenAndInterpreterFrame(void);
+/* Generator frame allocation — address obtained via C API bridge
+ * (jit_rt_get_alloc_link_gen_frame_addr) because the C++ function
+ * has C++ name mangling and a std::pair return type. */
 #if defined(CINDER_X86_64)
 #include "jit/phoenix_asm/x86_64.h"
 #elif defined(CINDER_AARCH64)
@@ -204,7 +203,7 @@ frame_asm_c_link_normal_generator_frame(
     }
     phx_x86_mov_rr(pb, r8, rbp);
     phx_x86_mov_ri(pb, PHX_R11,
-        (int64_t)(uintptr_t)JITRT_AllocateAndLinkGenAndInterpreterFrame);
+        (int64_t)(uintptr_t)jit_rt_get_alloc_link_gen_frame_addr());
     phx_x86_call_r(pb, PHX_R11);
     phx_x86_mov_rr(pb, tstate_reg, rax);
     phx_x86_mov_rr(pb, rbp, rdx);
@@ -225,7 +224,7 @@ frame_asm_c_link_normal_generator_frame(
     }
     phx_a64_mov_rr(pb, x4, fp);
     phx_a64_mov_ri(pb, scratch_br,
-        (uint64_t)(uintptr_t)JITRT_AllocateAndLinkGenAndInterpreterFrame);
+        (uint64_t)(uintptr_t)jit_rt_get_alloc_link_gen_frame_addr());
     phx_a64_blr(pb, scratch_br);
     phx_a64_mov_rr(pb, tstate_reg, x0);
     phx_a64_mov_rr(pb, fp, x1);

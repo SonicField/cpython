@@ -275,6 +275,7 @@ void *jit_code_rt_get_reifier(void *code_rt);
 void *jit_rt_get_unlink_frame_addr(void);
 void *jit_rt_get_alloc_link_frame_debug_addr(void);
 void *jit_rt_get_alloc_link_frame_release_addr(void);
+void *jit_rt_get_alloc_link_gen_frame_addr(void);
 
 /* Block→Label mapping for branch targets */
 PhxLabel jit_environ_get_block_label(void *env, const LirBasicBlock *block);

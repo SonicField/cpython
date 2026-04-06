@@ -518,3 +518,8 @@ extern "C" void*
 jit_rt_get_alloc_link_frame_release_addr(void) {
   return reinterpret_cast<void*>(JITRT_AllocateAndLinkInterpreterFrame_Release);
 }
+
+extern "C" void*
+jit_rt_get_alloc_link_gen_frame_addr(void) {
+  return reinterpret_cast<void*>(JITRT_AllocateAndLinkGenAndInterpreterFrame);
+}
