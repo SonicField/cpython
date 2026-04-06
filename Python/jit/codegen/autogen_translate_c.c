@@ -1703,22 +1703,7 @@ x86_translateMove(void *env, const LirInstruction *instr) {
     const LirOperand *output = &instr->output_;
     const LirOperand *input = instr->inputs_[0];
 
-    /* DEBUG: log Move patterns to find 5th bug */
-    if (getenv("JIT_MOVE_DEBUG")) {
-        uint8_t ot = lir_operand_type(output);
-        uint8_t it = lir_operand_type(input);
-        uint8_t odt = lir_operand_data_type(output);
-        uint8_t idt = lir_operand_data_type(input);
-        int ofp = x86_is_vecd(output);
-        int ifp = x86_is_vecd(input);
-        int ofp2 = lir_operand_is_fp(output);
-        int ifp2 = lir_operand_is_fp(input);
-        if (ofp != ofp2 || ifp != ifp2) {
-            fprintf(stderr, "MOVE FP MISMATCH: out_type=%d in_type=%d "
-                    "out_dt=%d in_dt=%d vecd=%d/%d is_fp=%d/%d\n",
-                    ot, it, odt, idt, ofp, ifp, ofp2, ifp2);
-        }
-    }
+
     int out_fp = x86_is_vecd(output);
     int in_fp = x86_is_vecd(input);
     uint8_t out_dt = lir_operand_data_type(output);
