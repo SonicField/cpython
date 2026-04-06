@@ -31,6 +31,11 @@
 
 namespace jit::codegen {
 
+/* JIT codegen fingerprint — CRC32 per compiled function for regression detection.
+ * Enable via JIT_FINGERPRINT=<path> environment variable. */
+void jit_fingerprint_init(const char* path = nullptr);
+void jit_fingerprint_shutdown();
+
 class NativeGenerator {
  public:
   explicit NativeGenerator(const hir::Function* func);

@@ -445,6 +445,53 @@ PyObject* resumeInInterpreter(
 
 #endif
 
+/* ---- JIT Codegen Fingerprint ---- */
+
+static FILE* jit_fingerprint_file = nullptr;
+
+void jit_fingerprint_init(const char* path) {
+  if (path == nullptr) {
+    path = getenv("JIT_FINGERPRINT");
+  }
+  if (path && path[0]) {
+    jit_fingerprint_file = fopen(path, "w");
+  }
+}
+
+void jit_fingerprint_shutdown() {
+  if (jit_fingerprint_file) {
+    fclose(jit_fingerprint_file);
+    jit_fingerprint_file = nullptr;
+  }
+}
+
+static uint32_t crc32_simple(const uint8_t* data, size_t len) {
+  uint32_t crc = 0xFFFFFFFF;
+  for (size_t i = 0; i < len; i++) {
+    crc ^= data[i];
+    for (int j = 0; j < 8; j++) {
+      crc = (crc >> 1) ^ (0xEDB88320 & -(crc & 1));
+    }
+  }
+  return ~crc;
+}
+
+static int jit_fingerprint_checked = 0;
+
+static void jit_fingerprint_record(const char* name, void* addr, size_t size) {
+  if (!jit_fingerprint_checked) {
+    jit_fingerprint_checked = 1;
+    jit_fingerprint_init(nullptr);
+    if (jit_fingerprint_file) {
+      atexit(jit_fingerprint_shutdown);
+    }
+  }
+  if (!jit_fingerprint_file) return;
+  uint32_t crc = crc32_simple((const uint8_t*)addr, size);
+  fprintf(jit_fingerprint_file, "%08x %zu %s\n", crc, size, name);
+  fflush(jit_fingerprint_file);
+}
+
 void* finalizeCode(arch::Builder& builder, std::string_view name) {
   if (auto err = builder.finalize(); err != kErrorOk) {
     throw std::runtime_error{fmt::format(
@@ -462,6 +509,11 @@ void* finalizeCode(arch::Builder& builder, std::string_view name) {
         name,
         DebugUtils::errorAsString(result.error))};
   }
+
+  /* Record fingerprint if enabled */
+  size_t code_size = builder.code()->codeSize();
+  jit_fingerprint_record(std::string(name).c_str(), result.addr, code_size);
+
   return result.addr;
 }
 
