@@ -602,9 +602,12 @@ static uint32_t encode_fp_dp2(int ftype, uint32_t fp_op,
  * rewrite mem to [X16] with offset=0.  ARM64 has no disp32-absolute
  * addressing mode, so this is required for any `ptr(uint64_t)` operand.
  *
- * X16 (IP0) is the intra-procedure-call scratch register — the linker
- * and veneers may clobber it, so it is safe for the JIT to use as a
- * temporary between instructions.
+ * X16 (IP0) is the sole assembler scratch register.  It is in
+ * DISALLOWED_REGISTERS so the register allocator never assigns live
+ * values to it.  Each use MUST be a write-then-immediate-consume pair
+ * (MOV X16, val → use X16 in next instruction → X16 is dead).
+ * If a future instruction needs two scratch registers simultaneously,
+ * reserve X17 (IP1) in DISALLOWED_REGISTERS as the second scratch.
  */
 static PhxMem resolve_abs_addr(PhxBuilder *b, PhxMem mem) {
     if (!mem.is_abs_addr) return mem;
