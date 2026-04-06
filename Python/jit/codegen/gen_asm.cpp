@@ -504,7 +504,7 @@ void* finalizeCode(arch::Builder& builder, std::string_view name) {
    * deterministic (no ASLR-dependent absolute addresses). */
   auto* text_section = builder.code()->textSection();
   size_t pre_reloc_size = text_section->realSize();
-  const uint8_t* pre_reloc_data = text_section->buffer().data();
+  const uint8_t* pre_reloc_data = text_section->data();
   jit_fingerprint_record(
       std::string(name).c_str(),
       const_cast<void*>(static_cast<const void*>(pre_reloc_data)),
