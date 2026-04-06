@@ -240,7 +240,11 @@ PyObject* forcedJitVectorcall(
         isJitCompiled(func),
         "JIT succeeded for function {} but it is not recognized as compiled",
         funcFullname(func));
-    jit_log_compile(funcFullname(func).c_str(), 0, 0);
+    {
+      size_t sz = 0;
+      if (auto *cf = jitCtx()->lookupFunc(func)) { sz = cf->codeSize(); }
+      jit_log_compile(funcFullname(func).c_str(), 0, sz);
+    }
     return func->vectorcall(func_obj, stack, nargsf, kwnames);
   }
 
@@ -1784,7 +1788,9 @@ PyObject* force_compile(PyObject* /* self */, PyObject* arg) {
 
   _PyJIT_Result result = compileFunction(func);
   if (result == PYJIT_RESULT_OK) {
-    jit_log_compile(funcFullname(func).c_str(), 1, 0);
+    size_t sz = 0;
+    if (auto *cf = jitCtx()->lookupFunc(func)) { sz = cf->codeSize(); }
+    jit_log_compile(funcFullname(func).c_str(), 1, sz);
   }
   switch (result) {
     case PYJIT_RESULT_OK:
