@@ -773,6 +773,10 @@ frame_asm_c_link_lightweight_function_frame(
             jit_arch_ptr_resolve(pb, fp, FRM_OFF(owner), scratch1, 4));
     }
 
+    /* Set frame_obj = NULL (must be zeroed before frame chain walking) */
+    phx_a64_str(pb, xzr,
+        jit_arch_ptr_resolve(pb, fp, FRM_OFF(frame_obj), scratch1, 8));
+
     /* Get topmost frame */
 #if PY_VERSION_HEX >= 0x030D0000
     PhxGp frame_holder = tstate_reg;
