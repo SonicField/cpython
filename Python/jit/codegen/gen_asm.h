@@ -9,7 +9,6 @@
 #include "cinderx/Jit/bitvector.h"
 #include "cinderx/Jit/codegen/arch.h"
 #include "cinderx/Jit/codegen/environ.h"
-#include "cinderx/Jit/codegen/frame_asm.h"
 #include "cinderx/Jit/codegen/frame_asm_c.h"
 #include "cinderx/Jit/codegen/register_preserver.h"
 #include "cinderx/Jit/hir/hir.h"
@@ -98,8 +97,6 @@ class NativeGenerator {
   void* deopt_trampoline_{nullptr};
   void* deopt_trampoline_generators_{nullptr};
   void* const failed_deferred_compile_trampoline_;
-  FrameAsm frame_asm_;
-
   size_t compiled_size_{0};
   int spill_stack_size_{-1};
   int inline_stack_size_;

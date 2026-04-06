@@ -1289,7 +1289,6 @@ NativeGenerator::NativeGenerator(
       deopt_trampoline_{deopt_trampoline},
       deopt_trampoline_generators_{deopt_trampoline_generators},
       failed_deferred_compile_trampoline_{failed_deferred_compile_trampoline},
-      frame_asm_{func, env_},
       inline_stack_size_{calcInlineStackSize(func)} {
   env_.has_inlined_functions = inline_stack_size_ > 0;
 }
@@ -1695,9 +1694,6 @@ void NativeGenerator::saveCallerRegisters(
     const FrameInfo& frame_info,
     [[maybe_unused]] arch::Gp tstate_reg) {
 #if defined(CINDER_X86_64)
-#ifdef ENABLE_SHADOW_FRAMES
-  frame_asm_.initializeFrameHeader(tstate_reg, x86::rax);
-#endif
   // Push used callee-saved registers.
   auto saved_regs = frame_info.saved_regs;
   while (!saved_regs.Empty()) {
@@ -1709,9 +1705,6 @@ void NativeGenerator::saveCallerRegisters(
     phx_x86_sub_ri(as_->impl(), x86::rsp, frame_info.arg_buffer_size);
   }
 #elif defined(CINDER_AARCH64)
-#ifdef ENABLE_SHADOW_FRAMES
-  frame_asm_.initializeFrameHeader(tstate_reg, a64::x0);
-#endif
   // Push used callee-saved registers.
   saveCalleeSavedRegsAarch64(as_, frame_info.saved_regs);
 
