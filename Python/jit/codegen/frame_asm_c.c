@@ -166,3 +166,56 @@ frame_asm_c_link_normal_generator_frame(
     phx_a64_mov_rr(pb, fp, x1);
 #endif
 }
+
+/* ================================================================
+ * incRef — emit inline reference count increment
+ *
+ * GIL-enabled path only (Py_GIL_DISABLED is a separate, more complex path
+ * that will be converted when the GIL-disabled build is targeted).
+ * ================================================================ */
+
+#ifndef Py_GIL_DISABLED
+
+void
+frame_asm_c_inc_ref(void *env, PhxGp obj_reg, PhxGp scratch_reg) {
+    PhxBuilder *pb = get_builder(env);
+    PhxLabel immortal = phx_builder_new_label(pb);
+
+#if defined(CINDER_X86_64)
+    /* Load ob_refcnt (32-bit), increment, check immortal */
+    PhxGp scratch32 = {scratch_reg.id, 4};
+    phx_x86_mov_rm(pb, scratch32,
+        phx_dword_ptr(obj_reg, offsetof(PyObject, ob_refcnt)));
+    phx_x86_inc_r(pb, scratch32);
+#if PY_VERSION_HEX >= 0x030E0000
+    phx_x86_js(pb, immortal);
+#else
+    phx_x86_je(pb, immortal);
+#endif
+    /* mortal — store back */
+    phx_x86_mov_mr(pb,
+        phx_dword_ptr(obj_reg, offsetof(PyObject, ob_refcnt)), scratch32);
+
+    phx_builder_bind(pb, immortal);
+
+#elif defined(CINDER_AARCH64)
+    PhxGp scratch_w = {scratch_reg.id, 4};
+    /* Load ob_refcnt (32-bit) */
+    phx_a64_ldr(pb, scratch_w,
+        jit_arch_ptr_offset(obj_reg, offsetof(PyObject, ob_refcnt), 4));
+    /* adds — sets flags for immortal check */
+    phx_a64_adds_rri(pb, scratch_w, scratch_w, 1);
+#if PY_VERSION_HEX >= 0x030E0000
+    phx_a64_b_mi(pb, immortal);
+#else
+    phx_a64_b_eq(pb, immortal);
+#endif
+    /* mortal — store back */
+    phx_a64_str(pb, scratch_w,
+        jit_arch_ptr_offset(obj_reg, offsetof(PyObject, ob_refcnt), 4));
+
+    phx_builder_bind(pb, immortal);
+#endif
+}
+
+#endif /* !Py_GIL_DISABLED */

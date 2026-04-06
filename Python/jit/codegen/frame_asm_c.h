@@ -23,6 +23,11 @@ void frame_asm_c_load_tstate(void *env, PhxGp dst_reg);
 void frame_asm_c_link_normal_generator_frame(
     void *env, PhxGp tstate_reg, void *code_rt_ptr);
 
+/* Emit inline incRef (GIL-enabled path) */
+#ifndef Py_GIL_DISABLED
+void frame_asm_c_inc_ref(void *env, PhxGp obj_reg, PhxGp scratch_reg);
+#endif
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
