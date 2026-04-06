@@ -485,14 +485,38 @@ static int jit_fingerprint_checked = 0;
 static void normalize_code(const uint8_t* src, uint8_t* dst, size_t len) {
   memcpy(dst, src, len);
 #if defined(CINDER_X86_64)
-  /* x86_64: MOV r64, imm64 = REX.W (0x48/0x49) + 0xB8-0xBF + 8 bytes imm.
-   * Zero the 8-byte immediate. */
-  for (size_t i = 0; i + 9 < len; ) {
-    if ((dst[i] == 0x48 || dst[i] == 0x49) &&
+  /* x86_64: Zero ASLR-dependent immediates for deterministic hashing.
+   *
+   * 1. MOV r64, imm64 = REX.W (0x48/0x49) + 0xB8-0xBF + 8 bytes imm
+   * 2. CALL rel32 = 0xE8 + 4 bytes displacement
+   * 3. JMP rel32  = 0xE9 + 4 bytes displacement
+   * 4. Jcc rel32  = 0x0F + 0x80-0x8F + 4 bytes displacement
+   */
+  for (size_t i = 0; i < len; ) {
+    /* MOV r64, imm64 (10 bytes) */
+    if (i + 9 < len &&
+        (dst[i] == 0x48 || dst[i] == 0x49) &&
         dst[i + 1] >= 0xB8 && dst[i + 1] <= 0xBF) {
       memset(&dst[i + 2], 0, 8);
       i += 10;
-    } else {
+    }
+    /* CALL rel32 (5 bytes) */
+    else if (i + 4 < len && dst[i] == 0xE8) {
+      memset(&dst[i + 1], 0, 4);
+      i += 5;
+    }
+    /* JMP rel32 (5 bytes) */
+    else if (i + 4 < len && dst[i] == 0xE9) {
+      memset(&dst[i + 1], 0, 4);
+      i += 5;
+    }
+    /* Jcc rel32 (6 bytes: 0x0F + 0x80-0x8F + 4 bytes) */
+    else if (i + 5 < len && dst[i] == 0x0F &&
+             dst[i + 1] >= 0x80 && dst[i + 1] <= 0x8F) {
+      memset(&dst[i + 2], 0, 4);
+      i += 6;
+    }
+    else {
       i++;
     }
   }
