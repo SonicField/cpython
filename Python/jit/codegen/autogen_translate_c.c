@@ -1657,7 +1657,8 @@ x86_operand_to_mem(const LirOperand *op) {
             m = phx_ptr(base, offset);
         } else {
             PhxGp idx = {(uint8_t)lir_operand_get_phy_register(idx_op).loc, 8};
-            m = phx_ptr_index(base, idx, lir_memind_multiplier(ind), offset);
+            uint8_t shift = lir_memind_multiplier(ind);
+            m = phx_ptr_index(base, idx, 1u << shift, offset);
         }
         m.size = (uint8_t)(size_bits / 8);
         if (m.size == 0) m.size = 8;
