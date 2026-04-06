@@ -487,8 +487,10 @@ static void jit_fingerprint_record(const char* name, void* addr, size_t size) {
     }
   }
   if (!jit_fingerprint_file) return;
-  uint32_t crc = crc32_simple((const uint8_t*)addr, size);
-  fprintf(jit_fingerprint_file, "%08x %zu %s\n", crc, size, name);
+  /* Record size only — CRC32 is non-deterministic due to ASLR
+   * (C runtime addresses embedded as immediates during codegen).
+   * Size changes = codegen structural changes. Deterministic. */
+  fprintf(jit_fingerprint_file, "%zu %s\n", size, name);
   fflush(jit_fingerprint_file);
 }
 
