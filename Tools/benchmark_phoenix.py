@@ -40,6 +40,16 @@ import sys
 import time
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Early JIT init — must happen BEFORE function definitions so the func
+# watcher can install the counting trampoline on module-level functions.
+# Without this, functions defined before JIT init never auto-compile.
+# ═══════════════════════════════════════════════════════════════════════════
+try:
+    import _cinderx
+except ImportError:
+    pass
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Configuration defaults
 # ═══════════════════════════════════════════════════════════════════════════
 
