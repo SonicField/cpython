@@ -2085,7 +2085,10 @@ autogen_c_dispatch(void *env, const LirInstruction *instr) {
     case JIT_LIR_OP_GREATERTHANEQUALUNSIGNED: case JIT_LIR_OP_LESSTHANEQUALUNSIGNED:
         autogen_c_TranslateCompare(env, instr); return 1;
     case JIT_LIR_OP_INTTOBOOL: x86_translateIntToBool(env, instr); return 1;
-    case JIT_LIR_OP_MOVE: case JIT_LIR_OP_MOVERELAXED: x86_translateMove(env, instr); return 1;
+    /* Move/MoveRelaxed: C translateMove has a residual codegen bug
+     * (kOut sizing partially fixed but R13 still gets garbage).
+     * Falls through to C++ trie until debugged with GDB. */
+    /* case JIT_LIR_OP_MOVE: case JIT_LIR_OP_MOVERELAXED: x86_translateMove(env, instr); return 1; */
     case JIT_LIR_OP_ADD: x86_translateAdd(env, instr); return 1;
     case JIT_LIR_OP_SUB: x86_translateSub(env, instr); return 1;
     case JIT_LIR_OP_AND: x86_translateAnd(env, instr); return 1;
