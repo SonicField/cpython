@@ -1050,14 +1050,6 @@ Register* simplifyUnaryOp(Env& env, const UnaryOp* instr) {
     return env.emit<PrimitiveBoxBool>(negated);
   }
 
-  if (instr->op() == UnaryOpKind::kInvert && operand->isA(TBool)) {
-    env.emit<UseType>(operand, TBool);
-    Register* unboxed = env.emit<PrimitiveUnbox>(operand, TCBool);
-    Register* inverted =
-        env.emit<PrimitiveUnaryOp>(PrimitiveUnaryOpKind::kInvertInt, unboxed);
-    return env.emit<PrimitiveBox>(inverted, TCInt64, *instr->frameState());
-  }
-
   return nullptr;
 }
 
