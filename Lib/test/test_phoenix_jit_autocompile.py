@@ -34,6 +34,9 @@ class TestJitAutoCompile(unittest.TestCase):
         expected = func(*args)
         for _ in range(WARMUP):
             func(*args)
+        # Verify the JIT actually compiled this function
+        self.assertTrue(cinderjit.is_jit_compiled(func),
+                        f"{func.__name__} was NOT JIT-compiled after {WARMUP} calls")
         result = func(*args)
         self.assertEqual(expected, result,
                          f"{func.__name__}: expected={expected!r}, got={result!r}")
@@ -44,6 +47,8 @@ class TestJitAutoCompile(unittest.TestCase):
         expected = func(*args)
         for _ in range(WARMUP):
             func(*args)
+        self.assertTrue(cinderjit.is_jit_compiled(func),
+                        f"{func.__name__} was NOT JIT-compiled after {WARMUP} calls")
         result = func(*args)
         if isinstance(expected, float) and isinstance(result, float):
             self.assertAlmostEqual(expected, result, places=9,
