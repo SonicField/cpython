@@ -1620,58 +1620,476 @@ autogen_c_dispatch(void *env, const LirInstruction *instr) {
 #endif /* CINDER_AARCH64 */
 
 /* ================================================================
- * x86_64 dispatch — handles cross-arch CALL_C opcodes only.
- * ASM() opcodes stay in the C++ trie.
+ * x86_64 translate functions — C implementations replacing the
+ * C++ trie/DSL-based autogen for all non-Yield opcodes.
  * ================================================================ */
 
 #if defined(CINDER_X86_64)
 
-/* x86_64 IntToBool */
+/* ---- x86_64 helper: LIR operand → PhxMem ---- */
+static PhxMem
+x86_operand_to_mem(const LirOperand *op) {
+    PhxMem m = {0};
+    uint32_t size_bits = lir_operand_size_in_bits(op);
+    m.size = (uint8_t)(size_bits / 8);
+    if (m.size == 0) m.size = 8;
+
+    if (op->type_ == JIT_LIR_OPTYPE_STACK) {
+        PhxGp rbp = {5, 8};
+        m = phx_ptr(rbp, lir_operand_get_stack_slot(op).loc);
+        m.size = (uint8_t)(size_bits / 8);
+        if (m.size == 0) m.size = 8;
+    } else if (op->type_ == JIT_LIR_OPTYPE_MEM) {
+        /* Absolute address — SIB disp32 encoding */
+        uint64_t addr = (uint64_t)(uintptr_t)lir_operand_get_mem_address(op);
+        m.offset = (int32_t)addr;
+        m.base_id = 0xFF; /* no base */
+        m.size = (uint8_t)(size_bits / 8);
+        if (m.size == 0) m.size = 8;
+    } else if (op->type_ == JIT_LIR_OPTYPE_IND) {
+        LirMemoryIndirect *ind = lir_operand_get_indirect(op);
+        LirOperand *base_op = lir_memind_base_reg(ind);
+        LirOperand *idx_op = lir_memind_index_reg(ind);
+        int32_t offset = lir_memind_offset(ind);
+        PhxGp base = {(uint8_t)lir_operand_get_phy_register(base_op).loc, 8};
+        if (idx_op == NULL || idx_op->type_ == JIT_LIR_OPTYPE_NONE) {
+            m = phx_ptr(base, offset);
+        } else {
+            PhxGp idx = {(uint8_t)lir_operand_get_phy_register(idx_op).loc, 8};
+            m = phx_ptr_index(base, idx, lir_memind_multiplier(ind), offset);
+        }
+        m.size = (uint8_t)(size_bits / 8);
+        if (m.size == 0) m.size = 8;
+    } else {
+        assert(0 && "bad operand type for x86 memory");
+    }
+    return m;
+}
+
+/* ---- x86_64 Move / MoveRelaxed ---- */
+static void
+x86_translateMove(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *output = &instr->output_;
+    const LirOperand *input = instr->inputs_[0];
+    int out_fp = lir_operand_is_fp(output);
+    int in_fp = lir_operand_is_fp(input);
+
+    switch (output->type_) {
+    case JIT_LIR_OPTYPE_REG:
+        switch (input->type_) {
+        case JIT_LIR_OPTYPE_REG:
+            if (out_fp && in_fp)       phx_x86_movsd_rr(pb, operand_to_fp(output), operand_to_fp(input));
+            else if (out_fp && !in_fp) phx_x86_movq_rr(pb, operand_to_fp(output), operand_to_gp(input));
+            else if (!out_fp && in_fp) phx_x86_movq_rr(pb, operand_to_gp(output), operand_to_fp(input));
+            else                       phx_x86_mov_rr(pb, operand_to_gp(output), operand_to_gp(input));
+            break;
+        case JIT_LIR_OPTYPE_IMM:
+            phx_x86_mov_ri(pb, operand_to_gp(output),
+                (int64_t)lir_operand_get_constant(input));
+            break;
+        case JIT_LIR_OPTYPE_STACK:
+        case JIT_LIR_OPTYPE_MEM:
+        case JIT_LIR_OPTYPE_IND:
+            if (out_fp) phx_x86_movsd_rm(pb, operand_to_fp(output), x86_operand_to_mem(input));
+            else        phx_x86_mov_rm(pb, operand_to_gp(output), x86_operand_to_mem(input));
+            break;
+        default: assert(0 && "bad Move input");
+        }
+        break;
+    case JIT_LIR_OPTYPE_STACK:
+    case JIT_LIR_OPTYPE_MEM:
+    case JIT_LIR_OPTYPE_IND: {
+        PhxMem mem = x86_operand_to_mem(output);
+        if (input->type_ == JIT_LIR_OPTYPE_REG) {
+            if (in_fp) phx_x86_movsd_mr(pb, mem, operand_to_fp(input));
+            else       phx_x86_mov_mr(pb, mem, operand_to_gp(input));
+        } else {
+            phx_x86_mov_mi(pb, mem, (int32_t)lir_operand_get_constant(input));
+        }
+        break;
+    }
+    default: assert(0 && "bad Move output");
+    }
+}
+
+/* ---- x86_64 binary op helper ---- */
+typedef void (*x86_binop_rr_fn)(PhxBuilder *, PhxGp, PhxGp);
+typedef void (*x86_binop_ri_fn)(PhxBuilder *, PhxGp, int32_t);
+typedef void (*x86_binop_rm_fn)(PhxBuilder *, PhxGp, PhxMem);
+
+static void
+x86_translateBinaryOp(void *env, const LirInstruction *instr,
+                      x86_binop_rr_fn rr, x86_binop_ri_fn ri, x86_binop_rm_fn rm) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *output = &instr->output_;
+    if (output->type_ == JIT_LIR_OPTYPE_NONE) {
+        /* 2-operand: dst = input[0], src = input[last] */
+        PhxGp dst = operand_to_gp(instr->inputs_[0]);
+        const LirOperand *src = instr->inputs_[instr->num_inputs_ - 1];
+        if (src->type_ == JIT_LIR_OPTYPE_IMM) ri(pb, dst, (int32_t)lir_operand_get_constant(src));
+        else if (src->type_ == JIT_LIR_OPTYPE_REG) rr(pb, dst, operand_to_gp(src));
+        else rm(pb, dst, x86_operand_to_mem(src));
+    } else {
+        /* 3-operand: output != input[0] */
+        PhxGp dst = operand_to_gp(output);
+        phx_x86_mov_rr(pb, dst, operand_to_gp(instr->inputs_[0]));
+        const LirOperand *src = instr->inputs_[1];
+        if (src->type_ == JIT_LIR_OPTYPE_IMM) ri(pb, dst, (int32_t)lir_operand_get_constant(src));
+        else if (src->type_ == JIT_LIR_OPTYPE_REG) rr(pb, dst, operand_to_gp(src));
+        else rm(pb, dst, x86_operand_to_mem(src));
+    }
+}
+
+static void x86_translateAdd(void *e, const LirInstruction *i) { x86_translateBinaryOp(e, i, phx_x86_add_rr, phx_x86_add_ri, phx_x86_add_rm); }
+static void x86_translateSub(void *e, const LirInstruction *i) { x86_translateBinaryOp(e, i, phx_x86_sub_rr, phx_x86_sub_ri, phx_x86_sub_rm); }
+static void x86_translateAnd(void *e, const LirInstruction *i) { x86_translateBinaryOp(e, i, phx_x86_and_rr, phx_x86_and_ri, phx_x86_and_rm); }
+static void x86_translateOr(void *e, const LirInstruction *i)  { x86_translateBinaryOp(e, i, phx_x86_or_rr, phx_x86_or_ri, phx_x86_or_rm); }
+static void x86_translateXor(void *e, const LirInstruction *i) { x86_translateBinaryOp(e, i, phx_x86_xor_rr, phx_x86_xor_ri, phx_x86_xor_rm); }
+
+static void x86_translateMul(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *output = &instr->output_;
+    if (output->type_ == JIT_LIR_OPTYPE_NONE) {
+        PhxGp dst = operand_to_gp(instr->inputs_[0]);
+        const LirOperand *src = instr->inputs_[instr->num_inputs_ - 1];
+        if (src->type_ == JIT_LIR_OPTYPE_IMM) phx_x86_imul_rri(pb, dst, dst, (int32_t)lir_operand_get_constant(src));
+        else if (src->type_ == JIT_LIR_OPTYPE_REG) phx_x86_imul_rr(pb, dst, operand_to_gp(src));
+        else phx_x86_imul_rm(pb, dst, x86_operand_to_mem(src));
+    } else {
+        PhxGp dst = operand_to_gp(output);
+        phx_x86_mov_rr(pb, dst, operand_to_gp(instr->inputs_[0]));
+        const LirOperand *src = instr->inputs_[1];
+        if (src->type_ == JIT_LIR_OPTYPE_IMM) phx_x86_imul_rri(pb, dst, dst, (int32_t)lir_operand_get_constant(src));
+        else if (src->type_ == JIT_LIR_OPTYPE_REG) phx_x86_imul_rr(pb, dst, operand_to_gp(src));
+        else phx_x86_imul_rm(pb, dst, x86_operand_to_mem(src));
+    }
+}
+
+/* ---- x86_64 Div / DivUn ---- */
+static void x86_translateDiv(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *divisor = instr->inputs_[instr->num_inputs_ - 1];
+    if (divisor->type_ == JIT_LIR_OPTYPE_STACK || divisor->type_ == JIT_LIR_OPTYPE_MEM || divisor->type_ == JIT_LIR_OPTYPE_IND)
+        phx_x86_idiv_m(pb, x86_operand_to_mem(divisor));
+    else
+        phx_x86_idiv_r(pb, operand_to_gp(divisor));
+}
+
+static void x86_translateDivUn(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *divisor = instr->inputs_[instr->num_inputs_ - 1];
+    if (divisor->type_ == JIT_LIR_OPTYPE_STACK || divisor->type_ == JIT_LIR_OPTYPE_MEM || divisor->type_ == JIT_LIR_OPTYPE_IND)
+        phx_x86_div_m(pb, x86_operand_to_mem(divisor));
+    else
+        phx_x86_div_r(pb, operand_to_gp(divisor));
+}
+
+/* ---- x86_64 FP binary ops ---- */
+static void x86_translateFadd(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    if (instr->output_.type_ != JIT_LIR_OPTYPE_NONE) {
+        phx_x86_movsd_rr(pb, operand_to_fp(&instr->output_), operand_to_fp(instr->inputs_[0]));
+        phx_x86_addsd_rr(pb, operand_to_fp(&instr->output_), operand_to_fp(instr->inputs_[1]));
+    } else {
+        phx_x86_addsd_rr(pb, operand_to_fp(instr->inputs_[0]), operand_to_fp(instr->inputs_[1]));
+    }
+}
+static void x86_translateFsub(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    if (instr->output_.type_ != JIT_LIR_OPTYPE_NONE) {
+        phx_x86_movsd_rr(pb, operand_to_fp(&instr->output_), operand_to_fp(instr->inputs_[0]));
+        phx_x86_subsd_rr(pb, operand_to_fp(&instr->output_), operand_to_fp(instr->inputs_[1]));
+    } else {
+        phx_x86_subsd_rr(pb, operand_to_fp(instr->inputs_[0]), operand_to_fp(instr->inputs_[1]));
+    }
+}
+static void x86_translateFmul(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    if (instr->output_.type_ != JIT_LIR_OPTYPE_NONE) {
+        phx_x86_movsd_rr(pb, operand_to_fp(&instr->output_), operand_to_fp(instr->inputs_[0]));
+        phx_x86_mulsd_rr(pb, operand_to_fp(&instr->output_), operand_to_fp(instr->inputs_[1]));
+    } else {
+        phx_x86_mulsd_rr(pb, operand_to_fp(instr->inputs_[0]), operand_to_fp(instr->inputs_[1]));
+    }
+}
+static void x86_translateFdiv(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    if (instr->output_.type_ != JIT_LIR_OPTYPE_NONE) {
+        phx_x86_movsd_rr(pb, operand_to_fp(&instr->output_), operand_to_fp(instr->inputs_[0]));
+        phx_x86_divsd_rr(pb, operand_to_fp(&instr->output_), operand_to_fp(instr->inputs_[1]));
+    } else {
+        phx_x86_divsd_rr(pb, operand_to_fp(instr->inputs_[0]), operand_to_fp(instr->inputs_[1]));
+    }
+}
+
+/* ---- x86_64 Lea ---- */
+static void x86_translateLea(void *env, const LirInstruction *instr) {
+    phx_x86_lea(get_builder(env), operand_to_gp(&instr->output_), x86_operand_to_mem(instr->inputs_[0]));
+}
+
+/* ---- x86_64 Negate / Invert ---- */
+static void x86_translateNegate(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *out = &instr->output_, *in = instr->inputs_[0];
+    if (out->type_ == JIT_LIR_OPTYPE_NONE) { phx_x86_neg_r(pb, operand_to_gp(in)); }
+    else if (in->type_ == JIT_LIR_OPTYPE_IMM) { phx_x86_mov_ri(pb, operand_to_gp(out), -(int64_t)lir_operand_get_constant(in)); }
+    else if (in->type_ == JIT_LIR_OPTYPE_REG) { PhxGp d = operand_to_gp(out); phx_x86_mov_rr(pb, d, operand_to_gp(in)); phx_x86_neg_r(pb, d); }
+    else { PhxGp d = operand_to_gp(out); phx_x86_mov_rm(pb, d, x86_operand_to_mem(in)); phx_x86_neg_r(pb, d); }
+}
+
+static void x86_translateInvert(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *out = &instr->output_, *in = instr->inputs_[0];
+    if (in->type_ == JIT_LIR_OPTYPE_IMM) { phx_x86_mov_ri(pb, operand_to_gp(out), ~(int64_t)lir_operand_get_constant(in)); }
+    else if (in->type_ == JIT_LIR_OPTYPE_REG) { PhxGp d = operand_to_gp(out); phx_x86_mov_rr(pb, d, operand_to_gp(in)); phx_x86_not_r(pb, d); }
+    else { PhxGp d = operand_to_gp(out); phx_x86_mov_rm(pb, d, x86_operand_to_mem(in)); phx_x86_not_r(pb, d); }
+}
+
+/* ---- x86_64 Inc / Dec ---- */
+static void x86_translateInc(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *op = instr->inputs_[0];
+    if (op->type_ == JIT_LIR_OPTYPE_STACK) phx_x86_inc_m(pb, x86_operand_to_mem(op));
+    else phx_x86_inc_r(pb, operand_to_gp(op));
+}
+
+static void x86_translateDec(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *op = instr->inputs_[0];
+    if (op->type_ == JIT_LIR_OPTYPE_STACK) phx_x86_dec_m(pb, x86_operand_to_mem(op));
+    else phx_x86_dec_r(pb, operand_to_gp(op));
+}
+
+/* ---- x86_64 Push / Pop ---- */
+static void x86_translatePush(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *op = instr->inputs_[0];
+    if (op->type_ == JIT_LIR_OPTYPE_IMM) phx_x86_push_i(pb, (int32_t)lir_operand_get_constant(op));
+    else if (op->type_ == JIT_LIR_OPTYPE_STACK) phx_x86_push_m(pb, x86_operand_to_mem(op));
+    else phx_x86_push_r(pb, operand_to_gp(op));
+}
+
+static void x86_translatePop(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *out = &instr->output_;
+    if (out->type_ == JIT_LIR_OPTYPE_STACK) phx_x86_pop_m(pb, x86_operand_to_mem(out));
+    else phx_x86_pop_r(pb, operand_to_gp(out));
+}
+
+/* ---- x86_64 Exchange ---- */
+static void x86_translateExchange(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *out = &instr->output_, *inp = instr->inputs_[0];
+    if (lir_operand_is_fp(out)) {
+        PhxGp a = operand_to_fp(out), b = operand_to_fp(inp);
+        phx_x86_pxor_rr(pb, a, b); phx_x86_pxor_rr(pb, b, a); phx_x86_pxor_rr(pb, a, b);
+    } else {
+        phx_x86_xchg_rr(pb, operand_to_gp(out), operand_to_gp(inp));
+    }
+}
+
+/* ---- x86_64 Cdq / Cqo ---- */
+static void x86_translateCdq(void *env, const LirInstruction *i) { (void)i; phx_x86_cdq(get_builder(env)); }
+static void x86_translateCqo(void *env, const LirInstruction *i) { (void)i; phx_x86_cqo(get_builder(env)); }
+
+/* ---- x86_64 MovZX / MovSX / MovSXD ---- */
+static void x86_translateMovZX(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *src = instr->inputs_[0];
+    PhxGp dst = operand_to_gp(&instr->output_);
+    if (src->type_ == JIT_LIR_OPTYPE_REG) phx_x86_movzx_rr(pb, dst, operand_to_gp(src));
+    else phx_x86_movzx_rm(pb, dst, x86_operand_to_mem(src));
+}
+
+static void x86_translateMovSX(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *src = instr->inputs_[0];
+    PhxGp dst = operand_to_gp(&instr->output_);
+    if (src->type_ == JIT_LIR_OPTYPE_REG) phx_x86_movsx_rr(pb, dst, operand_to_gp(src));
+    else phx_x86_movsx_rm(pb, dst, x86_operand_to_mem(src));
+}
+
+static void x86_translateMovSXD(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *src = instr->inputs_[0];
+    PhxGp dst = operand_to_gp(&instr->output_);
+    if (src->type_ == JIT_LIR_OPTYPE_REG) phx_x86_movsxd_rr(pb, dst, operand_to_gp(src));
+    else phx_x86_movsxd_rm(pb, dst, x86_operand_to_mem(src));
+}
+
+/* ---- x86_64 Cmp / Test / BitTest ---- */
+static void x86_translateCmp(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *a = instr->inputs_[0], *b = instr->inputs_[1];
+    if (a->type_ == JIT_LIR_OPTYPE_REG && b->type_ == JIT_LIR_OPTYPE_REG) phx_x86_cmp_rr(pb, operand_to_gp(a), operand_to_gp(b));
+    else if (a->type_ == JIT_LIR_OPTYPE_REG && b->type_ == JIT_LIR_OPTYPE_IMM) phx_x86_cmp_ri(pb, operand_to_gp(a), (int32_t)lir_operand_get_constant(b));
+    else if (a->type_ == JIT_LIR_OPTYPE_REG) phx_x86_cmp_rm(pb, operand_to_gp(a), x86_operand_to_mem(b));
+    else phx_x86_cmp_mr(pb, x86_operand_to_mem(a), operand_to_gp(b));
+}
+
+static void x86_translateTest(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *a = instr->inputs_[0], *b = instr->inputs_[1];
+    if (b->type_ == JIT_LIR_OPTYPE_IMM) phx_x86_test_ri(pb, operand_to_gp(a), (int32_t)lir_operand_get_constant(b));
+    else phx_x86_test_rr(pb, operand_to_gp(a), operand_to_gp(b));
+}
+
+static void x86_translateBitTest(void *env, const LirInstruction *instr) {
+    phx_x86_bt_ri(get_builder(env), operand_to_gp(instr->inputs_[0]),
+        (uint8_t)lir_operand_get_constant(instr->inputs_[1]));
+}
+
+/* ---- x86_64 Branch ---- */
+static void x86_translateBranch(void *env, const LirInstruction *instr) {
+    void *block = lir_operand_get_basic_block(instr->inputs_[0]);
+    phx_x86_jmp_label(get_builder(env),
+        jit_environ_get_block_label(env, (const LirBasicBlock *)block));
+}
+
+static void x86_translateCondBranch(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    void *block = lir_operand_get_basic_block(instr->inputs_[0]);
+    PhxLabel label = jit_environ_get_block_label(env, (const LirBasicBlock *)block);
+    int op = instr->opcode_;
+    if      (op == JIT_LIR_OP_BRANCHZ)  phx_x86_jz(pb, label);
+    else if (op == JIT_LIR_OP_BRANCHNZ) phx_x86_jnz(pb, label);
+    else if (op == JIT_LIR_OP_BRANCHA)  phx_x86_ja(pb, label);
+    else if (op == JIT_LIR_OP_BRANCHB)  phx_x86_jb(pb, label);
+    else if (op == JIT_LIR_OP_BRANCHAE) phx_x86_jae(pb, label);
+    else if (op == JIT_LIR_OP_BRANCHBE) phx_x86_jbe(pb, label);
+    else if (op == JIT_LIR_OP_BRANCHG)  phx_x86_jg(pb, label);
+    else if (op == JIT_LIR_OP_BRANCHL)  phx_x86_jl(pb, label);
+    else if (op == JIT_LIR_OP_BRANCHGE) phx_x86_jge(pb, label);
+    else if (op == JIT_LIR_OP_BRANCHLE) phx_x86_jle(pb, label);
+    else if (op == JIT_LIR_OP_BRANCHC)  phx_x86_jb(pb, label);
+    else if (op == JIT_LIR_OP_BRANCHNC) phx_x86_jae(pb, label);
+    else if (op == JIT_LIR_OP_BRANCHO)  phx_x86_jo(pb, label);
+    else if (op == JIT_LIR_OP_BRANCHNO) phx_x86_jno(pb, label);
+    else if (op == JIT_LIR_OP_BRANCHS)  phx_x86_js(pb, label);
+    else if (op == JIT_LIR_OP_BRANCHNS) phx_x86_jns(pb, label);
+    else if (op == JIT_LIR_OP_BRANCHE)  phx_x86_je(pb, label);
+    else if (op == JIT_LIR_OP_BRANCHNE) phx_x86_jne(pb, label);
+}
+
+/* ---- x86_64 Unreachable ---- */
+static void x86_translateUnreachable(void *env, const LirInstruction *i) {
+    (void)i; phx_x86_ud2(get_builder(env));
+}
+
+/* ---- x86_64 Call ---- */
+static void x86_translateCall(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    const LirOperand *target;
+    if (instr->output_.type_ != JIT_LIR_OPTYPE_NONE)
+        target = instr->inputs_[0];
+    else
+        target = instr->inputs_[0];
+
+    if (target->type_ == JIT_LIR_OPTYPE_REG)
+        phx_x86_call_r(pb, operand_to_gp(target));
+    else if (target->type_ == JIT_LIR_OPTYPE_STACK || target->type_ == JIT_LIR_OPTYPE_MEM || target->type_ == JIT_LIR_OPTYPE_IND)
+        phx_x86_call_m(pb, x86_operand_to_mem(target));
+    else {
+        /* Immediate → load into scratch, call */
+        PhxGp r11 = {11, 8};
+        phx_x86_mov_ri(pb, r11, (int64_t)lir_operand_get_constant(target));
+        phx_x86_call_r(pb, r11);
+    }
+    /* Debug location */
+    if (instr->origin_) {
+        PhxLabel label = phx_builder_new_label(pb);
+        phx_builder_bind(pb, label);
+        jit_environ_add_pending_debug_loc(env, label, instr->origin_);
+    }
+}
+
+/* ---- x86_64 Select (cmov) ---- */
+static void x86_translateSelect(void *env, const LirInstruction *instr) {
+    PhxBuilder *pb = get_builder(env);
+    PhxGp dst = operand_to_gp(&instr->output_);
+    phx_x86_mov_ri(pb, dst, (int64_t)lir_operand_get_constant(instr->inputs_[2]));
+    phx_x86_test_rr(pb, operand_to_gp(instr->inputs_[0]), operand_to_gp(instr->inputs_[0]));
+    phx_x86_cmovnz_rr(pb, dst, operand_to_gp(instr->inputs_[1]));
+}
+
+/* ---- x86_64 IntToBool ---- */
 static void
 x86_translateIntToBool(void *env, const LirInstruction *instr) {
     PhxBuilder *pb = get_builder(env);
     const LirOperand *input = instr->inputs_[0];
     PhxGp output = operand_to_gp(&instr->output_);
-
     assert(instr->output_.data_type_ == JIT_LIR_DT_8BIT);
-
-    if (input->type_ == JIT_LIR_OPTYPE_IMM) {
+    if (input->type_ == JIT_LIR_OPTYPE_IMM)
         phx_x86_mov_ri(pb, output, lir_operand_get_constant(input) ? 1 : 0);
-    } else {
-        PhxGp inp_reg = operand_to_gp(input);
-        phx_x86_test_rr(pb, inp_reg, inp_reg);
+    else {
+        phx_x86_test_rr(pb, operand_to_gp(input), operand_to_gp(input));
         phx_x86_setne(pb, output);
     }
 }
 
+/* ================================================================
+ * x86_64 C dispatch table — replaces C++ trie for all non-Yield opcodes
+ * ================================================================ */
+
 int
 autogen_c_dispatch(void *env, const LirInstruction *instr) {
     switch (instr->opcode_) {
-    case JIT_LIR_OP_BIND:
-        return 1;
-    case JIT_LIR_OP_GUARD:
-        autogen_c_TranslateGuard(env, instr);
-        return 1;
-    case JIT_LIR_OP_DEOPTPATCHPOINT:
-        autogen_c_TranslateDeoptPatchpoint(env, instr);
-        return 1;
-    case JIT_LIR_OP_EQUAL:
-    case JIT_LIR_OP_NOTEQUAL:
-    case JIT_LIR_OP_GREATERTHANSIGNED:
-    case JIT_LIR_OP_LESSTHANSIGNED:
-    case JIT_LIR_OP_GREATERTHANEQUALSIGNED:
-    case JIT_LIR_OP_LESSTHANEQUALSIGNED:
-    case JIT_LIR_OP_GREATERTHANUNSIGNED:
-    case JIT_LIR_OP_LESSTHANUNSIGNED:
-    case JIT_LIR_OP_GREATERTHANEQUALUNSIGNED:
-    case JIT_LIR_OP_LESSTHANEQUALUNSIGNED:
-        autogen_c_TranslateCompare(env, instr);
-        return 1;
-    case JIT_LIR_OP_INTTOBOOL:
-        x86_translateIntToBool(env, instr);
-        return 1;
+    case JIT_LIR_OP_BIND: return 1;
+    case JIT_LIR_OP_GUARD: autogen_c_TranslateGuard(env, instr); return 1;
+    case JIT_LIR_OP_DEOPTPATCHPOINT: autogen_c_TranslateDeoptPatchpoint(env, instr); return 1;
+    case JIT_LIR_OP_EQUAL: case JIT_LIR_OP_NOTEQUAL:
+    case JIT_LIR_OP_GREATERTHANSIGNED: case JIT_LIR_OP_LESSTHANSIGNED:
+    case JIT_LIR_OP_GREATERTHANEQUALSIGNED: case JIT_LIR_OP_LESSTHANEQUALSIGNED:
+    case JIT_LIR_OP_GREATERTHANUNSIGNED: case JIT_LIR_OP_LESSTHANUNSIGNED:
+    case JIT_LIR_OP_GREATERTHANEQUALUNSIGNED: case JIT_LIR_OP_LESSTHANEQUALUNSIGNED:
+        autogen_c_TranslateCompare(env, instr); return 1;
+    case JIT_LIR_OP_INTTOBOOL: x86_translateIntToBool(env, instr); return 1;
+    case JIT_LIR_OP_MOVE: case JIT_LIR_OP_MOVERELAXED: x86_translateMove(env, instr); return 1;
+    case JIT_LIR_OP_ADD: x86_translateAdd(env, instr); return 1;
+    case JIT_LIR_OP_SUB: x86_translateSub(env, instr); return 1;
+    case JIT_LIR_OP_AND: x86_translateAnd(env, instr); return 1;
+    case JIT_LIR_OP_OR:  x86_translateOr(env, instr); return 1;
+    case JIT_LIR_OP_XOR: x86_translateXor(env, instr); return 1;
+    case JIT_LIR_OP_MUL: x86_translateMul(env, instr); return 1;
+    case JIT_LIR_OP_DIV: x86_translateDiv(env, instr); return 1;
+    case JIT_LIR_OP_DIVUN: x86_translateDivUn(env, instr); return 1;
+    case JIT_LIR_OP_FADD: x86_translateFadd(env, instr); return 1;
+    case JIT_LIR_OP_FSUB: x86_translateFsub(env, instr); return 1;
+    case JIT_LIR_OP_FMUL: x86_translateFmul(env, instr); return 1;
+    case JIT_LIR_OP_FDIV: x86_translateFdiv(env, instr); return 1;
+    case JIT_LIR_OP_LEA: x86_translateLea(env, instr); return 1;
+    case JIT_LIR_OP_NEGATE: x86_translateNegate(env, instr); return 1;
+    case JIT_LIR_OP_INVERT: x86_translateInvert(env, instr); return 1;
+    case JIT_LIR_OP_INC: x86_translateInc(env, instr); return 1;
+    case JIT_LIR_OP_DEC: x86_translateDec(env, instr); return 1;
+    case JIT_LIR_OP_PUSH: x86_translatePush(env, instr); return 1;
+    case JIT_LIR_OP_POP: x86_translatePop(env, instr); return 1;
+    case JIT_LIR_OP_EXCHANGE: x86_translateExchange(env, instr); return 1;
+    case JIT_LIR_OP_CDQ: x86_translateCdq(env, instr); return 1;
+    case JIT_LIR_OP_CQO: x86_translateCqo(env, instr); return 1;
+    case JIT_LIR_OP_MOVZX: x86_translateMovZX(env, instr); return 1;
+    case JIT_LIR_OP_MOVSX: x86_translateMovSX(env, instr); return 1;
+    case JIT_LIR_OP_MOVSXD: x86_translateMovSXD(env, instr); return 1;
+    case JIT_LIR_OP_CMP: x86_translateCmp(env, instr); return 1;
+    case JIT_LIR_OP_TEST: case JIT_LIR_OP_TEST32: x86_translateTest(env, instr); return 1;
+    case JIT_LIR_OP_BITTEST: x86_translateBitTest(env, instr); return 1;
+    case JIT_LIR_OP_UNREACHABLE: x86_translateUnreachable(env, instr); return 1;
+    case JIT_LIR_OP_BRANCH: x86_translateBranch(env, instr); return 1;
+    case JIT_LIR_OP_BRANCHNZ: case JIT_LIR_OP_BRANCHZ:
+    case JIT_LIR_OP_BRANCHA: case JIT_LIR_OP_BRANCHB:
+    case JIT_LIR_OP_BRANCHAE: case JIT_LIR_OP_BRANCHBE:
+    case JIT_LIR_OP_BRANCHG: case JIT_LIR_OP_BRANCHL:
+    case JIT_LIR_OP_BRANCHGE: case JIT_LIR_OP_BRANCHLE:
+    case JIT_LIR_OP_BRANCHC: case JIT_LIR_OP_BRANCHNC:
+    case JIT_LIR_OP_BRANCHO: case JIT_LIR_OP_BRANCHNO:
+    case JIT_LIR_OP_BRANCHS: case JIT_LIR_OP_BRANCHNS:
+    case JIT_LIR_OP_BRANCHE: case JIT_LIR_OP_BRANCHNE:
+        x86_translateCondBranch(env, instr); return 1;
+    case JIT_LIR_OP_CALL: x86_translateCall(env, instr); return 1;
+    case JIT_LIR_OP_SELECT: x86_translateSelect(env, instr); return 1;
     default:
-        return 0; /* ASM() opcodes + Yield* — fall through to C++ trie */
+        return 0; /* Yield*, CWD — fall through to C++ trie */
     }
 }
 
