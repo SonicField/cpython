@@ -584,6 +584,31 @@ frame_asm_c_link_lightweight_function_frame(
     (-frame_header_size + (int32_t)offsetof(_PyInterpreterFrame, NAME) \
      + (int32_t)JIT_FRAME_HEADER_SIZE)
 
+    /* Zero-fill the entire frame region to prevent uninitialized field
+     * crashes (frame_obj, localsplus, f_globals, etc.). The cost is
+     * ~10-15 stores of zero, negligible vs function call overhead. */
+    {
+        int frame_words = frame_header_size / (int)sizeof(void*);
+#if defined(CINDER_X86_64)
+        PhxGp rbp_z = {5, 8};
+        for (int i = 0; i < frame_words; i++) {
+            phx_x86_mov_mi(pb,
+                phx_qword_ptr(rbp_z, -frame_header_size + i * (int)sizeof(void*)),
+                0);
+        }
+#elif defined(CINDER_AARCH64)
+        PhxGp fp_z = {29, 8};
+        PhxGp xzr_z = {31, 8};
+        PhxGp scratch1_z = {13, 8};
+        for (int i = 0; i < frame_words; i++) {
+            phx_a64_str(pb, xzr_z,
+                jit_arch_ptr_resolve(pb, fp_z,
+                    -frame_header_size + i * (int)sizeof(void*),
+                    scratch1_z, 8));
+        }
+#endif
+    }
+
 #if defined(CINDER_X86_64)
     PhxGp rbp = {5, 8}, rax = {0, 8};
 
