@@ -15,6 +15,7 @@ import unittest
 import sys
 
 try:
+    import _cinderx
     import cinderjit
     HAS_JIT = True
 except ImportError:
