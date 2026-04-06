@@ -219,3 +219,35 @@ frame_asm_c_inc_ref(void *env, PhxGp obj_reg, PhxGp scratch_reg) {
 }
 
 #endif /* !Py_GIL_DISABLED */
+
+/* ================================================================
+ * storeConst — store a constant pointer value to [reg + offset]
+ *
+ * Returns 1 if scratch was NOT used (value fits in 32 bits on x86_64).
+ * Returns 0 if scratch was used (ARM64 always uses scratch).
+ * ================================================================ */
+
+int
+frame_asm_c_store_const(void *env, PhxGp reg, int32_t offset,
+                        void *val, PhxGp scratch0, PhxGp scratch1) {
+    PhxBuilder *pb = get_builder(env);
+    int64_t value = (int64_t)(uintptr_t)val;
+
+#if defined(CINDER_X86_64)
+    (void)scratch1;
+    PhxMem dest = phx_qword_ptr(reg, offset);
+    if (lir_fits_signed_int32(value)) {
+        phx_x86_mov_mi(pb, dest, (uint32_t)value);
+        return 1;
+    }
+    phx_x86_mov_ri(pb, scratch0, value);
+    phx_x86_mov_mr(pb, dest, scratch0);
+    return 0;
+
+#elif defined(CINDER_AARCH64)
+    phx_a64_mov_ri(pb, scratch0, (uint64_t)value);
+    phx_a64_str(pb, scratch0,
+        jit_arch_ptr_resolve(pb, reg, offset, scratch1, 8));
+    return 0;
+#endif
+}

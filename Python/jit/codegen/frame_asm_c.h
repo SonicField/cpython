@@ -28,6 +28,10 @@ void frame_asm_c_link_normal_generator_frame(
 void frame_asm_c_inc_ref(void *env, PhxGp obj_reg, PhxGp scratch_reg);
 #endif
 
+/* Store constant pointer to [reg + offset]. Returns 1 if scratch unused. */
+int frame_asm_c_store_const(void *env, PhxGp reg, int32_t offset,
+                            void *val, PhxGp scratch0, PhxGp scratch1);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
