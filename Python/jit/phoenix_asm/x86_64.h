@@ -222,7 +222,6 @@ static inline PhxMem phx_fs_ptr(int32_t offset) {
     m.offset = offset;
     m.size = 8;
     m.segment = 4;  /* FS segment override */
-    m.has_base = 0;
     return m;
 }
 
