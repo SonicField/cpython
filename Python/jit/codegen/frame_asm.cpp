@@ -596,6 +596,14 @@ void FrameAsm::linkLightWeightFunctionFrame(
       FRAME_OWNED_BY_THREAD);
   env_.addAnnotation("Set _PyInterpreterFrame::owner", store_owner_cursor);
 
+  // Set frame_obj = NULL (must be zeroed before frame chain walking)
+  asmjit::BaseNode* store_frame_obj_cursor = as_->cursor();
+  phx_x86_mov_mi(
+      as_->impl(),
+      x86::ptr(x86::rbp, FRAME_OFFSET(frame_obj), sizeof(PyFrameObject*)),
+      0);
+  env_.addAnnotation("Set _PyInterpreterFrame::frame_obj = NULL", store_frame_obj_cursor);
+
   // Get the frame that is currently linked into thread state and update
   // our frames pointer back to it.
   asmjit::BaseNode* get_tos_cursor = as_->cursor();
@@ -785,6 +793,26 @@ void FrameAsm::linkLightWeightFunctionFrame(
           arch::reg_scratch_1,
           arch::AccessSize::k32));
   env_.addAnnotation("Set _PyInterpreterFrame::owner", store_owner_cursor);
+
+  // Set frame_obj = NULL (must be zeroed before frame chain walking)
+  asmjit::BaseNode* store_frame_obj_cursor2 = as_->cursor();
+#ifdef CINDER_AARCH64
+  phx_a64_str(
+      as_->impl(),
+      a64::xzr,
+      arch::ptr_resolve(
+          as_,
+          arch::fp,
+          FRAME_OFFSET(frame_obj),
+          arch::reg_scratch_1,
+          arch::AccessSize::k64));
+#else
+  phx_x86_mov_mi(
+      as_->impl(),
+      x86::ptr(x86::rbp, FRAME_OFFSET(frame_obj), sizeof(PyFrameObject*)),
+      0);
+#endif
+  env_.addAnnotation("Set _PyInterpreterFrame::frame_obj = NULL", store_frame_obj_cursor2);
 
   // Get the frame that is currently linked into thread state and update
   // our frames pointer back to it.

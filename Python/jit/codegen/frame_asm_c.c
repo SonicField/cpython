@@ -636,6 +636,9 @@ frame_asm_c_link_lightweight_function_frame(
         phx_x86_mov_mi(pb, owner_mem, FRAME_OWNED_BY_THREAD);
     }
 
+    /* Set frame_obj = NULL (must be zeroed before frame chain walking) */
+    phx_x86_mov_mi(pb, phx_qword_ptr(rbp, FRM_OFF(frame_obj)), 0);
+
     /* Get topmost frame from thread state */
 #if PY_VERSION_HEX >= 0x030D0000
     PhxGp frame_holder = tstate_reg;
