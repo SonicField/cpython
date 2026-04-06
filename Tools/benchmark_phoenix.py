@@ -46,11 +46,6 @@ import time
 # ═══════════════════════════════════════════════════════════════════════════
 try:
     import _cinderx
-    # If --no-jit requested, disable JIT immediately before any function
-    # reaches threshold. Must happen before function definitions below.
-    if '--no-jit' in sys.argv:
-        import cinderjit
-        cinderjit.disable()
 except ImportError:
     pass
 
@@ -68,7 +63,7 @@ AUTO_COMPILE_THRESHOLD = 1000  # Phoenix auto-compilation threshold
 # Phoenix JIT helpers
 # ═══════════════════════════════════════════════════════════════════════════
 
-_jit_disabled = False  # Set by --no-jit flag
+_jit_disabled = False
 
 def check_jit_available():
     """Check if Phoenix JIT is loaded. Returns True if _cinderx is importable."""
@@ -1202,8 +1197,6 @@ def main():
         description="Phoenix JIT benchmark suite",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--no-jit", action="store_true",
-                        help="Disable JIT: skip _cinderx import, measure interpreter only")
     sub = parser.add_subparsers(dest="command")
 
     # abba
@@ -1221,17 +1214,6 @@ def main():
     sub.add_parser("all", help="Run all benchmarks")
 
     args = parser.parse_args()
-
-    if args.no_jit:
-        global _jit_disabled
-        _jit_disabled = True
-        try:
-            import cinderjit
-            cinderjit.compile_after_n_calls(999999999)
-            # Disable the func watcher so no new trampolines are installed
-            cinderjit.disable()
-        except (ImportError, AttributeError):
-            pass
 
     if args.command is None:
         parser.print_help()

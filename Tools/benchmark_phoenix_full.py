@@ -1356,10 +1356,10 @@ JIT_BENCHMARKS = [
     ("kwargs_dispatch",    bench_kwargs_dispatch),
     ("positional_dispatch", bench_positional_dispatch),
     ("dunder_protocol",   bench_dunder_protocol),
-    ("nn_module_forward", bench_deep_class),  # TEMP: skip known crash
+    ("nn_module_forward", bench_deep_class),
     ("nbody",             bench_nbody),
     ("decorator_chain",   bench_decorator_chain),
-    ("deep_class_super",  bench_deep_class_super),  # TEMP: skip known crash
+    ("deep_class_super",  bench_deep_class_super),
     ("pytorch_cm",        bench_pytorch_cm),
 ]
 
@@ -1398,7 +1398,7 @@ def bench_module_attr(n_iter):
         total += math.pi + math.e
     return total
 SPEC_BENCHMARKS = [
-    ("deep_class",     bench_deep_class),  # TEMP: skip known crash
+    ("deep_class",     bench_deep_class),
     ("attr_access",    bench_attr_access),
     ("module_attr",    bench_module_attr),
     ("richards_slots", bench_richards_slots),
