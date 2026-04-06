@@ -1702,6 +1702,18 @@ x86_translateMove(void *env, const LirInstruction *instr) {
     PhxBuilder *pb = get_builder(env);
     const LirOperand *output = &instr->output_;
     const LirOperand *input = instr->inputs_[0];
+
+    /* DEBUG: log Move patterns to find 5th bug */
+    if (getenv("JIT_MOVE_DEBUG")) {
+        uint8_t ot = lir_operand_type(output);
+        uint8_t it = lir_operand_type(input);
+        uint8_t odt = lir_operand_data_type(output);
+        uint8_t idt = lir_operand_data_type(input);
+        fprintf(stderr, "MOVE: out_type=%d in_type=%d out_dt=%d in_dt=%d "
+                "out_fp=%d in_fp=%d\n",
+                ot, it, odt, idt,
+                x86_is_vecd(output), x86_is_vecd(input));
+    }
     int out_fp = x86_is_vecd(output);
     int in_fp = x86_is_vecd(input);
     uint8_t out_dt = lir_operand_data_type(output);
@@ -2087,10 +2099,7 @@ autogen_c_dispatch(void *env, const LirInstruction *instr) {
     case JIT_LIR_OP_GREATERTHANEQUALUNSIGNED: case JIT_LIR_OP_LESSTHANEQUALUNSIGNED:
         autogen_c_TranslateCompare(env, instr); return 1;
     case JIT_LIR_OP_INTTOBOOL: x86_translateIntToBool(env, instr); return 1;
-    /* Move/MoveRelaxed: C translateMove has residual codegen bug.
-     * 4 fixes applied (XMM base, kOut, isVecD, linked operand) but
-     * still crashes after ~30 compilations. Falls through to C++ trie. */
-    /* case JIT_LIR_OP_MOVE: case JIT_LIR_OP_MOVERELAXED: x86_translateMove(env, instr); return 1; */
+    case JIT_LIR_OP_MOVE: case JIT_LIR_OP_MOVERELAXED: x86_translateMove(env, instr); return 1;
     case JIT_LIR_OP_ADD: x86_translateAdd(env, instr); return 1;
     case JIT_LIR_OP_SUB: x86_translateSub(env, instr); return 1;
     case JIT_LIR_OP_AND: x86_translateAnd(env, instr); return 1;
