@@ -1327,9 +1327,6 @@ void phx_a64_add_rrr_shifted(PhxBuilder *b, PhxGp dst, PhxGp src1, PhxGp src2,
 
 void phx_a64_add_rri(PhxBuilder *b, PhxGp dst, PhxGp src, int64_t imm) {
     assert(dst.size == src.size);
-    PhxNode *n = emit_node(b, PHX_A64_ADD);
-    if (!n) return;
-
     int sf = is64(dst);
     int op;
     uint64_t abs_imm;
@@ -1343,7 +1340,17 @@ void phx_a64_add_rri(PhxBuilder *b, PhxGp dst, PhxGp src, int64_t imm) {
         abs_imm = (uint64_t)imm;
     }
 
-    assert(phx_arm64_is_add_sub_imm(abs_imm));
+    /* Large immediate: MOV to scratch + ADD reg,reg */
+    if (!phx_arm64_is_add_sub_imm(abs_imm)) {
+        PhxGp scratch = sf ? PHX_X16 : (PhxGp)PHX_REG_GP(16, 4);
+        phx_a64_mov_ri(b, scratch, (uint64_t)imm);
+        phx_a64_add_rrr(b, dst, src, scratch);
+        return;
+    }
+
+    PhxNode *n = emit_node(b, PHX_A64_ADD);
+    if (!n) return;
+
     uint32_t inst = encode_add_sub_imm(sf, op, hw_reg(dst), hw_reg(src),
                                        abs_imm);
     store_inst(n, inst);
@@ -1372,9 +1379,6 @@ void phx_a64_adds_rrr(PhxBuilder *b, PhxGp dst, PhxGp src1, PhxGp src2) {
 
 void phx_a64_adds_rri(PhxBuilder *b, PhxGp dst, PhxGp src, int64_t imm) {
     assert(dst.size == src.size);
-    PhxNode *n = emit_node(b, PHX_A64_ADDS);
-    if (!n) return;
-
     int sf = is64(dst);
     int op;
     uint64_t abs_imm;
@@ -1387,7 +1391,17 @@ void phx_a64_adds_rri(PhxBuilder *b, PhxGp dst, PhxGp src, int64_t imm) {
         abs_imm = (uint64_t)imm;
     }
 
-    assert(phx_arm64_is_add_sub_imm(abs_imm));
+    /* Large immediate: MOV to scratch + ADDS reg,reg */
+    if (!phx_arm64_is_add_sub_imm(abs_imm)) {
+        PhxGp scratch = sf ? PHX_X16 : (PhxGp)PHX_REG_GP(16, 4);
+        phx_a64_mov_ri(b, scratch, (uint64_t)imm);
+        phx_a64_adds_rrr(b, dst, src, scratch);
+        return;
+    }
+
+    PhxNode *n = emit_node(b, PHX_A64_ADDS);
+    if (!n) return;
+
     uint32_t inst = encode_add_sub_imm(sf, op, hw_reg(dst), hw_reg(src),
                                        abs_imm);
     store_inst(n, inst);
@@ -1434,9 +1448,6 @@ void phx_a64_sub_rrr_shifted(PhxBuilder *b, PhxGp dst, PhxGp src1, PhxGp src2,
 
 void phx_a64_sub_rri(PhxBuilder *b, PhxGp dst, PhxGp src, int64_t imm) {
     assert(dst.size == src.size);
-    PhxNode *n = emit_node(b, PHX_A64_SUB);
-    if (!n) return;
-
     int sf = is64(dst);
     int op;
     uint64_t abs_imm;
@@ -1450,7 +1461,17 @@ void phx_a64_sub_rri(PhxBuilder *b, PhxGp dst, PhxGp src, int64_t imm) {
         abs_imm = (uint64_t)imm;
     }
 
-    assert(phx_arm64_is_add_sub_imm(abs_imm));
+    /* Large immediate: MOV to scratch + SUB reg,reg */
+    if (!phx_arm64_is_add_sub_imm(abs_imm)) {
+        PhxGp scratch = sf ? PHX_X16 : (PhxGp)PHX_REG_GP(16, 4);
+        phx_a64_mov_ri(b, scratch, (uint64_t)imm);
+        phx_a64_sub_rrr(b, dst, src, scratch);
+        return;
+    }
+
+    PhxNode *n = emit_node(b, PHX_A64_SUB);
+    if (!n) return;
+
     uint32_t inst = encode_add_sub_imm(sf, op, hw_reg(dst), hw_reg(src),
                                        abs_imm);
     store_inst(n, inst);
@@ -1479,9 +1500,6 @@ void phx_a64_subs_rrr(PhxBuilder *b, PhxGp dst, PhxGp src1, PhxGp src2) {
 
 void phx_a64_subs_rri(PhxBuilder *b, PhxGp dst, PhxGp src, int64_t imm) {
     assert(dst.size == src.size);
-    PhxNode *n = emit_node(b, PHX_A64_SUBS);
-    if (!n) return;
-
     int sf = is64(dst);
     int op;
     uint64_t abs_imm;
@@ -1494,7 +1512,17 @@ void phx_a64_subs_rri(PhxBuilder *b, PhxGp dst, PhxGp src, int64_t imm) {
         abs_imm = (uint64_t)imm;
     }
 
-    assert(phx_arm64_is_add_sub_imm(abs_imm));
+    /* Large immediate: MOV to scratch + SUBS reg,reg */
+    if (!phx_arm64_is_add_sub_imm(abs_imm)) {
+        PhxGp scratch = sf ? PHX_X16 : (PhxGp)PHX_REG_GP(16, 4);
+        phx_a64_mov_ri(b, scratch, (uint64_t)imm);
+        phx_a64_subs_rrr(b, dst, src, scratch);
+        return;
+    }
+
+    PhxNode *n = emit_node(b, PHX_A64_SUBS);
+    if (!n) return;
+
     uint32_t inst = encode_add_sub_imm(sf, op, hw_reg(dst), hw_reg(src),
                                        abs_imm);
     store_inst(n, inst);
@@ -1714,9 +1742,6 @@ void phx_a64_cmp_rr(PhxBuilder *b, PhxGp src1, PhxGp src2) {
 }
 
 void phx_a64_cmp_ri(PhxBuilder *b, PhxGp src, int64_t imm) {
-    PhxNode *n = emit_node(b, PHX_A64_CMP);
-    if (!n) return;
-
     int sf = is64(src);
     int op;
     uint64_t abs_imm;
@@ -1731,7 +1756,21 @@ void phx_a64_cmp_ri(PhxBuilder *b, PhxGp src, int64_t imm) {
         abs_imm = (uint64_t)imm;
     }
 
-    assert(phx_arm64_is_add_sub_imm(abs_imm));
+    /* If immediate doesn't fit 12-bit add/sub encoding, fall back to
+     * MOV imm to X16 scratch + CMP reg, reg. Same pattern as abs_addr. */
+    if (!phx_arm64_is_add_sub_imm(abs_imm)) {
+        PhxGp scratch = PHX_X16;
+        if (!sf) {
+            scratch = (PhxGp)PHX_REG_GP(16, 4); /* W16 for 32-bit */
+        }
+        phx_a64_mov_ri(b, scratch, (uint64_t)imm);
+        phx_a64_cmp_rr(b, src, scratch);
+        return;
+    }
+
+    PhxNode *n = emit_node(b, PHX_A64_CMP);
+    if (!n) return;
+
     uint32_t inst = encode_add_sub_imm(sf, op, 31 /*XZR*/, hw_reg(src),
                                        abs_imm);
     store_inst(n, inst);
