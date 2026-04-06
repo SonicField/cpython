@@ -216,6 +216,16 @@ static inline PhxMem phx_dword_ptr(PhxGp base, int32_t offset) {
     return m;
 }
 
+/* FS segment memory operand — for TLS access (e.g. PyThreadState) */
+static inline PhxMem phx_fs_ptr(int32_t offset) {
+    PhxMem m = {0};
+    m.offset = offset;
+    m.size = 8;
+    m.segment = 4;  /* FS segment override */
+    m.has_base = 0;
+    return m;
+}
+
 static inline PhxMem phx_qword_ptr(PhxGp base, int32_t offset) {
     PhxMem m = phx_ptr(base, offset);
     m.size = 8;
