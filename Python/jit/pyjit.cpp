@@ -243,7 +243,8 @@ PyObject* forcedJitVectorcall(
     {
       size_t sz = 0;
       if (auto *cf = jitCtx()->lookupFunc(func)) { sz = cf->codeSize(); }
-      jit_log_compile(funcFullname(func).c_str(), 0, sz);
+      std::string fname = funcFullname(func);
+      jit_log_compile(fname.c_str(), 0, sz);
     }
     return func->vectorcall(func_obj, stack, nargsf, kwnames);
   }
@@ -930,7 +931,7 @@ bool reoptFunc(BorrowedRef<PyFunctionObject> func) {
     // compiled_funcs_ but is added to deopted_funcs_. When reopting, we need
     // to clear deopted_funcs_ so isDeoptimized() returns the correct state.
     jitCtx()->removeDeoptedFunc(func);
-    jit_log_reattach(funcFullname(func).c_str());
+    { std::string n = funcFullname(func); jit_log_reattach(n.c_str()); }
     return true;
   }
 
@@ -1790,7 +1791,8 @@ PyObject* force_compile(PyObject* /* self */, PyObject* arg) {
   if (result == PYJIT_RESULT_OK) {
     size_t sz = 0;
     if (auto *cf = jitCtx()->lookupFunc(func)) { sz = cf->codeSize(); }
-    jit_log_compile(funcFullname(func).c_str(), 1, sz);
+    std::string fname = funcFullname(func);
+    jit_log_compile(fname.c_str(), 1, sz);
   }
   switch (result) {
     case PYJIT_RESULT_OK:
