@@ -65,7 +65,7 @@ get_builder(void *env) {
 static inline PhxMem
 phx_a64_mem_pre(PhxGp base, int32_t offset) {
     PhxMem m = {0};
-    m.base_id = base.id;
+    m.base = base;
     m.offset = offset;
     m.size = 8;
     m.is_pre_index = 1;
@@ -76,7 +76,7 @@ phx_a64_mem_pre(PhxGp base, int32_t offset) {
 static inline PhxMem
 phx_a64_mem_post(PhxGp base, int32_t offset) {
     PhxMem m = {0};
-    m.base_id = base.id;
+    m.base = base;
     m.offset = offset;
     m.size = 8;
     m.is_post_index = 1;
@@ -87,7 +87,7 @@ phx_a64_mem_post(PhxGp base, int32_t offset) {
 static inline PhxMem
 phx_a64_mem(PhxGp base, int32_t offset) {
     PhxMem m = {0};
-    m.base_id = base.id;
+    m.base = base;
     m.offset = offset;
     m.size = 8;
     return m;

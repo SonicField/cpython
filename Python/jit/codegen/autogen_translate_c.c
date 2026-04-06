@@ -1640,10 +1640,11 @@ x86_operand_to_mem(const LirOperand *op) {
         m.size = (uint8_t)(size_bits / 8);
         if (m.size == 0) m.size = 8;
     } else if (op->type_ == JIT_LIR_OPTYPE_MEM) {
-        /* Absolute address — SIB disp32 encoding */
+        /* Absolute address — use is_abs_addr flag for SIB disp32 encoding */
         uint64_t addr = (uint64_t)(uintptr_t)lir_operand_get_mem_address(op);
+        m.is_abs_addr = 1;
+        m.abs_addr = addr;
         m.offset = (int32_t)addr;
-        m.base_id = 0xFF; /* no base */
         m.size = (uint8_t)(size_bits / 8);
         if (m.size == 0) m.size = 8;
     } else if (op->type_ == JIT_LIR_OPTYPE_IND) {
