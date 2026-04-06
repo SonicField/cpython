@@ -585,7 +585,7 @@ autogen_c_translateTst(void *env, const LirInstruction *instr) {
 
     const LirOperand *opnd0 = instr->inputs_[0];
     const LirOperand *opnd1 = instr->inputs_[1];
-    uint8_t dt = opnd0->data_type_;
+    uint8_t dt = lir_operand_data_type(opnd0);
 
     int shift = 0;
     if (dt == JIT_LIR_DT_8BIT) shift = 24;
@@ -751,7 +751,7 @@ autogen_c_translateSelect(void *env, const LirInstruction *instr) {
 
     PhxGp output = operand_to_gp_output(&instr->output_);
     const LirOperand *condition_op = instr->inputs_[0];
-    uint8_t cond_dt = condition_op->data_type_;
+    uint8_t cond_dt = lir_operand_data_type(condition_op);
 
     PhxGp condition_reg;
     if (cond_dt == JIT_LIR_DT_8BIT || cond_dt == JIT_LIR_DT_16BIT) {
@@ -916,7 +916,7 @@ store_from_reg(PhxBuilder *pb, const LirOperand *input, PhxMem output) {
         phx_a64_str_fp(pb, operand_to_vecd(input), output);
     } else {
         int reg = lir_operand_get_phy_register(input).loc;
-        switch (input->data_type_) {
+        switch (lir_operand_data_type(input)) {
             case JIT_LIR_DT_8BIT:
                 phx_a64_strb(pb, PHX_REG_GP(reg, 4), output);
                 break;
@@ -1215,7 +1215,7 @@ autogen_c_TranslateGuard(void *env, const LirInstruction *instr) {
     int is_double = 0;
 
     if (kind != JIT_GUARD_ALWAYS_FAIL) {
-        if (instr->inputs_[2]->data_type_ == JIT_LIR_DT_DOUBLE) {
+        if (lir_operand_data_type(instr->inputs_[2]) == JIT_LIR_DT_DOUBLE) {
             assert(kind == JIT_GUARD_NOT_ZERO);
             PhxGp vecd_reg = operand_to_fp(instr->inputs_[2]);
             phx_x86_ptest_rr(pb, vecd_reg, vecd_reg);
@@ -1281,14 +1281,14 @@ autogen_c_TranslateGuard(void *env, const LirInstruction *instr) {
     size_t sign_bit = 0;
 
     if (kind != JIT_GUARD_ALWAYS_FAIL) {
-        if (instr->inputs_[2]->data_type_ == JIT_LIR_DT_DOUBLE) {
+        if (lir_operand_data_type(instr->inputs_[2]) == JIT_LIR_DT_DOUBLE) {
             assert(kind == JIT_GUARD_NOT_ZERO);
             PhxGp vecd_reg = operand_to_vecd(instr->inputs_[2]);
             phx_a64_fmov(pb, reg, vecd_reg);
             phx_a64_cbz(pb, reg, deopt_label);
             is_double = 1;
         } else {
-            uint8_t dt = instr->inputs_[2]->data_type_;
+            uint8_t dt = lir_operand_data_type(instr->inputs_[2]);
             int rloc = lir_operand_get_phy_register(instr->inputs_[2]).loc;
             if (dt == JIT_LIR_DT_8BIT) {
                 mask = 0xFF;
