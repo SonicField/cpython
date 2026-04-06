@@ -15,6 +15,7 @@
 
 #include "cinderx/Jit/codegen/code_section.h"
 #include "cinderx/Jit/codegen/environ.h"
+#include "cinderx/Jit/config.h"
 #include "cinderx/Jit/gen_data_footer.h"
 #include "cinderx/Jit/lir/block.h"
 #include "cinderx/Jit/lir/function.h"
@@ -331,6 +332,11 @@ extern "C" LirPhyLocation jit_arch_general_return_loc(void) {
 
 extern "C" LirPhyLocation jit_arch_double_return_loc(void) {
   return phyloc_from(jit::codegen::arch::reg_double_return_loc);
+}
+
+extern "C" int
+jit_is_frame_mode_lightweight(void) {
+  return jit::getConfig().frame_mode == jit::FrameMode::kLightweight ? 1 : 0;
 }
 
 extern "C" void*

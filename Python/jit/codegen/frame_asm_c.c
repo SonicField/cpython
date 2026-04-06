@@ -227,6 +227,36 @@ frame_asm_c_inc_ref(void *env, PhxGp obj_reg, PhxGp scratch_reg) {
  * Returns 0 if scratch was used (ARM64 always uses scratch).
  * ================================================================ */
 
+/* ================================================================
+ * frameHeaderSize — compute frame header size for a function
+ * ================================================================ */
+
+/* Forward declaration — defined in frame_header.h as C function */
+int jit_frame_header_size(PyCodeObject *code, int frame_mode_lightweight,
+                          size_t frame_header_sizeof, size_t ptr_size);
+
+/* Forward declaration — C function in frame_header.c or similar */
+int jit_is_frame_mode_lightweight(void);
+
+/* FrameHeader size — matches sizeof(jit::FrameHeader) */
+#define JIT_FRAME_HEADER_SIZE (3 * sizeof(void*))
+
+int
+frame_asm_c_frame_header_size(PyCodeObject *code) {
+    int lightweight = jit_is_frame_mode_lightweight();
+    int base = jit_frame_header_size(code, lightweight,
+                                      JIT_FRAME_HEADER_SIZE, sizeof(void*));
+#ifdef ENABLE_SHADOW_FRAMES
+    return base;
+#else
+    return base + (int)sizeof(void*);
+#endif
+}
+
+/* ================================================================
+ * storeConst — store a constant pointer value to [reg + offset]
+ * ================================================================ */
+
 int
 frame_asm_c_store_const(void *env, PhxGp reg, int32_t offset,
                         void *val, PhxGp scratch0, PhxGp scratch1) {

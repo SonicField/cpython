@@ -263,6 +263,9 @@ void *jit_environ_get_gen_resume_entry_label(void *env);
 /* Block→Label mapping for branch targets */
 PhxLabel jit_environ_get_block_label(void *env, const LirBasicBlock *block);
 
+/* JIT config accessors */
+int jit_is_frame_mode_lightweight(void);
+
 /* LIR inliner (C wrapper around C++ LIRInliner::inlineCalls) */
 int lir_inliner_inline_calls(void *func);
 
