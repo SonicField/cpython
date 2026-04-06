@@ -153,25 +153,25 @@ translate_add_sub_op(void *env, const LirInstruction *instr, int is_sub) {
     const LirOperand *opnd0 = instr->inputs_[0];
     const LirOperand *opnd1 = instr->inputs_[1];
 
-    assert(output->type_ == JIT_LIR_OPTYPE_REG);
-    assert(opnd0->type_ == JIT_LIR_OPTYPE_REG);
+    assert(lir_operand_type(output) == JIT_LIR_OPTYPE_REG);
+    assert(lir_operand_type(opnd0) == JIT_LIR_OPTYPE_REG);
 
     PhxGp output_reg = operand_to_gp(output);
     PhxGp opnd0_reg = operand_to_gp(opnd0);
 
-    if (opnd1->type_ == JIT_LIR_OPTYPE_IMM) {
+    if (lir_operand_type(opnd1) == JIT_LIR_OPTYPE_IMM) {
         uint64_t constant = lir_operand_get_constant(opnd1);
         assert(is_add_sub_imm(constant));
         if (is_sub)
             phx_a64_sub_rri(pb, output_reg, opnd0_reg, constant);
         else
             phx_a64_add_rri(pb, output_reg, opnd0_reg, constant);
-    } else if (opnd1->type_ == JIT_LIR_OPTYPE_REG) {
+    } else if (lir_operand_type(opnd1) == JIT_LIR_OPTYPE_REG) {
         if (is_sub)
             phx_a64_sub_rrr(pb, output_reg, opnd0_reg, operand_to_gp(opnd1));
         else
             phx_a64_add_rrr(pb, output_reg, opnd0_reg, operand_to_gp(opnd1));
-    } else if (opnd1->type_ == JIT_LIR_OPTYPE_STACK) {
+    } else if (lir_operand_type(opnd1) == JIT_LIR_OPTYPE_STACK) {
         int32_t loc = lir_operand_get_stack_slot(opnd1).loc;
         PhxMem ptr = jit_arch_ptr_resolve(pb, A64_FP, loc, A64_SCRATCH_0, 8);
         phx_a64_ldr(pb, A64_SCRATCH_0, ptr);
@@ -202,13 +202,13 @@ translate_inc_dec_op(void *env, const LirInstruction *instr, int is_dec) {
 
     const LirOperand *opnd = instr->inputs_[0];
 
-    if (opnd->type_ == JIT_LIR_OPTYPE_REG) {
+    if (lir_operand_type(opnd) == JIT_LIR_OPTYPE_REG) {
         PhxGp reg = operand_to_gp(opnd);
         if (is_dec)
             phx_a64_sub_rri(pb, reg, reg, 1);
         else
             phx_a64_add_rri(pb, reg, reg, 1);
-    } else if (opnd->type_ == JIT_LIR_OPTYPE_STACK) {
+    } else if (lir_operand_type(opnd) == JIT_LIR_OPTYPE_STACK) {
         int32_t loc = lir_operand_get_stack_slot(opnd).loc;
         PhxMem ptr = jit_arch_ptr_resolve(pb, A64_FP, loc, A64_SCRATCH_1, 8);
         phx_a64_ldr(pb, A64_SCRATCH_0, ptr);
@@ -264,27 +264,27 @@ translate_logical_op(void *env, const LirInstruction *instr, int op) {
     const LirOperand *opnd0 = instr->inputs_[0];
     const LirOperand *opnd1 = instr->inputs_[1];
 
-    assert(output->type_ == JIT_LIR_OPTYPE_REG);
-    assert(opnd0->type_ == JIT_LIR_OPTYPE_REG);
+    assert(lir_operand_type(output) == JIT_LIR_OPTYPE_REG);
+    assert(lir_operand_type(opnd0) == JIT_LIR_OPTYPE_REG);
 
     PhxGp out_reg = operand_to_gp(output);
     PhxGp r0 = operand_to_gp(opnd0);
 
-    if (opnd1->type_ == JIT_LIR_OPTYPE_IMM) {
+    if (lir_operand_type(opnd1) == JIT_LIR_OPTYPE_IMM) {
         uint64_t c = lir_operand_get_constant(opnd1);
         switch (op) {
             case LOGICAL_AND: phx_a64_and_rri(pb, out_reg, r0, c); break;
             case LOGICAL_ORR: phx_a64_orr_rri(pb, out_reg, r0, c); break;
             case LOGICAL_EOR: phx_a64_eor_rri(pb, out_reg, r0, c); break;
         }
-    } else if (opnd1->type_ == JIT_LIR_OPTYPE_REG) {
+    } else if (lir_operand_type(opnd1) == JIT_LIR_OPTYPE_REG) {
         PhxGp r1 = operand_to_gp(opnd1);
         switch (op) {
             case LOGICAL_AND: phx_a64_and_rrr(pb, out_reg, r0, r1); break;
             case LOGICAL_ORR: phx_a64_orr_rrr(pb, out_reg, r0, r1); break;
             case LOGICAL_EOR: phx_a64_eor_rrr(pb, out_reg, r0, r1); break;
         }
-    } else if (opnd1->type_ == JIT_LIR_OPTYPE_STACK) {
+    } else if (lir_operand_type(opnd1) == JIT_LIR_OPTYPE_STACK) {
         int32_t loc = lir_operand_get_stack_slot(opnd1).loc;
         PhxMem ptr = jit_arch_ptr_resolve(pb, A64_FP, loc, A64_SCRATCH_0, 8);
         phx_a64_ldr(pb, A64_SCRATCH_0, ptr);
@@ -320,18 +320,18 @@ autogen_c_translateMul(void *env, const LirInstruction *instr) {
     const LirOperand *opnd0 = instr->inputs_[0];
     const LirOperand *opnd1 = instr->inputs_[1];
 
-    assert(output->type_ == JIT_LIR_OPTYPE_REG);
-    assert(opnd0->type_ == JIT_LIR_OPTYPE_REG);
+    assert(lir_operand_type(output) == JIT_LIR_OPTYPE_REG);
+    assert(lir_operand_type(opnd0) == JIT_LIR_OPTYPE_REG);
 
     PhxGp out_reg = operand_to_gp(output);
     PhxGp r0 = operand_to_gp(opnd0);
 
-    if (opnd1->type_ == JIT_LIR_OPTYPE_IMM) {
+    if (lir_operand_type(opnd1) == JIT_LIR_OPTYPE_IMM) {
         phx_a64_mov_ri(pb, A64_SCRATCH_0, lir_operand_get_constant(opnd1));
         phx_a64_mul(pb, out_reg, r0, A64_SCRATCH_0);
-    } else if (opnd1->type_ == JIT_LIR_OPTYPE_REG) {
+    } else if (lir_operand_type(opnd1) == JIT_LIR_OPTYPE_REG) {
         phx_a64_mul(pb, out_reg, r0, operand_to_gp(opnd1));
-    } else if (opnd1->type_ == JIT_LIR_OPTYPE_STACK) {
+    } else if (lir_operand_type(opnd1) == JIT_LIR_OPTYPE_STACK) {
         int32_t loc = lir_operand_get_stack_slot(opnd1).loc;
         PhxMem ptr = jit_arch_ptr_resolve(pb, A64_FP, loc, A64_SCRATCH_0, 8);
         phx_a64_ldr(pb, A64_SCRATCH_0, ptr);
@@ -353,16 +353,16 @@ translate_div_op(void *env, const LirInstruction *instr, int is_unsigned) {
     const LirOperand *opnd0 = instr->inputs_[0];
     const LirOperand *opnd1 = instr->inputs_[1];
 
-    assert(output->type_ == JIT_LIR_OPTYPE_REG);
-    assert(opnd0->type_ == JIT_LIR_OPTYPE_REG);
+    assert(lir_operand_type(output) == JIT_LIR_OPTYPE_REG);
+    assert(lir_operand_type(opnd0) == JIT_LIR_OPTYPE_REG);
 
     PhxGp out_reg = operand_to_gp(output);
     PhxGp r0 = operand_to_gp(opnd0);
 
     PhxGp divisor;
-    if (opnd1->type_ == JIT_LIR_OPTYPE_REG) {
+    if (lir_operand_type(opnd1) == JIT_LIR_OPTYPE_REG) {
         divisor = operand_to_gp(opnd1);
-    } else if (opnd1->type_ == JIT_LIR_OPTYPE_STACK) {
+    } else if (lir_operand_type(opnd1) == JIT_LIR_OPTYPE_STACK) {
         int32_t loc = lir_operand_get_stack_slot(opnd1).loc;
         PhxMem ptr = jit_arch_ptr_resolve(pb, A64_FP, loc, A64_SCRATCH_0, 8);
         phx_a64_ldr(pb, A64_SCRATCH_0, ptr);
@@ -392,14 +392,14 @@ autogen_c_translatePush(void *env, const LirInstruction *instr) {
     PhxBuilder *pb = get_builder(env);
     const LirOperand *operand = instr->inputs_[0];
 
-    if (operand->type_ == JIT_LIR_OPTYPE_IMM) {
+    if (lir_operand_type(operand) == JIT_LIR_OPTYPE_IMM) {
         phx_a64_mov_ri(pb, A64_SCRATCH_0, lir_operand_get_constant(operand));
         phx_a64_str(pb, A64_SCRATCH_0,
             jit_arch_ptr_offset(A64_SP, -16, 8)); /* pre-index */
-    } else if (operand->type_ == JIT_LIR_OPTYPE_REG) {
+    } else if (lir_operand_type(operand) == JIT_LIR_OPTYPE_REG) {
         phx_a64_str(pb, operand_to_gp(operand),
             jit_arch_ptr_offset(A64_SP, -16, 8));
-    } else if (operand->type_ == JIT_LIR_OPTYPE_STACK) {
+    } else if (lir_operand_type(operand) == JIT_LIR_OPTYPE_STACK) {
         int32_t loc = lir_operand_get_stack_slot(operand).loc;
         PhxMem ptr = jit_arch_ptr_resolve(pb, A64_FP, loc, A64_SCRATCH_1, 8);
         phx_a64_ldr(pb, A64_SCRATCH_0, ptr);
@@ -415,10 +415,10 @@ autogen_c_translatePop(void *env, const LirInstruction *instr) {
     PhxBuilder *pb = get_builder(env);
     const LirOperand *operand = &instr->output_;
 
-    if (operand->type_ == JIT_LIR_OPTYPE_REG) {
+    if (lir_operand_type(operand) == JIT_LIR_OPTYPE_REG) {
         PhxMem post = jit_arch_ptr_offset(A64_SP, 16, 8); /* post-index */
         phx_a64_ldr(pb, operand_to_gp(operand), post);
-    } else if (operand->type_ == JIT_LIR_OPTYPE_STACK) {
+    } else if (lir_operand_type(operand) == JIT_LIR_OPTYPE_STACK) {
         int32_t loc = lir_operand_get_stack_slot(operand).loc;
         PhxMem ptr = jit_arch_ptr_resolve(pb, A64_FP, loc, A64_SCRATCH_1, 8);
         PhxMem post = jit_arch_ptr_offset(A64_SP, 16, 8);
@@ -437,8 +437,8 @@ autogen_c_translateExchange(void *env, const LirInstruction *instr) {
     const LirOperand *opnd0 = &instr->output_;
     const LirOperand *opnd1 = instr->inputs_[0];
 
-    assert(opnd0->type_ == JIT_LIR_OPTYPE_REG);
-    assert(opnd1->type_ == JIT_LIR_OPTYPE_REG);
+    assert(lir_operand_type(opnd0) == JIT_LIR_OPTYPE_REG);
+    assert(lir_operand_type(opnd1) == JIT_LIR_OPTYPE_REG);
 
     if (lir_operand_is_fp(opnd0) && lir_operand_is_fp(opnd1)) {
         PhxGp vec0 = operand_to_vecd(opnd0);
@@ -463,15 +463,15 @@ autogen_c_translateCmp(void *env, const LirInstruction *instr) {
     const LirOperand *inp0 = instr->inputs_[0];
     const LirOperand *inp1 = instr->inputs_[1];
 
-    assert(inp0->type_ == JIT_LIR_OPTYPE_REG);
+    assert(lir_operand_type(inp0) == JIT_LIR_OPTYPE_REG);
 
-    if (inp1->type_ == JIT_LIR_OPTYPE_REG) {
+    if (lir_operand_type(inp1) == JIT_LIR_OPTYPE_REG) {
         if (lir_operand_is_fp(inp0) && lir_operand_is_fp(inp1)) {
             phx_a64_fcmp(pb, operand_to_vecd(inp0), operand_to_vecd(inp1));
         } else {
             phx_a64_cmp_rr(pb, operand_to_gp(inp0), operand_to_gp(inp1));
         }
-    } else if (inp1->type_ == JIT_LIR_OPTYPE_IMM) {
+    } else if (lir_operand_type(inp1) == JIT_LIR_OPTYPE_IMM) {
         uint64_t constant = lir_operand_get_constant(inp1);
         if (is_add_sub_imm(constant)) {
             phx_a64_cmp_ri(pb, operand_to_gp(inp0), constant);
@@ -505,7 +505,7 @@ translate_mov_ext_op(void *env, const LirInstruction *instr, int is_signed) {
     const LirOperand *input = instr->inputs_[0];
     size_t input_size = lir_operand_size_in_bits(input);
 
-    if (input->type_ == JIT_LIR_OPTYPE_REG) {
+    if (lir_operand_type(input) == JIT_LIR_OPTYPE_REG) {
         PhxGp input_reg = operand_to_gp(input);
         switch (input_size) {
             case 8:
@@ -523,7 +523,7 @@ translate_mov_ext_op(void *env, const LirInstruction *instr, int is_signed) {
             default:
                 assert(0 && "Unsupported input size for mov ext");
         }
-    } else if (input->type_ == JIT_LIR_OPTYPE_STACK) {
+    } else if (lir_operand_type(input) == JIT_LIR_OPTYPE_STACK) {
         int32_t loc = lir_operand_get_stack_slot(input).loc;
         int32_t access_sz = (int32_t)(input_size / 8);
         PhxMem ptr = jit_arch_ptr_resolve(pb, A64_FP, loc, A64_SCRATCH_0,
@@ -566,9 +566,9 @@ autogen_c_translateMovSXD(void *env, const LirInstruction *instr) {
     PhxGp output = operand_to_gp_output(&instr->output_);
     const LirOperand *input = instr->inputs_[0];
 
-    if (input->type_ == JIT_LIR_OPTYPE_REG) {
+    if (lir_operand_type(input) == JIT_LIR_OPTYPE_REG) {
         phx_a64_sxtw(pb, output, operand_to_gp(input));
-    } else if (input->type_ == JIT_LIR_OPTYPE_STACK) {
+    } else if (lir_operand_type(input) == JIT_LIR_OPTYPE_STACK) {
         int32_t loc = lir_operand_get_stack_slot(input).loc;
         PhxMem ptr = jit_arch_ptr_resolve(pb, A64_FP, loc, A64_SCRATCH_0, 4);
         phx_a64_ldrsw(pb, output, ptr);
@@ -734,7 +734,7 @@ autogen_c_translateIntToBool(void *env, const LirInstruction *instr) {
 
     assert(instr->output_.data_type_ == JIT_LIR_DT_8BIT);
 
-    if (input->type_ == JIT_LIR_OPTYPE_IMM) {
+    if (lir_operand_type(input) == JIT_LIR_OPTYPE_IMM) {
         phx_a64_mov_ri(pb, output,
             lir_operand_get_constant(input) ? 1 : 0);
     } else {
@@ -846,21 +846,21 @@ autogen_c_translateLea(void *env, const LirInstruction *instr) {
     const LirOperand *output = &instr->output_;
     const LirOperand *input = instr->inputs_[0];
 
-    assert(output->type_ == JIT_LIR_OPTYPE_REG);
+    assert(lir_operand_type(output) == JIT_LIR_OPTYPE_REG);
 
     PhxGp out_reg = operand_to_gp(output);
 
-    if (input->type_ == JIT_LIR_OPTYPE_STACK) {
+    if (lir_operand_type(input) == JIT_LIR_OPTYPE_STACK) {
         int32_t loc = lir_operand_get_stack_slot(input).loc;
         if (loc >= 0) {
             phx_a64_add_rri(pb, out_reg, A64_FP, loc);
         } else {
             phx_a64_sub_rri(pb, out_reg, A64_FP, -loc);
         }
-    } else if (input->type_ == JIT_LIR_OPTYPE_MEM) {
+    } else if (lir_operand_type(input) == JIT_LIR_OPTYPE_MEM) {
         uint64_t address = (uint64_t)(uintptr_t)lir_operand_get_mem_address(input);
         phx_a64_mov_ri(pb, out_reg, address);
-    } else if (input->type_ == JIT_LIR_OPTYPE_IND) {
+    } else if (lir_operand_type(input) == JIT_LIR_OPTYPE_IND) {
         LirMemoryIndirect *ind = lir_operand_get_indirect(input);
         lea_indirect(pb, out_reg, A64_SCRATCH_0, ind);
     } else {
@@ -939,9 +939,9 @@ autogen_c_translateMove(void *env, const LirInstruction *instr) {
     const LirOperand *output = &instr->output_;
     const LirOperand *input = instr->inputs_[0];
 
-    switch (output->type_) {
+    switch (lir_operand_type(output)) {
     case JIT_LIR_OPTYPE_REG:
-        switch (input->type_) {
+        switch (lir_operand_type(input)) {
         case JIT_LIR_OPTYPE_REG:
             if (lir_operand_is_fp(output)) {
                 if (lir_operand_is_fp(input)) {
@@ -1011,9 +1011,9 @@ autogen_c_translateMove(void *env, const LirInstruction *instr) {
     case JIT_LIR_OPTYPE_STACK: {
         int32_t loc = lir_operand_get_stack_slot(output).loc;
         PhxMem ptr = jit_arch_ptr_resolve(pb, A64_FP, loc, A64_SCRATCH_0, 8);
-        if (input->type_ == JIT_LIR_OPTYPE_REG) {
+        if (lir_operand_type(input) == JIT_LIR_OPTYPE_REG) {
             store_from_reg(pb, input, ptr);
-        } else if (input->type_ == JIT_LIR_OPTYPE_IMM) {
+        } else if (lir_operand_type(input) == JIT_LIR_OPTYPE_IMM) {
             phx_a64_mov_ri(pb, A64_SCRATCH_0,
                 lir_operand_get_constant(input));
             phx_a64_str(pb, A64_SCRATCH_0, ptr);
@@ -1026,7 +1026,7 @@ autogen_c_translateMove(void *env, const LirInstruction *instr) {
     case JIT_LIR_OPTYPE_MEM: {
         phx_a64_mov_ri(pb, A64_SCRATCH_0,
             (uint64_t)(uintptr_t)lir_operand_get_mem_address(output));
-        if (input->type_ == JIT_LIR_OPTYPE_REG) {
+        if (lir_operand_type(input) == JIT_LIR_OPTYPE_REG) {
             if (lir_operand_is_fp(input)) {
                 phx_a64_str_fp(pb, operand_to_vecd(input),
                     phx_ptr(A64_SCRATCH_0, 0));
@@ -1034,7 +1034,7 @@ autogen_c_translateMove(void *env, const LirInstruction *instr) {
                 phx_a64_str(pb, operand_to_gp(input),
                     phx_ptr(A64_SCRATCH_0, 0));
             }
-        } else if (input->type_ == JIT_LIR_OPTYPE_IMM) {
+        } else if (lir_operand_type(input) == JIT_LIR_OPTYPE_IMM) {
             phx_a64_mov_ri(pb, A64_SCRATCH_1,
                 lir_operand_get_constant(input));
             phx_a64_str(pb, A64_SCRATCH_1, phx_ptr(A64_SCRATCH_0, 0));
@@ -1047,9 +1047,9 @@ autogen_c_translateMove(void *env, const LirInstruction *instr) {
     case JIT_LIR_OPTYPE_IND: {
         LirMemoryIndirect *ind = lir_operand_get_indirect(output);
         PhxMem ptr = ptr_indirect(pb, A64_SCRATCH_0, A64_SCRATCH_1, ind);
-        if (input->type_ == JIT_LIR_OPTYPE_REG) {
+        if (lir_operand_type(input) == JIT_LIR_OPTYPE_REG) {
             store_from_reg(pb, input, ptr);
-        } else if (input->type_ == JIT_LIR_OPTYPE_IMM) {
+        } else if (lir_operand_type(input) == JIT_LIR_OPTYPE_IMM) {
             int reg_id = A64_SCRATCH_1.id;
             switch (output->data_type_) {
                 case JIT_LIR_DT_8BIT:
@@ -1097,8 +1097,8 @@ autogen_c_TranslateCompare(void *env, const LirInstruction *instr) {
     const LirOperand *inp1 = instr->inputs_[1];
 
 #if defined(CINDER_X86_64)
-    if (inp1->type_ == JIT_LIR_OPTYPE_IMM ||
-        inp1->type_ == JIT_LIR_OPTYPE_MEM) {
+    if (lir_operand_type(inp1) == JIT_LIR_OPTYPE_IMM ||
+        lir_operand_type(inp1) == JIT_LIR_OPTYPE_MEM) {
         phx_x86_cmp_ri(pb, operand_to_gp(inp0),
                         lir_operand_get_constant_or_address(inp1));
     } else if (!lir_operand_is_fp(inp1)) {
@@ -1130,12 +1130,12 @@ autogen_c_TranslateCompare(void *env, const LirInstruction *instr) {
     }
 
 #elif defined(CINDER_AARCH64)
-    if (inp1->type_ == JIT_LIR_OPTYPE_MEM) {
+    if (lir_operand_type(inp1) == JIT_LIR_OPTYPE_MEM) {
         uint64_t address = lir_operand_get_constant_or_address(inp1);
         phx_a64_mov_ri(pb, A64_SCRATCH_0, address);
         phx_a64_ldr(pb, A64_SCRATCH_0, phx_ptr(A64_SCRATCH_0, 0));
         phx_a64_cmp_rr(pb, operand_to_gp(inp0), A64_SCRATCH_0);
-    } else if (inp1->type_ == JIT_LIR_OPTYPE_IMM) {
+    } else if (lir_operand_type(inp1) == JIT_LIR_OPTYPE_IMM) {
         uint64_t constant = lir_operand_get_constant_or_address(inp1);
         if (is_add_sub_imm(constant)) {
             phx_a64_cmp_ri(pb, operand_to_gp(inp0), constant);
@@ -1245,8 +1245,8 @@ autogen_c_TranslateGuard(void *env, const LirInstruction *instr) {
                 break;
             case JIT_GUARD_IS: {
                 const LirOperand *target_opnd = instr->inputs_[3];
-                if (target_opnd->type_ == JIT_LIR_OPTYPE_IMM ||
-                    target_opnd->type_ == JIT_LIR_OPTYPE_MEM) {
+                if (lir_operand_type(target_opnd) == JIT_LIR_OPTYPE_IMM ||
+                    lir_operand_type(target_opnd) == JIT_LIR_OPTYPE_MEM) {
                     uint64_t target = lir_operand_get_constant_or_address(target_opnd);
                     phx_x86_cmp_ri(pb, reg, target);
                 } else {
@@ -1257,8 +1257,8 @@ autogen_c_TranslateGuard(void *env, const LirInstruction *instr) {
             }
             case JIT_GUARD_HAS_TYPE: {
                 const LirOperand *target_opnd = instr->inputs_[3];
-                if (target_opnd->type_ == JIT_LIR_OPTYPE_IMM ||
-                    target_opnd->type_ == JIT_LIR_OPTYPE_MEM) {
+                if (lir_operand_type(target_opnd) == JIT_LIR_OPTYPE_IMM ||
+                    lir_operand_type(target_opnd) == JIT_LIR_OPTYPE_MEM) {
                     uint64_t target = lir_operand_get_constant_or_address(target_opnd);
                     phx_x86_cmp_mi(pb,
                         phx_qword_ptr(reg, offsetof(PyObject, ob_type)),
@@ -1331,8 +1331,8 @@ autogen_c_TranslateGuard(void *env, const LirInstruction *instr) {
                 break;
             case JIT_GUARD_IS: {
                 const LirOperand *target_opnd = instr->inputs_[3];
-                if (target_opnd->type_ == JIT_LIR_OPTYPE_IMM ||
-                    target_opnd->type_ == JIT_LIR_OPTYPE_MEM) {
+                if (lir_operand_type(target_opnd) == JIT_LIR_OPTYPE_IMM ||
+                    lir_operand_type(target_opnd) == JIT_LIR_OPTYPE_MEM) {
                     uint64_t target = lir_operand_get_constant_or_address(target_opnd);
                     phx_a64_cmp_ri(pb, reg, target);
                 } else {
@@ -1347,8 +1347,8 @@ autogen_c_TranslateGuard(void *env, const LirInstruction *instr) {
                 phx_a64_ldr(pb, A64_SCRATCH_0, ob_type_ptr);
 
                 const LirOperand *target_opnd = instr->inputs_[3];
-                if (target_opnd->type_ == JIT_LIR_OPTYPE_IMM ||
-                    target_opnd->type_ == JIT_LIR_OPTYPE_MEM) {
+                if (lir_operand_type(target_opnd) == JIT_LIR_OPTYPE_IMM ||
+                    lir_operand_type(target_opnd) == JIT_LIR_OPTYPE_MEM) {
                     uint64_t target = lir_operand_get_constant_or_address(target_opnd);
                     phx_a64_cmp_ri(pb, A64_SCRATCH_0, target);
                 } else {
@@ -1405,16 +1405,16 @@ autogen_c_translateCall(void *env, const LirInstruction *instr) {
         }                                                                   \
         phx_a64_blr(pb, A64_SCRATCH_BR)
 
-    if (input->type_ == JIT_LIR_OPTYPE_REG) {
+    if (lir_operand_type(input) == JIT_LIR_OPTYPE_REG) {
         PhxGp target = operand_to_gp(input);
         if (target.id != A64_SCRATCH_BR.id) {
             phx_a64_mov_rr(pb, A64_SCRATCH_BR, target);
         }
         EMIT_SAVE_IP_AND_BLR();
-    } else if (input->type_ == JIT_LIR_OPTYPE_IMM) {
+    } else if (lir_operand_type(input) == JIT_LIR_OPTYPE_IMM) {
         phx_a64_mov_ri(pb, A64_SCRATCH_BR, lir_operand_get_constant(input));
         EMIT_SAVE_IP_AND_BLR();
-    } else if (input->type_ == JIT_LIR_OPTYPE_STACK) {
+    } else if (lir_operand_type(input) == JIT_LIR_OPTYPE_STACK) {
         int32_t loc = lir_operand_get_stack_slot(input).loc;
         phx_a64_ldr(pb, A64_SCRATCH_BR,
             jit_arch_ptr_resolve(pb, A64_FP, loc, A64_SCRATCH_0, 8));
@@ -1435,7 +1435,7 @@ autogen_c_translateCall(void *env, const LirInstruction *instr) {
     }
 
     /* Move return value to output register */
-    if (output->type_ != JIT_LIR_OPTYPE_NONE) {
+    if (lir_operand_type(output) != JIT_LIR_OPTYPE_NONE) {
         if (lir_operand_is_fp(output)) {
             phx_a64_fmov(pb, operand_to_vecd(output), A64_D0);
         } else {
