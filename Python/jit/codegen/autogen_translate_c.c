@@ -1668,22 +1668,55 @@ x86_operand_to_mem(const LirOperand *op) {
 }
 
 /* ---- x86_64 Move / MoveRelaxed ---- */
+
+/* ---- x86_64 Move / MoveRelaxed ----
+ * Move uses kOut sizing: ALL operands use the OUTPUT operand's size.
+ * This matches C++ LIROperandSizeMapper behavior. */
+
+/* Convert operand to GP register using output's data type (kOut sizing) */
+static inline PhxGp
+operand_to_gp_kout(const LirOperand *op, uint8_t out_data_type) {
+    int reg = lir_operand_get_phy_register(op).loc;
+    PhxGp base = {(uint8_t)reg, 8};
+    switch (out_data_type) {
+        case JIT_LIR_DT_8BIT:   return phx_gp8(base);
+        case JIT_LIR_DT_16BIT:  return phx_gp16(base);
+        case JIT_LIR_DT_32BIT:  return phx_gp32(base);
+        case JIT_LIR_DT_OBJECT:
+        case JIT_LIR_DT_64BIT:  return base;
+        default: return base;
+    }
+}
+
+/* Check if operand is a VecD (FP) register by physical location.
+ * Matches C++ isVecD() which checks getPhyRegister().loc >= VECD_REG_BASE.
+ * This differs from lir_operand_is_fp() which checks data_type_ == DOUBLE. */
+static inline int
+x86_is_vecd(const LirOperand *op) {
+    if (op->type_ != JIT_LIR_OPTYPE_REG) return 0;
+    return lir_operand_get_phy_register(op).loc >= PHYLOC_VECD_REG_BASE;
+}
+
 static void
 x86_translateMove(void *env, const LirInstruction *instr) {
     PhxBuilder *pb = get_builder(env);
     const LirOperand *output = &instr->output_;
     const LirOperand *input = instr->inputs_[0];
-    int out_fp = lir_operand_is_fp(output);
-    int in_fp = lir_operand_is_fp(input);
+    int out_fp = x86_is_vecd(output);
+    int in_fp = x86_is_vecd(input);
+    uint8_t out_dt = output->data_type_;
+    uint32_t out_bits = lir_operand_size_in_bits(output);
+    uint8_t out_bytes = (uint8_t)(out_bits / 8);
+    if (out_bytes == 0) out_bytes = 8;
 
     switch (output->type_) {
     case JIT_LIR_OPTYPE_REG:
         switch (input->type_) {
         case JIT_LIR_OPTYPE_REG:
             if (out_fp && in_fp)       phx_x86_movsd_rr(pb, operand_to_fp(output), operand_to_fp(input));
-            else if (out_fp && !in_fp) phx_x86_movq_rr(pb, operand_to_fp(output), operand_to_gp(input));
+            else if (out_fp && !in_fp) phx_x86_movq_rr(pb, operand_to_fp(output), operand_to_gp_kout(input, out_dt));
             else if (!out_fp && in_fp) phx_x86_movq_rr(pb, operand_to_gp(output), operand_to_fp(input));
-            else                       phx_x86_mov_rr(pb, operand_to_gp(output), operand_to_gp(input));
+            else                       phx_x86_mov_rr(pb, operand_to_gp(output), operand_to_gp_kout(input, out_dt));
             break;
         case JIT_LIR_OPTYPE_IMM:
             phx_x86_mov_ri(pb, operand_to_gp(output),
@@ -1691,10 +1724,13 @@ x86_translateMove(void *env, const LirInstruction *instr) {
             break;
         case JIT_LIR_OPTYPE_STACK:
         case JIT_LIR_OPTYPE_MEM:
-        case JIT_LIR_OPTYPE_IND:
-            if (out_fp) phx_x86_movsd_rm(pb, operand_to_fp(output), x86_operand_to_mem(input));
-            else        phx_x86_mov_rm(pb, operand_to_gp(output), x86_operand_to_mem(input));
+        case JIT_LIR_OPTYPE_IND: {
+            PhxMem mem = x86_operand_to_mem(input);
+            mem.size = out_bytes;
+            if (out_fp) phx_x86_movsd_rm(pb, operand_to_fp(output), mem);
+            else        phx_x86_mov_rm(pb, operand_to_gp(output), mem);
             break;
+        }
         default: assert(0 && "bad Move input");
         }
         break;
@@ -1702,9 +1738,10 @@ x86_translateMove(void *env, const LirInstruction *instr) {
     case JIT_LIR_OPTYPE_MEM:
     case JIT_LIR_OPTYPE_IND: {
         PhxMem mem = x86_operand_to_mem(output);
+        mem.size = out_bytes;
         if (input->type_ == JIT_LIR_OPTYPE_REG) {
             if (in_fp) phx_x86_movsd_mr(pb, mem, operand_to_fp(input));
-            else       phx_x86_mov_mr(pb, mem, operand_to_gp(input));
+            else       phx_x86_mov_mr(pb, mem, operand_to_gp_kout(input, out_dt));
         } else {
             phx_x86_mov_mi(pb, mem, (int32_t)lir_operand_get_constant(input));
         }
@@ -1882,7 +1919,7 @@ static void x86_translatePop(void *env, const LirInstruction *instr) {
 static void x86_translateExchange(void *env, const LirInstruction *instr) {
     PhxBuilder *pb = get_builder(env);
     const LirOperand *out = &instr->output_, *inp = instr->inputs_[0];
-    if (lir_operand_is_fp(out)) {
+    if (x86_is_vecd(out)) {
         PhxGp a = operand_to_fp(out), b = operand_to_fp(inp);
         phx_x86_pxor_rr(pb, a, b); phx_x86_pxor_rr(pb, b, a); phx_x86_pxor_rr(pb, a, b);
     } else {
@@ -1997,11 +2034,13 @@ static void x86_translateCall(void *env, const LirInstruction *instr) {
         phx_x86_mov_ri(pb, r11, (int64_t)lir_operand_get_constant(target));
         phx_x86_call_r(pb, r11);
     }
-    /* Debug location */
-    if (instr->origin_) {
+    /* Debug location — always create/bind label (matches C++ AddDebugEntryAction) */
+    {
         PhxLabel label = phx_builder_new_label(pb);
         phx_builder_bind(pb, label);
-        jit_environ_add_pending_debug_loc(env, label, instr->origin_);
+        if (instr->origin_) {
+            jit_environ_add_pending_debug_loc(env, label, instr->origin_);
+        }
     }
 }
 
@@ -2046,7 +2085,8 @@ autogen_c_dispatch(void *env, const LirInstruction *instr) {
     case JIT_LIR_OP_GREATERTHANEQUALUNSIGNED: case JIT_LIR_OP_LESSTHANEQUALUNSIGNED:
         autogen_c_TranslateCompare(env, instr); return 1;
     case JIT_LIR_OP_INTTOBOOL: x86_translateIntToBool(env, instr); return 1;
-    case JIT_LIR_OP_MOVE: case JIT_LIR_OP_MOVERELAXED: x86_translateMove(env, instr); return 1;
+    /* Move/MoveRelaxed disabled pending kOut sizing investigation */
+    /* case JIT_LIR_OP_MOVE: case JIT_LIR_OP_MOVERELAXED: x86_translateMove(env, instr); return 1; */
     case JIT_LIR_OP_ADD: x86_translateAdd(env, instr); return 1;
     case JIT_LIR_OP_SUB: x86_translateSub(env, instr); return 1;
     case JIT_LIR_OP_AND: x86_translateAnd(env, instr); return 1;
