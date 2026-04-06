@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/pyjit.h"
+#include "cinderx/Jit/jit_log.h"
 
 #if PY_VERSION_HEX < 0x030C0000
 #include "cinder/exports.h"
@@ -239,6 +240,7 @@ PyObject* forcedJitVectorcall(
         isJitCompiled(func),
         "JIT succeeded for function {} but it is not recognized as compiled",
         funcFullname(func));
+    jit_log_compile(funcFullname(func).c_str(), 0, 0);
     return func->vectorcall(func_obj, stack, nargsf, kwnames);
   }
 
@@ -924,6 +926,7 @@ bool reoptFunc(BorrowedRef<PyFunctionObject> func) {
     // compiled_funcs_ but is added to deopted_funcs_. When reopting, we need
     // to clear deopted_funcs_ so isDeoptimized() returns the correct state.
     jitCtx()->removeDeoptedFunc(func);
+    jit_log_reattach(funcFullname(func).c_str());
     return true;
   }
 
@@ -1477,6 +1480,7 @@ void disable_jit_impl(bool deopt_all) {
   }
 
   if (deopt_all) {
+    jit_log_global_deopt((int)jitCtx()->compiledFuncs().size());
     JIT_DLOG(
         "Deopting {} compiled functions", jitCtx()->compiledFuncs().size());
     size_t success = 0;
@@ -1779,6 +1783,9 @@ PyObject* force_compile(PyObject* /* self */, PyObject* arg) {
   }
 
   _PyJIT_Result result = compileFunction(func);
+  if (result == PYJIT_RESULT_OK) {
+    jit_log_compile(funcFullname(func).c_str(), 1, 0);
+  }
   switch (result) {
     case PYJIT_RESULT_OK:
       Py_RETURN_TRUE;
