@@ -16,6 +16,7 @@
 #include "cinderx/Common/code.h"
 #include "cinderx/Common/log.h"
 #include "cinderx/Common/watchers_c.h"
+#include "cinderx/Common/util.h"
 #include "cinderx/module_c_state.h"
 
 /* Watcher callbacks — notify the JIT when types/dicts/funcs/code change */
@@ -250,9 +251,17 @@ static int phoenix_exec(PyObject* m) {
 
     /* Enable auto-compilation: newly created functions will be scheduled
        for JIT compilation via the func watcher -> scheduleJitCompile.
-       The counting trampoline compiles after this many calls.
-       Does NOT stamp existing functions (safe for CPython internals). */
+       The counting trampoline compiles after this many calls. */
     jit::getMutableConfig().compile_after_n_calls = 1000;
+
+    /* Retroactively scan all pre-existing PyFunctionObjects and install
+       the counting trampoline. Without this, functions defined before
+       import _cinderx never auto-compile (the func watcher only sees
+       functions created AFTER registration). scheduleJitCompile already
+       filters out ineligible functions (IMPORT_NAME, __enter__/__exit__,
+       CO_VARKEYWORDS). */
+    jit::walkFunctionObjects(
+        [](BorrowedRef<PyFunctionObject> func) { jit::scheduleJitCompile(func); });
 
     return 0;
 }
