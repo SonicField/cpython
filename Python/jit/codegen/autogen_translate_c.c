@@ -1767,19 +1767,23 @@ x86_translateBinaryOp(void *env, const LirInstruction *instr,
     PhxBuilder *pb = get_builder(env);
     const LirOperand *output = &instr->output_;
     if (lir_operand_type(output) == JIT_LIR_OPTYPE_NONE) {
-        /* 2-operand: dst = input[0], src = input[last] */
-        PhxGp dst = operand_to_gp(instr->inputs_[0]);
+        /* 2-operand: dst = input[0], src = input[last]
+         * kOut sizing: use input[0]'s data type for all operands */
+        uint8_t out_dt = lir_operand_data_type(instr->inputs_[0]);
+        PhxGp dst = operand_to_gp_kout(instr->inputs_[0], out_dt);
         const LirOperand *src = instr->inputs_[instr->num_inputs_ - 1];
         if (lir_operand_type(src) == JIT_LIR_OPTYPE_IMM) ri(pb, dst, (int32_t)lir_operand_get_constant(src));
-        else if (lir_operand_type(src) == JIT_LIR_OPTYPE_REG) rr(pb, dst, operand_to_gp(src));
+        else if (lir_operand_type(src) == JIT_LIR_OPTYPE_REG) rr(pb, dst, operand_to_gp_kout(src, out_dt));
         else rm(pb, dst, x86_operand_to_mem(src));
     } else {
-        /* 3-operand: output != input[0] */
-        PhxGp dst = operand_to_gp(output);
-        phx_x86_mov_rr(pb, dst, operand_to_gp(instr->inputs_[0]));
+        /* 3-operand: output != input[0]
+         * kOut sizing: use output's data type for all operands */
+        uint8_t out_dt = lir_operand_data_type(output);
+        PhxGp dst = operand_to_gp_kout(output, out_dt);
+        phx_x86_mov_rr(pb, dst, operand_to_gp_kout(instr->inputs_[0], out_dt));
         const LirOperand *src = instr->inputs_[1];
         if (lir_operand_type(src) == JIT_LIR_OPTYPE_IMM) ri(pb, dst, (int32_t)lir_operand_get_constant(src));
-        else if (lir_operand_type(src) == JIT_LIR_OPTYPE_REG) rr(pb, dst, operand_to_gp(src));
+        else if (lir_operand_type(src) == JIT_LIR_OPTYPE_REG) rr(pb, dst, operand_to_gp_kout(src, out_dt));
         else rm(pb, dst, x86_operand_to_mem(src));
     }
 }
@@ -1794,17 +1798,21 @@ static void x86_translateMul(void *env, const LirInstruction *instr) {
     PhxBuilder *pb = get_builder(env);
     const LirOperand *output = &instr->output_;
     if (lir_operand_type(output) == JIT_LIR_OPTYPE_NONE) {
-        PhxGp dst = operand_to_gp(instr->inputs_[0]);
+        /* kOut sizing: use input[0]'s data type */
+        uint8_t out_dt = lir_operand_data_type(instr->inputs_[0]);
+        PhxGp dst = operand_to_gp_kout(instr->inputs_[0], out_dt);
         const LirOperand *src = instr->inputs_[instr->num_inputs_ - 1];
         if (lir_operand_type(src) == JIT_LIR_OPTYPE_IMM) phx_x86_imul_rri(pb, dst, dst, (int32_t)lir_operand_get_constant(src));
-        else if (lir_operand_type(src) == JIT_LIR_OPTYPE_REG) phx_x86_imul_rr(pb, dst, operand_to_gp(src));
+        else if (lir_operand_type(src) == JIT_LIR_OPTYPE_REG) phx_x86_imul_rr(pb, dst, operand_to_gp_kout(src, out_dt));
         else phx_x86_imul_rm(pb, dst, x86_operand_to_mem(src));
     } else {
-        PhxGp dst = operand_to_gp(output);
-        phx_x86_mov_rr(pb, dst, operand_to_gp(instr->inputs_[0]));
+        /* kOut sizing: use output's data type */
+        uint8_t out_dt = lir_operand_data_type(output);
+        PhxGp dst = operand_to_gp_kout(output, out_dt);
+        phx_x86_mov_rr(pb, dst, operand_to_gp_kout(instr->inputs_[0], out_dt));
         const LirOperand *src = instr->inputs_[1];
         if (lir_operand_type(src) == JIT_LIR_OPTYPE_IMM) phx_x86_imul_rri(pb, dst, dst, (int32_t)lir_operand_get_constant(src));
-        else if (lir_operand_type(src) == JIT_LIR_OPTYPE_REG) phx_x86_imul_rr(pb, dst, operand_to_gp(src));
+        else if (lir_operand_type(src) == JIT_LIR_OPTYPE_REG) phx_x86_imul_rr(pb, dst, operand_to_gp_kout(src, out_dt));
         else phx_x86_imul_rm(pb, dst, x86_operand_to_mem(src));
     }
 }
@@ -1875,18 +1883,23 @@ static void x86_translateLea(void *env, const LirInstruction *instr) {
 static void x86_translateNegate(void *env, const LirInstruction *instr) {
     PhxBuilder *pb = get_builder(env);
     const LirOperand *out = &instr->output_, *in = instr->inputs_[0];
-    if (lir_operand_type(out) == JIT_LIR_OPTYPE_NONE) { phx_x86_neg_r(pb, operand_to_gp(in)); }
-    else if (lir_operand_type(in) == JIT_LIR_OPTYPE_IMM) { phx_x86_mov_ri(pb, operand_to_gp(out), -(int64_t)lir_operand_get_constant(in)); }
-    else if (lir_operand_type(in) == JIT_LIR_OPTYPE_REG) { PhxGp d = operand_to_gp(out); phx_x86_mov_rr(pb, d, operand_to_gp(in)); phx_x86_neg_r(pb, d); }
-    else { PhxGp d = operand_to_gp(out); phx_x86_mov_rm(pb, d, x86_operand_to_mem(in)); phx_x86_neg_r(pb, d); }
+    /* kOut sizing: use output's (or input[0]'s for 2-op) data type */
+    uint8_t out_dt = (lir_operand_type(out) != JIT_LIR_OPTYPE_NONE)
+        ? lir_operand_data_type(out) : lir_operand_data_type(in);
+    if (lir_operand_type(out) == JIT_LIR_OPTYPE_NONE) { phx_x86_neg_r(pb, operand_to_gp_kout(in, out_dt)); }
+    else if (lir_operand_type(in) == JIT_LIR_OPTYPE_IMM) { phx_x86_mov_ri(pb, operand_to_gp_kout(out, out_dt), -(int64_t)lir_operand_get_constant(in)); }
+    else if (lir_operand_type(in) == JIT_LIR_OPTYPE_REG) { PhxGp d = operand_to_gp_kout(out, out_dt); phx_x86_mov_rr(pb, d, operand_to_gp_kout(in, out_dt)); phx_x86_neg_r(pb, d); }
+    else { PhxGp d = operand_to_gp_kout(out, out_dt); phx_x86_mov_rm(pb, d, x86_operand_to_mem(in)); phx_x86_neg_r(pb, d); }
 }
 
 static void x86_translateInvert(void *env, const LirInstruction *instr) {
     PhxBuilder *pb = get_builder(env);
     const LirOperand *out = &instr->output_, *in = instr->inputs_[0];
-    if (lir_operand_type(in) == JIT_LIR_OPTYPE_IMM) { phx_x86_mov_ri(pb, operand_to_gp(out), ~(int64_t)lir_operand_get_constant(in)); }
-    else if (lir_operand_type(in) == JIT_LIR_OPTYPE_REG) { PhxGp d = operand_to_gp(out); phx_x86_mov_rr(pb, d, operand_to_gp(in)); phx_x86_not_r(pb, d); }
-    else { PhxGp d = operand_to_gp(out); phx_x86_mov_rm(pb, d, x86_operand_to_mem(in)); phx_x86_not_r(pb, d); }
+    /* kOut sizing */
+    uint8_t out_dt = lir_operand_data_type(out);
+    if (lir_operand_type(in) == JIT_LIR_OPTYPE_IMM) { phx_x86_mov_ri(pb, operand_to_gp_kout(out, out_dt), ~(int64_t)lir_operand_get_constant(in)); }
+    else if (lir_operand_type(in) == JIT_LIR_OPTYPE_REG) { PhxGp d = operand_to_gp_kout(out, out_dt); phx_x86_mov_rr(pb, d, operand_to_gp_kout(in, out_dt)); phx_x86_not_r(pb, d); }
+    else { PhxGp d = operand_to_gp_kout(out, out_dt); phx_x86_mov_rm(pb, d, x86_operand_to_mem(in)); phx_x86_not_r(pb, d); }
 }
 
 /* ---- x86_64 Inc / Dec ---- */
@@ -1965,10 +1978,12 @@ static void x86_translateMovSXD(void *env, const LirInstruction *instr) {
 static void x86_translateCmp(void *env, const LirInstruction *instr) {
     PhxBuilder *pb = get_builder(env);
     const LirOperand *a = instr->inputs_[0], *b = instr->inputs_[1];
-    if (lir_operand_type(a) == JIT_LIR_OPTYPE_REG && lir_operand_type(b) == JIT_LIR_OPTYPE_REG) phx_x86_cmp_rr(pb, operand_to_gp(a), operand_to_gp(b));
-    else if (lir_operand_type(a) == JIT_LIR_OPTYPE_REG && lir_operand_type(b) == JIT_LIR_OPTYPE_IMM) phx_x86_cmp_ri(pb, operand_to_gp(a), (int32_t)lir_operand_get_constant(b));
-    else if (lir_operand_type(a) == JIT_LIR_OPTYPE_REG) phx_x86_cmp_rm(pb, operand_to_gp(a), x86_operand_to_mem(b));
-    else phx_x86_cmp_mr(pb, x86_operand_to_mem(a), operand_to_gp(b));
+    /* kOut sizing: Cmp output is implicit (flags), use input[0]'s data type */
+    uint8_t out_dt = lir_operand_data_type(a);
+    if (lir_operand_type(a) == JIT_LIR_OPTYPE_REG && lir_operand_type(b) == JIT_LIR_OPTYPE_REG) phx_x86_cmp_rr(pb, operand_to_gp_kout(a, out_dt), operand_to_gp_kout(b, out_dt));
+    else if (lir_operand_type(a) == JIT_LIR_OPTYPE_REG && lir_operand_type(b) == JIT_LIR_OPTYPE_IMM) phx_x86_cmp_ri(pb, operand_to_gp_kout(a, out_dt), (int32_t)lir_operand_get_constant(b));
+    else if (lir_operand_type(a) == JIT_LIR_OPTYPE_REG) phx_x86_cmp_rm(pb, operand_to_gp_kout(a, out_dt), x86_operand_to_mem(b));
+    else phx_x86_cmp_mr(pb, x86_operand_to_mem(a), operand_to_gp_kout(b, out_dt));
 }
 
 static void x86_translateTest(void *env, const LirInstruction *instr) {
