@@ -10,6 +10,7 @@
 #include "cinderx/Jit/codegen/arch.h"
 #include "cinderx/Jit/codegen/environ.h"
 #include "cinderx/Jit/codegen/frame_asm.h"
+#include "cinderx/Jit/codegen/frame_asm_c.h"
 #include "cinderx/Jit/codegen/register_preserver.h"
 #include "cinderx/Jit/hir/hir.h"
 #include "cinderx/Jit/lir/function.h"

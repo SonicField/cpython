@@ -65,6 +65,21 @@ using namespace jit::util;
 
 namespace jit::codegen {
 
+/* Helper: convert C++ register pair vector to C PhxRegPair array.
+ * Returns the count. Caller provides a stack buffer. */
+static int convert_save_regs(
+    const std::vector<std::pair<const arch::Reg&, const arch::Reg&>>& cpp_regs,
+    PhxRegPair* out, int max_out) {
+  int n = 0;
+  for (const auto& [src, dst] : cpp_regs) {
+    JIT_CHECK(n < max_out, "save_regs overflow");
+    out[n].src = (PhxGp){(uint8_t)src.id(), (uint8_t)src.size()};
+    out[n].dst = (PhxGp){(uint8_t)dst.id(), (uint8_t)dst.size()};
+    n++;
+  }
+  return n;
+}
+
 namespace {
 
 // Check if LIR dumping is enabled — respects both the config flag and
@@ -1324,7 +1339,7 @@ void* NativeGenerator::getVectorcallEntry() {
   }
 
   as_ = new arch::Builder(&code);
-  frame_asm_.setAssembler(as_);
+  // frame_asm C functions get builder from env — no setAssembler needed
 
   env_.as = as_;
   env_.hard_exit_label = as_->newLabel();
@@ -1431,7 +1446,7 @@ void* NativeGenerator::getVectorcallEntry() {
 
 
   LinearScanAllocator lsalloc(
-      lir_func.get(), frame_asm_.frameHeaderSize() + inline_stack_size_);
+      lir_func.get(), frame_asm_c_frame_header_size(GetFunction()->code.get()) + inline_stack_size_);
 
   COMPILE_TIMER(
       GetFunction()->compilation_phase_timer,
@@ -1836,8 +1851,14 @@ void NativeGenerator::generatePrologue(
   // them.
   int padding = allocateHeaderAndSpillSpace(frame_info);
 
-  frame_asm_.generateLinkFrame(
-      kFuncPtrReg, x86::gpq(INITIAL_TSTATE_REG.loc), save_regs);
+  {
+    PhxRegPair c_save_regs[32];
+    int c_save_count = convert_save_regs(save_regs, c_save_regs, 32);
+    frame_asm_c_generate_link_frame(
+        &env_, kFuncPtrReg, x86::gpq(INITIAL_TSTATE_REG.loc),
+        GetFunction(), env_.code_rt,
+        c_save_regs, c_save_count);
+  }
 
   env_.addAnnotation("Link frame", frame_cursor);
 
@@ -1932,8 +1953,14 @@ void NativeGenerator::generatePrologue(
   // stack is already aligned by that allocation function.
   (void)allocateHeaderAndSpillSpace(frame_info);
 
-  frame_asm_.generateLinkFrame(
-      kFuncPtrReg, a64::x(INITIAL_TSTATE_REG.loc), save_regs);
+  {
+    PhxRegPair c_save_regs[32];
+    int c_save_count = convert_save_regs(save_regs, c_save_regs, 32);
+    frame_asm_c_generate_link_frame(
+        &env_, kFuncPtrReg, a64::x(INITIAL_TSTATE_REG.loc),
+        GetFunction(), env_.code_rt,
+        c_save_regs, c_save_count);
+  }
 
   env_.addAnnotation("Link frame", frame_cursor);
 
@@ -2286,14 +2313,14 @@ void NativeGenerator::generateEpilogue(BaseNode* epilogue_cursor) {
   // object i.e. in generators_rt. For the initial yield unlinking happens as
   // part of the YieldInitial LIR instruction.
   if (!is_gen) {
-    frame_asm_.generateUnlinkFrame(false);
+    frame_asm_c_generate_unlink_frame(&env_, GetFunction());
   }
 #else
   // Ideally this would also be the same in 3.10 as well but I spent maybe half
   // a day trying to change things and gave up. Our implementation is really
   // wonky and a clear ownership model is made difficult by shadow frames. It's
   // probably subtly broken somewhere.
-  frame_asm_.generateUnlinkFrame(is_gen);
+  frame_asm_c_generate_unlink_frame(&env_, GetFunction());
 #endif
 
   // If we return a primitive, set edx/xmm1 to 1 to indicate no error (in case
@@ -2387,7 +2414,7 @@ void NativeGenerator::generateEpilogue(BaseNode* epilogue_cursor) {
   // object i.e. in generators_rt. For the initial yield unlinking happens as
   // part of the YieldInitial LIR instruction.
   if (!is_gen) {
-    frame_asm_.generateUnlinkFrame(false);
+    frame_asm_c_generate_unlink_frame(&env_, GetFunction());
   }
 #else
   CINDER_UNSUPPORTED
@@ -2946,10 +2973,15 @@ void NativeGenerator::generateStaticEntryPoint(
   // them.
   int padding = allocateHeaderAndSpillSpace(frame_info);
 
-  frame_asm_.generateLinkFrame(
-      x86::gpq(INITIAL_FUNC_REG.loc),
-      x86::gpq(INITIAL_TSTATE_REG.loc),
-      save_regs);
+  {
+    PhxRegPair c_save_regs[32];
+    int c_save_count = convert_save_regs(save_regs, c_save_regs, 32);
+    frame_asm_c_generate_link_frame(
+        &env_, x86::gpq(INITIAL_FUNC_REG.loc),
+        x86::gpq(INITIAL_TSTATE_REG.loc),
+        GetFunction(), env_.code_rt,
+        c_save_regs, c_save_count);
+  }
 
   // We already allocated stack space for the header and spill data, clean
   // up any alignment padding we added
@@ -3077,8 +3109,15 @@ void NativeGenerator::generateStaticEntryPoint(
   // them.
   allocateHeaderAndSpillSpace(frame_info);
 
-  frame_asm_.generateLinkFrame(
-      a64::x(INITIAL_FUNC_REG.loc), a64::x(INITIAL_TSTATE_REG.loc), save_regs);
+  {
+    PhxRegPair c_save_regs[32];
+    int c_save_count = convert_save_regs(save_regs, c_save_regs, 32);
+    frame_asm_c_generate_link_frame(
+        &env_, a64::x(INITIAL_FUNC_REG.loc),
+        a64::x(INITIAL_TSTATE_REG.loc),
+        GetFunction(), env_.code_rt,
+        c_save_regs, c_save_count);
+  }
 
   if (need_extra_args_load) {
     phx_a64_add_rri(as_->impl(), a64::x10, arch::fp, 16);
