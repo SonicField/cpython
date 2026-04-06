@@ -51,6 +51,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <iterator>
 #include <stdexcept>
@@ -478,6 +479,42 @@ static uint32_t crc32_simple(const uint8_t* data, size_t len) {
 
 static int jit_fingerprint_checked = 0;
 
+/* Normalize machine code by zeroing out absolute address immediates.
+ * This produces deterministic bytes for CRC32 hashing — same instructions
+ * with different addresses (due to ASLR) produce the same hash. */
+static void normalize_code(const uint8_t* src, uint8_t* dst, size_t len) {
+  memcpy(dst, src, len);
+#if defined(CINDER_X86_64)
+  /* x86_64: MOV r64, imm64 = REX.W (0x48/0x49) + 0xB8-0xBF + 8 bytes imm.
+   * Zero the 8-byte immediate. */
+  for (size_t i = 0; i + 9 < len; ) {
+    if ((dst[i] == 0x48 || dst[i] == 0x49) &&
+        dst[i + 1] >= 0xB8 && dst[i + 1] <= 0xBF) {
+      memset(&dst[i + 2], 0, 8);
+      i += 10;
+    } else {
+      i++;
+    }
+  }
+#elif defined(CINDER_AARCH64)
+  /* ARM64: MOVZ/MOVK for 64-bit registers.
+   * Format: sf(1) opc(2) 100101 hw(2) imm16(16) Rd(5)
+   * MOVZ X: bits[31:23] = 1_10_100101 → (insn & 0xFF800000) == 0xD2800000
+   * MOVK X: bits[31:23] = 1_11_100101 → (insn & 0xFF800000) == 0xF2800000
+   * hw varies in bits[22:21] but is BELOW the mask so these match all shifts.
+   * imm16 is in bits [20:5]. Zero it for deterministic hash. */
+  for (size_t i = 0; i + 3 < len; i += 4) {
+    uint32_t insn;
+    memcpy(&insn, &dst[i], 4);
+    uint32_t top9 = insn & 0xFF800000;
+    if (top9 == 0xD2800000 || top9 == 0xF2800000) {
+      insn &= ~(0xFFFFu << 5);  /* zero imm16 field (bits 20:5) */
+      memcpy(&dst[i], &insn, 4);
+    }
+  }
+#endif
+}
+
 static void jit_fingerprint_record(const char* name, void* addr, size_t size) {
   if (!jit_fingerprint_checked) {
     jit_fingerprint_checked = 1;
@@ -487,10 +524,13 @@ static void jit_fingerprint_record(const char* name, void* addr, size_t size) {
     }
   }
   if (!jit_fingerprint_file) return;
-  /* Record size only — CRC32 is non-deterministic due to ASLR
-   * (C runtime addresses embedded as immediates during codegen).
-   * Size changes = codegen structural changes. Deterministic. */
-  fprintf(jit_fingerprint_file, "%zu %s\n", size, name);
+  /* Normalize absolute addresses before CRC32 for deterministic hashing. */
+  auto* data = static_cast<const uint8_t*>(addr);
+  auto* normalized = new uint8_t[size];
+  normalize_code(data, normalized, size);
+  uint32_t crc = crc32_simple(normalized, size);
+  delete[] normalized;
+  fprintf(jit_fingerprint_file, "%08x %zu %s\n", crc, size, name);
   fflush(jit_fingerprint_file);
 }
 

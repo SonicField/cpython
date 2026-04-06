@@ -259,6 +259,22 @@ void jit_environ_add_pending_deopt_patcher(void *env, void *patcher,
 /* Environ fields for frame_asm conversion */
 int jit_environ_shadow_frames_and_spill_size(void *env);
 void *jit_environ_get_gen_resume_entry_label(void *env);
+int jit_environ_get_frame_mode(void *env);
+
+/* HIR Function accessors (opaque void* handle) */
+void *jit_hir_func_get_code(const void *hir_func);
+int jit_hir_func_returns_double(const void *hir_func);
+int jit_hir_func_is_gen(const void *hir_func);
+int jit_hir_func_get_frame_mode(const void *hir_func);
+void *jit_hir_func_get_reifier(const void *hir_func);
+
+/* CodeRuntime accessors */
+void *jit_code_rt_get_reifier(void *code_rt);
+
+/* JITRT function address getters (for C callers that need function pointers) */
+void *jit_rt_get_unlink_frame_addr(void);
+void *jit_rt_get_alloc_link_frame_debug_addr(void);
+void *jit_rt_get_alloc_link_frame_release_addr(void);
 
 /* Block→Label mapping for branch targets */
 PhxLabel jit_environ_get_block_label(void *env, const LirBasicBlock *block);

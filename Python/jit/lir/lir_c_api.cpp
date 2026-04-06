@@ -24,6 +24,9 @@
 #include "cinderx/Jit/threaded_compile.h"
 #include "cinderx/Jit/code_runtime.h"
 #include "cinderx/Jit/code_patcher.h"
+#include "cinderx/Jit/hir/function.h"
+#include "cinderx/Jit/hir/type.h"
+#include "cinderx/Jit/jit_rt.h"
 
 using jit::codegen::CodeSection;
 using jit::lir::BasicBlock;
@@ -449,4 +452,69 @@ extern "C" void*
 jit_environ_get_gen_resume_entry_label(void* env_ptr) {
   auto* env = static_cast<jit::codegen::Environ*>(env_ptr);
   return &env->gen_resume_entry_label;
+}
+
+extern "C" int
+jit_environ_get_frame_mode(void* env_ptr) {
+  return static_cast<int>(
+      static_cast<jit::codegen::Environ*>(env_ptr)->frame_mode);
+}
+
+/* ---- HIR Function accessors ---- */
+
+extern "C" void*
+jit_hir_func_get_code(const void* hir_func) {
+  auto* func = static_cast<const jit::hir::Function*>(hir_func);
+  return func->code.get();
+}
+
+extern "C" int
+jit_hir_func_returns_double(const void* hir_func) {
+  auto* func = static_cast<const jit::hir::Function*>(hir_func);
+  return (func->return_type <= jit::hir::TCDouble) ? 1 : 0;
+}
+
+extern "C" int
+jit_hir_func_is_gen(const void* hir_func) {
+  auto* func = static_cast<const jit::hir::Function*>(hir_func);
+  int gen_flags = CO_GENERATOR | CO_COROUTINE | CO_ASYNC_GENERATOR |
+                  CO_ITERABLE_COROUTINE;
+  return (func->code->co_flags & gen_flags) ? 1 : 0;
+}
+
+extern "C" int
+jit_hir_func_get_frame_mode(const void* hir_func) {
+  return static_cast<int>(
+      static_cast<const jit::hir::Function*>(hir_func)->frameMode);
+}
+
+extern "C" void*
+jit_hir_func_get_reifier(const void* hir_func) {
+  auto* func = static_cast<const jit::hir::Function*>(hir_func);
+  return func->reifier.get();
+}
+
+/* ---- CodeRuntime accessors ---- */
+
+extern "C" void*
+jit_code_rt_get_reifier(void* code_rt_ptr) {
+  auto* code_rt = static_cast<jit::CodeRuntime*>(code_rt_ptr);
+  return code_rt->reifier();
+}
+
+/* ---- JITRT function address getters ---- */
+
+extern "C" void*
+jit_rt_get_unlink_frame_addr(void) {
+  return reinterpret_cast<void*>(JITRT_UnlinkFrame);
+}
+
+extern "C" void*
+jit_rt_get_alloc_link_frame_debug_addr(void) {
+  return reinterpret_cast<void*>(JITRT_AllocateAndLinkInterpreterFrame_Debug);
+}
+
+extern "C" void*
+jit_rt_get_alloc_link_frame_release_addr(void) {
+  return reinterpret_cast<void*>(JITRT_AllocateAndLinkInterpreterFrame_Release);
 }

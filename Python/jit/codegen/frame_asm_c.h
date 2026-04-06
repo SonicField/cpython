@@ -8,6 +8,7 @@
 #define JIT_CODEGEN_FRAME_ASM_C_H
 
 #include "jit/phoenix_asm/phoenix_asm.h"
+#include "cinderx/Jit/codegen/register_preserver_c.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,6 +35,34 @@ int frame_asm_c_frame_header_size(PyCodeObject *code);
 /* Store constant pointer to [reg + offset]. Returns 1 if scratch unused. */
 int frame_asm_c_store_const(void *env, PhxGp reg, int32_t offset,
                             void *val, PhxGp scratch0, PhxGp scratch1);
+
+/* Allocate + link interpreter frame (non-generator, non-lightweight) */
+void frame_asm_c_link_normal_function_frame(
+    void *env, PhxGp tstate_reg, const void *hir_func);
+
+/* Dispatch to generator/lightweight/normal frame linking */
+void frame_asm_c_link_normal_frame(
+    void *env, PhxGp func_reg, PhxGp tstate_reg,
+    const void *hir_func, void *code_rt_ptr,
+    const PhxRegPair *save_regs, int num_save_regs);
+
+/* Top-level frame linking entry point (3.12+) */
+void frame_asm_c_generate_link_frame(
+    void *env, PhxGp func_reg, PhxGp tstate_reg,
+    const void *hir_func, void *code_rt_ptr,
+    const PhxRegPair *save_regs, int num_save_regs);
+
+/* Unlink frame on function exit */
+void frame_asm_c_generate_unlink_frame(
+    void *env, const void *hir_func);
+
+/* Set up lightweight interpreter frame (only when ENABLE_LIGHTWEIGHT_FRAMES) */
+#if defined(ENABLE_LIGHTWEIGHT_FRAMES)
+void frame_asm_c_link_lightweight_function_frame(
+    void *env, PhxGp func_reg, PhxGp tstate_reg,
+    const void *hir_func,
+    const PhxRegPair *save_regs, int num_save_regs);
+#endif
 
 #ifdef __cplusplus
 } /* extern "C" */
