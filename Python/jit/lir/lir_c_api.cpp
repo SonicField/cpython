@@ -502,6 +502,11 @@ jit_code_rt_get_reifier(void* code_rt_ptr) {
   return code_rt->reifier();
 }
 
+extern "C" void*
+jit_module_state_get_frame_reifier(void) {
+  return cinderx::getModuleState()->frameReifier();
+}
+
 /* ---- JITRT function address getters ---- */
 
 extern "C" void*

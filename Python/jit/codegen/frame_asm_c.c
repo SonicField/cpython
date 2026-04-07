@@ -553,9 +553,8 @@ frame_asm_c_link_lightweight_function_frame(
 #if PY_VERSION_HEX >= 0x030E0000
     PyObject *frame_reifier = (PyObject *)jit_code_rt_get_reifier(code_rt_ptr);
 #else
-    /* Pre-3.14: cinderx::getModuleState()->frameReifier() — need C++ accessor.
-     * For now use the HIR function's reifier. */
-    PyObject *frame_reifier = (PyObject *)jit_hir_func_get_reifier(hir_func);
+    PyObject *frame_reifier =
+        (PyObject *)jit_module_state_get_frame_reifier();
 #endif
 
     /* INITIAL_EXTRA_ARGS_REG = R10 (x86_64) / X10 (aarch64) */

@@ -271,6 +271,9 @@ void *jit_hir_func_get_reifier(const void *hir_func);
 /* CodeRuntime accessors */
 void *jit_code_rt_get_reifier(void *code_rt);
 
+/* Module state accessors */
+void *jit_module_state_get_frame_reifier(void);
+
 /* JITRT function address getters (for C callers that need function pointers) */
 void *jit_rt_get_unlink_frame_addr(void);
 void *jit_rt_get_alloc_link_frame_debug_addr(void);
