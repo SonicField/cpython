@@ -3475,8 +3475,10 @@ void unregisterFunctionCodes(BorrowedRef<PyFunctionObject> func) {
 
 } // namespace
 
-// Tier 1 vectorcall wrapper: counts post-JIT invocations and
-// triggers Tier 2 recompilation when threshold is reached.
+// Tier 1 vectorcall wrapper: dispatches to compiled JIT code.
+// Tier 2 recompilation removed — it caused a use-after-free where
+// forgetCode + removeCompiledFunc freed preloader state (including
+// co_names references) before recompilation attempted to read them.
 PyObject* tier1Vectorcall(
     PyObject* func_obj,
     PyObject* const* stack,
@@ -3486,25 +3488,6 @@ PyObject* tier1Vectorcall(
   BorrowedRef<PyFunctionObject> func{func_obj};
   CompiledFunction* compiled = jitCtx()->lookupFunc(func);
   JIT_DCHECK(compiled != nullptr, "tier1Vectorcall: not compiled");
-  auto& data = compiled->mutableData();
-  data.tier1_invocation_count.fetch_add(1, std::memory_order_relaxed);
-  if (data.tier1_invocation_count.load(std::memory_order_relaxed) >= CompiledFunctionData::kTier2ThresholdDefault &&
-      data.compilation_tier == 1) {
-    // Tier 2 recompilation: clear old compiled code, recompile with warm ICs.
-    // forgetCode clears compiled_codes_ so compileFunction will recompile.
-    // removeCompiledFunc clears compiled_funcs_ so finalizeFunc re-registers.
-    jitCtx()->forgetCode(func);
-    jitCtx()->removeCompiledFunc(func);
-    PyObject* result = forcedJitVectorcall(func_obj, stack, nargsf, kwnames);
-    // Fix up: forcedJitVectorcall recompiled as Tier 1 (default).
-    // Set tier to 2 so tier1Vectorcall is not re-installed on next lookup.
-    CompiledFunction* recompiled = jitCtx()->lookupFunc(func);
-    if (recompiled != nullptr) {
-      recompiled->mutableData().compilation_tier = 2;
-      func->vectorcall = recompiled->vectorcallEntry();
-    }
-    return result;
-  }
   return compiled->vectorcallEntry()(func_obj, stack, nargsf, kwnames);
 }
 
