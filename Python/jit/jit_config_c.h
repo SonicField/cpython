@@ -125,10 +125,15 @@ typedef struct {
     JitAsmSyntax asm_syntax;
 } JitConfig;
 
+/* ---- Canonical global ---- */
+
+/* Canonical JIT config storage — defined in config.c.
+ * C callers access directly; C++ callers go through jit::getConfig(). */
+extern JitConfig g_jit_config_c;
+
 /* ---- Accessors ---- */
 
-/* Get the current JIT config (read-only).
- * Returns pointer to a static JitConfig synced from C++ Config. */
+/* Get the current JIT config (read-only). */
 const JitConfig* jit_get_config(void);
 
 /* Get a mutable pointer to the JIT config.

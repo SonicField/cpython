@@ -3,10 +3,23 @@
  * C bridge for ThreadedCompileSerialize.
  * Implements the extern "C" functions declared in threaded_compile_c.h
  * by delegating to the C++ ThreadedCompileContext.
+ *
+ * Also hosts the C++ ThreadedCompileContext global (moved from
+ * threaded_compile.cpp during Phase 3D).
  */
 
 #include "cinderx/Jit/threaded_compile_c.h"
 #include "cinderx/Jit/threaded_compile.h"
+
+namespace jit {
+namespace {
+ThreadedCompileContext s_threaded_compile_context;
+} // namespace
+
+ThreadedCompileContext& getThreadedCompileContext() {
+  return s_threaded_compile_context;
+}
+} // namespace jit
 
 extern "C" {
 

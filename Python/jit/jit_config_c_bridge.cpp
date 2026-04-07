@@ -1,6 +1,7 @@
 /* Copyright (c) Meta Platforms, Inc. and affiliates.
  *
- * Bridge between C JitConfig and C++ jit::Config.
+ * Bridge between C JitConfig (canonical, defined in config.c) and
+ * C++ jit::Config (legacy wrapper for unconverted callers).
  * Syncs fields on each access (safe, minimal overhead since config
  * is read infrequently relative to compilation).
  */
@@ -10,7 +11,12 @@
 
 #include <cstring>
 
-static JitConfig s_jit_config;
+/* C++ global — legacy wrapper.  Defined here (moved from config.cpp).
+ * 180+ C++ callers use jit::getConfig() which returns this.
+ * As callers migrate to jit_get_config(), this will be deleted. */
+namespace jit {
+Config g_jit_config;
+} // namespace jit
 
 static void sync_cpp_to_c(const jit::Config& src, JitConfig* dst) {
     dst->state = static_cast<JitState>(src.state);
@@ -94,13 +100,13 @@ static void sync_cpp_to_c(const jit::Config& src, JitConfig* dst) {
 extern "C" {
 
 const JitConfig* jit_get_config(void) {
-    sync_cpp_to_c(jit::getConfig(), &s_jit_config);
-    return &s_jit_config;
+    sync_cpp_to_c(jit::getConfig(), &g_jit_config_c);
+    return &g_jit_config_c;
 }
 
 JitConfig* jit_get_mutable_config(void) {
-    sync_cpp_to_c(jit::getMutableConfig(), &s_jit_config);
-    return &s_jit_config;
+    sync_cpp_to_c(jit::getMutableConfig(), &g_jit_config_c);
+    return &g_jit_config_c;
 }
 
 int jit_is_initialized(void) {

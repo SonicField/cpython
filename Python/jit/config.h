@@ -208,7 +208,9 @@ struct Config {
   AsmSyntax asm_syntax{AsmSyntax::ATT};
 };
 
-// Global config instance — defined in config.cpp, accessible for inlining.
+// Global config instance — defined in jit_config_c_bridge.cpp (moved from
+// config.cpp during Phase 3D).  C canonical storage is g_jit_config_c in
+// config.c; this C++ global is a legacy wrapper for unconverted callers.
 extern Config g_jit_config;
 
 // Get the JIT's current config object.
