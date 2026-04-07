@@ -10,6 +10,7 @@
  */
 
 #include "cinderx/Jit/lir/lir_c_api.h"
+#include "cinderx/module_state.h"
 
 #include <iterator>
 
