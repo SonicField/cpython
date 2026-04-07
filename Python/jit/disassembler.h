@@ -2,35 +2,55 @@
 
 #pragma once
 
+#include "cinderx/Jit/disassembler_c.h"
+
+#ifdef __cplusplus
+
 #include <ostream>
+#include <sstream>
 
 namespace jit {
 
+// C++ Disassembler — delegates to C implementation (disassembler_c.c).
 struct Disassembler {
-  Disassembler(const char* buf, size_t size);
+  Disassembler(const char* buf, size_t size) {
+    jit_disasm_init(&impl_, buf, size);
+  }
 
-  // Disassemble a single instruction.
-  void disassembleOne(std::ostream& os);
+  void disassembleOne(std::ostream& os) {
+    printToStream(os, [&](FILE* f) { jit_disasm_one(&impl_, f); });
+  }
 
-  // Disassemble the entire buffer.
-  void disassembleAll(std::ostream& os);
+  void disassembleAll(std::ostream& os) {
+    printToStream(os, [&](FILE* f) { jit_disasm_all(&impl_, f); });
+  }
 
-  // Get the address the disassembler is currently pointing at.
-  const char* cursor() const;
+  const char* cursor() const {
+    return jit_disasm_cursor(&impl_);
+  }
 
-  void setPrintAddr(bool print);
-  void setPrintInstBytes(bool print);
+  void setPrintAddr(bool print) {
+    jit_disasm_set_print_addr(&impl_, print ? 1 : 0);
+  }
+
+  void setPrintInstBytes(bool print) {
+    jit_disasm_set_print_instr_bytes(&impl_, print ? 1 : 0);
+  }
 
  private:
-  const char* const buf_;
-  size_t start_{0};
-  size_t const size_;
-  size_t addr_len_{16};
-  bool print_addr_{true};
-  bool print_instr_bytes_{true};
+  JitDisassembler impl_;
 
-  size_t disassemblerHandle();
-  void disassemble(std::ostream& os, size_t handle);
+  template <typename Fn>
+  void printToStream(std::ostream& out, Fn&& fn) {
+    char buf[8192];
+    FILE* f = fmemopen(buf, sizeof(buf), "w");
+    if (!f) return;
+    fn(f);
+    fclose(f);
+    out << buf;
+  }
 };
 
 } // namespace jit
+
+#endif /* __cplusplus */

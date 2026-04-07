@@ -30,6 +30,7 @@
 #include "cinderx/Jit/hir/function.h"
 #include "cinderx/Jit/hir/printer.h"
 #include "cinderx/Jit/hir/type.h"
+#include "cinderx/Jit/symbolizer.h"
 #include "cinderx/Jit/jit_rt.h"
 
 using jit::codegen::CodeSection;
@@ -573,4 +574,15 @@ extern "C" const void*
 lir_instruction_get_origin(const LirInstruction *inst) {
   auto* i = reinterpret_cast<const jit::lir::Instruction*>(inst);
   return static_cast<const void*>(i->origin());
+}
+
+/* ---- Symbolizer bridge (disassembler_c.c) ---- */
+
+extern "C" int
+jit_symbolize(const void *func, char *buf, size_t buflen) {
+  auto name = jit::symbolize(func);
+  if (!name.has_value() || name->empty()) return 0;
+  std::strncpy(buf, name->c_str(), buflen - 1);
+  buf[buflen - 1] = '\0';
+  return 1;
 }
