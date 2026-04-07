@@ -13,6 +13,7 @@
 #include "cinderx/module_state.h"
 
 #include <iterator>
+#include <sstream>
 
 #include "cinderx/Jit/codegen/code_section.h"
 #include "cinderx/Jit/codegen/environ.h"
@@ -22,10 +23,12 @@
 #include "cinderx/Jit/lir/function.h"
 #include "cinderx/Jit/lir/instruction.h"
 #include "cinderx/Jit/lir/operand.h"
+#include "cinderx/Jit/lir/printer.h"
 #include "cinderx/Jit/threaded_compile.h"
 #include "cinderx/Jit/code_runtime.h"
 #include "cinderx/Jit/code_patcher.h"
 #include "cinderx/Jit/hir/function.h"
+#include "cinderx/Jit/hir/printer.h"
 #include "cinderx/Jit/hir/type.h"
 #include "cinderx/Jit/jit_rt.h"
 
@@ -528,4 +531,46 @@ jit_rt_get_alloc_link_frame_release_addr(void) {
 extern "C" void*
 jit_rt_get_alloc_link_gen_frame_addr(void) {
   return reinterpret_cast<void*>(JITRT_AllocateAndLinkGenAndInterpreterFrame);
+}
+
+/* ---- LIR printer support (Phase 3D: printer.cpp → printer_c.c) ---- */
+
+extern "C" const char*
+lir_instruction_opcode_name(int opcode) {
+  auto& info = jit::lir::InstrProperty::getProperties(
+      static_cast<jit::lir::Instruction::Opcode>(opcode));
+  return info.name.data();
+}
+
+extern "C" const char*
+lir_operand_data_type_name(int dt) {
+  using DT = jit::lir::OperandBase::DataType;
+  switch (static_cast<DT>(dt)) {
+    case DT::kObject:  return "Object";
+    case DT::k8bit:    return "8bit";
+    case DT::k16bit:   return "16bit";
+    case DT::k32bit:   return "32bit";
+    case DT::k64bit:   return "64bit";
+    case DT::kDouble:  return "Double";
+    case DT::kNone:    return "None";
+  }
+  return "?";
+}
+
+extern "C" void
+lir_hir_print_instr(FILE *out, const void *hir_instr) {
+  if (!hir_instr) return;
+  auto* instr = static_cast<const jit::hir::Instr*>(hir_instr);
+  jit::hir::HIRPrinter printer;
+  printer.setFullSnapshots(true);
+  printer.setLinePrefix("# ");
+  std::ostringstream ss;
+  printer.Print(ss, *instr);
+  fprintf(out, "%s", ss.str().c_str());
+}
+
+extern "C" const void*
+lir_instruction_get_origin(const LirInstruction *inst) {
+  auto* i = reinterpret_cast<const jit::lir::Instruction*>(inst);
+  return static_cast<const void*>(i->origin());
 }

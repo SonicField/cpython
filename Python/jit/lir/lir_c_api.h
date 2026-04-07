@@ -16,6 +16,7 @@
 #include "jit/phoenix_asm/phoenix_asm.h"
 
 #include <assert.h>
+#include <stdio.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -313,6 +314,20 @@ LirInstruction *lir_block_alloc_instr(LirBasicBlock *bb, int opcode,
 LirFunction *lir_function_create(const void *hir_func);
 void lir_function_free(LirFunction *func);
 LirBasicBlock *lir_function_alloc_block(LirFunction *func);
+
+/* ---- LIR printer support ---- */
+
+/* Get the name of an LIR opcode (e.g. "Bind", "Move", "Call"). */
+const char* lir_instruction_opcode_name(int opcode);
+
+/* Get the name of an operand data type (e.g. "Object", "64bit"). */
+const char* lir_operand_data_type_name(int dt);
+
+/* Print an HIR instruction via the C++ HIRPrinter (bridge). */
+void lir_hir_print_instr(FILE *out, const void *hir_instr);
+
+/* Get the HIR origin instruction of an LIR instruction (opaque). */
+const void* lir_instruction_get_origin(const LirInstruction *inst);
 
 #ifdef __cplusplus
 } /* extern "C" */
