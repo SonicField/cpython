@@ -2167,12 +2167,23 @@ int rescheduleJitList() {
     return -1;
   }
 
-  walkFunctionObjects([](BorrowedRef<PyFunctionObject> func) {
-    auto jit_list = cinderx::getModuleState()->jitList();
-    if (jit_list->lookupFunc(func)) {
-      scheduleJitCompile(func);
+  // Two-phase: collect during GC walk, schedule after. scheduleJitCompile
+  // allocates memory which is unsafe during PyUnstable_GC_VisitObjects.
+  {
+    static std::vector<PyObject*> s_funcs;
+    s_funcs.clear();
+    s_funcs.reserve(1024);
+    walkFunctionObjects([](BorrowedRef<PyFunctionObject> func) {
+      auto jit_list = cinderx::getModuleState()->jitList();
+      if (jit_list->lookupFunc(func)) {
+        s_funcs.push_back((PyObject*)func.get());
+      }
+    });
+    for (auto* f : s_funcs) {
+      scheduleJitCompile(BorrowedRef<PyFunctionObject>{f});
     }
-  });
+    s_funcs.clear();
+  }
 
   return 0;
 }
