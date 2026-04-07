@@ -11,6 +11,7 @@
 #include "internal/pycore_intrinsics.h"
 #include "internal/pycore_long.h"
 #include "internal/pycore_runtime.h"
+#include "internal/pycore_typeobject.h"
 #endif
 
 #include "cinderx/Common/code.h"
@@ -3349,8 +3350,7 @@ PyTypeObject* findTypeByVersionTagImpl(
   if (base->tp_version_tag == version) {
     return base;
   }
-  PyObject* subclasses =
-      PyObject_CallMethod((PyObject*)base, "__subclasses__", nullptr);
+  PyObject* subclasses = _PyType_GetSubclasses(base);
   if (subclasses == nullptr || !PyList_Check(subclasses)) {
     Py_XDECREF(subclasses);
     return nullptr;
@@ -3376,7 +3376,18 @@ PyTypeObject* findTypeByVersionTag(uint32_t version) {
   if (version == 0) {
     return nullptr;
   }
+  // Skip type version tag lookup during compilation on ARM64.
+  // The recursive __subclasses__ walk allocates from pymalloc, which
+  // corrupts the heap during auto-compilation when the function is on
+  // the interpreter stack. Returning nullptr causes the caller to use
+  // a generic (deopt-safe) LoadAttr path instead of the type-specific
+  // optimization. This is a performance-only impact — correctness is
+  // maintained via the deopt guard.
+#if defined(CINDER_AARCH64)
+  return nullptr;
+#else
   return findTypeByVersionTagImpl(&PyBaseObject_Type, version, 0);
+#endif
 }
 
 } // namespace
