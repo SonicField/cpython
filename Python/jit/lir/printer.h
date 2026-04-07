@@ -3,6 +3,7 @@
 #pragma once
 
 #include "cinderx/Jit/lir/printer_c.h"
+#include "cinderx/Jit/jit_config_c.h"
 
 #ifdef __cplusplus
 

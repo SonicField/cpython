@@ -7,10 +7,24 @@
 #include "cinderx/Jit/lir/printer_c.h"
 #include "cinderx/Jit/lir/lir_c_api.h"
 #include "cinderx/Jit/jit_config_c.h"
-#include "cinderx/Jit/codegen/code_section.h"
+
+/* phylocation.h is C-safe (stdint.h only). code_section.h is NOT (C++ hdrs). */
 #include "cinderx/Jit/codegen/phylocation.h"
 
+/* Forward-declare jit_code_section_name from code_section.c */
+extern const char* jit_code_section_name(int section);
+
+/* Convert LirPhyLocation to string using phyloc_to_string.
+ * LirPhyLocation and PhyLoc have identical layout (static_assert in lir_types_c.h). */
+static void phyloc_to_str(LirPhyLocation loc, char *buf, size_t bufsz) {
+    PhyLoc p;
+    p.loc = loc.loc;
+    p.bit_size = loc.bit_size;
+    phyloc_to_string(p, buf, bufsz);
+}
+
 #include <inttypes.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* ---- Operand printing ---- */
@@ -40,14 +54,14 @@ lir_print_operand(FILE *out, const LirOperand *operand) {
     case JIT_LIR_OPTYPE_REG: {
         LirPhyLocation loc = lir_operand_get_phy_register(operand);
         char buf[32];
-        phyloc_to_string(loc, buf, sizeof(buf));
+        phyloc_to_str(loc, buf, sizeof(buf));
         fprintf(out, "%s", buf);
         break;
     }
     case JIT_LIR_OPTYPE_STACK: {
         LirPhyLocation loc = lir_operand_get_stack_slot(operand);
         char buf[32];
-        phyloc_to_string(loc, buf, sizeof(buf));
+        phyloc_to_str(loc, buf, sizeof(buf));
         fprintf(out, "%s", buf);
         break;
     }

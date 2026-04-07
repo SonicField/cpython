@@ -545,7 +545,7 @@ lir_instruction_opcode_name(int opcode) {
 
 extern "C" const char*
 lir_operand_data_type_name(int dt) {
-  using DT = jit::lir::OperandBase::DataType;
+  using DT = jit::lir::DataType;
   switch (static_cast<DT>(dt)) {
     case DT::kObject:  return "Object";
     case DT::k8bit:    return "8bit";
@@ -553,7 +553,6 @@ lir_operand_data_type_name(int dt) {
     case DT::k32bit:   return "32bit";
     case DT::k64bit:   return "64bit";
     case DT::kDouble:  return "Double";
-    case DT::kNone:    return "None";
   }
   return "?";
 }

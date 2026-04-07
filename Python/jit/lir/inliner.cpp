@@ -3,6 +3,8 @@
 #include "cinderx/Jit/lir/inliner.h"
 
 #include "cinderx/Jit/containers.h"
+#include "cinderx/Jit/hir/function.h"
+#include "cinderx/Jit/hir/hir.h"
 #include "cinderx/Jit/lir/c_helper_translations.h"
 #include "cinderx/Jit/lir/parser.h"
 
