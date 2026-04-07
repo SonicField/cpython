@@ -317,7 +317,8 @@ constexpr PhyRegisterSet ALL_REGISTERS = ALL_GP_REGISTERS | ALL_VECD_REGISTERS;
 
 constexpr PhyRegisterSet DISALLOWED_REGISTERS = PhyRegisterSet(X29) /* FP */ |
     X30 /* LR */ | XZR /* zero */ | X12 /* scratch0 */ | X13 /* scratch1 */ |
-    X16 /* IP0 */;
+    X16 /* IP0 — assembler scratch */ |
+    X17 /* IP1 — add/sub immediate fallback scratch */;
 
 constexpr PhyRegisterSet INIT_REGISTERS = ALL_REGISTERS - DISALLOWED_REGISTERS;
 

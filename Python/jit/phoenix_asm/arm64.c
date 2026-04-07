@@ -602,12 +602,15 @@ static uint32_t encode_fp_dp2(int ftype, uint32_t fp_op,
  * rewrite mem to [X16] with offset=0.  ARM64 has no disp32-absolute
  * addressing mode, so this is required for any `ptr(uint64_t)` operand.
  *
- * X16 (IP0) is the sole assembler scratch register.  It is in
- * DISALLOWED_REGISTERS so the register allocator never assigns live
- * values to it.  Each use MUST be a write-then-immediate-consume pair
- * (MOV X16, val → use X16 in next instruction → X16 is dead).
- * If a future instruction needs two scratch registers simultaneously,
- * reserve X17 (IP1) in DISALLOWED_REGISTERS as the second scratch.
+ * X16 (IP0) is the primary assembler scratch register, used by
+ * resolve_abs_addr and other memory operand materialization.
+ * X17 (IP1) is the secondary scratch, used by add/sub/cmp immediate
+ * fallback paths.  Both are in DISALLOWED_REGISTERS.
+ *
+ * X16 and X17 must NOT be used in the same role: X16 handles memory
+ * operand resolution (resolve_abs_addr), X17 handles large immediate
+ * fallback (CMP/ADD/SUB with oversized immediates).  This prevents
+ * clobbering during compound emissions where both are needed.
  */
 static PhxMem resolve_abs_addr(PhxBuilder *b, PhxMem mem) {
     if (!mem.is_abs_addr) return mem;
@@ -1343,9 +1346,11 @@ void phx_a64_add_rri(PhxBuilder *b, PhxGp dst, PhxGp src, int64_t imm) {
         abs_imm = (uint64_t)imm;
     }
 
-    /* Large immediate: MOV to scratch + ADD reg,reg */
+    /* Large immediate: MOV to X17 scratch + ADD reg,reg.
+     * Uses X17 (IP1) to avoid clobbering X16 (IP0) which may hold
+     * a live value from resolve_abs_addr in compound emissions. */
     if (!phx_arm64_is_add_sub_imm(abs_imm)) {
-        PhxGp scratch = sf ? PHX_X16 : (PhxGp)PHX_REG_GP(16, 4);
+        PhxGp scratch = sf ? PHX_X17 : (PhxGp)PHX_REG_GP(17, 4);
         phx_a64_mov_ri(b, scratch, (uint64_t)imm);
         phx_a64_add_rrr(b, dst, src, scratch);
         return;
@@ -1394,9 +1399,9 @@ void phx_a64_adds_rri(PhxBuilder *b, PhxGp dst, PhxGp src, int64_t imm) {
         abs_imm = (uint64_t)imm;
     }
 
-    /* Large immediate: MOV to scratch + ADDS reg,reg */
+    /* Large immediate: MOV to X17 scratch + ADDS reg,reg */
     if (!phx_arm64_is_add_sub_imm(abs_imm)) {
-        PhxGp scratch = sf ? PHX_X16 : (PhxGp)PHX_REG_GP(16, 4);
+        PhxGp scratch = sf ? PHX_X17 : (PhxGp)PHX_REG_GP(17, 4);
         phx_a64_mov_ri(b, scratch, (uint64_t)imm);
         phx_a64_adds_rrr(b, dst, src, scratch);
         return;
@@ -1464,9 +1469,9 @@ void phx_a64_sub_rri(PhxBuilder *b, PhxGp dst, PhxGp src, int64_t imm) {
         abs_imm = (uint64_t)imm;
     }
 
-    /* Large immediate: MOV to scratch + SUB reg,reg */
+    /* Large immediate: MOV to X17 scratch + SUB reg,reg */
     if (!phx_arm64_is_add_sub_imm(abs_imm)) {
-        PhxGp scratch = sf ? PHX_X16 : (PhxGp)PHX_REG_GP(16, 4);
+        PhxGp scratch = sf ? PHX_X17 : (PhxGp)PHX_REG_GP(17, 4);
         phx_a64_mov_ri(b, scratch, (uint64_t)imm);
         phx_a64_sub_rrr(b, dst, src, scratch);
         return;
@@ -1515,9 +1520,9 @@ void phx_a64_subs_rri(PhxBuilder *b, PhxGp dst, PhxGp src, int64_t imm) {
         abs_imm = (uint64_t)imm;
     }
 
-    /* Large immediate: MOV to scratch + SUBS reg,reg */
+    /* Large immediate: MOV to X17 scratch + SUBS reg,reg */
     if (!phx_arm64_is_add_sub_imm(abs_imm)) {
-        PhxGp scratch = sf ? PHX_X16 : (PhxGp)PHX_REG_GP(16, 4);
+        PhxGp scratch = sf ? PHX_X17 : (PhxGp)PHX_REG_GP(17, 4);
         phx_a64_mov_ri(b, scratch, (uint64_t)imm);
         phx_a64_subs_rrr(b, dst, src, scratch);
         return;
@@ -1760,11 +1765,13 @@ void phx_a64_cmp_ri(PhxBuilder *b, PhxGp src, int64_t imm) {
     }
 
     /* If immediate doesn't fit 12-bit add/sub encoding, fall back to
-     * MOV imm to X16 scratch + CMP reg, reg. Same pattern as abs_addr. */
+     * MOV imm to X17 scratch + CMP reg, reg. Uses X17 (IP1) to avoid
+     * clobbering X16 (IP0) which may hold a live value from
+     * resolve_abs_addr in compound emissions. */
     if (!phx_arm64_is_add_sub_imm(abs_imm)) {
-        PhxGp scratch = PHX_X16;
+        PhxGp scratch = PHX_X17;
         if (!sf) {
-            scratch = (PhxGp)PHX_REG_GP(16, 4); /* W16 for 32-bit */
+            scratch = (PhxGp)PHX_REG_GP(17, 4); /* W17 for 32-bit */
         }
         phx_a64_mov_ri(b, scratch, (uint64_t)imm);
         phx_a64_cmp_rr(b, src, scratch);
