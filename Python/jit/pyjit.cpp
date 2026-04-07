@@ -3475,21 +3475,8 @@ void unregisterFunctionCodes(BorrowedRef<PyFunctionObject> func) {
 
 } // namespace
 
-// Tier 1 vectorcall wrapper: dispatches to compiled JIT code.
-// Tier 2 recompilation removed — it caused a use-after-free where
-// forgetCode + removeCompiledFunc freed preloader state (including
-// co_names references) before recompilation attempted to read them.
-PyObject* tier1Vectorcall(
-    PyObject* func_obj,
-    PyObject* const* stack,
-    size_t nargsf,
-    PyObject* kwnames) {
-  using namespace jit;
-  BorrowedRef<PyFunctionObject> func{func_obj};
-  CompiledFunction* compiled = jitCtx()->lookupFunc(func);
-  JIT_DCHECK(compiled != nullptr, "tier1Vectorcall: not compiled");
-  return compiled->vectorcallEntry()(func_obj, stack, nargsf, kwnames);
-}
+/* tier1Vectorcall deleted — Tier 2 recompilation removed (68b60907ff).
+ * func->vectorcall now points directly to compiled entry via context.cpp. */
 
 #if PY_VERSION_HEX < 0x030C0000
 PyObject* _PyJIT_GenSend(

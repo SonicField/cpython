@@ -55,8 +55,7 @@ PySendResult jitgen_am_send(PyObject* obj, PyObject* arg, PyObject** presult);
 // One significant difference is we don't need to incref the args
 // in the new array.
 // Helper: get the correct JIT re-entry point for a function.
-// func->vectorcall may point to tier1Vectorcall (a C function) rather than
-// JIT code. JITRT_GET_REENTRY requires its argument to point into JIT code
+// JITRT_GET_REENTRY requires its argument to point into JIT code
 // (it subtracts JITRT_CALL_REENTRY_OFFSET to find the correct_args_entry
 // label). This helper looks up the actual JIT entry from CompiledFunction.
 static vectorcallfunc getJitReentry(PyFunctionObject* func) {

@@ -73,7 +73,6 @@ bool isJitCompiled(const PyFunctionObject* func);
 #include "cinderx/Jit/hir/function.h"
 #include "cinderx/Jit/hir/hir.h"
 
-#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <span>
@@ -95,11 +94,6 @@ struct CompiledFunctionData {
   std::unique_ptr<hir::Function> irfunc;
   CodeRuntime* runtime{nullptr};
 
-  // Tier 1->2 recompilation support
-  std::atomic<uint32_t> tier1_invocation_count{0};
-  uint8_t compilation_tier{1};  // 1 = Tier 1 (no inlining), 2 = Tier 2 (with inlining)
-  static constexpr uint32_t kTier2ThresholdDefault = 1000;
-
   CompiledFunctionData() = default;
   CompiledFunctionData(CompiledFunctionData&& o) noexcept
     : code(o.code), vectorcall_entry(o.vectorcall_entry),
@@ -109,9 +103,7 @@ struct CompiledFunctionData {
       hir_opcode_counts(o.hir_opcode_counts),
       code_patchers(std::move(o.code_patchers)),
       irfunc(std::move(o.irfunc)),
-      runtime(o.runtime),
-      tier1_invocation_count(o.tier1_invocation_count.load(std::memory_order_relaxed)),
-      compilation_tier(o.compilation_tier) {}
+      runtime(o.runtime) {}
   CompiledFunctionData& operator=(CompiledFunctionData&& o) noexcept {
     code = o.code; vectorcall_entry = o.vectorcall_entry;
     stack_size = o.stack_size; spill_stack_size = o.spill_stack_size;
@@ -121,8 +113,6 @@ struct CompiledFunctionData {
     code_patchers = std::move(o.code_patchers);
     irfunc = std::move(o.irfunc);
     runtime = o.runtime;
-    tier1_invocation_count.store(o.tier1_invocation_count.load(std::memory_order_relaxed), std::memory_order_relaxed);
-    compilation_tier = o.compilation_tier;
     return *this;
   }
 };
@@ -173,10 +163,6 @@ class CompiledFunction {
   // Mutable access to data for tier 1->2 recompilation counter
   CompiledFunctionData& mutableData() {
     return data_;
-  }
-
-  uint8_t compilationTier() const {
-    return data_.compilation_tier;
   }
 
   PyObject* invoke(PyObject* func, PyObject** args, Py_ssize_t nargs) const {

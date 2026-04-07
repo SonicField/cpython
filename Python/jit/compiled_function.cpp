@@ -27,10 +27,8 @@ bool isJitCompiled(const PyFunctionObject* func) {
     return true;
   }
 
-  // Secondary check: handle tier1Vectorcall trampoline case.
-  // tier1Vectorcall is a statically-linked function, not in the code
-  // allocator, but the function IS JIT-compiled. Check the JIT context
-  // for compilation status, excluding deoptimized functions.
+  // Secondary check: the vectorcall entry may not be in the code allocator
+  // (e.g. after deopt). Check the JIT context for compilation status.
   jit::IJitContext* jit_ctx = mod_state->jitContext();
   if (jit_ctx != nullptr) {
     auto* mutable_func = const_cast<PyFunctionObject*>(func);
