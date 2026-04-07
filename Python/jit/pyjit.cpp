@@ -1720,8 +1720,21 @@ int compile_after_n_calls_impl(uint32_t calls) {
   Ci_JitVectorcall = jitVectorcall;
 
   // Schedule all pre-existing functions for compilation.
-  walkFunctionObjects(
-      [](BorrowedRef<PyFunctionObject> func) { scheduleJitCompile(func); });
+  // Two-phase: collect during GC walk, schedule after. scheduleJitCompile
+  // allocates memory which is unsafe during PyUnstable_GC_VisitObjects.
+  {
+    static std::vector<PyObject*> s_funcs;
+    s_funcs.clear();
+    s_funcs.reserve(1024);
+    walkFunctionObjects(
+        [](BorrowedRef<PyFunctionObject> func) {
+            s_funcs.push_back((PyObject*)func.get());
+        });
+    for (auto* f : s_funcs) {
+      scheduleJitCompile(BorrowedRef<PyFunctionObject>{f});
+    }
+    s_funcs.clear();
+  }
 
   JIT_DLOG("Configuring JIT to compile functions after {} calls", calls);
 

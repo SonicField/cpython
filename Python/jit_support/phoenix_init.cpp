@@ -255,13 +255,24 @@ static int phoenix_exec(PyObject* m) {
     jit::getMutableConfig().compile_after_n_calls = 1000;
 
     /* Retroactively scan all pre-existing PyFunctionObjects and install
-       the counting trampoline. Without this, functions defined before
-       import _cinderx never auto-compile (the func watcher only sees
-       functions created AFTER registration). scheduleJitCompile already
-       filters out ineligible functions (IMPORT_NAME, __enter__/__exit__,
-       CO_VARKEYWORDS). */
-    jit::walkFunctionObjects(
-        [](BorrowedRef<PyFunctionObject> func) { jit::scheduleJitCompile(func); });
+       the counting trampoline. Two-phase approach: collect during GC walk,
+       then schedule after. scheduleJitCompile allocates memory (hash map
+       inserts, PyUnicode_AsUTF8) which is unsafe during GC object traversal
+       via PyUnstable_GC_VisitObjects — causes heap corruption. */
+    {
+        static std::vector<PyObject*> s_funcs;
+        s_funcs.clear();
+        s_funcs.reserve(1024);
+        jit::walkFunctionObjects(
+            [](BorrowedRef<PyFunctionObject> func) {
+                s_funcs.push_back((PyObject*)(void*)func.get());
+            });
+        for (auto* f : s_funcs) {
+            jit::scheduleJitCompile(
+                BorrowedRef<PyFunctionObject>{f});
+        }
+        s_funcs.clear();
+    }
 
     return 0;
 }
