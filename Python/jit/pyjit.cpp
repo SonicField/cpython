@@ -246,7 +246,14 @@ PyObject* forcedJitVectorcall(
       std::string fname = funcFullname(func);
       jit_log_compile(fname.c_str(), 0, sz);
     }
-    return func->vectorcall(func_obj, stack, nargsf, kwnames);
+    // Dispatch THIS call through the interpreter, not JIT.
+    // compileFunction may trigger GC which invalidates caller register
+    // state on ARM64. The interpreter re-reads all state from the frame
+    // object, avoiding the corruption. Future calls go through JIT
+    // (func->vectorcall was already set to the compiled entry by
+    // context.cpp finalizeFunc).
+    auto interp_entry = getInterpretedVectorcall(func);
+    return interp_entry(func_obj, stack, nargsf, kwnames);
   }
 
   auto interp_entry = getInterpretedVectorcall(func);
