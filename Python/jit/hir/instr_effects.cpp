@@ -232,18 +232,20 @@ MemoryEffects memoryEffects(const Instr& inst) {
 
     case Opcode::kLoadArg:
     case Opcode::kLoadCurrentFunc:
-      // Owned: LIR emits INCREF.  Eliminates use-after-free when the
-      // function object or its arguments are freed during execution.
-      return commonEffects(inst, AEmpty);
+      return borrowFrom(inst, AFuncArgs);
 
     case Opcode::kGuardIs:
     case Opcode::kLoadConst:
       return borrowFrom(inst, AEmpty);
 
     case Opcode::kLoadCellItem:
-      // Owned: LIR emits INCREF.  Eliminates use-after-free when a
-      // closure cell's contents are freed (decorator/closure crashes).
+#ifdef Py_GIL_DISABLED
+      // In FT-Python, LoadCellItem calls PyCell_GetRef which returns an
+      // owned (new) reference.
       return commonEffects(inst, AEmpty);
+#else
+      return borrowFrom(inst, ACellItem);
+#endif
 
     case Opcode::kLoadField: {
       auto& ldfld = static_cast<const LoadField&>(inst);
@@ -259,28 +261,22 @@ MemoryEffects memoryEffects(const Instr& inst) {
     case Opcode::kLoadFunctionIndirect:
 
     case Opcode::kLoadGlobalCached:
-      // Owned: LIR emits INCREF.  Eliminates use-after-free when a
-      // global is reassigned and the old value freed.
-      return commonEffects(inst, AEmpty);
+      return borrowFrom(inst, AGlobal);
 
     case Opcode::kLoadTupleItem:
-      // Owned: LIR emits INCREF.
-      return commonEffects(inst, AEmpty);
+      return borrowFrom(inst, ATupleItem);
 
     case Opcode::kLoadArrayItem:
-      // Owned: LIR emits INCREF.
-      return commonEffects(inst, AEmpty);
+      return borrowFrom(inst, AArrayItem | AListItem);
     case Opcode::kStoreArrayItem:
       // we steal a ref to our third operand, the value being stored
       return {
           false, AEmpty, {inst.NumOperands(), 1 << 2}, AArrayItem | AListItem};
     case Opcode::kLoadSplitDictItem:
-      // Owned: LIR emits INCREF.
-      return commonEffects(inst, AEmpty);
+      return borrowFrom(inst, ADictItem);
     case Opcode::kLoadTypeAttrCacheEntryType:
     case Opcode::kLoadTypeAttrCacheEntryValue:
-      // Owned: LIR emits INCREF.
-      return commonEffects(inst, AEmpty);
+      return borrowFrom(inst, ATypeAttrCache);
     case Opcode::kLoadTypeMethodCacheEntryValue:
       // This instruction will return a struct containing 2 pointers where the
       // second pointer is emitted as an output by GetLoadMethodInstance who
@@ -289,8 +285,7 @@ MemoryEffects memoryEffects(const Instr& inst) {
       // GetLoadMethodInstance's memory effects for simplicity
       return commonEffects(inst, AEmpty);
     case Opcode::kLoadTypeMethodCacheEntryType:
-      // Owned: LIR emits INCREF.
-      return commonEffects(inst, AEmpty);
+      return borrowFrom(inst, ATypeMethodCache);
 
     case Opcode::kReturn:
       return {false, AEmpty, {1, 1}, AManagedHeapAny};
