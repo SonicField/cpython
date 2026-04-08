@@ -149,13 +149,14 @@ void CodePatcher::swap() {
   std::memcpy(data_.data(), temp.data(), flags_.data_len);
 #endif
 
-#ifdef Py_GIL_DISABLED
-  // Flush CPU caches, including the instruction cache, so all cores will see
-  // the update. Note for x86 this is a no-op as caches are coherent.
+  // Flush instruction cache after patching executable code.
+  // On ARM64 the icache is not coherent with the dcache — without this
+  // flush, the CPU executes stale instructions from before the patch.
+  // On x86_64 this is a no-op (caches are coherent).
+  // Required on ALL builds, not just free-threaded (Py_GIL_DISABLED).
   __builtin___clear_cache(
       reinterpret_cast<char*>(patchpoint_),
       reinterpret_cast<char*>(patchpoint_) + flags_.data_len);
-#endif
 }
 
 #ifdef Py_GIL_DISABLED
