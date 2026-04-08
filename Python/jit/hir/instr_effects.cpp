@@ -239,13 +239,9 @@ MemoryEffects memoryEffects(const Instr& inst) {
       return borrowFrom(inst, AEmpty);
 
     case Opcode::kLoadCellItem:
-#ifdef Py_GIL_DISABLED
-      // In FT-Python, LoadCellItem calls PyCell_GetRef which returns an
-      // owned (new) reference.
+      // Owned: LIR emits INCREF.  Eliminates use-after-free when a
+      // closure cell's contents are freed (decorator/closure crashes).
       return commonEffects(inst, AEmpty);
-#else
-      return borrowFrom(inst, ACellItem);
-#endif
 
     case Opcode::kLoadField: {
       auto& ldfld = static_cast<const LoadField&>(inst);

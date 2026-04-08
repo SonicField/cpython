@@ -737,9 +737,9 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
 #endif
       }
       case Opcode::kLoadCellItem: {
-        // FT needs to call PyCell_GetRef for thread-safety. Switching the two
-        // implementations changes whether the output is borrowed or new so
-        // there is a corresponding switch in instr_effects.cpp.
+        // FT needs to call PyCell_GetRef for thread-safety.  In non-FT
+        // mode, cell contents are now owned (INCREF'd) to prevent
+        // use-after-free in closures/decorators.
 #ifdef Py_GIL_DISABLED
         auto* instr = static_cast<const LoadCellItem*>(&i);
         bbb.appendCallInstruction(
@@ -748,7 +748,17 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         hir::Register* dest = i.output();
         Instruction* src_base = bbb.getDefInstr(i.GetOperand(0));
         constexpr int32_t kOffset = offsetof(PyCellObject, ob_ref);
-        bbb.appendInstr(dest, Instruction::kMove, Ind{src_base, kOffset});
+        Instruction* loaded =
+            bbb.appendInstr(dest, Instruction::kMove, Ind{src_base, kOffset});
+        if (dest->type().couldBe(TMortalObject)) {
+          bool xincref = dest->type().couldBe(TNullptr);
+          MakeIncref(
+              bbb,
+              loaded,
+              xincref,
+              kImmortalInstances &&
+                  dest->type().couldBe(TImmortalObject));
+        }
 #endif
         break;
       }
