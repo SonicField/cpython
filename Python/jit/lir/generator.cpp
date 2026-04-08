@@ -2315,7 +2315,20 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         hir::Register* dest = instr->output();
         Instruction* receiver = bbb.getDefInstr(instr->receiver());
         auto offset = static_cast<int32_t>(instr->offset());
-        bbb.appendInstr(dest, Instruction::kMove, Ind{receiver, offset});
+        Instruction* loaded =
+            bbb.appendInstr(dest, Instruction::kMove, Ind{receiver, offset});
+        // When LoadField is not borrowed (owned), the refcount pass assumes
+        // the instruction produced an INCREF'd reference and inserts DECREF
+        // at end of life.  But LoadField just loads from memory — emit the
+        // matching INCREF here so refcounts balance.
+        if (!instr->borrowed() && dest->type().couldBe(TMortalObject)) {
+          MakeIncref(
+              bbb,
+              loaded,
+              false,
+              kImmortalInstances &&
+                  dest->type().couldBe(TImmortalObject));
+        }
         break;
       }
 
