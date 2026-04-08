@@ -613,6 +613,10 @@ class HIRBuilder {
 
   const Preloader& preloader_;
 
+  // Set during translate() — gives emitLoadAttr etc. access to the environment
+  // for addReference calls on type objects found during compilation.
+  Function* current_func_{nullptr};
+
   TempAllocator temps_{nullptr};
 
   // Tracks the function for compilations that require it.
