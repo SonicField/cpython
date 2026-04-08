@@ -205,17 +205,17 @@ translate_inc_dec_op(void *env, const LirInstruction *instr, int is_dec) {
     if (lir_operand_type(opnd) == JIT_LIR_OPTYPE_REG) {
         PhxGp reg = operand_to_gp(opnd);
         if (is_dec)
-            phx_a64_sub_rri(pb, reg, reg, 1);
+            phx_a64_subs_rri(pb, reg, reg, 1);
         else
-            phx_a64_add_rri(pb, reg, reg, 1);
+            phx_a64_adds_rri(pb, reg, reg, 1);
     } else if (lir_operand_type(opnd) == JIT_LIR_OPTYPE_STACK) {
         int32_t loc = lir_operand_get_stack_slot(opnd).loc;
         PhxMem ptr = jit_arch_ptr_resolve(pb, A64_FP, loc, A64_SCRATCH_1, 8);
         phx_a64_ldr(pb, A64_SCRATCH_0, ptr);
         if (is_dec)
-            phx_a64_sub_rri(pb, A64_SCRATCH_0, A64_SCRATCH_0, 1);
+            phx_a64_subs_rri(pb, A64_SCRATCH_0, A64_SCRATCH_0, 1);
         else
-            phx_a64_add_rri(pb, A64_SCRATCH_0, A64_SCRATCH_0, 1);
+            phx_a64_adds_rri(pb, A64_SCRATCH_0, A64_SCRATCH_0, 1);
         phx_a64_str(pb, A64_SCRATCH_0, ptr);
     } else {
         assert(0 && "Unsupported operand type for inc/dec");
