@@ -10,6 +10,7 @@
 #include "internal/pycore_shadow_frame.h"
 #endif
 
+#include "internal/pycore_ceval.h"
 #include "internal/pycore_pystate.h"
 #if PY_VERSION_HEX >= 0x030E0000
 #include "internal/pycore_interp_structs.h"
@@ -221,7 +222,89 @@ static bool shouldSkipCompilation(BorrowedRef<PyCodeObject> code) {
   return has_generic_store_attr;
 }
 
+// --- Deferred Compilation ---
+//
+// Functions are queued for compilation via _PyEval_AddPendingCall at
+// threshold, then compiled at a safe point (handle_eval_breaker) instead
+// of synchronously in the vectorcall trampoline.
+//
+// This fixes ARM64 auto-compilation crashes caused by compileFunction
+// running in the trampoline's stack context, where GC scans stale
+// callee-saved registers.  See docs/deferred-compilation-spec.md.
+//
+// Vectorcall state machine:
+//   jitCountingTrampoline  (counting calls)
+//     → jitVectorcall       (threshold reached)
+//       → forcedJitVectorcall  (queues pending call)
+//         → jitDeferredVectorcall  (compilation pending, just interprets)
+//           → compiled_entry       (compilation succeeded)
+//           OR → interpreter_entry  (compilation failed)
+//
+// force_compile bypasses this entirely — calls compileFunction directly.
+
+// Vectorcall for functions with compilation pending.
+// Just forwards to interpreter — no counting, no compilation checks.
+// Once compilation completes, finalizeFunc replaces this with compiled entry.
+// On compilation failure, replaced with interpreter entry.
+static PyObject* jitDeferredVectorcall(
+    PyObject* func_obj,
+    PyObject* const* stack,
+    size_t nargsf,
+    PyObject* kwnames) {
+  auto func = reinterpret_cast<PyFunctionObject*>(func_obj);
+  auto entry = getInterpretedVectorcall(func);
+  return entry(func_obj, stack, nargsf, kwnames);
+}
+
+// Callback for _PyEval_AddPendingCall.  Runs at a safe point in the eval
+// loop (handle_eval_breaker → make_pending_calls), where the C stack has
+// no user function frames with live callee-saved registers.  GC during
+// compilation is safe here.
+static int compile_deferred_callback(void* arg) {
+  PyObject* func_obj = static_cast<PyObject*>(arg);
+
+  assert(func_obj != NULL && "compile_deferred_callback: NULL arg");
+  assert(PyFunction_Check(func_obj) &&
+         "compile_deferred_callback: not a function");
+  assert(Py_REFCNT(func_obj) > 0 &&
+         "compile_deferred_callback: dead function");
+
+  BorrowedRef<PyFunctionObject> func{func_obj};
+
+  if (!isJitCompiled(func)) {
+    _PyJIT_Result result = compileFunction(func);
+    if (result == PYJIT_RESULT_OK) {
+      assert(isJitCompiled(func) &&
+             "compile_deferred_callback: OK but not compiled");
+      // finalizeFunc already set func->vectorcall to compiled entry.
+      size_t sz = 0;
+      if (auto* cf = jitCtx()->lookupFunc(func)) {
+        sz = cf->codeSize();
+      }
+      std::string fname = funcFullname(func);
+      jit_log_compile(fname.c_str(), 0, sz);
+    } else if (result == PYJIT_RESULT_PYTHON_EXCEPTION) {
+      // Clear exception — compilation errors shouldn't propagate to
+      // unrelated code at the callback point.
+      PyErr_Clear();
+      func->vectorcall = getInterpretedVectorcall(func);
+    } else if (result != PYJIT_RESULT_ALREADY_SCHEDULED &&
+               result != PYJIT_RESULT_PAUSED) {
+      // Compilation failed permanently — fall back to interpreter.
+      func->vectorcall = getInterpretedVectorcall(func);
+    }
+    // If ALREADY_SCHEDULED or PAUSED, leave vectorcall as
+    // jitDeferredVectorcall.  A future state change will resolve it.
+  }
+
+  // Balance the Py_INCREF in forcedJitVectorcall.
+  Py_DECREF(func_obj);
+  return 0;  // 0 = success (non-zero would set an exception)
+}
+
 // Like jitVectorcall(), but ignores any call count requirements.
+// Queues compilation via _PyEval_AddPendingCall instead of compiling
+// synchronously.  The current call is dispatched through the interpreter.
 PyObject* forcedJitVectorcall(
     PyObject* func_obj,
     PyObject* const* stack,
@@ -232,49 +315,45 @@ PyObject* forcedJitVectorcall(
       "Called JIT wrapper with {} object instead of a function",
       Py_TYPE(func_obj)->tp_name);
   BorrowedRef<PyFunctionObject> func{func_obj};
-  BorrowedRef<PyCodeObject> code{func->func_code};
 
-  _PyJIT_Result result = compileFunction(func);
-  if (result == PYJIT_RESULT_OK) {
-    JIT_DCHECK(
-        isJitCompiled(func),
-        "JIT succeeded for function {} but it is not recognized as compiled",
-        funcFullname(func));
-    {
-      size_t sz = 0;
-      if (auto *cf = jitCtx()->lookupFunc(func)) { sz = cf->codeSize(); }
-      std::string fname = funcFullname(func);
-      jit_log_compile(fname.c_str(), 0, sz);
-    }
-    // Dispatch THIS call through the interpreter, not JIT.
-    // compileFunction may trigger GC which invalidates caller register
-    // state on ARM64. The interpreter re-reads all state from the frame
-    // object, avoiding the corruption. Future calls go through JIT
-    // (func->vectorcall was already set to the compiled entry by
-    // context.cpp finalizeFunc).
-    auto interp_entry = getInterpretedVectorcall(func);
-    return interp_entry(func_obj, stack, nargsf, kwnames);
+  // Already compiled (e.g., compiled by a concurrent deferred callback
+  // between the vectorcall stamp and this call).  Dispatch through the
+  // compiled entry directly.
+  if (isJitCompiled(func)) {
+    return func->vectorcall(func_obj, stack, nargsf, kwnames);
   }
 
+  // Already in deferred state (e.g., recursive call during the window
+  // between threshold and callback).  Just interpret — don't re-queue.
+  if (func->vectorcall == jitDeferredVectorcall) {
+    auto entry = getInterpretedVectorcall(func);
+    return entry(func_obj, stack, nargsf, kwnames);
+  }
+
+  // Keep func alive until the deferred callback fires.
+  Py_INCREF(func_obj);
+
+  // Queue compilation at the next eval loop safe point
+  // (handle_eval_breaker → make_pending_calls).
+  PyInterpreterState* interp = PyInterpreterState_Get();
+  int queued = _PyEval_AddPendingCall(
+      interp, compile_deferred_callback, func_obj, 0);
+
+  if (queued == 0) {
+    // Successfully queued.  Set vectorcall to deferred (just interprets,
+    // prevents re-queueing).  finalizeFunc will replace with compiled
+    // entry once compilation completes.
+    func->vectorcall = jitDeferredVectorcall;
+  } else {
+    // Pending call queue full (NPENDINGCALLS=32).  This is extremely
+    // unlikely at threshold=1000.  Drop the ref and leave vectorcall
+    // as jitVectorcall — the next call will retry.
+    Py_DECREF(func_obj);
+    JIT_LOG("Deferred compilation queue full for {}", funcFullname(func));
+  }
+
+  // Always dispatch THIS call through interpreter.
   auto interp_entry = getInterpretedVectorcall(func);
-
-  // Python errors shouldn't happen during compilation, but if they do, bubble
-  // them up without calling the function.
-  if (result == PYJIT_RESULT_PYTHON_EXCEPTION) {
-    func->vectorcall = interp_entry;
-    return nullptr;
-  }
-
-  // Reset the function's entrypoint if it doesn't seem like there's a chance
-  // compilation will work "soon".
-  if (result != PYJIT_RESULT_ALREADY_SCHEDULED &&
-      result != PYJIT_RESULT_PAUSED) {
-    func->vectorcall = interp_entry;
-  }
-
-  // There's been some kind of compilation error, explicitly call the
-  // interpreted entrypoint instead.
-  incrementShadowcodeCall(code);
   return interp_entry(func_obj, stack, nargsf, kwnames);
 }
 
@@ -289,9 +368,8 @@ static PyObject* jitVectorcall(
 
 // Lightweight counting trampoline — minimal overhead for below-threshold calls.
 // Does: load CodeExtra, increment call count, check threshold.
-// When threshold is reached, stamps jitVectorcall and delegates to it.
-// Otherwise delegates directly to interpreter vectorcall (no shouldSkipCompilation,
-// no JIT_DCHECK, no config lookup on the hot path).
+// When threshold is reached, delegates to jitVectorcall which calls
+// forcedJitVectorcall to queue deferred compilation.
 static PyObject* jitCountingTrampoline(
     PyObject* func_obj,
     PyObject* const* stack,
@@ -303,7 +381,9 @@ static PyObject* jitCountingTrampoline(
   if (limit.has_value()) {
     auto calls = countCalls(code);
     if (calls >= *limit) {
-      // Threshold reached — switch to full jitVectorcall for compilation
+      // Threshold reached — switch to jitVectorcall for compilation.
+      // forcedJitVectorcall will queue via _PyEval_AddPendingCall,
+      // NOT compile synchronously.
       func->vectorcall = jitVectorcall;
       return jitVectorcall(func_obj, stack, nargsf, kwnames);
     }
@@ -316,6 +396,9 @@ static PyObject* jitCountingTrampoline(
 }
 
 // Python function entry point when the JIT is enabled.
+// Called when interpreter.c sets func->vectorcall = Ci_JitVectorcall
+// at threshold, or when jitCountingTrampoline reaches threshold.
+// Delegates to forcedJitVectorcall which queues deferred compilation.
 PyObject* jitVectorcall(
     PyObject* func_obj,
     PyObject* const* stack,
@@ -3771,6 +3854,12 @@ void finalize() {
   // Disable the JIT first so nothing we do in here ends up attempting to
   // invoke the JIT while we're finalizing our data structures.
   getMutableConfig().state = State::kFinalizing;
+
+  // Note: any pending deferred compilations (via _PyEval_AddPendingCall)
+  // will be handled by compile_deferred_callback which checks
+  // isJitInitialized/isJitUsable.  The kFinalizing state above ensures
+  // compileFunction returns an error, and the callback DECREFs and
+  // falls back to interpreter entry.
 
   // Deopt all JIT generators, since JIT generators reference code and other
   // metadata that we will be freeing later in this function.
