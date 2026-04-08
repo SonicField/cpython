@@ -11,6 +11,7 @@
 #endif
 
 #include "internal/pycore_ceval.h"
+#include "internal/pycore_frame.h"
 #include "internal/pycore_pystate.h"
 #if PY_VERSION_HEX >= 0x030E0000
 #include "internal/pycore_interp_structs.h"
@@ -256,12 +257,49 @@ static PyObject* jitDeferredVectorcall(
   return entry(func_obj, stack, nargsf, kwnames);
 }
 
+// Check if a function has any active frames on the current thread's
+// Python frame stack.  Compiling a function while its frames are active
+// on ARM64 causes memory corruption — the compiler reads frame state
+// that is being mutated by the executing function.
+static bool hasActiveFrames(PyFunctionObject* func) {
+  PyThreadState* tstate = PyThreadState_Get();
+  PyCodeObject* target_code =
+      reinterpret_cast<PyCodeObject*>(func->func_code);
+
+  assert(target_code != NULL && "hasActiveFrames: NULL func_code");
+
+  _PyCFrame* cframe = tstate->cframe;
+  while (cframe != NULL) {
+    _PyInterpreterFrame* frame = cframe->current_frame;
+    while (frame != NULL) {
+      if (frame->f_code == target_code) {
+        return true;
+      }
+      frame = frame->previous;
+    }
+    cframe = cframe->previous;
+  }
+  return false;
+}
+
+// Deferred compilation arg — packs a function pointer for the pending
+// call callback.  Allocated in forcedJitVectorcall, freed in the callback.
+struct DeferredCompileArg {
+  PyObject* func_obj;
+};
+
 // Callback for _PyEval_AddPendingCall.  Runs at a safe point in the eval
 // loop (handle_eval_breaker → make_pending_calls), where the C stack has
-// no user function frames with live callee-saved registers.  GC during
-// compilation is safe here.
+// no user function frames with live callee-saved registers.
+//
+// If the function has active frames on the Python stack (recursive calls,
+// generators mid-iteration), we re-queue and skip compilation.  Compiling
+// while the function is executing corrupts memory on ARM64.
+// No retry limit — suspended generator frames are not on the cframe chain
+// (stored inline on PyGenObject), so re-queues always terminate.
 static int compile_deferred_callback(void* arg) {
-  PyObject* func_obj = static_cast<PyObject*>(arg);
+  auto* dca = static_cast<DeferredCompileArg*>(arg);
+  PyObject* func_obj = dca->func_obj;
 
   assert(func_obj != NULL && "compile_deferred_callback: NULL arg");
   assert(PyFunction_Check(func_obj) &&
@@ -270,6 +308,29 @@ static int compile_deferred_callback(void* arg) {
          "compile_deferred_callback: dead function");
 
   BorrowedRef<PyFunctionObject> func{func_obj};
+
+  // Do not compile while the function has active frames on the Python
+  // stack.  This happens for recursive functions (eval_breaker fires
+  // during recursion).  Re-queue — the function will eventually return
+  // from all active calls and the next callback will find no active
+  // frames.
+  //
+  // Suspended generator frames are NOT on the cframe chain (stored
+  // inline on the generator object), so they don't trigger this check.
+  if (hasActiveFrames(func)) {
+    PyInterpreterState* interp = PyInterpreterState_Get();
+    int requeued = _PyEval_AddPendingCall(
+        interp, compile_deferred_callback, dca, 0);
+    if (requeued == 0) {
+      // Successfully re-queued.  The DeferredCompileArg and func ref
+      // transfer to the next callback invocation.
+      return 0;
+    }
+    // Queue full — fall through to compile anyway.  This is rare
+    // (32 pending calls + active frames simultaneously).
+    JIT_LOG("Re-queue failed for {}, compiling with active frames",
+            funcFullname(func));
+  }
 
   if (!isJitCompiled(func)) {
     _PyJIT_Result result = compileFunction(func);
@@ -299,6 +360,7 @@ static int compile_deferred_callback(void* arg) {
 
   // Balance the Py_INCREF in forcedJitVectorcall.
   Py_DECREF(func_obj);
+  PyMem_RawFree(dca);
   return 0;  // 0 = success (non-zero would set an exception)
 }
 
@@ -330,14 +392,26 @@ PyObject* forcedJitVectorcall(
     return entry(func_obj, stack, nargsf, kwnames);
   }
 
+  // Allocate the deferred compilation arg.  PyMem_RawMalloc is
+  // GIL-free and safe from any context.  Freed in the callback.
+  auto* dca = static_cast<DeferredCompileArg*>(
+      PyMem_RawMalloc(sizeof(DeferredCompileArg)));
+  if (dca == NULL) {
+    // OOM — fall back to interpreter permanently.
+    auto entry = getInterpretedVectorcall(func);
+    func->vectorcall = entry;
+    return entry(func_obj, stack, nargsf, kwnames);
+  }
+
   // Keep func alive until the deferred callback fires.
   Py_INCREF(func_obj);
+  dca->func_obj = func_obj;
 
   // Queue compilation at the next eval loop safe point
   // (handle_eval_breaker → make_pending_calls).
   PyInterpreterState* interp = PyInterpreterState_Get();
   int queued = _PyEval_AddPendingCall(
-      interp, compile_deferred_callback, func_obj, 0);
+      interp, compile_deferred_callback, dca, 0);
 
   if (queued == 0) {
     // Successfully queued.  Set vectorcall to deferred (just interprets,
@@ -346,9 +420,10 @@ PyObject* forcedJitVectorcall(
     func->vectorcall = jitDeferredVectorcall;
   } else {
     // Pending call queue full (NPENDINGCALLS=32).  This is extremely
-    // unlikely at threshold=1000.  Drop the ref and leave vectorcall
-    // as jitVectorcall — the next call will retry.
+    // unlikely at threshold=1000.  Drop the ref, free the arg, and
+    // leave vectorcall as jitVectorcall — the next call will retry.
     Py_DECREF(func_obj);
+    PyMem_RawFree(dca);
     JIT_LOG("Deferred compilation queue full for {}", funcFullname(func));
   }
 
