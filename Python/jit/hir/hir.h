@@ -1344,7 +1344,7 @@ class INSTR_CLASS(LoadField, (TOptObject), HasOutput, Operands<1>) {
       const std::string& name,
       std::size_t offset,
       Type type,
-      bool borrowed = true)
+      bool borrowed = false)
       : InstrT(dst, receiver),
         name_(name),
         offset_(offset),
