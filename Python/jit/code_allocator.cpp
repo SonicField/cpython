@@ -313,7 +313,12 @@ AllocateResult MultipleSectionCodeAllocator::addCode(asmjit::CodeHolder* code) {
     }
     CodeSection code_section = codeSectionFromName(section->name());
     code_section_free_sizes_[code_section] -= buffer_size;
-    std::memcpy(code_sections_[code_section], section->data(), buffer_size);
+    char* dest = reinterpret_cast<char*>(code_sections_[code_section]);
+    std::memcpy(dest, section->data(), buffer_size);
+    // Flush instruction cache after copying JIT code to executable memory.
+    // ARM64 has separate icache/dcache — without this, the CPU may execute
+    // stale instructions.  No-op on x86_64 (coherent caches).
+    __builtin___clear_cache(dest, dest + buffer_size);
     code_sections_[code_section] += buffer_size;
   }
 
