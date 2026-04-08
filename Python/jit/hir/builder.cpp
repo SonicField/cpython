@@ -10,6 +10,7 @@
 #if PY_VERSION_HEX >= 0x030C0000
 #include "internal/pycore_intrinsics.h"
 #include "internal/pycore_long.h"
+#include "internal/pycore_pystate.h"
 #include "internal/pycore_runtime.h"
 #include "internal/pycore_typeobject.h"
 #endif
@@ -1249,6 +1250,7 @@ void HIRBuilder::translate(
     Function& irfunc,
     const jit::BytecodeInstructionBlock& bc_instrs,
     const TranslationContext& initial_tc) {
+  current_func_ = &irfunc;
   std::deque<TranslationContext> queue = {initial_tc};
   std::unordered_set<BasicBlock*> processed;
   std::unordered_set<BasicBlock*> loop_headers;
@@ -3340,6 +3342,18 @@ namespace {
 //
 // Cost: O(number_of_types) but runs once per LOAD_ATTR_SLOT at JIT compile
 // time, not at runtime.
+// Get the tp_subclasses dict for a type, handling the static builtin
+// indirection (static builtin types store subclasses in interpreter state,
+// not directly in tp_subclasses).
+PyObject* getTypeSubclasses(PyTypeObject* type) {
+  if (type->tp_flags & _Py_TPFLAGS_STATIC_BUILTIN) {
+    PyInterpreterState* interp = _PyInterpreterState_GET();
+    static_builtin_state* state = _PyStaticType_GetState(interp, type);
+    return state ? state->tp_subclasses : nullptr;
+  }
+  return (PyObject*)type->tp_subclasses;
+}
+
 PyTypeObject* findTypeByVersionTagImpl(
     PyTypeObject* base,
     uint32_t version,
@@ -3350,25 +3364,27 @@ PyTypeObject* findTypeByVersionTagImpl(
   if (base->tp_version_tag == version) {
     return base;
   }
-  PyObject* subclasses = _PyType_GetSubclasses(base);
-  if (subclasses == nullptr || !PyList_Check(subclasses)) {
-    Py_XDECREF(subclasses);
+  // Iterate tp_subclasses directly using PyDict_Next — zero pymalloc
+  // allocation. The previous _PyType_GetSubclasses() call allocated a
+  // temporary list via PyList_New, which corrupted pymalloc pool metadata
+  // when called during auto-compilation on ARM64.
+  PyObject* subclasses = getTypeSubclasses(base);
+  if (subclasses == nullptr || !PyDict_Check(subclasses)) {
     return nullptr;
   }
-  Py_ssize_t n = PyList_GET_SIZE(subclasses);
-  for (Py_ssize_t i = 0; i < n; i++) {
-    PyObject* sub = PyList_GET_ITEM(subclasses, i);
-    if (!PyType_Check(sub)) {
+  Py_ssize_t pos = 0;
+  PyObject* ref;
+  while (PyDict_Next(subclasses, &pos, nullptr, &ref)) {
+    PyObject* sub = PyWeakref_GetObject(ref);
+    if (sub == Py_None || sub == nullptr || !PyType_Check(sub)) {
       continue;
     }
     PyTypeObject* found =
         findTypeByVersionTagImpl((PyTypeObject*)sub, version, depth + 1);
     if (found != nullptr) {
-      Py_DECREF(subclasses);
       return found;
     }
   }
-  Py_DECREF(subclasses);
   return nullptr;
 }
 
@@ -3376,18 +3392,7 @@ PyTypeObject* findTypeByVersionTag(uint32_t version) {
   if (version == 0) {
     return nullptr;
   }
-  // Skip type version tag lookup during compilation on ARM64.
-  // The recursive __subclasses__ walk allocates from pymalloc, which
-  // corrupts the heap during auto-compilation when the function is on
-  // the interpreter stack. Returning nullptr causes the caller to use
-  // a generic (deopt-safe) LoadAttr path instead of the type-specific
-  // optimization. This is a performance-only impact — correctness is
-  // maintained via the deopt guard.
-#if defined(CINDER_AARCH64)
-  return nullptr;
-#else
   return findTypeByVersionTagImpl(&PyBaseObject_Type, version, 0);
-#endif
 }
 
 } // namespace
@@ -3509,6 +3514,11 @@ void HIRBuilder::emitLoadAttr(
         if (slot_type != nullptr &&
             (slot_type->tp_subclasses == nullptr ||
              PyDict_GET_SIZE(slot_type->tp_subclasses) == 0)) {
+          // Root the type so it lives as long as the compiled code.
+          // Without this, GC may collect the type during auto-compilation,
+          // causing GuardType to compare against a freed pointer.
+          current_func_->env.addReference(BorrowedRef<>(
+              reinterpret_cast<PyObject*>(slot_type)));
           Type type = Type::fromTypeExact(slot_type);
           tc.emit<GuardType>(receiver, type, receiver);
 
@@ -3558,6 +3568,9 @@ void HIRBuilder::emitLoadAttr(
 
           BorrowedRef<PyHeapTypeObject> ht(reinterpret_cast<PyHeapTypeObject*>(slot_type));
           if (ht->ht_cached_keys != nullptr) {
+            // Root the type so it lives as long as the compiled code.
+            current_func_->env.addReference(BorrowedRef<>(
+                reinterpret_cast<PyObject*>(slot_type)));
             Type type = Type::fromTypeExact(slot_type);
             tc.emit<GuardType>(receiver, type, receiver);
 
@@ -3567,10 +3580,12 @@ void HIRBuilder::emitLoadAttr(
             // Load PyDictOrValues from managed dict slot (offset -3).
             // In CPython 3.12, managed dict pointer is at
             // -3 * sizeof(PyObject*) from the object.
+            // Must remain borrowed: dorv can be a tagged pointer (low bit
+            // set for inline values) which is not a valid PyObject*.
             Register* dorv = temps_.AllocateStack();
             tc.emit<LoadField>(
                 dorv, receiver, "__dict__",
-                -3 * static_cast<int>(sizeof(PyObject*)), TOptDict);
+                -3 * static_cast<int>(sizeof(PyObject*)), TOptDict, true);
 
             // Check dorv is not NULL (object has dict/values allocated).
             Register* checked_dorv = temps_.AllocateStack();

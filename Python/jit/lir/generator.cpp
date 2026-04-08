@@ -2321,11 +2321,14 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         // the instruction produced an INCREF'd reference and inserts DECREF
         // at end of life.  But LoadField just loads from memory — emit the
         // matching INCREF here so refcounts balance.
+        // Use xincref for nullable types — the refcount pass already uses
+        // XDecref for these, so NULL values get 0 INCREF + 0 DECREF.
         if (!instr->borrowed() && dest->type().couldBe(TMortalObject)) {
+          bool xincref = dest->type().couldBe(TNullptr);
           MakeIncref(
               bbb,
               loaded,
-              false,
+              xincref,
               kImmortalInstances &&
                   dest->type().couldBe(TImmortalObject));
         }
