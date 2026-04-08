@@ -648,6 +648,20 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
   BasicBlock* entry_block = bbb.allocateBlock();
   bbb.switchBlock(entry_block);
 
+  // Emit INCREF for instructions changed from borrowed to owned in
+  // instr_effects.cpp.  The refcount pass assumes owned instructions
+  // already INCREFed; these loads just read from memory.
+  auto emitOwnedIncref = [&](hir::Register* dest) {
+    if (dest->type().couldBe(TMortalObject)) {
+      bool xincref = dest->type().couldBe(TNullptr);
+      MakeIncref(
+          bbb,
+          bbb.getDefInstr(dest),
+          xincref,
+          kImmortalInstances && dest->type().couldBe(TImmortalObject));
+    }
+  };
+
   for (auto& i : *hir_bb) {
     auto opcode = i.opcode();
     bbb.setCurrentInstr(&i);
@@ -670,6 +684,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
             bbb.appendInstr(
                 instr->output(), Instruction::kLoadArg, Imm{instr->arg_idx()});
           }
+          emitOwnedIncref(instr->output());
           break;
         }
         size_t reg_count = env_->arg_locations.size();
@@ -682,12 +697,14 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         int32_t offset = (instr->arg_idx() - reg_count) * kPointerSize;
         bbb.appendInstr(
             instr->output(), Instruction::kMove, Ind{extra_args, offset});
+        emitOwnedIncref(instr->output());
         break;
       }
       case Opcode::kLoadCurrentFunc: {
         hir::Register* dest = i.output();
         Instruction* func = env_->asm_func;
         bbb.appendInstr(dest, Instruction::kMove, func);
+        emitOwnedIncref(dest);
         break;
       }
       case Opcode::kLoadFrame: {
@@ -749,6 +766,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         Instruction* src_base = bbb.getDefInstr(i.GetOperand(0));
         constexpr int32_t kOffset = offsetof(PyCellObject, ob_ref);
         bbb.appendInstr(dest, Instruction::kMove, Ind{src_base, kOffset});
+        emitOwnedIncref(dest);
 #endif
         break;
       }
@@ -1434,6 +1452,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         LoadTypeAttrCache* cache = load_type_attr_caches_.at(instr->cache_id());
         PyTypeObject** addr = cache->typeAddr();
         bbb.appendInstr(instr->output(), Instruction::kMove, MemImm{addr});
+        emitOwnedIncref(instr->output());
         break;
       }
       case Opcode::kLoadTypeAttrCacheEntryValue: {
@@ -1444,6 +1463,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         LoadTypeAttrCache* cache = load_type_attr_caches_.at(instr->cache_id());
         PyObject** addr = cache->valueAddr();
         bbb.appendInstr(instr->output(), Instruction::kMove, MemImm{addr});
+        emitOwnedIncref(instr->output());
         break;
       }
       case Opcode::kFillTypeAttrCache: {
@@ -2007,6 +2027,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         auto cache = cinderx::getModuleState()->cacheManager()->getGlobalCache(
             builtins, globals, name);
         bbb.appendInstr(instr->output(), Instruction::kMove, MemImm{cache});
+        emitOwnedIncref(instr->output());
         break;
       }
       case Opcode::kLoadGlobal: {
@@ -2455,6 +2476,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         auto item_offset = static_cast<int32_t>(
             offsetof(PyTupleObject, ob_item) + instr->idx() * kPointerSize);
         bbb.appendInstr(dest, Instruction::kMove, Ind{tuple, item_offset});
+        emitOwnedIncref(dest);
         break;
       }
       case Opcode::kCheckSequenceBounds: {
@@ -2493,6 +2515,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
           ind = Ind{ob_item, scaled_offset};
         }
         bbb.appendInstr(dest, Instruction::kMove, ind);
+        emitOwnedIncref(dest);
         break;
       }
       case Opcode::kStoreArrayItem: {
@@ -2542,6 +2565,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
             Instruction::kMove,
             Ind{ma_values,
                 static_cast<int32_t>(instr->itemIdx() * sizeof(PyObject*))});
+        emitOwnedIncref(instr->output());
         break;
       }
       case Opcode::kMakeCheckedList: {
