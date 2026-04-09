@@ -31,6 +31,38 @@ static_assert(offsetof(HirInstr, _vtable) == 0,
 static_assert(offsetof(HirCondBranchInstr, true_edge) ==
     sizeof(HirInstr), "CondBranch edges must follow base");
 
+/* ---- T2-B Batch 2: simple custom-field types ---- */
+static_assert(sizeof(HirBinaryOp) == sizeof(BinaryOp),
+    "HirBinaryOp size mismatch");
+static_assert(sizeof(HirUnaryOp) == sizeof(UnaryOp),
+    "HirUnaryOp size mismatch");
+static_assert(sizeof(HirInPlaceOp) == sizeof(InPlaceOp),
+    "HirInPlaceOp size mismatch");
+static_assert(sizeof(HirIntBinaryOp) == sizeof(IntBinaryOp),
+    "HirIntBinaryOp size mismatch");
+static_assert(sizeof(HirDoubleBinaryOp) == sizeof(DoubleBinaryOp),
+    "HirDoubleBinaryOp size mismatch");
+static_assert(sizeof(HirPrimitiveUnaryOp) == sizeof(PrimitiveUnaryOp),
+    "HirPrimitiveUnaryOp size mismatch");
+static_assert(sizeof(HirLongBinaryOp) == sizeof(LongBinaryOp),
+    "HirLongBinaryOp size mismatch");
+static_assert(sizeof(HirLongInPlaceOp) == sizeof(LongInPlaceOp),
+    "HirLongInPlaceOp size mismatch");
+static_assert(sizeof(HirFloatBinaryOp) == sizeof(FloatBinaryOp),
+    "HirFloatBinaryOp size mismatch");
+static_assert(sizeof(HirCompare) == sizeof(Compare),
+    "HirCompare size mismatch");
+static_assert(sizeof(HirFloatCompare) == sizeof(FloatCompare),
+    "HirFloatCompare size mismatch");
+static_assert(sizeof(HirLongCompare) == sizeof(LongCompare),
+    "HirLongCompare size mismatch");
+static_assert(sizeof(HirUnicodeCompare) == sizeof(UnicodeCompare),
+    "HirUnicodeCompare size mismatch");
+static_assert(sizeof(HirCompareBool) == sizeof(CompareBool),
+    "HirCompareBool size mismatch");
+static_assert(sizeof(HirPrimitiveCompare) == sizeof(PrimitiveCompare),
+    "HirPrimitiveCompare size mismatch");
+
 /* ---- Runtime field offset verification ---- */
 /* Reinterpret a known C++ object as a C struct, verify field values match.
  * Runs at program startup via __attribute__((constructor)). */

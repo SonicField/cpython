@@ -117,6 +117,42 @@ static inline const HirCondBranchInstr *hir_instr_as_condbranch(
     return (const HirCondBranchInstr *)instr;
 }
 
+/* ==== T2-B Batch 2: Simple custom-field instruction structs ====
+ * All add a single int32_t op_ field to their base class.
+ * DeoptBase subtypes: sizeof = sizeof(HirDeoptInstr) + 8
+ * Instr subtypes: sizeof = sizeof(HirInstr) + 8 */
+
+/* ---- Operation-kind types (DeoptBase + enum) ---- */
+typedef struct { HirDeoptInstr deopt; int32_t op; int32_t _pad; } HirBinaryOp;
+typedef struct { HirDeoptInstr deopt; int32_t op; int32_t _pad; } HirUnaryOp;
+typedef struct { HirDeoptInstr deopt; int32_t op; int32_t _pad; } HirInPlaceOp;
+typedef struct { HirDeoptInstr deopt; int32_t op; int32_t _pad; } HirLongBinaryOp;
+typedef struct { HirDeoptInstr deopt; int32_t op; int32_t _pad; } HirLongInPlaceOp;
+typedef struct { HirDeoptInstr deopt; int32_t op; int32_t _pad; } HirFloatBinaryOp;
+
+/* ---- Operation-kind types (Instr + enum) ---- */
+typedef struct { HirInstr base; int32_t op; int32_t _pad; } HirIntBinaryOp;
+typedef struct { HirInstr base; int32_t op; int32_t _pad; } HirDoubleBinaryOp;
+typedef struct { HirInstr base; int32_t op; int32_t _pad; } HirPrimitiveUnaryOp;
+
+/* ---- Comparison types (DeoptBase + enum) ---- */
+typedef struct { HirDeoptInstr deopt; int32_t op; int32_t _pad; } HirCompare;
+typedef struct { HirDeoptInstr deopt; int32_t op; int32_t _pad; } HirCompareBool;
+
+/* ---- Comparison types (Instr + enum) ---- */
+typedef struct { HirInstr base; int32_t op; int32_t _pad; } HirFloatCompare;
+typedef struct { HirInstr base; int32_t op; int32_t _pad; } HirLongCompare;
+typedef struct { HirInstr base; int32_t op; int32_t _pad; } HirUnicodeCompare;
+typedef struct { HirInstr base; int32_t op; int32_t _pad; } HirPrimitiveCompare;
+
+/* ---- Op accessor (works for all Batch 2 types) ---- */
+static inline int32_t hir_op_kind(const void *instr, int is_deopt) {
+    if (is_deopt) {
+        return ((const HirBinaryOp *)instr)->op;
+    }
+    return ((const HirIntBinaryOp *)instr)->op;
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
