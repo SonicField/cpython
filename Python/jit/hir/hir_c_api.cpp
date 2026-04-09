@@ -70,6 +70,22 @@ static void verify_hir_type_layout() {
            "C/C++ HirType kSpecInt divergence");
     assert(c_int->int_val == 42 &&
            "C/C++ HirType int value divergence");
+
+    /* Verify kSpecType (Long is the most common type-specialized kind) */
+    Type cpp_tyspec = Type::fromType(&PyLong_Type);
+    const HirType *c_tyspec = reinterpret_cast<const HirType*>(&cpp_tyspec);
+    assert(hir_type_has_type_spec(c_tyspec) &&
+           "C/C++ HirType kSpecType divergence");
+    assert(c_tyspec->pytype == &PyLong_Type &&
+           "C/C++ HirType kSpecType value divergence");
+
+    /* Verify kSpecTypeExact */
+    Type cpp_tyexact = Type::fromTypeExact(&PyLong_Type);
+    const HirType *c_tyexact = reinterpret_cast<const HirType*>(&cpp_tyexact);
+    assert(hir_type_has_type_exact_spec(c_tyexact) &&
+           "C/C++ HirType kSpecTypeExact divergence");
+    assert(c_tyexact->pytype == &PyLong_Type &&
+           "C/C++ HirType kSpecTypeExact value divergence");
 }
 
 /* Run layout verification at program startup (before main) */
