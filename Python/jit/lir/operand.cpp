@@ -176,10 +176,7 @@ DataType OperandBase::dataType() const {
 }
 
 OperandBase::Type OperandBase::type() const {
-  if (is_linked_) {
-    if (def_opnd_ == nullptr) return kNone;
-    return def_opnd_->type();
-  }
+  if (is_linked_) return def_opnd_->type();
   return type_;
 }
 
@@ -437,12 +434,10 @@ const Operand* LinkedOperand::getLinkedOperand() const {
 }
 
 Instruction* LinkedOperand::getLinkedInstr() {
-  if (def_opnd_ == nullptr) return nullptr;
   return def_opnd_->instr();
 }
 
 const Instruction* LinkedOperand::getLinkedInstr() const {
-  if (def_opnd_ == nullptr) return nullptr;
   return def_opnd_->instr();
 }
 

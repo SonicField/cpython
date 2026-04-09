@@ -145,17 +145,11 @@ add_linked_to_worklist(DceCtx *ctx, JitLirOperand operand) {
         return;
     }
     JitLirInstr linked = jit_lir_operand_get_linked_instr(operand);
-    if (linked == NULL) {
-        return;
-    }
     mark_live(ctx, linked);
 }
 
 static void
 add_all_regs_to_worklist(DceCtx *ctx, JitLirOperand operand) {
-    if (operand == NULL) {
-        return;
-    }
     if (jit_lir_operand_is_ind(operand)) {
         JitLirIndirect indirect = jit_lir_operand_get_indirect(operand);
         add_linked_to_worklist(ctx, jit_lir_indirect_base_reg(indirect));
