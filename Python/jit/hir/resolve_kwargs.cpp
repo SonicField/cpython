@@ -3,6 +3,7 @@
 #include "cinderx/Jit/hir/resolve_kwargs.h"
 
 #include "cinderx/Jit/hir/hir.h"
+#include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Common/log.h"
 #include "cinderx/Common/code.h"
 
@@ -20,11 +21,14 @@ bool resolveVectorCallKwargs(VectorCall* call) {
   Register* target = call->func();
 
   // Need a known function to get parameter names.
-  if (!target->type().hasValueSpec(TFunc)) {
+  auto target_ty = target->type();
+  HirType target_hir = *reinterpret_cast<const HirType*>(&target_ty);
+  HirType tfunc_hir = *reinterpret_cast<const HirType*>(&TFunc);
+  if (!hir_type_has_value_spec(&target_hir, tfunc_hir)) {
     return false;
   }
 
-  BorrowedRef<PyFunctionObject> callee{target->type().objectSpec()};
+  BorrowedRef<PyFunctionObject> callee{hir_type_object_spec(&target_hir)};
   BorrowedRef<PyCodeObject> code{callee->func_code};
 
   // Skip callees with **kwargs or *args — cannot resolve statically.
@@ -39,11 +43,13 @@ bool resolveVectorCallKwargs(VectorCall* call) {
   }
 
   Register* kwnames_reg = call->GetOperand(total_operands - 1);
-  if (!kwnames_reg->type().hasObjectSpec()) {
+  auto kwnames_ty = kwnames_reg->type();
+  HirType kwnames_hir = *reinterpret_cast<const HirType*>(&kwnames_ty);
+  if (!hir_type_has_object_spec(&kwnames_hir)) {
     return false;  // kwnames not a known constant
   }
 
-  PyObject* kwnames_obj = kwnames_reg->type().objectSpec();
+  PyObject* kwnames_obj = hir_type_object_spec(&kwnames_hir);
   if (!PyTuple_Check(kwnames_obj)) {
     return false;
   }
@@ -147,11 +153,14 @@ bool resolveVectorCallKwargs(VectorCall* call) {
 bool resolveCallMethodKwargs(CallMethod* call) {
   Register* target = call->func();
 
-  if (!target->type().hasValueSpec(TFunc)) {
+  auto target_ty2 = target->type();
+  HirType target_hir2 = *reinterpret_cast<const HirType*>(&target_ty2);
+  HirType tfunc_hir2 = *reinterpret_cast<const HirType*>(&TFunc);
+  if (!hir_type_has_value_spec(&target_hir2, tfunc_hir2)) {
     return false;
   }
 
-  BorrowedRef<PyFunctionObject> callee{target->type().objectSpec()};
+  BorrowedRef<PyFunctionObject> callee{hir_type_object_spec(&target_hir2)};
   BorrowedRef<PyCodeObject> code{callee->func_code};
 
   if (code->co_flags & (CO_VARKEYWORDS | CO_VARARGS)) {
@@ -165,11 +174,13 @@ bool resolveCallMethodKwargs(CallMethod* call) {
   }
 
   Register* kwnames_reg = call->GetOperand(total_operands - 1);
-  if (!kwnames_reg->type().hasObjectSpec()) {
+  auto kwnames_ty2 = kwnames_reg->type();
+  HirType kwnames_hir2 = *reinterpret_cast<const HirType*>(&kwnames_ty2);
+  if (!hir_type_has_object_spec(&kwnames_hir2)) {
     return false;
   }
 
-  PyObject* kwnames_obj = kwnames_reg->type().objectSpec();
+  PyObject* kwnames_obj = hir_type_object_spec(&kwnames_hir2);
   if (!PyTuple_Check(kwnames_obj)) {
     return false;
   }

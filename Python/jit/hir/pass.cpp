@@ -2,6 +2,7 @@
 
 #include "cinderx/Jit/hir/pass.h"
 
+#include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/context.h"
 #include "cinderx/Jit/hir/analysis.h"
 #include "cinderx/Jit/hir/printer.h"
@@ -54,10 +55,11 @@ Type returnType(PyMethodDef* meth) {
 }
 
 Type returnType(Type callable) {
-  if (!callable.hasObjectSpec()) {
+  HirType callable_hir = *reinterpret_cast<const HirType*>(&callable);
+  if (!hir_type_has_object_spec(&callable_hir)) {
     return TObject;
   }
-  PyObject* callable_obj = callable.objectSpec();
+  PyObject* callable_obj = hir_type_object_spec(&callable_hir);
   if (Py_TYPE(callable_obj) == &PyCFunction_Type) {
     PyCFunctionObject* func =
         reinterpret_cast<PyCFunctionObject*>(callable_obj);
@@ -286,7 +288,12 @@ Type outputType(
           binop.op() == BinaryOpKind::kPowerUnsigned) {
         return TCDouble;
       }
-      return binop.left()->type().unspecialized();
+      {
+        auto binop_ty = binop.left()->type();
+        HirType binop_hir = *reinterpret_cast<const HirType*>(&binop_ty);
+        HirType binop_unspec = hir_type_unspecialized(&binop_hir);
+        return *reinterpret_cast<const Type*>(&binop_unspec);
+      }
     }
     case Opcode::kDoubleBinaryOp: {
       return TCDouble;
@@ -298,7 +305,12 @@ Type outputType(
           PrimitiveUnaryOpKind::kNotInt) {
         return TCBool;
       }
-      return get_op_type(0).unspecialized();
+      {
+        Type op0_ty = get_op_type(0);
+        HirType op0_hir = *reinterpret_cast<const HirType*>(&op0_ty);
+        HirType op0_unspec = hir_type_unspecialized(&op0_hir);
+        return *reinterpret_cast<const Type*>(&op0_unspec);
+      }
 
     // Some return something slightly more interesting.
     case Opcode::kBuildSlice:

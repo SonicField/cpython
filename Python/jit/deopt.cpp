@@ -11,6 +11,7 @@
 #include "cinderx/Common/py-portability.h"
 #include "cinderx/Common/util.h"
 #include "cinderx/Jit/bytecode_offsets.h"
+#include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/hir/printer.h"
 
 #ifdef ENABLE_USDT
@@ -57,14 +58,18 @@ hir::ValueKind deoptValueKind(hir::Type type) {
   // works fine at runtime and a proper fix likely involves reworking HIR's
   // support for constant values, so we paper over the issue here for the
   // moment.
-  if (type.couldBe(jit::hir::TCUnsigned | jit::hir::TCSigned)) {
+  HirType type_hir = *reinterpret_cast<const HirType*>(&type);
+  auto tcunsigned_signed = jit::hir::TCUnsigned | jit::hir::TCSigned;
+  if (hir_type_could_be(&type_hir,
+      reinterpret_cast<const HirType*>(&tcunsigned_signed))) {
     if (type <= (jit::hir::TCUnsigned | jit::hir::TNullptr)) {
       return jit::hir::ValueKind::kUnsigned;
     }
     if (type <= (jit::hir::TCSigned | jit::hir::TNullptr)) {
       return jit::hir::ValueKind::kSigned;
     }
-  } else if (type.couldBe(jit::hir::TCDouble)) {
+  } else if (hir_type_could_be(&type_hir,
+      reinterpret_cast<const HirType*>(&jit::hir::TCDouble))) {
     return jit::hir::ValueKind::kDouble;
   }
 

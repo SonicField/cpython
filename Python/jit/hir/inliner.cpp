@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/hir/inliner.h"
+#include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/jit_config_c.h"
 
 #include "internal/pycore_code.h"
@@ -418,7 +419,9 @@ void InlineFunctionCalls::Run(Function& irfunc) {
               target->type(),
               caller_name);
           // Speculative inlining: check IC for resolved method
-          PyTypeObject* recv_type = target->type().runtimePyType();
+          auto target_ty = target->type();
+          PyTypeObject* recv_type = hir_type_runtime_py_type(
+              reinterpret_cast<const HirType*>(&target_ty));
           if (recv_type != nullptr) {
             auto* fs = call->asDeoptBase() ? call->asDeoptBase()->frameState() : nullptr;
             if (fs != nullptr) {
@@ -451,7 +454,9 @@ void InlineFunctionCalls::Run(Function& irfunc) {
           continue;
         }
 
-        BorrowedRef<PyFunctionObject> callee{target->type().objectSpec()};
+        auto target_ty2 = target->type();
+        BorrowedRef<PyFunctionObject> callee{
+            hir_type_object_spec(reinterpret_cast<const HirType*>(&target_ty2))};
         to_inline.emplace_back(callee, call->numArgs(), call, target);
       } else if (instr.IsInvokeStaticFunction()) {
         auto call = static_cast<InvokeStaticFunction*>(&instr);
