@@ -164,6 +164,12 @@ HirType hir_type_subtract(HirType a, HirType b);
 /* Type union (operator|) */
 HirType hir_type_union(HirType a, HirType b);
 
+/* Check if a type has a known runtime destructor.
+ * C equivalent of Type::runtimePyTypeDestructor().has_value().
+ * Returns 1 if the type has a known exact PyTypeObject* (not NoneType),
+ * 0 otherwise. Bridge function — calls C++ implementation. */
+int hir_type_has_known_destructor(const HirType *t);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

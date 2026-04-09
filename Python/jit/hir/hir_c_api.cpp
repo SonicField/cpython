@@ -47,13 +47,29 @@ static void verify_hir_type_layout() {
     assert(hir_type_spec_kind(c_type) == 0 /* kSpecTop */ &&
            "C/C++ HirType spec_kind_ divergence");
 
-    /* Verify a specialized type */
+    /* Verify a specialized type (kSpecObject) */
     Type cpp_obj = Type::fromObject(Py_None);
     const HirType *c_obj = reinterpret_cast<const HirType*>(&cpp_obj);
     assert(hir_type_has_object_spec(c_obj) &&
            "C/C++ HirType object spec divergence");
     assert(c_obj->pyobject == Py_None &&
            "C/C++ HirType object spec value divergence");
+
+    /* Verify kSpecDouble */
+    Type cpp_dbl = Type(Type::kCDouble, 3.14);
+    const HirType *c_dbl = reinterpret_cast<const HirType*>(&cpp_dbl);
+    assert(hir_type_has_double_spec(c_dbl) &&
+           "C/C++ HirType kSpecDouble divergence");
+    assert(c_dbl->double_val == 3.14 &&
+           "C/C++ HirType double value divergence");
+
+    /* Verify kSpecInt */
+    Type cpp_int = Type::fromCInt(42, TCInt64);
+    const HirType *c_int = reinterpret_cast<const HirType*>(&cpp_int);
+    assert(hir_type_has_int_spec(c_int) &&
+           "C/C++ HirType kSpecInt divergence");
+    assert(c_int->int_val == 42 &&
+           "C/C++ HirType int value divergence");
 }
 
 /* Run layout verification at program startup (before main) */
@@ -295,6 +311,13 @@ HirInstr hir_load_const_bottom_create(HirRegister output) {
 
 HirInstr hir_assign_create(HirRegister output, HirRegister value) {
   return Assign::create(as_reg(output), as_reg(value));
+}
+
+/* ---- Type queries (bridge) ---- */
+
+int hir_type_has_known_destructor(const HirType *t) {
+  const auto& type = *reinterpret_cast<const Type*>(t);
+  return type.runtimePyTypeDestructor().has_value() ? 1 : 0;
 }
 
 /* ---- Memory effects ---- */

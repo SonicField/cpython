@@ -3,6 +3,7 @@
 #include "cinderx/Jit/hir/instr_effects.h"
 
 #include "cinderx/Jit/hir/hir.h"
+#include "cinderx/Jit/hir/hir_type_c.h"
 
 namespace jit::hir {
 
@@ -204,7 +205,9 @@ MemoryEffects memoryEffects(const Instr& inst) {
 
     case Opcode::kDecref:
     case Opcode::kXDecref: {
-      if (inst.GetOperand(0)->type().runtimePyTypeDestructor().has_value()) {
+      if (hir_type_has_known_destructor(
+              reinterpret_cast<const HirType*>(
+                  &inst.GetOperand(0)->type()))) {
         return {false, AEmpty, {inst.NumOperands()}, AOther};
       } else {
         return {false, AEmpty, {1, 1}, AManagedHeapAny};
