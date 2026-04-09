@@ -32,6 +32,36 @@ static_assert(sizeof(HirType) == 16,
 static_assert(offsetof(HirType, pytype) == 8,
               "HirType spec union must be at offset 8");
 
+/* ---- Cross-boundary layout verification ---- */
+/* Runs during JIT init to catch C/C++ bit-packing divergence. */
+
+static void verify_hir_type_layout() {
+    /* Create a known C++ Type, reinterpret as HirType, verify accessors agree */
+    Type cpp_type = TLong;  /* known: kLong bits, kLifetimeTop, kSpecTop */
+    const HirType *c_type = reinterpret_cast<const HirType*>(&cpp_type);
+
+    assert(hir_type_bits(c_type) == Type::kLong &&
+           "C/C++ HirType bits_ divergence");
+    assert(hir_type_lifetime(c_type) == Type::kLifetimeTop &&
+           "C/C++ HirType lifetime_ divergence");
+    assert(hir_type_spec_kind(c_type) == 0 /* kSpecTop */ &&
+           "C/C++ HirType spec_kind_ divergence");
+
+    /* Verify a specialized type */
+    Type cpp_obj = Type::fromObject(Py_None);
+    const HirType *c_obj = reinterpret_cast<const HirType*>(&cpp_obj);
+    assert(hir_type_has_object_spec(c_obj) &&
+           "C/C++ HirType object spec divergence");
+    assert(c_obj->pyobject == Py_None &&
+           "C/C++ HirType object spec value divergence");
+}
+
+/* Run layout verification at program startup (before main) */
+__attribute__((constructor))
+static void hir_type_layout_check() {
+    verify_hir_type_layout();
+}
+
 /* ---- Type constants for hir_type_c.c ---- */
 
 extern "C" {
