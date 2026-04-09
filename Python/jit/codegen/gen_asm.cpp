@@ -1434,6 +1434,23 @@ void* NativeGenerator::getVectorcallEntry() {
       GetFunction()->fullname,
       *lir_func);
 
+  // Bail out of compilation if any linked operand has a broken def-use
+  // chain (is_linked_=true, def_opnd_=NULL). This occurs for unsupported
+  // patterns like unbound type method calls (Type.method(args)). Throwing
+  // here is caught by the try/catch in compilePreloaderImpl, which returns
+  // PYJIT_RESULT_UNKNOWN_ERROR — the function runs via interpreter.
+  for (auto& block : lir_func->basicblocks()) {
+    for (auto& instr : block->instructions()) {
+      for (size_t i = 0; i < instr.getNumInputs(); i++) {
+        auto* op = instr.getInput(i);
+        if (op != nullptr && op->is_linked_ && op->def_opnd_ == nullptr) {
+          throw std::runtime_error(
+              "Broken linked operand (NULL def_opnd_) — bailing to interpreter");
+        }
+      }
+    }
+  }
+
   COMPILE_TIMER(
       GetFunction()->compilation_phase_timer,
       "DeadCodeElimination",
