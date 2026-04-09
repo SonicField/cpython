@@ -113,6 +113,52 @@ typedef struct { HIR_INSTR_FIELDS; intptr_t offset; HirType type; } HirLoadArray
 /* ---- Type-field types (DeoptBase + HirType) ---- */
 typedef struct { HIR_DEOPT_FIELDS; HirType type; } HirPrimitiveBox;
 
+/* ==== T2-B Batch 4a: Scalar-field instruction structs ==== */
+
+/* ---- Single scalar field (Instr base) ---- */
+typedef struct { HIR_INSTR_FIELDS; HirEdge edge; } HirBranch;
+typedef struct { HIR_INSTR_FIELDS; int32_t field; } HirSetFunctionAttr;
+typedef struct { HIR_INSTR_FIELDS; size_t index; } HirCallIntrinsic;
+typedef struct { HIR_INSTR_FIELDS; void *addr; } HirCallStaticRetVoid;
+typedef struct { HIR_INSTR_FIELDS; void *exc; } HirIndexUnbox;
+typedef struct { HIR_INSTR_FIELDS; size_t idx; } HirLoadTupleItem;
+typedef struct { HIR_INSTR_FIELDS; intptr_t item_idx; } HirLoadSplitDictItem;
+typedef struct { HIR_INSTR_FIELDS; int32_t cells; } HirInitFrameCellVars;
+typedef struct { HIR_INSTR_FIELDS; int32_t cache_id; } HirLoadTypeAttrCacheEntryType;
+typedef struct { HIR_INSTR_FIELDS; int32_t cache_id; } HirLoadTypeAttrCacheEntryValue;
+typedef struct { HIR_INSTR_FIELDS; int32_t cache_id; } HirLoadTypeMethodCacheEntryType;
+typedef struct { HIR_INSTR_FIELDS; int32_t cache_id; } HirLoadTypeMethodCacheEntryValue;
+
+/* ---- Multi-field (Instr base) ---- */
+typedef struct { HIR_INSTR_FIELDS; void *addr; HirType ret_type; } HirCallStatic;
+typedef struct { HIR_INSTR_FIELDS; void *_vtable_inline; void *begin; int32_t inline_depth; } HirEndInlinedFunction;
+typedef struct { HIR_INSTR_FIELDS; int32_t line_no; int32_t _pad; void *parent; } HirUpdatePrevInstr;
+typedef struct { HIR_INSTR_FIELDS; uint32_t arg_idx; int32_t _pad; HirType type; } HirLoadArg;
+
+/* ---- Single scalar field (DeoptBase base) ---- */
+typedef struct { HIR_DEOPT_FIELDS; uint32_t flags; } HirVectorCall;
+typedef struct { HIR_DEOPT_FIELDS; uint32_t flags; } HirCallEx;
+typedef struct { HIR_DEOPT_FIELDS; void *pytype; } HirTpAlloc;
+typedef struct { HIR_DEOPT_FIELDS; void *target; } HirGuardIs;
+typedef struct { HIR_DEOPT_FIELDS; HirType target; } HirGuardType;
+typedef struct { HIR_DEOPT_FIELDS; size_t capacity; } HirMakeDict;
+typedef struct { HIR_DEOPT_FIELDS; void *patcher; } HirDeoptPatchpoint;
+typedef struct { HIR_DEOPT_FIELDS; uint8_t is_aenter; } HirRaiseAwaitableError;
+typedef struct { HIR_DEOPT_FIELDS; int32_t conversion; } HirBuildInterpolation;
+typedef struct { HIR_DEOPT_FIELDS; int32_t converter_idx; } HirConvertValue;
+typedef struct { HIR_DEOPT_FIELDS; int32_t special_idx; } HirLoadSpecial;
+
+/* ---- Multi-field (DeoptBase base) ---- */
+typedef struct { HIR_DEOPT_FIELDS; void *pytype; uint8_t optional; uint8_t exact; } HirCast;
+typedef struct { HIR_DEOPT_FIELDS; void *funcptr; void *descr; } HirLoadFunctionIndirect;
+typedef struct { HIR_DEOPT_FIELDS; const char *fmt; void *exc_type; } HirRaiseStatic;
+typedef struct { HIR_DEOPT_FIELDS; const char *name; HirType ret_type; } HirCallInd;
+typedef struct { HIR_DEOPT_FIELDS; size_t capacity; HirType type; } HirMakeCheckedDict;
+typedef struct { HIR_DEOPT_FIELDS; HirType type; } HirMakeCheckedList;
+
+/* ---- CondBranch derived ---- */
+typedef struct { HIR_INSTR_FIELDS; HirEdge true_edge; HirEdge false_edge; HirType type; } HirCondBranchCheckType;
+
 /* ---- Field accessors ---- */
 
 static inline int32_t hir_instr_opcode(const HirInstr *instr) {
