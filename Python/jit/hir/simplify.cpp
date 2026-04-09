@@ -353,7 +353,9 @@ Register* emitGetLengthInt64(Env& env, Register* obj) {
       ty <= TListExact || ty <= TArray ||
 #endif
       ty <= TTupleExact) {
-    env.emit<UseType>(obj, ty.unspecialized());
+    HirType ty_hir_us = to_hir(ty);
+    HirType ty_unspec = hir_type_unspecialized(&ty_hir_us);
+    env.emit<UseType>(obj, *reinterpret_cast<const Type*>(&ty_unspec));
     return env.emit<LoadField>(
         obj, "ob_size", offsetof(PyVarObject, ob_size), TCInt64);
   }
@@ -379,7 +381,9 @@ Register* emitGetLengthInt64(Env& env, Register* obj) {
     } else {
       JIT_ABORT("unexpected type");
     }
-    env.emit<UseType>(obj, ty.unspecialized());
+    HirType ty_hir_us2 = to_hir(ty);
+    HirType ty_unspec2 = hir_type_unspecialized(&ty_hir_us2);
+    env.emit<UseType>(obj, *reinterpret_cast<const Type*>(&ty_unspec2));
     return env.emit<LoadField>(obj, name, offset, TCInt64);
   }
   return nullptr;
@@ -498,7 +502,8 @@ Register* simplifyCondBranchCheckType(
 
 Register* simplifyIsTruthy(Env& env, const IsTruthy* instr) {
   Type ty = instr->GetOperand(0)->type();
-  PyObject* obj = ty.asObject();
+  HirType ty_hir_it = to_hir(ty);
+  PyObject* obj = hir_type_as_object(&ty_hir_it);
   if (obj != nullptr) {
     // Should only consider immutable Objects
     static const std::unordered_set<PyTypeObject*> kTrustedTypes{
@@ -602,7 +607,7 @@ Register* simplifyLoadVarObjectSize(Env& env, const LoadVarObjectSize* instr) {
   HirType type_hvs = to_hir(type);
   if (hir_type_has_value_spec(&type_hvs, to_hir(TTupleExact)) ||
       hir_type_has_value_spec(&type_hvs, to_hir(TBytesExact))) {
-    PyVarObject* obj = reinterpret_cast<PyVarObject*>(type.asObject());
+    PyVarObject* obj = reinterpret_cast<PyVarObject*>(hir_type_as_object(&type_hvs));
     Py_ssize_t size = obj->ob_size;
     env.emit<UseType>(obj_reg, type);
     Type output_type = instr->output()->type();
@@ -1133,7 +1138,7 @@ Register* simplifyPrimitiveCompare(Env& env, const PrimitiveCompare* instr) {
   // box(b) == True --> b
   if (instr->op() == PrimitiveCompareOp::kEqual &&
       left->instr()->IsPrimitiveBoxBool() &&
-      right->type().asObject() == Py_True) {
+      hir_type_as_object(reinterpret_cast<const HirType*>(&right_type_cmp)) == Py_True) {
     return left->instr()->GetOperand(0);
   }
   return nullptr;
@@ -1489,7 +1494,7 @@ Register* simplifyLoadAttrInstanceReceiver(
   HirType type_hir = to_hir(type);
   BorrowedRef<PyTypeObject> py_type{hir_type_runtime_py_type(&type_hir)};
 
-  if (!type.isExact() || py_type == nullptr ||
+  if (!hir_type_is_exact(&type_hir) || py_type == nullptr ||
       !PyType_HasFeature(py_type, Py_TPFLAGS_READY) ||
       py_type->tp_getattro != PyObject_GenericGetAttr) {
     return nullptr;
@@ -1811,7 +1816,7 @@ Register* simplifyCallMethod(Env& env, const CallMethod* instr) {
         HirType recv_hir = to_hir(receiver_type);
         BorrowedRef<PyTypeObject> py_type{hir_type_runtime_py_type(&recv_hir)};
 
-        if (receiver_type.isExact() && py_type != nullptr &&
+        if (hir_type_is_exact(&recv_hir) && py_type != nullptr &&
             PyType_HasFeature(py_type, Py_TPFLAGS_READY)) {
           bool version_ok = getThreadedCompileContext().compileRunning()
               ? Ci_Type_HasValidVersionTag(py_type)
@@ -1845,7 +1850,8 @@ Register* simplifyCallMethod(Env& env, const CallMethod* instr) {
                 patchpoint->setGuiltyReg(receiver);
                 patchpoint->setDescr("CallMethod __exit__ method resolution");
               }
-              env.emit<UseType>(receiver, receiver_type.unspecialized());
+              HirType recv_unspec = hir_type_unspecialized(&recv_hir);
+              env.emit<UseType>(receiver, *reinterpret_cast<const Type*>(&recv_unspec));
 
               Register* func_const = env.emit<LoadConst>(
                   Type::fromObject(
@@ -1889,7 +1895,8 @@ static Register* trySpecializeCCall(Env& env, const VectorCall* instr) {
   }
   Register* callable = instr->func();
   Type callable_type = callable->type();
-  PyObject* callable_obj = callable_type.asObject();
+  HirType callable_hir_co = to_hir(callable_type);
+  PyObject* callable_obj = hir_type_as_object(&callable_hir_co);
   if (callable_obj == nullptr) {
     return nullptr;
   }
@@ -2068,7 +2075,7 @@ Register* simplifyVectorCallBoundMethod(Env& env, const VectorCall* instr) {
   BorrowedRef<PyTypeObject> py_type{hir_type_runtime_py_type(&recv_hir2)};
 
   // Bail if receiver type is not exact or not ready.
-  if (!receiver_type.isExact() || py_type == nullptr ||
+  if (!hir_type_is_exact(&recv_hir2) || py_type == nullptr ||
       !PyType_HasFeature(py_type, Py_TPFLAGS_READY)) {
     return nullptr;
   }
@@ -2124,7 +2131,8 @@ Register* simplifyVectorCallBoundMethod(Env& env, const VectorCall* instr) {
     patchpoint->setGuiltyReg(receiver);
     patchpoint->setDescr("LoadAttrSpecial method resolution");
   }
-  env.emit<UseType>(receiver, receiver_type.unspecialized());
+  HirType recv_unspec2 = hir_type_unspecialized(&recv_hir2);
+  env.emit<UseType>(receiver, *reinterpret_cast<const Type*>(&recv_unspec2));
 
   // Load the resolved function as a constant.
   Register* func_const = env.emit<LoadConst>(

@@ -178,6 +178,24 @@ static inline int hir_type_has_value_spec(const HirType *t, HirType ty) {
            hir_type_is_subtype(*t, ty);
 }
 
+/* Return the type with specialization stripped (spec_kind=Top, spec_val=0).
+ * C equivalent of Type::unspecialized(). */
+static inline HirType hir_type_unspecialized(const HirType *t) {
+    HirType r;
+    r.bits_and_flags = (hir_type_bits(t) & HIR_TYPE_BITS_MASK)
+                     | (hir_type_lifetime(t) << HIR_TYPE_LIFETIME_SHIFT);
+    r.int_val = 0;
+    return r;
+}
+
+/* Return the PyObject* this type represents, or NULL.
+ * C equivalent of Type::asObject(). Bridge function. */
+PyObject *hir_type_as_object(const HirType *t);
+
+/* Return 1 if this type is exact (hasTypeExactSpec or subtype of TBuiltinExact).
+ * C equivalent of Type::isExact(). Bridge function. */
+int hir_type_is_exact(const HirType *t);
+
 /* Check if a type has a known runtime destructor.
  * C equivalent of Type::runtimePyTypeDestructor().has_value().
  * Returns 1 if the type has a known exact PyTypeObject* (not NoneType),

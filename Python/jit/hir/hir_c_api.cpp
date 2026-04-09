@@ -317,6 +317,16 @@ HirInstr hir_assign_create(HirRegister output, HirRegister value) {
 
 /* ---- Type queries (bridge) ---- */
 
+PyObject *hir_type_as_object(const HirType *t) {
+  const auto& type = *reinterpret_cast<const Type*>(t);
+  return type.asObject();
+}
+
+int hir_type_is_exact(const HirType *t) {
+  const auto& type = *reinterpret_cast<const Type*>(t);
+  return type.isExact() ? 1 : 0;
+}
+
 int hir_type_has_known_destructor(const HirType *t) {
   const auto& type = *reinterpret_cast<const Type*>(t);
   return type.runtimePyTypeDestructor().has_value() ? 1 : 0;
