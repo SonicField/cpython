@@ -170,6 +170,12 @@ HirType hir_type_union(HirType a, HirType b);
  * 0 otherwise. Bridge function — calls C++ implementation. */
 int hir_type_has_known_destructor(const HirType *t);
 
+/* Get the runtime PyTypeObject* for an exact type.
+ * C equivalent of Type::runtimePyType().
+ * Returns the PyTypeObject* if the type is exact (hasTypeExactSpec or
+ * a builtin exact type), NULL otherwise. Bridge function. */
+PyTypeObject *hir_type_runtime_py_type(const HirType *t);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

@@ -320,6 +320,11 @@ int hir_type_has_known_destructor(const HirType *t) {
   return type.runtimePyTypeDestructor().has_value() ? 1 : 0;
 }
 
+PyTypeObject *hir_type_runtime_py_type(const HirType *t) {
+  const auto& type = *reinterpret_cast<const Type*>(t);
+  return type.runtimePyType();
+}
+
 /* ---- Memory effects ---- */
 
 int hir_memory_effects_may_store(HirInstr instr) {

@@ -4,12 +4,22 @@
 
 #include "cinderx/Common/py-portability.h"
 #include "cinderx/Jit/hir/analysis.h"
+#include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/threaded_compile.h"
 #include "cinderx/module_state.h"
+
+#include <string.h>
 
 namespace jit::hir {
 
 namespace {
+
+/* Convert C++ Type to C HirType (layout-compatible, 16-byte copy). */
+inline HirType to_hir(Type t) {
+  HirType h;
+  memcpy(&h, &t, sizeof(h));
+  return h;
+}
 
 struct MethodInvoke {
   LoadMethodBase* load_method{nullptr};
@@ -68,15 +78,22 @@ BorrowedRef<> getMethodObjectFromType(Type receiver_type, BorrowedRef<> name) {
   // dict.fromkeys(...)). The code below handles the instance case only.
 #if PY_VERSION_HEX < 0x030C0000
 
-  if (!(receiver_type <= TArray || receiver_type <= TBool ||
-        receiver_type <= TBytesExact || receiver_type <= TCode ||
-        receiver_type <= TDictExact || receiver_type <= TFloatExact ||
-        receiver_type <= TListExact || receiver_type <= TLongExact ||
-        receiver_type <= TNoneType || receiver_type <= TSetExact ||
-        receiver_type <= TTupleExact || receiver_type <= TUnicodeExact)) {
+  HirType recv_hir = to_hir(receiver_type);
+  if (!(hir_type_is_subtype(recv_hir, to_hir(TArray)) ||
+        hir_type_is_subtype(recv_hir, to_hir(TBool)) ||
+        hir_type_is_subtype(recv_hir, to_hir(TBytesExact)) ||
+        hir_type_is_subtype(recv_hir, to_hir(TCode)) ||
+        hir_type_is_subtype(recv_hir, to_hir(TDictExact)) ||
+        hir_type_is_subtype(recv_hir, to_hir(TFloatExact)) ||
+        hir_type_is_subtype(recv_hir, to_hir(TListExact)) ||
+        hir_type_is_subtype(recv_hir, to_hir(TLongExact)) ||
+        hir_type_is_subtype(recv_hir, to_hir(TNoneType)) ||
+        hir_type_is_subtype(recv_hir, to_hir(TSetExact)) ||
+        hir_type_is_subtype(recv_hir, to_hir(TTupleExact)) ||
+        hir_type_is_subtype(recv_hir, to_hir(TUnicodeExact)))) {
     return nullptr;
   }
-  PyTypeObject* type = receiver_type.runtimePyType();
+  PyTypeObject* type = hir_type_runtime_py_type(&recv_hir);
   if (type == nullptr) {
     // This might happen for a variety of reasons, such as encountering a
     // method load on a maybe-defined value where the definition occurs in a
@@ -90,10 +107,11 @@ BorrowedRef<> getMethodObjectFromType(Type receiver_type, BorrowedRef<> name) {
   }
   return _PyType_Lookup(type, name);
 #else
-  if (!receiver_type.hasTypeExactSpec()) {
+  HirType recv_hir = to_hir(receiver_type);
+  if (!hir_type_has_type_exact_spec(&recv_hir)) {
     return nullptr;
   }
-  PyTypeObject* type = receiver_type.runtimePyType();
+  PyTypeObject* type = hir_type_runtime_py_type(&recv_hir);
   if (type == nullptr) {
     // This might happen for a variety of reasons, such as encountering a
     // method load on a maybe-defined value where the definition occurs in a
@@ -114,7 +132,7 @@ BorrowedRef<> getMethodObjectFromType(Type receiver_type, BorrowedRef<> name) {
   auto& builtins = cinderx::getModuleState()->builtinMembers();
 
   if (PyType_HasFeature(type, _Py_TPFLAGS_STATIC_BUILTIN)) {
-    auto it = builtins.find(receiver_type.runtimePyType());
+    auto it = builtins.find(hir_type_runtime_py_type(&recv_hir));
     if (it != builtins.end()) {
       method_obj = PyDict_GetItemWithError(it->second, name);
     }
@@ -170,7 +188,9 @@ bool tryEliminateLoadMethod(Function& irfunc, MethodInvoke& invoke) {
     auto load_type = LoadConst::create(
         type_reg,
         Type::fromObject(
-            reinterpret_cast<PyObject*>(receiver_type.runtimePyType())));
+            reinterpret_cast<PyObject*>(
+                hir_type_runtime_py_type(
+                    reinterpret_cast<const HirType*>(&receiver_type)))));
     load_type->setBytecodeOffset(invoke.load_method->bytecodeOffset());
     load_type->InsertBefore(*invoke.call_method);
     call_static->SetOperand(1, type_reg);
