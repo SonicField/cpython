@@ -33,7 +33,7 @@ JitConfig g_jit_config_c = {
     /* collect_attr_cache_stats */       0,
     /* emit_type_annotation_guards */    0,
     /* specialized_opcodes */            1,
-    /* support_instrumentation */        0,
+    /* support_instrumentation */        1,
     /* refine_static_python */           1,
     /* compile_perf_trampoline_prefork */ 0,
     /* dump_hir_stats */                 0,
