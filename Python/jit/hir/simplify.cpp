@@ -278,9 +278,11 @@ Register* simplifyCheckSequenceBounds(
   Register* sequence = instr->GetOperand(0);
   Register* idx = instr->GetOperand(1);
   if (sequence->isA(TTupleExact) && sequence->instr()->IsMakeTuple() &&
-      idx->isA(TCInt) && idx->type().hasIntSpec()) {
+      idx->isA(TCInt)) {
+    HirType idx_hir = to_hir(idx->type());
+    if (!hir_type_has_int_spec(&idx_hir)) return nullptr;
     size_t length = static_cast<const MakeTuple*>(sequence->instr())->nvalues();
-    intptr_t idx_value = idx->type().intSpec();
+    intptr_t idx_value = hir_type_int_spec(&idx_hir);
     bool adjusted = false;
     if (idx_value < 0) {
       idx_value += length;
@@ -455,9 +457,10 @@ Register* simplifyCompare(Env& env, const Compare* instr) {
 Register* simplifyCondBranch(Env& env, const CondBranch* instr) {
   Register* cond = instr->GetOperand(0);
   Type cond_type = cond->type();
+  HirType cond_hir = to_hir(cond_type);
   // Constant condition folds into an unconditional jump.
-  if (cond_type.hasIntSpec()) {
-    auto spec = cond_type.intSpec();
+  if (hir_type_has_int_spec(&cond_hir)) {
+    auto spec = hir_type_int_spec(&cond_hir);
     return env.emit<Branch>(spec ? instr->true_bb() : instr->false_bb());
   }
   // Common pattern of CondBranch getting its condition from an IntConvert,

@@ -136,6 +136,11 @@ static inline PyObject *hir_type_object_spec(const HirType *t) {
     return t->pyobject;
 }
 
+/* Get the int specialization value (only valid when has_int_spec) */
+static inline intptr_t hir_type_int_spec(const HirType *t) {
+    return t->int_val;
+}
+
 /* Check if a type is a subtype of another (type <= supertype).
  * This is the C equivalent of Type::operator<=(). */
 int hir_type_is_subtype(HirType type, HirType supertype);
