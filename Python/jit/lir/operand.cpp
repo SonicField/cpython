@@ -176,7 +176,10 @@ DataType OperandBase::dataType() const {
 }
 
 OperandBase::Type OperandBase::type() const {
-  if (is_linked_) return def_opnd_->type();
+  if (is_linked_) {
+    if (def_opnd_ == nullptr) return kNone;
+    return def_opnd_->type();
+  }
   return type_;
 }
 
