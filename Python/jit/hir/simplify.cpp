@@ -599,7 +599,9 @@ Register* simplifyLoadVarObjectSize(Env& env, const LoadVarObjectSize* instr) {
     Type output_type = instr->output()->type();
     return env.emit<LoadConst>(Type::fromCInt(size, output_type));
   }
-  if (type.hasValueSpec(TTupleExact) || type.hasValueSpec(TBytesExact)) {
+  HirType type_hvs = to_hir(type);
+  if (hir_type_has_value_spec(&type_hvs, to_hir(TTupleExact)) ||
+      hir_type_has_value_spec(&type_hvs, to_hir(TBytesExact))) {
     PyVarObject* obj = reinterpret_cast<PyVarObject*>(type.asObject());
     Py_ssize_t size = obj->ob_size;
     env.emit<UseType>(obj_reg, type);
@@ -1591,13 +1593,14 @@ Register* simplifyLoadField(Env& env, const LoadField* instr) {
   Type load_output_type = instr->output()->type();
   // Ensure that we are dealing with either a integer or a double.
   Type loadee_type = loadee->type();
-  if (!loadee_type.hasObjectSpec()) {
+  HirType loadee_hir = to_hir(loadee_type);
+  if (!hir_type_has_object_spec(&loadee_hir)) {
     return nullptr;
   }
-  PyObject* value = loadee_type.objectSpec();
+  PyObject* value = hir_type_object_spec(&loadee_hir);
   if (PyFloat_Check(value) && load_output_type <= TCDouble &&
       instr->offset() == offsetof(PyFloatObject, ob_fval)) {
-    double number = PyFloat_AS_DOUBLE(loadee_type.objectSpec());
+    double number = PyFloat_AS_DOUBLE(hir_type_object_spec(&loadee_hir));
     env.emit<UseType>(loadee, loadee_type);
     return env.emit<LoadConst>(Type::fromCDouble(number));
   }
@@ -1641,10 +1644,11 @@ static bool isBuiltin(PyMethodDef* meth, const char* name) {
 
 static bool isBuiltin(Register* callable, const char* name) {
   Type callable_type = callable->type();
-  if (!callable_type.hasObjectSpec()) {
+  HirType callable_hir = to_hir(callable_type);
+  if (!hir_type_has_object_spec(&callable_hir)) {
     return false;
   }
-  PyObject* callable_obj = callable_type.objectSpec();
+  PyObject* callable_obj = hir_type_object_spec(&callable_hir);
   if (Py_TYPE(callable_obj) == &PyCFunction_Type) {
     PyCFunctionObject* func =
         reinterpret_cast<PyCFunctionObject*>(callable_obj);
@@ -1771,8 +1775,9 @@ Register* simplifyCallMethod(Env& env, const CallMethod* instr) {
       // guaranteed to return an instance of exactly that class.
       Register* callable = call->GetOperand(0);
       Type callable_type = callable->type();
-      if (callable_type.hasObjectSpec()) {
-        PyObject* callable_obj = callable_type.objectSpec();
+      HirType callable_hir2 = to_hir(callable_type);
+      if (hir_type_has_object_spec(&callable_hir2)) {
+        PyObject* callable_obj = hir_type_object_spec(&callable_hir2);
         if (PyType_Check(callable_obj)) {
           auto* cls = reinterpret_cast<PyTypeObject*>(callable_obj);
           if (cls->tp_new == PyBaseObject_Type.tp_new) {
@@ -2324,8 +2329,9 @@ Register* simplifyVectorCall(Env& env, const VectorCall* instr) {
         });
     return env.emit<PrimitiveBoxBool>(cbool_res);
   }
-  if (target_type.hasValueSpec(TFunc)) {
-    BorrowedRef<PyFunctionObject> func{target_type.objectSpec()};
+  HirType target_hir = to_hir(target_type);
+  if (hir_type_has_value_spec(&target_hir, to_hir(TFunc))) {
+    BorrowedRef<PyFunctionObject> func{hir_type_object_spec(&target_hir)};
     BorrowedRef<PyCodeObject> code{func->func_code};
     if (code->co_kwonlyargcount > 0 || (code->co_flags & CO_VARARGS) ||
         (code->co_flags & CO_VARKEYWORDS)) {
@@ -2364,8 +2370,9 @@ Register* simplifyStoreSubscr(Env& env, const StoreSubscr* instr) {
 
 Register* simplifyCIntToCBool(Env& env, const CIntToCBool* instr) {
   Type input_type = instr->GetOperand(0)->type();
-  if (input_type.hasIntSpec()) {
-    return env.emit<LoadConst>(Type::fromCBool(input_type.intSpec()));
+  HirType input_hir_cb = to_hir(input_type);
+  if (hir_type_has_int_spec(&input_hir_cb)) {
+    return env.emit<LoadConst>(Type::fromCBool(hir_type_int_spec(&input_hir_cb)));
   }
   return nullptr;
 }
