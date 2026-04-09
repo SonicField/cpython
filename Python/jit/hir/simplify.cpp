@@ -1011,16 +1011,18 @@ Register* simplifyLongBinaryOp(Env& env, const LongBinaryOp* instr) {
 
   Type left_type = instr->left()->type();
   Type right_type = instr->right()->type();
-  if (left_type.hasObjectSpec() && right_type.hasObjectSpec()) {
+  HirType left_hir_lb = to_hir(left_type);
+  HirType right_hir_lb = to_hir(right_type);
+  if (hir_type_has_object_spec(&left_hir_lb) && hir_type_has_object_spec(&right_hir_lb)) {
     ThreadedCompileSerialize guard;
     Ref<> result;
     if (instr->op() == BinaryOpKind::kPower) {
       result = Ref<>::steal(PyLong_Type.tp_as_number->nb_power(
-          left_type.objectSpec(), right_type.objectSpec(), Py_None));
+          hir_type_object_spec(&left_hir_lb), hir_type_object_spec(&right_hir_lb), Py_None));
     } else {
       binaryfunc helper = instr->slotMethod();
       result = Ref<>::steal(
-          (*helper)(left_type.objectSpec(), right_type.objectSpec()));
+          (*helper)(hir_type_object_spec(&left_hir_lb), hir_type_object_spec(&right_hir_lb)));
     }
     if (result == nullptr) {
       PyErr_Clear();
@@ -1054,7 +1056,10 @@ Register* simplifyFloatBinaryOp(Env& env, const FloatBinaryOp* instr) {
   Type left_type = instr->left()->type();
   Type right_type = instr->right()->type();
 
-  if (!left_type.hasObjectSpec() || !right_type.hasObjectSpec()) {
+  HirType left_hir_fb = to_hir(left_type);
+  HirType right_hir_fb = to_hir(right_type);
+
+  if (!hir_type_has_object_spec(&left_hir_fb) || !hir_type_has_object_spec(&right_hir_fb)) {
     return nullptr;
   }
 
@@ -1063,11 +1068,11 @@ Register* simplifyFloatBinaryOp(Env& env, const FloatBinaryOp* instr) {
 
   if (instr->op() == BinaryOpKind::kPower) {
     result = Ref<>::steal(PyFloat_Type.tp_as_number->nb_power(
-        left_type.objectSpec(), right_type.objectSpec(), Py_None));
+        hir_type_object_spec(&left_hir_fb), hir_type_object_spec(&right_hir_fb), Py_None));
   } else {
     binaryfunc helper = instr->slotMethod();
     result = Ref<>::steal(
-        (*helper)(left_type.objectSpec(), right_type.objectSpec()));
+        (*helper)(hir_type_object_spec(&left_hir_fb), hir_type_object_spec(&right_hir_fb)));
   }
 
   if (result == nullptr) {
@@ -1112,11 +1117,15 @@ Register* simplifyPrimitiveCompare(Env& env, const PrimitiveCompare* instr) {
                            reinterpret_cast<const HirType*>(&right_type_cmp))) {
       return do_cbool(false);
     }
-    if (left->type().hasIntSpec() && right->type().hasIntSpec()) {
-      return do_cbool(left->type().intSpec() == right->type().intSpec());
+    if (hir_type_has_int_spec(reinterpret_cast<const HirType*>(&left_type_cmp)) &&
+        hir_type_has_int_spec(reinterpret_cast<const HirType*>(&right_type_cmp))) {
+      return do_cbool(hir_type_int_spec(reinterpret_cast<const HirType*>(&left_type_cmp)) ==
+                      hir_type_int_spec(reinterpret_cast<const HirType*>(&right_type_cmp)));
     }
-    if (left->type().hasObjectSpec() && right->type().hasObjectSpec()) {
-      return do_cbool(left->type().objectSpec() == right->type().objectSpec());
+    if (hir_type_has_object_spec(reinterpret_cast<const HirType*>(&left_type_cmp)) &&
+        hir_type_has_object_spec(reinterpret_cast<const HirType*>(&right_type_cmp))) {
+      return do_cbool(hir_type_object_spec(reinterpret_cast<const HirType*>(&left_type_cmp)) ==
+                      hir_type_object_spec(reinterpret_cast<const HirType*>(&right_type_cmp)));
     }
   }
   // box(b) == True --> b
@@ -1130,9 +1139,10 @@ Register* simplifyPrimitiveCompare(Env& env, const PrimitiveCompare* instr) {
 
 Register* simplifyPrimitiveBoxBool(Env& env, const PrimitiveBoxBool* instr) {
   Register* input = instr->GetOperand(0);
-  if (input->type().hasIntSpec()) {
+  HirType input_hir_bb = to_hir(input->type());
+  if (hir_type_has_int_spec(&input_hir_bb)) {
     env.emit<UseType>(input, input->type());
-    auto bool_obj = input->type().intSpec() ? Py_True : Py_False;
+    auto bool_obj = hir_type_int_spec(&input_hir_bb) ? Py_True : Py_False;
     return env.emit<LoadConst>(Type::fromObject(bool_obj));
   }
   return nullptr;
@@ -1151,17 +1161,18 @@ Register* simplifyUnbox(Env& env, const Instr* instr) {
   }
   // Ensure that we are dealing with either a integer or a double.
   Type input_value_type = input_value->type();
-  if (!(input_value_type.hasObjectSpec())) {
+  HirType ivt_hir = to_hir(input_value_type);
+  if (!hir_type_has_object_spec(&ivt_hir)) {
     return nullptr;
   }
-  PyObject* value = input_value_type.objectSpec();
+  PyObject* value = hir_type_object_spec(&ivt_hir);
   if (output_type <= (TCSigned | TCUnsigned)) {
     if (!PyLong_Check(value)) {
       return nullptr;
     }
     int overflow = 0;
     long number =
-        PyLong_AsLongAndOverflow(input_value_type.objectSpec(), &overflow);
+        PyLong_AsLongAndOverflow(hir_type_object_spec(&ivt_hir), &overflow);
     if (overflow != 0) {
       return nullptr;
     }
@@ -1180,7 +1191,7 @@ Register* simplifyUnbox(Env& env, const Instr* instr) {
     if (!PyFloat_Check(value)) {
       return nullptr;
     }
-    double number = PyFloat_AS_DOUBLE(input_value_type.objectSpec());
+    double number = PyFloat_AS_DOUBLE(hir_type_object_spec(&ivt_hir));
     return env.emit<LoadConst>(Type::fromCDouble(number));
   }
   return nullptr;
