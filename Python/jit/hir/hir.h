@@ -171,8 +171,9 @@ class Instr {
   // Get all operands for this instruction.
   std::span<Register* const> GetOperands() const;
 
-  // Return the i-th operand type
-  virtual OperandType GetOperandType(std::size_t /* i */) const = 0;
+  // Return the i-th operand type.
+  // Non-virtual: dispatches via function pointer table indexed by opcode (T2-C3).
+  OperandType GetOperandType(std::size_t i) const;
 
   // Visit all Registers used by the instruction, whether they're normal
   // operands or other data. Iteration can be stopped early by returning false
@@ -371,7 +372,9 @@ class InstrT;
 template <class T, Opcode opc, class Base, typename... Tys>
 class InstrT<T, opc, Base, Tys...> : public Base {
  public:
-  OperandType GetOperandType(std::size_t i) const override {
+  // GetOperandType devirtualized in T2-C3 — Instr dispatches via table.
+  // This hiding method is retained for direct calls through concrete types.
+  OperandType GetOperandType(std::size_t i) const {
     JIT_DCHECK(
         i < this->NumOperands(),
         "operand {} out of range (max is {})",

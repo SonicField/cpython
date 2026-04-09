@@ -10,6 +10,22 @@
 
 namespace jit::hir {
 
+// T2-C3: Function pointer table for GetOperandType dispatch.
+// Each opcode maps to a function that returns the OperandType for operand i.
+// Generated via FOREACH_OPCODE — all 168 concrete instruction classes.
+using GetOpTypeFn = OperandType (*)(const Instr*, std::size_t);
+
+template <typename T>
+static OperandType get_operand_type_dispatch(const Instr* instr, std::size_t i) {
+  return static_cast<const T*>(instr)->GetOperandTypeImpl(i);
+}
+
+#define MAKE_GET_OP_TYPE_ENTRY(opname) get_operand_type_dispatch<opname>,
+static const GetOpTypeFn get_operand_type_table[] = {
+    FOREACH_OPCODE(MAKE_GET_OP_TYPE_ENTRY)
+};
+#undef MAKE_GET_OP_TYPE_ENTRY
+
 DeoptBase::DeoptBase(Opcode op) : Instr(op) {}
 
 DeoptBase::DeoptBase(Opcode op, const FrameState& frame) : Instr(op) {
@@ -244,6 +260,15 @@ Register* Instr::GetOperand(std::size_t i) const {
 
 std::span<Register* const> Instr::GetOperands() const {
   return {operands(), NumOperands()};
+}
+
+OperandType Instr::GetOperandType(std::size_t i) const {
+  JIT_DCHECK(
+      i < NumOperands(),
+      "operand {} out of range (max is {})",
+      i,
+      NumOperands() - 1);
+  return get_operand_type_table[static_cast<int>(opcode_)](this, i);
 }
 
 void Instr::SetOperand(std::size_t i, Register* reg) {
