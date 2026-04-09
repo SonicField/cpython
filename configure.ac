@@ -1697,6 +1697,20 @@ else AC_MSG_RESULT([no]); Py_DEBUG='false'
 fi],
 [AC_MSG_RESULT([no])])
 
+# Check for --with-parallel-gc
+AC_MSG_CHECKING([for --with-parallel-gc])
+AC_ARG_WITH([parallel-gc],
+  [AS_HELP_STRING([--with-parallel-gc], [build with parallel garbage collector (default is no)])],
+[
+if test "\$withval" != no
+then
+  AC_DEFINE([Py_PARALLEL_GC], [1],
+  [Define to enable parallel garbage collection.])
+  AC_MSG_RESULT([yes]);
+else AC_MSG_RESULT([no])
+fi],
+[AC_MSG_RESULT([no])])
+
 # Check for --with-trace-refs
 # --with-trace-refs
 AC_MSG_CHECKING([for --with-trace-refs])

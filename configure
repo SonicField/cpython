@@ -1079,6 +1079,7 @@ enable_shared
 with_static_libpython
 enable_profiling
 with_pydebug
+with_parallel_gc
 with_trace_refs
 enable_pystats
 with_assertions
@@ -8093,6 +8094,25 @@ else $as_nop
 printf "%s\n" "no" >&6; }
 fi
 
+
+# Check for --with-parallel-gc
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for --with-parallel-gc" >&5
+printf %s "checking for --with-parallel-gc... " >&6; }
+if test ${with_parallel_gc+y}
+then :
+  withval=$with_parallel_gc;
+if test "$withval" != no
+then
+printf "%s\n" "#define Py_PARALLEL_GC 1" >>confdefs.h
+  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+printf "%s\n" "yes" >&6; };
+else { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no" >&5
+printf "%s\n" "no" >&6; }
+fi
+else $as_nop
+  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no" >&5
+printf "%s\n" "no" >&6; }
+fi
 
 # Check for --with-trace-refs
 # --with-trace-refs

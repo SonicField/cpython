@@ -31,6 +31,10 @@
 #include "pycore_pyerrors.h"
 #include "pycore_pystate.h"     // _PyThreadState_GET()
 #include "pydtrace.h"
+#ifdef Py_PARALLEL_GC
+#include "pycore_gc_parallel.h"
+#include "pycore_time.h"
+#endif
 
 typedef struct _gc_runtime_state GCState;
 
@@ -455,6 +459,38 @@ update_refs(PyGC_Head *containers)
         gc = next;
     }
 }
+
+#ifdef Py_PARALLEL_GC
+static Py_ssize_t
+update_refs_with_splits(PyGC_Head *containers, _PyGCSplitVector *splits)
+{
+    PyGC_Head *next;
+    PyGC_Head *gc = GC_NEXT(containers);
+    Py_ssize_t candidates = 0;
+    _PyGCSplitVector_Clear(splits);
+    if (gc != containers) {
+        _PyGCSplitVector_Push(splits, gc);
+    }
+    while (gc != containers) {
+        next = GC_NEXT(gc);
+        PyObject *op = FROM_GC(gc);
+        if (_Py_IsImmortal(op)) {
+            gc_list_move(gc, &get_gc_state()->permanent_generation.head);
+            gc = next;
+            continue;
+        }
+        gc_reset_refs(gc, Py_REFCNT(op));
+        _PyObject_ASSERT(op, gc_get_refs(gc) != 0);
+        candidates++;
+        if (candidates % _PyGC_SPLIT_INTERVAL == 0 && next != containers) {
+            _PyGCSplitVector_Push(splits, next);
+        }
+        gc = next;
+    }
+    _PyGCSplitVector_Push(splits, containers);
+    return candidates;
+}
+#endif
 
 /* A traversal callback for subtract_refs. */
 static int
@@ -1107,13 +1143,29 @@ list and we can not use most gc_list_* functions for it. */
 static inline void
 deduce_unreachable(PyGC_Head *base, PyGC_Head *unreachable) {
     validate_list(base, collecting_clear_unreachable_clear);
-    /* Using ob_refcnt and gc_refs, calculate which objects in the
-     * container set are reachable from outside the set (i.e., have a
-     * refcount greater than 0 when all the references within the
-     * set are taken into account).
-     */
-    update_refs(base);  // gc_prev is used for gc_refs
-    subtract_refs(base);
+
+#ifdef Py_PARALLEL_GC
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    _PyParallelGCState *par_gc = interp->gc.parallel_gc;
+    int use_parallel = (par_gc != NULL && par_gc->enabled
+                        && par_gc->num_workers >= 2);
+    if (use_parallel) {
+        par_gc->gc_start_ns = _PyTime_GetPerfCounter();
+        par_gc->timing_valid = 0;
+        update_refs_with_splits(base, &par_gc->split_vector);
+        par_gc->update_refs_end_ns = _PyTime_GetPerfCounter();
+        if (!_PyGC_ParallelMarkAliveFromQueue(interp, base)) { }
+        par_gc->mark_alive_end_ns = _PyTime_GetPerfCounter();
+        if (!_PyGC_ParallelSubtractRefs(interp, base)) {
+            subtract_refs(base);
+        }
+        par_gc->subtract_refs_end_ns = _PyTime_GetPerfCounter();
+    } else
+#endif
+    {
+        update_refs(base);
+        subtract_refs(base);
+    }
 
     /* Leave everything reachable from outside base in base, and move
      * everything else (in base) to unreachable.
@@ -1150,8 +1202,20 @@ deduce_unreachable(PyGC_Head *base, PyGC_Head *unreachable) {
      * the reachable objects instead.  But this is a one-time cost, probably not
      * worth complicating the code to speed just a little.
      */
-    gc_list_init(unreachable);
-    move_unreachable(base, unreachable);  // gc_prev is pointer again
+#ifdef Py_PARALLEL_GC
+    if (use_parallel) {
+        gc_list_init(unreachable);
+        if (!_PyGC_ParallelMoveUnreachable(interp, base, unreachable)) {
+            move_unreachable(base, unreachable);
+        }
+        par_gc->mark_end_ns = _PyTime_GetPerfCounter();
+        par_gc->timing_valid = 1;
+    } else
+#endif
+    {
+        gc_list_init(unreachable);
+        move_unreachable(base, unreachable);
+    }
     validate_list(base, collecting_clear_unreachable_clear);
     validate_list(unreachable, collecting_set_unreachable_set);
 }
@@ -1992,6 +2056,58 @@ PyDoc_STRVAR(gc__doc__,
 "unfreeze() -- Unfreeze all objects in the permanent generation.\n"
 "get_freeze_count() -- Return the number of objects in the permanent generation.\n");
 
+#ifdef Py_PARALLEL_GC
+static PyObject *
+gc_enable_parallel(PyObject *module, PyObject *args, PyObject *kwargs)
+{
+    static char *kwlist[] = {"num_workers", NULL};
+    int num_workers;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "i", kwlist, &num_workers)) return NULL;
+    if (num_workers < 2) { PyErr_SetString(PyExc_ValueError, "num_workers must be >= 2"); return NULL; }
+    if (num_workers > _PyGC_MAX_WORKERS) { PyErr_Format(PyExc_ValueError, "num_workers must be <= %d", _PyGC_MAX_WORKERS); return NULL; }
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    _PyParallelGCState *par_gc = interp->gc.parallel_gc;
+    /* If already running with same worker count, just ensure enabled */
+    if (par_gc != NULL && par_gc->num_workers == (size_t)num_workers
+            && par_gc->num_workers_active > 0) {
+        _PyGC_ParallelSetEnabled(interp, 1);
+        Py_RETURN_NONE;
+    }
+    /* If initialized with different count or stopped, tear down first */
+    if (par_gc != NULL) {
+        _PyGC_ParallelStop(interp);
+        _PyGC_ParallelFini(interp);
+    }
+    if (_PyGC_ParallelInit(interp, (size_t)num_workers) < 0) return NULL;
+    if (_PyGC_ParallelStart(interp) < 0) {
+        _PyGC_ParallelFini(interp);
+        return NULL;
+    }
+    _PyGC_ParallelSetEnabled(interp, 1);
+    Py_RETURN_NONE;
+}
+
+static PyObject *
+gc_disable_parallel(PyObject *module, PyObject *Py_UNUSED(ignored))
+{
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    _PyParallelGCState *par_gc = interp->gc.parallel_gc;
+    if (par_gc != NULL) {
+        _PyGC_ParallelSetEnabled(interp, 0);
+        _PyGC_ParallelStop(interp);
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject *
+gc_get_parallel_config(PyObject *module, PyObject *Py_UNUSED(ignored))
+{ return _PyGC_ParallelGetConfig(_PyInterpreterState_GET()); }
+
+static PyObject *
+gc_get_parallel_stats(PyObject *module, PyObject *Py_UNUSED(ignored))
+{ return _PyGC_ParallelGetStats(_PyInterpreterState_GET()); }
+#endif
+
 static PyMethodDef GcMethods[] = {
     GC_ENABLE_METHODDEF
     GC_DISABLE_METHODDEF
@@ -2013,6 +2129,13 @@ static PyMethodDef GcMethods[] = {
     GC_FREEZE_METHODDEF
     GC_UNFREEZE_METHODDEF
     GC_GET_FREEZE_COUNT_METHODDEF
+#ifdef Py_PARALLEL_GC
+    {"enable_parallel", (PyCFunction)(void(*)(void))gc_enable_parallel,
+     METH_VARARGS | METH_KEYWORDS, "Enable parallel GC with N workers."},
+    {"disable_parallel", (PyCFunction)gc_disable_parallel, METH_NOARGS, "Disable parallel GC."},
+    {"get_parallel_config", (PyCFunction)gc_get_parallel_config, METH_NOARGS, "Get parallel GC config."},
+    {"get_parallel_stats", (PyCFunction)gc_get_parallel_stats, METH_NOARGS, "Get parallel GC stats."},
+#endif
     {NULL,      NULL}           /* Sentinel */
 };
 

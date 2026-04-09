@@ -307,6 +307,57 @@ PyThread_start_new_thread(void (*func)(void *), void *arg)
 #endif
 }
 
+#ifdef Py_PARALLEL_GC
+static unsigned long long
+_pthread_t_to_ident(pthread_t th)
+{
+#if SIZEOF_PTHREAD_T <= SIZEOF_LONG_LONG
+    return (unsigned long long) th;
+#else
+    return (unsigned long long) *(unsigned long long *) &th;
+#endif
+}
+
+int
+PyThread_start_joinable_thread(void (*func)(void *), void *arg,
+                               PyThread_ident_t *ident,
+                               PyThread_handle_t *handle)
+{
+    pthread_t th;
+    int status;
+    pthread_attr_t attrs;
+    if (!initialized) PyThread_init_thread();
+    if (pthread_attr_init(&attrs) != 0) return -1;
+#if defined(THREAD_STACK_SIZE)
+    PyThreadState *tstate = _PyThreadState_GET();
+    size_t stacksize = tstate ? tstate->interp->threads.stacksize : 0;
+    size_t tss = (stacksize != 0) ? stacksize : THREAD_STACK_SIZE;
+    if (tss != 0) {
+        if (pthread_attr_setstacksize(&attrs, tss) != 0) {
+            pthread_attr_destroy(&attrs);
+            return -1;
+        }
+    }
+#endif
+    pythread_callback *callback = PyMem_RawMalloc(sizeof(pythread_callback));
+    if (callback == NULL) return -1;
+    callback->func = func;
+    callback->arg = arg;
+    status = pthread_create(&th, &attrs, pythread_wrapper, callback);
+    pthread_attr_destroy(&attrs);
+    if (status != 0) { PyMem_RawFree(callback); return -1; }
+    *ident = _pthread_t_to_ident(th);
+    *handle = (PyThread_handle_t) th;
+    return 0;
+}
+
+int PyThread_join_thread(PyThread_handle_t handle)
+{ return pthread_join((pthread_t) handle, NULL); }
+
+int PyThread_detach_thread(PyThread_handle_t handle)
+{ return pthread_detach((pthread_t) handle); }
+#endif /* Py_PARALLEL_GC */
+
 /* XXX This implementation is considered (to quote Tim Peters) "inherently
    hosed" because:
      - It does not guarantee the promise that a non-zero integer is returned.

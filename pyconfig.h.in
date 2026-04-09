@@ -1610,6 +1610,9 @@
 /* Define if you want to build an interpreter with many run-time checks. */
 #undef Py_DEBUG
 
+/* Define to enable parallel garbage collection. */
+#undef Py_PARALLEL_GC
+
 /* Defined if Python is built as a shared library. */
 #undef Py_ENABLE_SHARED
 

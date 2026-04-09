@@ -75,6 +75,16 @@ struct _pythread_runtime_state {
 };
 
 
+#ifdef Py_PARALLEL_GC
+typedef unsigned long long PyThread_ident_t;
+typedef Py_uintptr_t PyThread_handle_t;
+extern int PyThread_start_joinable_thread(void (*func)(void *), void *arg,
+                                          PyThread_ident_t *ident,
+                                          PyThread_handle_t *handle);
+extern int PyThread_join_thread(PyThread_handle_t handle);
+extern int PyThread_detach_thread(PyThread_handle_t handle);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

@@ -28,6 +28,9 @@
 #include "pycore_typeobject.h"    // _PyTypes_InitTypes()
 #include "pycore_typevarobject.h" // _Py_clear_generic_types()
 #include "pycore_unicodeobject.h" // _PyUnicode_InitTypes()
+#ifdef Py_PARALLEL_GC
+#include "pycore_gc_parallel.h"
+#endif
 #include "opcode.h"
 
 #include <locale.h>               // setlocale()
@@ -1605,6 +1608,10 @@ finalize_modules(PyThreadState *tstate)
     // user data gets cleared.
     finalize_restore_builtins(tstate);
 
+#ifdef Py_PARALLEL_GC
+    _PyGC_ParallelFini(tstate->interp);
+#endif
+
     // Collect garbage
     _PyGC_CollectNoFail(tstate);
 
@@ -1874,6 +1881,10 @@ Py_FinalizeEx(void)
        _PyRuntimeState_SetFinalizing() has been called, no other Python thread
        can take the GIL at this point: if they try, they will exit
        immediately. */
+#ifdef Py_PARALLEL_GC
+    _PyGC_ParallelFini(tstate->interp);
+#endif
+
     _PyThreadState_DeleteExcept(tstate);
 
     /* At this point no Python code should be running at all.
@@ -2232,6 +2243,10 @@ Py_EndInterpreter(PyThreadState *tstate)
     _PyInterpreterState_SetFinalizing(interp, tstate);
 
     // XXX Call something like _PyImport_Disable() here?
+
+#ifdef Py_PARALLEL_GC
+    _PyGC_ParallelFini(tstate->interp);
+#endif
 
     _PyImport_FiniExternal(tstate->interp);
     finalize_modules(tstate);

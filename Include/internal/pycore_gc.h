@@ -22,6 +22,11 @@ typedef struct {
 static inline PyGC_Head* _Py_AS_GC(PyObject *op) {
     return (_Py_CAST(PyGC_Head*, op) - 1);
 }
+
+static inline PyObject* _Py_FROM_GC(PyGC_Head *gc) {
+    return (PyObject *)(((char *)(gc)) + sizeof(PyGC_Head));
+}
+
 #define _PyGC_Head_UNUSED PyGC_Head
 
 /* True if the object is currently tracked by the GC. */
@@ -187,6 +192,10 @@ struct _gc_runtime_state {
        collections, and are awaiting to undergo a full collection for
        the first time. */
     Py_ssize_t long_lived_pending;
+
+#ifdef Py_PARALLEL_GC
+    struct _PyParallelGCState *parallel_gc;
+#endif
 };
 
 
