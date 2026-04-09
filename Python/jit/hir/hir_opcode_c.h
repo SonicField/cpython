@@ -15,9 +15,10 @@ extern "C" {
 #endif
 
 /* ---- FOREACH_OPCODE macro ----
- * Duplicated from hir_ops.h so this header is self-contained
+ * Exact copy of hir_ops.h so this header is self-contained
  * and includable from pure C files without pulling C++ headers.
- * MUST be kept in sync with hir_ops.h. */
+ * MUST be kept in sync with hir_ops.h — verified by startup
+ * name check in hir_instr_info_verify.cpp. */
 #ifndef FOREACH_OPCODE
 #define FOREACH_OPCODE(V)              \
   V(Assign)                            \
@@ -39,29 +40,37 @@ extern "C" {
   V(CallStaticRetVoid)                 \
   V(Cast)                              \
   V(CheckSequenceBounds)               \
-  V(CheckedDictContains)               \
-  V(CheckedDictGet)                    \
-  V(CheckedDictGetItem)                \
-  V(CheckedDictSetItem)                \
-  V(CheckedSetGet)                     \
-  V(ClearError)                        \
+  V(CheckErrOccurred)                  \
+  V(CheckExc)                          \
+  V(CheckNeg)                          \
+  V(CheckVar)                          \
+  V(CheckFreevar)                      \
+  V(CheckField)                        \
+  V(CIntToCBool)                       \
   V(Compare)                           \
   V(CompareBool)                       \
-  V(CondBranch)                        \
-  V(CondBranchCheckType)               \
-  V(CondBranchIterNotDone)             \
+  V(ConvertValue)                      \
   V(CopyDictWithoutKeys)               \
+  V(CondBranch)                        \
+  V(CondBranchIterNotDone)             \
+  V(CondBranchCheckType)               \
   V(Decref)                            \
+  V(DeleteAttr)                        \
   V(DeleteSubscr)                      \
   V(Deopt)                             \
   V(DeoptPatchpoint)                   \
   V(DictMerge)                         \
   V(DictSubscr)                        \
   V(DictUpdate)                        \
+  V(DoubleBinaryOp)                    \
+  V(EagerImportName)                   \
   V(EndInlinedFunction)                \
   V(FillTypeAttrCache)                 \
   V(FillTypeMethodCache)               \
+  V(FloatBinaryOp)                     \
+  V(FloatCompare)                      \
   V(FormatValue)                       \
+  V(FormatWithSpec)                    \
   V(GetAIter)                          \
   V(GetANext)                          \
   V(GetIter)                           \
@@ -74,22 +83,27 @@ extern "C" {
   V(HintType)                          \
   V(ImportFrom)                        \
   V(ImportName)                        \
+  V(InitFrameCellVars)                 \
   V(InPlaceOp)                         \
   V(Incref)                            \
-  V(InitFunction)                      \
-  V(InitListTuple)                     \
+  V(IndexUnbox)                        \
   V(InitialYield)                      \
+  V(IntBinaryOp)                       \
+  V(PrimitiveBoxBool)                  \
+  V(PrimitiveBox)                      \
+  V(PrimitiveCompare)                  \
+  V(IntConvert)                        \
+  V(PrimitiveUnaryOp)                  \
+  V(PrimitiveUnbox)                    \
   V(InvokeIterNext)                    \
-  V(InvokeMethod)                      \
-  V(InvokeMethodStatic)                \
-  V(InvokeStaticFunction)              \
-  V(IsErrStopAsyncIteration)           \
   V(IsInstance)                        \
+  V(InvokeStaticFunction)              \
   V(IsNegativeAndErrOccurred)          \
   V(IsTruthy)                          \
   V(ListAppend)                        \
   V(ListExtend)                        \
   V(LoadArrayItem)                     \
+  V(LoadFieldAddress)                  \
   V(LoadArg)                           \
   V(LoadAttr)                          \
   V(LoadAttrCached)                    \
@@ -98,68 +112,71 @@ extern "C" {
   V(LoadCellItem)                      \
   V(LoadConst)                         \
   V(LoadCurrentFunc)                   \
+  V(LoadFrame)                         \
   V(LoadEvalBreaker)                   \
+  V(AtQuiescentState)                  \
   V(LoadField)                         \
-  V(LoadFieldAddress)                  \
   V(LoadFunctionIndirect)              \
-  V(LoadGlobal)                        \
   V(LoadGlobalCached)                  \
+  V(LoadGlobal)                        \
   V(LoadMethod)                        \
   V(LoadMethodCached)                  \
-  V(LoadMethodSuper)                   \
+  V(LoadModuleAttrCached)              \
   V(LoadModuleMethodCached)            \
+  V(LoadMethodSuper)                   \
+  V(LoadSpecial)                       \
   V(LoadSplitDictItem)                 \
   V(LoadTupleItem)                     \
-  V(LoadTypeAttrCacheItem)             \
+  V(LoadTypeAttrCacheEntryType)        \
+  V(LoadTypeAttrCacheEntryValue)       \
   V(LoadTypeMethodCacheEntryType)      \
   V(LoadTypeMethodCacheEntryValue)     \
-  V(LongBinaryOp)                      \
+  V(LoadVarObjectSize)                 \
   V(LongCompare)                       \
-  V(LongRichcompare)                   \
-  V(MakeCell)                          \
+  V(LongBinaryOp)                      \
+  V(LongInPlaceOp)                     \
   V(MakeCheckedDict)                   \
   V(MakeCheckedList)                   \
+  V(MakeCell)                          \
   V(MakeDict)                          \
   V(MakeFunction)                      \
   V(MakeList)                          \
-  V(MakeListTuple)                     \
+  V(MakeTuple)                         \
   V(MakeSet)                           \
   V(MakeTupleFromList)                 \
   V(MatchClass)                        \
   V(MatchKeys)                         \
-  V(MatchMapping)                      \
-  V(MatchSequence)                     \
   V(MergeSetUnpack)                    \
   V(Phi)                               \
-  V(PrimitiveBox)                      \
-  V(PrimitiveCompare)                  \
-  V(PrimitiveDecref)                   \
-  V(PrimitiveIncref)                   \
-  V(PrimitiveUnaryOp)                  \
-  V(PrimitiveUnbox)                    \
-  V(RaiseAwaitableError)               \
-  V(RaiseStatic)                       \
   V(Raise)                             \
+  V(RaiseStatic)                       \
+  V(RaiseAwaitableError)               \
   V(RefineType)                        \
-  V(RepeatList)                        \
-  V(RepeatTuple)                       \
   V(Return)                            \
   V(RunPeriodicTasks)                  \
+  V(Send)                              \
   V(SetCellItem)                       \
   V(SetCurrentAwaiter)                 \
   V(SetDictItem)                       \
   V(SetFunctionAttr)                   \
   V(SetSetItem)                        \
+  V(SetUpdate)                         \
   V(Snapshot)                          \
   V(StealCellItem)                     \
+  V(SwapCellItem)                      \
   V(StoreArrayItem)                    \
   V(StoreAttr)                         \
   V(StoreAttrCached)                   \
   V(StoreField)                        \
-  V(StoreGlobal)                       \
   V(StoreSubscr)                       \
+  V(TpAlloc)                           \
   V(UnaryOp)                           \
+  V(UnicodeCompare)                    \
+  V(UnicodeConcat)                     \
+  V(UnicodeRepeat)                     \
+  V(UnicodeSubscr)                     \
   V(UnpackExToTuple)                   \
+  V(Unreachable)                       \
   V(UpdatePrevInstr)                   \
   V(UseType)                           \
   V(VectorCall)                        \
