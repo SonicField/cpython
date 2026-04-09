@@ -272,26 +272,23 @@ class TestJitArithmetic(unittest.TestCase):
         self.assertTrue(math.copysign(1.0, result) == -1.0)
 
     
-    @unittest.skip("crashes JIT — investigate separately")
     def test_float_negative_zero_arithmetic(self):
         def f():
             nz = -0.0
-            return nz + 0.0, nz * 1.0, nz - 0.0, 1.0 / nz
+            # Note: 1.0 / -0.0 raises ZeroDivisionError in CPython,
+            # so we test only operations that preserve -0.0 sign.
+            return nz + 0.0, nz * 1.0, nz - 0.0
         interp_result = f()
         cinderjit.force_compile(f)
         self.assertTrue(cinderjit.is_jit_compiled(f))
         jit_result = f()
-        # 1.0 / -0.0 == -inf
         for i_val, j_val in zip(interp_result, jit_result):
-            if math.isinf(i_val):
-                self.assertEqual(i_val, j_val)
-            else:
-                self.assertEqual(i_val, j_val)
-                self.assertEqual(
-                    math.copysign(1.0, i_val),
-                    math.copysign(1.0, j_val),
-                    f"sign mismatch: interp={i_val!r}, jit={j_val!r}",
-                )
+            self.assertEqual(i_val, j_val)
+            self.assertEqual(
+                math.copysign(1.0, i_val),
+                math.copysign(1.0, j_val),
+                f"sign mismatch: interp={i_val!r}, jit={j_val!r}",
+            )
 
     def test_float_denormal(self):
         def f():
@@ -403,8 +400,7 @@ class TestJitArithmetic(unittest.TestCase):
             return ~a
         self._jit_test(f, 10**50)
 
-    
-    @unittest.skip("crashes JIT — ~bool with argument segfaults compiled code")
+
     def test_unary_invert_bool(self):
         def f(a):
             return ~a

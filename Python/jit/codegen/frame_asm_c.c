@@ -671,6 +671,17 @@ frame_asm_c_link_lightweight_function_frame(
         phx_x86_mov_mi(pb, owner_mem, FRAME_OWNED_BY_THREAD);
     }
 
+    /* Set f_globals and f_builtins (borrowed refs from function object).
+     * Required for C functions that walk the frame chain (e.g. PyErr_WarnEx
+     * via _warnings.c:setup_context uses f_globals to find __warningregistry__).
+     * Without these, ~bool and similar ops that emit deprecation warnings crash. */
+    phx_x86_mov_rm(pb, scratch,
+        phx_qword_ptr(func_reg, (int32_t)offsetof(PyFunctionObject, func_globals)));
+    phx_x86_mov_mr(pb, phx_qword_ptr(rbp, FRM_OFF(f_globals)), scratch);
+    phx_x86_mov_rm(pb, scratch,
+        phx_qword_ptr(func_reg, (int32_t)offsetof(PyFunctionObject, func_builtins)));
+    phx_x86_mov_mr(pb, phx_qword_ptr(rbp, FRM_OFF(f_builtins)), scratch);
+
     /* Set frame_obj = NULL (must be zeroed before frame chain walking) */
     phx_x86_mov_mi(pb, phx_qword_ptr(rbp, FRM_OFF(frame_obj)), 0);
 
@@ -795,6 +806,21 @@ frame_asm_c_link_lightweight_function_frame(
         phx_a64_strb(pb, w12_tmp,
             jit_arch_ptr_resolve(pb, fp, FRM_OFF(owner), scratch1, 4));
     }
+
+    /* Set f_globals and f_builtins (borrowed refs from function object).
+     * Required for C functions that walk the frame chain (e.g. PyErr_WarnEx
+     * via _warnings.c:setup_context uses f_globals to find __warningregistry__).
+     * Without these, ~bool and similar ops that emit deprecation warnings crash. */
+    phx_a64_ldr(pb, scratch,
+        jit_arch_ptr_offset(func_reg,
+            offsetof(PyFunctionObject, func_globals), 8));
+    phx_a64_str(pb, scratch,
+        jit_arch_ptr_resolve(pb, fp, FRM_OFF(f_globals), scratch1, 8));
+    phx_a64_ldr(pb, scratch,
+        jit_arch_ptr_offset(func_reg,
+            offsetof(PyFunctionObject, func_builtins), 8));
+    phx_a64_str(pb, scratch,
+        jit_arch_ptr_resolve(pb, fp, FRM_OFF(f_builtins), scratch1, 8));
 
     /* Set frame_obj = NULL (must be zeroed before frame chain walking) */
     phx_a64_str(pb, xzr,

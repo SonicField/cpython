@@ -775,7 +775,6 @@ class TestJitContainers(unittest.TestCase):
             return (item, d)
         self._jit_test(f)
 
-    @unittest.skip("crashes JIT — investigate separately")
     def test_dict_fromkeys(self):
         def f():
             return dict.fromkeys(["a", "b", "c"], 0)

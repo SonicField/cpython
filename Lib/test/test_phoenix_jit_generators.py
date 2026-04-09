@@ -268,7 +268,6 @@ class TestJitGenerators(unittest.TestCase):
     # ------------------------------------------------------------------
     # 12. Generator .throw() -- throwing exceptions into generator
     # ------------------------------------------------------------------
-    @unittest.skip("crashes JIT — g.throw() from JIT-compiled wrapper segfaults")
     def test_generator_throw(self):
         def wrapper():
             def gen():
@@ -280,13 +279,12 @@ class TestJitGenerators(unittest.TestCase):
             g = gen()
             results = []
             results.append(next(g))
-            results.append(g.throw(ValueError, "err1"))
+            results.append(g.throw(ValueError("err1")))
             results.append(next(g))
-            results.append(g.throw(ValueError, "err2"))
+            results.append(g.throw(ValueError("err2")))
             return results
         self._jit_test(wrapper)
 
-    @unittest.skip("crashes JIT — g.throw() from JIT-compiled wrapper segfaults")
     def test_generator_throw_unhandled(self):
         def wrapper():
             def gen():
@@ -295,7 +293,7 @@ class TestJitGenerators(unittest.TestCase):
             g = gen()
             next(g)
             try:
-                g.throw(RuntimeError, "bang")
+                g.throw(RuntimeError("bang"))
             except RuntimeError as e:
                 return ("propagated", str(e))
             return "should not reach"
