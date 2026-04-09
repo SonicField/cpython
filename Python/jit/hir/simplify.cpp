@@ -1136,9 +1136,10 @@ Register* simplifyPrimitiveCompare(Env& env, const PrimitiveCompare* instr) {
     }
   }
   // box(b) == True --> b
+  auto right_type_box = right->type();
   if (instr->op() == PrimitiveCompareOp::kEqual &&
       left->instr()->IsPrimitiveBoxBool() &&
-      hir_type_as_object(reinterpret_cast<const HirType*>(&right_type_cmp)) == Py_True) {
+      hir_type_as_object(reinterpret_cast<const HirType*>(&right_type_box)) == Py_True) {
     return left->instr()->GetOperand(0);
   }
   return nullptr;
