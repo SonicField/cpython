@@ -13,6 +13,7 @@
 #include "cinderx/Jit/hir/hir_c_api.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
 
+#include "cinderx/Jit/hir/type.h"
 #include "cinderx/Jit/hir/hir.h"
 #include "cinderx/Jit/hir/cfg.h"
 #include "cinderx/Jit/hir/function.h"
@@ -28,6 +29,23 @@ static_assert(sizeof(HirType) == sizeof(Type),
               "HirType size must match C++ Type");
 static_assert(sizeof(HirType) == 16,
               "HirType must be 16 bytes");
+static_assert(offsetof(HirType, pytype) == 8,
+              "HirType spec union must be at offset 8");
+
+/* ---- Type constants for hir_type_c.c ---- */
+
+extern "C" {
+const uint64_t _hir_type_kObject = Type::kObject;
+const uint64_t _hir_type_kPrimitive = Type::kPrimitive;
+
+int _hir_type_is_builtin_pytype(PyTypeObject *type) {
+    /* A builtin type is one where fromType() produces an unspecialized
+     * result (the bits already encode it uniquely). This matches the
+     * pyTypeToType().contains() check in type.cpp:578. */
+    Type t = Type::fromType(type);
+    return !t.hasTypeSpec() ? 1 : 0;
+}
+} /* extern "C" */
 
 /* ---- Cast helpers ---- */
 
