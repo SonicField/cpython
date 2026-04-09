@@ -212,7 +212,9 @@ class Instr {
   // Non-virtual: uses opcode switch to dispatch to Branch/CondBranchBase (T2-C2).
   std::span<const Edge> edges() const;
 
-  virtual Instr* clone() const = 0;
+  // Non-virtual: no call sites through Instr* exist. InstrT provides
+  // the concrete implementation as a hiding method (T2-C5).
+  Instr* clone() const;
 
   // Get or set the i-th successor.
   BasicBlock* successor(std::size_t i) const;
@@ -399,7 +401,9 @@ class InstrT<T, opc, Base, Tys...> : public Base {
     }
   }
 
-  Instr* clone() const override {
+  // clone() devirtualized in T2-C5. Hiding method — concrete types
+  // call this directly via static dispatch.
+  Instr* clone() const {
     auto ptr = Instr::allocate(sizeof(T), this->NumOperands());
     return new (ptr) T(*static_cast<const T*>(this));
   }
