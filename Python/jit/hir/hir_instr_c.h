@@ -159,6 +159,40 @@ typedef struct { HIR_DEOPT_FIELDS; HirType type; } HirMakeCheckedList;
 /* ---- CondBranch derived ---- */
 typedef struct { HIR_INSTR_FIELDS; HirEdge true_edge; HirEdge false_edge; HirType type; } HirCondBranchCheckType;
 
+/* ==== T2-B Batch 4b: Container-field instruction structs ====
+ * Types with std::string, std::vector, std::unique_ptr, BorrowedRef.
+ * C++ containers stored as opaque byte arrays. */
+
+/* DeoptBaseWithNameIdx: DeoptBase + int name_idx_ */
+#define HIR_DEOPT_NAMEIDX_FIELDS  \
+    HIR_DEOPT_FIELDS;             \
+    int32_t name_idx
+
+/* ---- Simple container types ---- */
+typedef struct { HIR_DEOPT_FIELDS; uint32_t flags; } HirCallMethod;
+typedef struct { HIR_INSTR_FIELDS; int32_t func; } HirCallCFunc;
+typedef struct { HIR_INSTR_FIELDS; void *frame_state_ptr; } HirSnapshot;
+
+/* ---- BorrowedRef types (void* layout-compatible) ---- */
+typedef struct { HIR_INSTR_FIELDS; void *code; void *builtins; void *globals; int32_t name_idx; } HirLoadGlobalCached;
+
+/* ---- DeoptBaseWithNameIdx types ---- */
+typedef struct { HIR_DEOPT_NAMEIDX_FIELDS; int32_t cache_id; } HirFillTypeAttrCache;
+typedef struct { HIR_DEOPT_NAMEIDX_FIELDS; int32_t cache_id; } HirFillTypeMethodCache;
+
+/* ---- std::string types (opaque blob) ---- */
+typedef struct { HIR_INSTR_FIELDS; char name_storage[32]; size_t offset; HirType type; uint8_t borrowed; } HirLoadField;
+typedef struct { HIR_INSTR_FIELDS; char name_storage[32]; size_t offset; HirType type; } HirStoreField;
+
+/* ---- std::vector type ---- */
+typedef struct { HIR_INSTR_FIELDS; char basic_blocks_storage[24]; } HirPhi;
+
+/* ---- Complex multi-inheritance + container types ---- */
+typedef struct { HIR_INSTR_FIELDS; void *_vtable_inline; void *func; void *reifier; void *caller_state_ptr; char fullname_storage[32]; } HirBeginInlinedFunction;
+
+/* ---- Opaque nested container (ProfiledTypes) ---- */
+typedef struct { HIR_INSTR_FIELDS; char types_storage[24]; } HirHintType;
+
 /* ---- Field accessors ---- */
 
 static inline int32_t hir_instr_opcode(const HirInstr *instr) {

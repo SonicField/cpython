@@ -106,4 +106,16 @@ struct HirInstrLayoutVerifier {
     static_assert(sizeof(HirMakeCheckedDict) == sizeof(MakeCheckedDict));
     static_assert(sizeof(HirMakeCheckedList) == sizeof(MakeCheckedList));
     static_assert(sizeof(HirCondBranchCheckType) == sizeof(CondBranchCheckType));
+    /* T2-B Batch 4b: container-field struct sizes */
+    static_assert(sizeof(HirCallMethod) == sizeof(CallMethod));
+    static_assert(sizeof(HirCallCFunc) == sizeof(CallCFunc));
+    static_assert(sizeof(HirSnapshot) == sizeof(Snapshot));
+    static_assert(sizeof(HirLoadGlobalCached) == sizeof(LoadGlobalCached));
+    static_assert(sizeof(HirFillTypeAttrCache) == sizeof(FillTypeAttrCache));
+    static_assert(sizeof(HirFillTypeMethodCache) == sizeof(FillTypeMethodCache));
+    static_assert(sizeof(HirLoadField) == sizeof(LoadField));
+    static_assert(sizeof(HirStoreField) == sizeof(StoreField));
+    static_assert(sizeof(HirPhi) == sizeof(Phi));
+    static_assert(sizeof(HirBeginInlinedFunction) == sizeof(BeginInlinedFunction));
+    static_assert(sizeof(HirHintType) == sizeof(HintType));
 };
