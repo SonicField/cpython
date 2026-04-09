@@ -145,6 +145,9 @@ add_linked_to_worklist(DceCtx *ctx, JitLirOperand operand) {
         return;
     }
     JitLirInstr linked = jit_lir_operand_get_linked_instr(operand);
+    if (linked == NULL) {
+        return;
+    }
     mark_live(ctx, linked);
 }
 
