@@ -419,8 +419,8 @@ void Operand::setMemoryIndirect(
 }
 
 LinkedOperand::LinkedOperand(Instruction* def_instr) {
-  is_linked_ = true;
   def_opnd_ = def_instr->output();
+  is_linked_ = (def_opnd_ != nullptr);
 }
 
 LinkedOperand::LinkedOperand(Instruction* parent, Instruction* def_instr)
@@ -437,10 +437,12 @@ const Operand* LinkedOperand::getLinkedOperand() const {
 }
 
 Instruction* LinkedOperand::getLinkedInstr() {
+  if (def_opnd_ == nullptr) return nullptr;
   return def_opnd_->instr();
 }
 
 const Instruction* LinkedOperand::getLinkedInstr() const {
+  if (def_opnd_ == nullptr) return nullptr;
   return def_opnd_->instr();
 }
 
