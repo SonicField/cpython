@@ -545,20 +545,22 @@ Register* simplifyIsTruthy(Env& env, const IsTruthy* instr) {
 Register* simplifyLoadTupleItem(Env& env, const LoadTupleItem* instr) {
   Register* src = instr->GetOperand(0);
   Type src_ty = src->type();
-  if (!src_ty.hasValueSpec(TTuple)) {
+  HirType src_hir = to_hir(src_ty);
+  if (!hir_type_has_value_spec(&src_hir, to_hir(TTuple))) {
     return nullptr;
   }
   env.emit<UseType>(src, src_ty);
-  BorrowedRef<> item = PyTuple_GET_ITEM(src_ty.objectSpec(), instr->idx());
+  BorrowedRef<> item = PyTuple_GET_ITEM(hir_type_object_spec(&src_hir), instr->idx());
   return env.emit<LoadConst>(Type::fromObject(env.func.env.addReference(item)));
 }
 
 Register* simplifyLoadArrayItem(Env& env, const LoadArrayItem* instr) {
   Register* src = instr->seq();
-  if (!instr->idx()->type().hasIntSpec()) {
+  HirType idx_arr_hir = to_hir(instr->idx()->type());
+  if (!hir_type_has_int_spec(&idx_arr_hir)) {
     return nullptr;
   }
-  intptr_t idx_signed = instr->idx()->type().intSpec();
+  intptr_t idx_signed = hir_type_int_spec(&idx_arr_hir);
   JIT_CHECK(idx_signed >= 0, "LoadArrayItem should not have negative index");
   uintptr_t idx = static_cast<uintptr_t>(idx_signed);
   // We can only do this for tuples because lists and arrays, the other
@@ -572,11 +574,12 @@ Register* simplifyLoadArrayItem(Env& env, const LoadArrayItem* instr) {
       return src->instr()->GetOperand(idx);
     }
   }
-  if (src->type().hasValueSpec(TTupleExact)) {
-    if (idx_signed < PyTuple_GET_SIZE(src->type().objectSpec())) {
+  HirType src_arr_hir = to_hir(src->type());
+  if (hir_type_has_value_spec(&src_arr_hir, to_hir(TTupleExact))) {
+    if (idx_signed < PyTuple_GET_SIZE(hir_type_object_spec(&src_arr_hir))) {
       env.emit<UseType>(src, src->type());
       env.emit<UseType>(instr->idx(), instr->idx()->type());
-      BorrowedRef<> item = PyTuple_GET_ITEM(src->type().objectSpec(), idx);
+      BorrowedRef<> item = PyTuple_GET_ITEM(hir_type_object_spec(&src_arr_hir), idx);
       return env.emit<LoadConst>(
           Type::fromObject(env.func.env.addReference(item)));
     }
@@ -670,13 +673,16 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
     }
     Type lhs_type = lhs->type();
     Type rhs_type = rhs->type();
-    if (lhs_type <= TTupleExact && lhs_type.hasObjectSpec() &&
-        rhs_type.hasObjectSpec()) {
+    HirType lhs_hir = to_hir(lhs_type);
+    HirType rhs_hir = to_hir(rhs_type);
+    if (hir_type_is_subtype(lhs_hir, to_hir(TTupleExact)) &&
+        hir_type_has_object_spec(&lhs_hir) &&
+        hir_type_has_object_spec(&rhs_hir)) {
       int overflow;
       Py_ssize_t index =
-          PyLong_AsLongAndOverflow(rhs_type.objectSpec(), &overflow);
+          PyLong_AsLongAndOverflow(hir_type_object_spec(&rhs_hir), &overflow);
       if (!overflow) {
-        PyObject* lhs_obj = lhs_type.objectSpec();
+        PyObject* lhs_obj = hir_type_object_spec(&lhs_hir);
         if (index >= 0 && index < PyTuple_GET_SIZE(lhs_obj)) {
           BorrowedRef<> item = PyTuple_GET_ITEM(lhs_obj, index);
           env.emit<UseType>(lhs, lhs_type);
@@ -711,20 +717,21 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
       return env.emit<LoadArrayItem>(array, adjusted_idx, lhs, offset, TObject);
     }
 #endif
-    if (lhs_type <= TUnicodeExact && rhs_type <= TLongExact) { // Unicode subscr
-      if (lhs_type.hasObjectSpec() && rhs_type.hasObjectSpec()) {
+    if (hir_type_is_subtype(lhs_hir, to_hir(TUnicodeExact)) &&
+        hir_type_is_subtype(rhs_hir, to_hir(TLongExact))) { // Unicode subscr
+      if (hir_type_has_object_spec(&lhs_hir) && hir_type_has_object_spec(&rhs_hir)) {
         // This isn't safe in the multi-threaded compilation on 3.12 because
         // we don't hold the GIL which is required for
         // PyUnicode_InternInPlace.
         RETURN_MULTITHREADED_COMPILE(nullptr);
 
         // Constant propagation
-        Py_ssize_t idx = PyLong_AsSsize_t(rhs_type.objectSpec());
+        Py_ssize_t idx = PyLong_AsSsize_t(hir_type_object_spec(&rhs_hir));
         if (idx == -1 && PyErr_Occurred()) {
           PyErr_Clear();
           return nullptr;
         }
-        Py_ssize_t n = PyUnicode_GetLength(lhs_type.objectSpec());
+        Py_ssize_t n = PyUnicode_GetLength(hir_type_object_spec(&lhs_hir));
 
         if (idx < -n || idx >= n) {
           return nullptr;
@@ -735,7 +742,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
         }
 
         ThreadedCompileSerialize guard;
-        Py_UCS4 c = PyUnicode_ReadChar(lhs_type.objectSpec(), idx);
+        Py_UCS4 c = PyUnicode_ReadChar(hir_type_object_spec(&lhs_hir), idx);
         PyObject* substr =
             PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, &c, 1);
         if (substr == nullptr) {
@@ -840,17 +847,23 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
   {
     Register* float_reg = nullptr;
     Register* int_reg = nullptr;
-    if (lhs->isA(TFloatExact) && rhs->isA(TLongExact) && rhs->type().hasObjectSpec()) {
+    auto rhs_ty_fc = rhs->type();
+    auto lhs_ty_fc = lhs->type();
+    if (lhs->isA(TFloatExact) && rhs->isA(TLongExact) &&
+        hir_type_has_object_spec(reinterpret_cast<const HirType*>(&rhs_ty_fc))) {
       float_reg = lhs;
       int_reg = rhs;
-    } else if (rhs->isA(TFloatExact) && lhs->isA(TLongExact) && lhs->type().hasObjectSpec()) {
+    } else if (rhs->isA(TFloatExact) && lhs->isA(TLongExact) &&
+               hir_type_has_object_spec(reinterpret_cast<const HirType*>(&lhs_ty_fc))) {
       float_reg = rhs;
       int_reg = lhs;
     }
     if (float_reg != nullptr &&
         ((op == BinaryOpKind::kPower) || FloatBinaryOp::slotMethod(op))) {
       RETURN_MULTITHREADED_COMPILE(nullptr);
-      double dval = PyLong_AsDouble(int_reg->type().objectSpec());
+      auto int_reg_ty = int_reg->type();
+      double dval = PyLong_AsDouble(
+          hir_type_object_spec(reinterpret_cast<const HirType*>(&int_reg_ty)));
       if (dval != -1.0 || !PyErr_Occurred()) {
         ThreadedCompileSerialize guard;
         Ref<> float_obj = Ref<>::steal(PyFloat_FromDouble(dval));

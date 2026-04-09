@@ -169,6 +169,15 @@ HirType hir_type_subtract(HirType a, HirType b);
 /* Type union (operator|) */
 HirType hir_type_union(HirType a, HirType b);
 
+/* Check if type has a value specialization (object, int, or double)
+ * and is a subtype of the given type.
+ * C equivalent of Type::hasValueSpec(). */
+static inline int hir_type_has_value_spec(const HirType *t, HirType ty) {
+    return (hir_type_has_object_spec(t) || hir_type_has_int_spec(t) ||
+            hir_type_has_double_spec(t)) &&
+           hir_type_is_subtype(*t, ty);
+}
+
 /* Check if a type has a known runtime destructor.
  * C equivalent of Type::runtimePyTypeDestructor().has_value().
  * Returns 1 if the type has a known exact PyTypeObject* (not NoneType),
