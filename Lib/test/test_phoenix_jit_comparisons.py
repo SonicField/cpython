@@ -778,7 +778,6 @@ class TestJitComparisons(unittest.TestCase):
         self._jit_test(f, [0, 0, 0])
         self._jit_test(f, [0, 1, 0])
 
-    @unittest.skip("crashes JIT — investigate separately")
     def test_all_with_generator(self):
         def f(lst):
             return all(x > 0 for x in lst)
@@ -786,7 +785,6 @@ class TestJitComparisons(unittest.TestCase):
         self._jit_test(f, [1, -1, 3])
         self._jit_test(f, [])
 
-    @unittest.skip("crashes JIT — investigate separately")
     def test_any_with_generator(self):
         def f(lst):
             return any(x < 0 for x in lst)

@@ -404,7 +404,7 @@ class TestJitArithmetic(unittest.TestCase):
         self._jit_test(f, 10**50)
 
     
-    @unittest.skip("deprecated ~bool crashes JIT")
+    @unittest.skip("crashes JIT — ~bool with argument segfaults compiled code")
     def test_unary_invert_bool(self):
         def f(a):
             return ~a

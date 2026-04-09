@@ -232,7 +232,6 @@ class TestJitGenerators(unittest.TestCase):
     # ------------------------------------------------------------------
     # 11. Generator .send() -- sending values into generator
     # ------------------------------------------------------------------
-    @unittest.skip("crashes JIT — investigate separately")
     def test_generator_send(self):
         def wrapper():
             def gen():
@@ -269,7 +268,7 @@ class TestJitGenerators(unittest.TestCase):
     # ------------------------------------------------------------------
     # 12. Generator .throw() -- throwing exceptions into generator
     # ------------------------------------------------------------------
-    @unittest.skip("crashes JIT — investigate separately")
+    @unittest.skip("crashes JIT — g.throw() from JIT-compiled wrapper segfaults")
     def test_generator_throw(self):
         def wrapper():
             def gen():
@@ -287,7 +286,7 @@ class TestJitGenerators(unittest.TestCase):
             return results
         self._jit_test(wrapper)
 
-    @unittest.skip("crashes JIT — investigate separately")
+    @unittest.skip("crashes JIT — g.throw() from JIT-compiled wrapper segfaults")
     def test_generator_throw_unhandled(self):
         def wrapper():
             def gen():
@@ -702,7 +701,6 @@ class TestJitGenerators(unittest.TestCase):
     # ------------------------------------------------------------------
     # 28. Multiple active generators simultaneously
     # ------------------------------------------------------------------
-    @unittest.skip("crashes JIT — investigate separately")
     def test_multiple_active_generators(self):
         def wrapper():
             def gen(start, step):
