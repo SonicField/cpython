@@ -30,9 +30,9 @@ static void verify_hir_instr_info() {
         assert(strcmp(info->name, #opname) == 0 &&                     \
                "hir_instr_info name mismatch: " #opname);              \
         /* is_deopt_base must match C++ hierarchy (T2-C1 gate) */      \
-        assert(info->is_deopt_base ==                                  \
-               (int)std::is_base_of_v<DeoptBase, opname> &&            \
-               "hir_instr_info is_deopt_base mismatch: " #opname);    \
+        { bool cpp_is_deopt = std::is_base_of_v<DeoptBase, opname>;   \
+        assert(info->is_deopt_base == (int)cpp_is_deopt &&             \
+               "hir_instr_info is_deopt_base mismatch: " #opname); }  \
     }
     FOREACH_OPCODE(CHECK_OPCODE)
 #undef CHECK_OPCODE
