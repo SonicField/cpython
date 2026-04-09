@@ -243,8 +243,10 @@ class Instr {
   void copyBytecodeOffset(const Instr& instr);
 
   // Downcast the Instr to a DeoptBase, returning nullptr if it isn't one.
-  virtual DeoptBase* asDeoptBase();
-  virtual const DeoptBase* asDeoptBase() const;
+  // Non-virtual: uses T2-A metadata table (opcode-based check) instead of
+  // vtable dispatch. Semantically identical to the former virtual version.
+  DeoptBase* asDeoptBase();
+  const DeoptBase* asDeoptBase() const;
 
  protected:
   // Allocate a block of memory suitable to house an `Instr`. This function is
@@ -314,8 +316,8 @@ class DeoptBase : public Instr {
 
   bool visitUses(const std::function<bool(Register*&)>& func) override;
 
-  DeoptBase* asDeoptBase() override;
-  const DeoptBase* asDeoptBase() const override;
+  // asDeoptBase() devirtualized in T2-C1 — handled by Instr's non-virtual
+  // implementation via opcode metadata check.
 
   int nonce() const;
   void set_nonce(int nonce);

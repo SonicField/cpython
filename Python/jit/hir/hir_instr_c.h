@@ -10,6 +10,7 @@
  */
 #pragma once
 
+#include "cinderx/Jit/hir/hir_instr_info_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
 
 #include <stddef.h>
@@ -211,9 +212,20 @@ static inline int hir_instr_has_output(const HirInstr *instr) {
     return instr->output != NULL;
 }
 
-/* Downcast: caller must verify opcode is a DeoptBase subclass first */
+/* Safe downcast: returns NULL if not a DeoptBase subclass (T2-C1) */
 static inline const HirDeoptInstr *hir_instr_as_deopt(const HirInstr *instr) {
+    if (!hir_instr_info_is_deopt_base(instr->opcode)) {
+        return NULL;
+    }
     return (const HirDeoptInstr *)instr;
+}
+
+/* Mutable variant */
+static inline HirDeoptInstr *hir_instr_as_deopt_mut(HirInstr *instr) {
+    if (!hir_instr_info_is_deopt_base(instr->opcode)) {
+        return NULL;
+    }
+    return (HirDeoptInstr *)instr;
 }
 
 static inline const HirCondBranchInstr *hir_instr_as_condbranch(

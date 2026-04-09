@@ -3,6 +3,7 @@
 #include "cinderx/Jit/hir/hir.h"
 
 #include "cinderx/Common/log.h"
+#include "cinderx/Jit/hir/hir_instr_info_c.h"
 #include "cinderx/Jit/threaded_compile.h"
 
 #include <algorithm>
@@ -34,13 +35,8 @@ std::vector<RegState>& DeoptBase::live_regs() {
   return live_regs_;
 }
 
-DeoptBase* DeoptBase::asDeoptBase() {
-  return this;
-}
-
-const DeoptBase* DeoptBase::asDeoptBase() const {
-  return this;
-}
+// asDeoptBase() devirtualized in T2-C1 — implementation moved to Instr
+// (opcode metadata check). DeoptBase no longer overrides.
 
 bool DeoptBase::visitUses(const std::function<bool(Register*&)>& func) {
   if (!Instr::visitUses(func)) {
@@ -612,10 +608,16 @@ const FrameState* Instr::getDominatingFrameState() const {
 }
 
 DeoptBase* Instr::asDeoptBase() {
+  if (hir_instr_info_is_deopt_base(static_cast<int>(opcode_))) {
+    return static_cast<DeoptBase*>(this);
+  }
   return nullptr;
 }
 
 const DeoptBase* Instr::asDeoptBase() const {
+  if (hir_instr_info_is_deopt_base(static_cast<int>(opcode_))) {
+    return static_cast<const DeoptBase*>(this);
+  }
   return nullptr;
 }
 
