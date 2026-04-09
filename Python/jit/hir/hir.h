@@ -207,7 +207,8 @@ class Instr {
   const Edge* edge(std::size_t i) const;
 
   // Get a list of all outgoing edges from this instruction.
-  virtual std::span<const Edge> edges() const;
+  // Non-virtual: uses opcode switch to dispatch to Branch/CondBranchBase (T2-C2).
+  std::span<const Edge> edges() const;
 
   virtual Instr* clone() const = 0;
 
@@ -766,10 +767,11 @@ class INSTR_CLASS(Branch, (), Operands<0>) {
     edge_.set_to(target);
   }
 
-  std::span<const Edge> edges() const override;
+  std::span<const Edge> edges() const;
 
  private:
   Edge edge_;
+  friend class Instr;
 };
 
 enum class FunctionAttr {
@@ -2237,13 +2239,14 @@ class CondBranchBase : public Instr {
     false_edge_.set_to(block);
   }
 
-  std::span<const Edge> edges() const override;
+  std::span<const Edge> edges() const;
 
   friend struct ::HirInstrLayoutVerifier;
 
  private:
   Edge true_edge_;
   Edge false_edge_;
+  friend class Instr;
 };
 
 // Transfer control to `true_bb` if `reg` is nonzero, otherwise `false_bb`.

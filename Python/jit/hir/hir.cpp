@@ -338,7 +338,16 @@ const Edge* Instr::edge(std::size_t i) const {
 }
 
 std::span<const Edge> Instr::edges() const {
-  return {};
+  switch (opcode_) {
+    case Opcode::kBranch:
+      return static_cast<const Branch*>(this)->edges();
+    case Opcode::kCondBranch:
+    case Opcode::kCondBranchIterNotDone:
+    case Opcode::kCondBranchCheckType:
+      return static_cast<const CondBranchBase*>(this)->edges();
+    default:
+      return {};
+  }
 }
 
 BasicBlock* Instr::successor(std::size_t i) const {
