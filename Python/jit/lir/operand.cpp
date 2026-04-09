@@ -416,7 +416,7 @@ void Operand::setMemoryIndirect(
 }
 
 LinkedOperand::LinkedOperand(Instruction* def_instr) {
-  def_opnd_ = def_instr->output();
+  def_opnd_ = (def_instr != nullptr) ? def_instr->output() : nullptr;
   is_linked_ = (def_opnd_ != nullptr);
 }
 
