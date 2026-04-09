@@ -401,7 +401,6 @@ class TestJitArithmetic(unittest.TestCase):
         self._jit_test(f, 10**50)
 
 
-    @unittest.skip("JIT frame bug: ~bool triggers PyErr_WarnEx -> null f_globals segfault")
     def test_unary_invert_bool(self):
         def f(a):
             return ~a
