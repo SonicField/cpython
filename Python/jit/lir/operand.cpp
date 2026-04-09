@@ -442,7 +442,8 @@ const Instruction* LinkedOperand::getLinkedInstr() const {
 }
 
 void LinkedOperand::setLinkedInstr(Instruction* def) {
-  def_opnd_ = def->output();
+  def_opnd_ = (def != nullptr) ? def->output() : nullptr;
+  is_linked_ = (def_opnd_ != nullptr);
 }
 
 } // namespace jit::lir
