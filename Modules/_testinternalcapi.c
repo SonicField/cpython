@@ -1548,8 +1548,11 @@ test_ws_deque_concurrent_push_steal(PyObject *self, PyObject *Py_UNUSED(ignored)
 
 // --- Barrier Tests ---
 
+/* NOTE: Named with _unsafe suffix to prevent test_capi auto-discovery.
+ * This function triggers assert(capacity > 0) and aborts the process.
+ * Only called from test_gc_ws_deque.py via subprocess. */
 static PyObject *
-test_barrier_capacity_zero(PyObject *self, PyObject *Py_UNUSED(ignored))
+unsafe_barrier_capacity_zero(PyObject *self, PyObject *Py_UNUSED(ignored))
 {
     _PyGCBarrier barrier;
     _PyGCBarrier_Init(&barrier, 0);
@@ -2313,7 +2316,7 @@ static PyMethodDef module_functions[] = {
     {"test_ws_deque_init_with_undersized_buffer", test_ws_deque_init_with_undersized_buffer, METH_NOARGS, NULL},
     {"test_ws_deque_init_with_exact_buffer", test_ws_deque_init_with_exact_buffer, METH_NOARGS, NULL},
     {"test_ws_deque_concurrent_push_steal", test_ws_deque_concurrent_push_steal, METH_NOARGS, NULL},
-    {"test_barrier_capacity_zero", test_barrier_capacity_zero, METH_NOARGS, NULL},
+    {"unsafe_barrier_capacity_zero", unsafe_barrier_capacity_zero, METH_NOARGS, NULL},
     {"test_barrier_basic", test_barrier_basic, METH_NOARGS, NULL},
     {"test_barrier_multiple_rounds", test_barrier_multiple_rounds, METH_NOARGS, NULL},
     {"test_barrier_epoch_distinguishes", test_barrier_epoch_distinguishes, METH_NOARGS, NULL},
