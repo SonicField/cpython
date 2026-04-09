@@ -3709,8 +3709,17 @@ void LIRGenerator::resolvePhiOperands(
       for (size_t i = 0; i < hir_instr->NumOperands(); ++i) {
         hir::BasicBlock* hir_block = hir_instr->basic_blocks().at(i);
         hir::Register* hir_value = hir_instr->GetOperand(i);
+        Instruction* def = bbb.getDefInstr(hir_value);
         instr->allocateLabelInput(bb_map.at(hir_block).last);
-        instr->allocateLinkedInput(bbb.getDefInstr(hir_value));
+        if (def != nullptr && def->output() != nullptr) {
+          instr->allocateLinkedInput(def);
+        } else {
+          // Defining instruction missing or has no output — emit an
+          // immediate zero as placeholder.  This Phi input corresponds
+          // to an unreachable path (e.g. unsupported unbound type
+          // method call pattern).  DCE or regalloc will handle it.
+          instr->allocateImmediateInput(0);
+        }
       }
     });
   }

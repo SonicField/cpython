@@ -775,7 +775,6 @@ class TestJitContainers(unittest.TestCase):
             return (item, d)
         self._jit_test(f)
 
-    @unittest.skip("LIR bug: corrupt operand ptr (0x1) in inputs_ array — SEGV in DCE")
     def test_dict_fromkeys(self):
         def f():
             return dict.fromkeys(["a", "b", "c"], 0)
