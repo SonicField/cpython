@@ -81,8 +81,10 @@ static void hir_type_layout_check() {
 /* ---- Type constants for hir_type_c.c ---- */
 
 extern "C" {
-const uint64_t _hir_type_kObject = Type::kObject;
-const uint64_t _hir_type_kPrimitive = Type::kPrimitive;
+/* extern needed: C++ const has internal linkage by default,
+ * but hir_type_c.c references these from a different TU. */
+extern const uint64_t _hir_type_kObject = Type::kObject;
+extern const uint64_t _hir_type_kPrimitive = Type::kPrimitive;
 
 int _hir_type_is_builtin_pytype(PyTypeObject *type) {
     /* A builtin type is one where fromType() produces an unspecialized
