@@ -2005,45 +2005,21 @@ gc_collect_interpreter_roots(_PyParallelGCState *par_gc, PyInterpreterState *int
         ENQUEUE_ROOT(types->builtins[i].tp_subclasses);
     }
 
-    // Thread stacks - traverse all threads' frames
-    PyThreadState *tstate = interp->threads.head;
-    for (; tstate != NULL; tstate = tstate->next) {
-        // Current frame and all frames on call stack
-        _PyInterpreterFrame *frame = tstate->cframe->current_frame;
-        while (frame != NULL) {
-            // Skip C-stack-owned frames (no valid Python references)
-            if (frame->owner == FRAME_OWNED_BY_CSTACK) {
-                frame = frame->previous;
-                continue;
-            }
-
-            // Skip frames with invalid stacktop
-            if (frame->stacktop < 0) {
-                frame = frame->previous;
-                continue;
-            }
-
-            // Visit the code object
-            ENQUEUE_ROOT(frame->f_code);
-
-            // Visit f_funcobj, f_globals, f_builtins, f_locals
-            // These are only valid if not on C stack (already filtered above)
-            if (frame->owner != FRAME_OWNED_BY_THREAD) {
-                ENQUEUE_ROOT(frame->f_funcobj);
-                ENQUEUE_ROOT(frame->f_globals);
-                ENQUEUE_ROOT(frame->f_builtins);
-                ENQUEUE_ROOT(frame->f_locals);
-            }
-
-            // Visit all stack values from stacktop down to 0
-            for (int si = frame->stacktop - 1; si >= 0; si--) {
-                PyObject *stackval = frame->localsplus[si];
-                ENQUEUE_ROOT(stackval);
-            }
-
-            frame = frame->previous;
-        }
-    }
+    // Thread stack walking is NOT performed on 3.12.
+    // CPython 3.12's cframe-based frame chain is incompatible with parallel
+    // GC worker threads: worker tstates (created by _PyThreadState_New) are
+    // in the tstate list but have undefined cframe->current_frame state.
+    // Iterating their frames enqueues garbage pointers as roots, corrupting
+    // the reachability set and causing use-after-free crashes.
+    //
+    // This is safe because thread-stack reachability is handled by the
+    // gc_refs algorithm: subtract_refs calls each object's tp_traverse which
+    // accounts for all references including those from thread stacks.
+    // Objects referenced from stacks retain gc_refs > 0 and are correctly
+    // identified as reachable by move_unreachable.
+    //
+    // The 3.15 branch uses tstate->current_frame (no cframe indirection)
+    // and does not have this issue.
 
     #undef ENQUEUE_ROOT
 
@@ -2150,43 +2126,8 @@ gc_expand_roots_to_queue(_PyParallelGCState *par_gc, PyInterpreterState *interp,
         EXPAND_ROOT(types->builtins[i].tp_subclasses);
     }
 
-    // Expand thread stacks - traverse all threads' frames
-    PyThreadState *tstate = interp->threads.head;
-    for (; tstate != NULL; tstate = tstate->next) {
-        _PyInterpreterFrame *frame = tstate->cframe->current_frame;
-        while (frame != NULL) {
-            // Skip C-stack-owned frames (no valid Python references)
-            if (frame->owner == FRAME_OWNED_BY_CSTACK) {
-                frame = frame->previous;
-                continue;
-            }
-
-            // Skip frames with invalid stacktop
-            if (frame->stacktop < 0) {
-                frame = frame->previous;
-                continue;
-            }
-
-            // Expand the code object
-            EXPAND_ROOT(frame->f_code);
-
-            // Expand f_funcobj, f_globals, f_builtins, f_locals
-            if (frame->owner != FRAME_OWNED_BY_THREAD) {
-                EXPAND_ROOT(frame->f_funcobj);
-                EXPAND_ROOT(frame->f_globals);
-                EXPAND_ROOT(frame->f_builtins);
-                EXPAND_ROOT(frame->f_locals);
-            }
-
-            // Expand all stack values from stacktop down to 0
-            for (int si = frame->stacktop - 1; si >= 0; si--) {
-                PyObject *stackval = frame->localsplus[si];
-                EXPAND_ROOT(stackval);
-            }
-
-            frame = frame->previous;
-        }
-    }
+    // Thread stack walking NOT performed on 3.12 — see comment in
+    // gc_collect_interpreter_roots for rationale.
 
     #undef EXPAND_ROOT
 

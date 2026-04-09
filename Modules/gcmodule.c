@@ -1387,6 +1387,16 @@ gc_collect_main(PyThreadState *tstate, int generation,
     handle_legacy_finalizers(tstate, gcstate, &finalizers, old);
     validate_list(old, collecting_clear_unreachable_clear);
 
+#ifdef Py_PARALLEL_GC
+    // Record cleanup end time for parallel GC stats
+    {
+        _PyParallelGCState *_par_gc = _PyInterpreterState_GET()->gc.parallel_gc;
+        if (_par_gc != NULL && _par_gc->timing_valid) {
+            _par_gc->cleanup_end_ns = _PyTime_GetPerfCounter();
+        }
+    }
+#endif
+
     /* Clear free list only during the collection of the highest
      * generation */
     if (generation == NUM_GENERATIONS-1) {
