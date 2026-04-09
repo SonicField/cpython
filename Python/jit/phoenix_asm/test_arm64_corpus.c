@@ -433,6 +433,123 @@ static void test_fp_arith(void) {
 }
 
 /* ================================================================== */
+/*  8. Flag-setting arithmetic (SUBS/ADDS for DECREF/INCREF)           */
+/*                                                                     */
+/*  These verify the translate-layer bug class: Inc/Dec LIR ops MUST   */
+/*  use flag-setting variants (subs/adds, S=1, bit 29) so that         */
+/*  subsequent conditional branches (b.ne, b.eq) check the arithmetic  */
+/*  result, not stale NZCV flags from prior calls.                     */
+/*                                                                     */
+/*  7 ARM64 encoding bugs were found by crash before this test existed.*/
+/* ================================================================== */
+
+static void test_flag_setting(void) {
+    printf("\n=== Flag-Setting Arithmetic (SUBS/ADDS) ===\n");
+
+    /* SUBS X0, X0, #1  (DECREF decrement)
+     * sf=1, op=1, S=1, shift=00, imm12=1, Rn=0, Rd=0
+     *   1 11 10001 00 000000000001 00000 00000
+     *   = 0xF1000400 */
+    TEST_ONE("subs x0, x0, #1  (Dec register)",
+             phx_a64_subs_rri(b, X0, X0, 1),
+             0xF1000400)
+
+    /* ADDS X0, X0, #1  (INCREF increment)
+     * sf=1, op=0, S=1, shift=00, imm12=1, Rn=0, Rd=0
+     *   1 01 10001 00 000000000001 00000 00000
+     *   = 0xB1000400 */
+    TEST_ONE("adds x0, x0, #1  (Inc register)",
+             phx_a64_adds_rri(b, X0, X0, 1),
+             0xB1000400)
+
+    /* Verify NON-flag-setting SUB for contrast (address calc, NOT DECREF)
+     * SUB X0, X0, #1: S=0, bit 29 clear
+     *   = 0xD1000400 */
+    TEST_ONE("sub x0, x0, #1  (no flags, for contrast)",
+             phx_a64_sub_rri(b, X0, X0, 1),
+             0xD1000400)
+
+    /* Verify NON-flag-setting ADD for contrast
+     * ADD X0, X0, #1: S=0, bit 29 clear
+     *   = 0x91000400 */
+    TEST_ONE("add x0, x0, #1  (no flags, for contrast)",
+             phx_a64_add_rri(b, X0, X0, 1),
+             0x91000400)
+
+    /* SUBS with scratch register (stack DECREF path)
+     * SUBS X16, X16, #1
+     * Rd=16, Rn=16
+     *   = 0xF1000610 */
+    TEST_ONE("subs x16, x16, #1  (Dec stack/scratch)",
+             phx_a64_subs_rri(b, X16, X16, 1),
+             0xF1000610)
+
+    /* ADDS with scratch register (stack INCREF path)
+     * ADDS X16, X16, #1
+     *   = 0xB1000610 */
+    TEST_ONE("adds x16, x16, #1  (Inc stack/scratch)",
+             phx_a64_adds_rri(b, X16, X16, 1),
+             0xB1000610)
+
+    /* SUBS X0, X1, X2 (register-register form)
+     * sf=1, op=1, S=1, shift=00, Rm=2, imm6=0, Rn=1, Rd=0
+     *   = 0xEB020020 */
+    TEST_ONE("subs x0, x1, x2  (reg-reg)",
+             phx_a64_subs_rrr(b, X0, X1, X2),
+             0xEB020020)
+}
+
+/* ================================================================== */
+/*  9. Logical Immediate (AND/ORR/EOR/TST bitmask rotation)            */
+/* ================================================================== */
+
+static void test_logical_imm(void) {
+    printf("\n=== Logical Immediate (AND/ORR/EOR/TST) ===\n");
+
+    /* AND X0, X1, #0x20 (bit 5 — the pattern-matching bug trigger)
+     * sf=1, opc=00(AND), N=1, immr=59(0x3B), imms=0, Rn=1, Rd=0
+     *   = 0x927B0020 */
+    TEST_ONE("and x0, x1, #0x20  (bit 5, match_sequence)",
+             phx_a64_and_rri(b, X0, X1, 0x20),
+             0x927B0020)
+
+    /* AND X0, X1, #0xFF (bits 0-7, byte mask)
+     * N=1, immr=0, imms=7
+     *   = 0x92401C20 */
+    TEST_ONE("and x0, x1, #0xff  (byte mask)",
+             phx_a64_and_rri(b, X0, X1, 0xFF),
+             0x92401C20)
+
+    /* AND X0, X1, #0xFFFF (bits 0-15, halfword mask)
+     * N=1, immr=0, imms=15
+     *   = 0x92403C20 */
+    TEST_ONE("and x0, x1, #0xffff  (halfword mask)",
+             phx_a64_and_rri(b, X0, X1, 0xFFFF),
+             0x92403C20)
+
+    /* ORR X0, X1, #0x20
+     * opc=01(ORR), N=1, immr=59, imms=0
+     *   = 0xB27B0020 */
+    TEST_ONE("orr x0, x1, #0x20",
+             phx_a64_orr_rri(b, X0, X1, 0x20),
+             0xB27B0020)
+
+    /* EOR X0, X1, #0x20
+     * opc=10(EOR), N=1, immr=59, imms=0
+     *   = 0xD27B0020 */
+    TEST_ONE("eor x0, x1, #0x20",
+             phx_a64_eor_rri(b, X0, X1, 0x20),
+             0xD27B0020)
+
+    /* TST X0, #0x20 — ANDS XZR, X0, #0x20
+     * opc=11(ANDS), N=1, immr=59, imms=0, Rn=0, Rd=31(XZR)
+     *   = 0xF27B001F */
+    TEST_ONE("tst x0, #0x20  (ands xzr, x0, #0x20)",
+             phx_a64_tst_ri(b, X0, 0x20),
+             0xF27B001F)
+}
+
+/* ================================================================== */
 /*  Main                                                               */
 /* ================================================================== */
 
@@ -447,6 +564,8 @@ int main(void) {
     test_arith();
     test_branches();
     test_fp_arith();
+    test_flag_setting();
+    test_logical_imm();
 
     printf("\n====================================================\n");
     printf("Results: %d PASS, %d FAIL (out of %d)\n",
