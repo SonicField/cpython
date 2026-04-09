@@ -178,7 +178,8 @@ class Instr {
   // Visit all Registers used by the instruction, whether they're normal
   // operands or other data. Iteration can be stopped early by returning false
   // from the callback.
-  virtual bool visitUses(const std::function<bool(Register*&)>& func);
+  // Non-virtual: dispatches to DeoptBase/Snapshot extensions via opcode (T2-C4).
+  bool visitUses(const std::function<bool(Register*&)>& func);
 
   // Visit all Registers used by the instruction, without allowing mutation of
   // the uses.
@@ -316,7 +317,9 @@ class DeoptBase : public Instr {
   FrameState* frameState() const;
   std::unique_ptr<FrameState> takeFrameState();
 
-  bool visitUses(const std::function<bool(Register*&)>& func) override;
+  // visitUses devirtualized in T2-C4. Called from Instr::visitUses
+  // after operand iteration, to visit DeoptBase-specific registers.
+  bool visitUsesDeopt(const std::function<bool(Register*&)>& func);
 
   // asDeoptBase() devirtualized in T2-C1 — handled by Instr's non-virtual
   // implementation via opcode metadata check.
@@ -3354,7 +3357,9 @@ class INSTR_CLASS(Snapshot, (), Operands<0>) {
     return frame_state_.get();
   }
 
-  bool visitUses(const std::function<bool(Register*&)>& func) override {
+  // visitUses devirtualized in T2-C4 — Snapshot only visits frame_state.
+  // This is called from Instr::visitUses via opcode check.
+  bool visitUses(const std::function<bool(Register*&)>& func) {
     if (auto fs = frameState()) {
       return fs->visitUses(func);
     }

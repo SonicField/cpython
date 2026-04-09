@@ -54,10 +54,7 @@ std::vector<RegState>& DeoptBase::live_regs() {
 // asDeoptBase() devirtualized in T2-C1 — implementation moved to Instr
 // (opcode metadata check). DeoptBase no longer overrides.
 
-bool DeoptBase::visitUses(const std::function<bool(Register*&)>& func) {
-  if (!Instr::visitUses(func)) {
-    return false;
-  }
+bool DeoptBase::visitUsesDeopt(const std::function<bool(Register*&)>& func) {
   if (auto fs = frameState()) {
     if (!fs->visitUses(func)) {
       return false;
@@ -276,12 +273,24 @@ void Instr::SetOperand(std::size_t i, Register* reg) {
 }
 
 bool Instr::visitUses(const std::function<bool(Register*&)>& func) {
+  // Snapshot: only visits frame_state, no operands (T2-C4)
+  if (opcode_ == Opcode::kSnapshot) {
+    return static_cast<Snapshot*>(this)->visitUses(func);
+  }
+
+  // Base: iterate operand array
   auto num_uses = NumOperands();
   for (std::size_t i = 0; i < num_uses; i++) {
     if (!func(operandAt(i))) {
       return false;
     }
   }
+
+  // DeoptBase extension: frame_state + live_regs + guilty_reg
+  if (auto* db = asDeoptBase()) {
+    return db->visitUsesDeopt(func);
+  }
+
   return true;
 }
 
