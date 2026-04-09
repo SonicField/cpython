@@ -25,8 +25,8 @@ lir_instruction_create(LirBasicBlock *basic_block, int opcode, const void *origi
     inst->output_.parent_instr_ = inst;
     inst->output_.type_ = JIT_LIR_OPTYPE_NONE;
     inst->output_.data_type_ = JIT_LIR_DT_OBJECT;
-    inst->inputs_ = (LirOperand **)PyMem_RawMalloc(
-        INITIAL_INPUT_CAPACITY * sizeof(LirOperand *));
+    inst->inputs_ = (LirOperand **)PyMem_RawCalloc(
+        INITIAL_INPUT_CAPACITY, sizeof(LirOperand *));
     inst->num_inputs_ = 0;
     inst->inputs_capacity_ = INITIAL_INPUT_CAPACITY;
     return inst;

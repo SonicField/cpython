@@ -22,8 +22,8 @@ lir_function_new(const void *hir_func) {
         1, sizeof(LirFunction));
     func->hir_func_ = hir_func;
     func->blocks_capacity_ = INITIAL_BLOCK_CAPACITY;
-    func->blocks_ = (LirBasicBlock **)PyMem_RawMalloc(
-        func->blocks_capacity_ * sizeof(LirBasicBlock *));
+    func->blocks_ = (LirBasicBlock **)PyMem_RawCalloc(
+        func->blocks_capacity_, sizeof(LirBasicBlock *));
     func->num_blocks_ = 0;
     func->next_id_ = 0;
     return func;
