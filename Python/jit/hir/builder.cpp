@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/hir/builder.h"
+#include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/jit_config_c.h"
 #include "cinderx/Jit/jit_rt.h"
 
@@ -2867,8 +2868,12 @@ bool HIRBuilder::tryEmitDirectMethodCall(
 
     if (target.builtin_returns_error_code) {
       tc.emit<CheckNeg>(out, out, tc.frame);
-    } else if (out != nullptr && !(target.return_type.couldBe(TPrimitive))) {
-      tc.emit<CheckExc>(out, out, tc.frame);
+    } else if (out != nullptr) {
+      auto ret_ty = target.return_type;
+      if (!hir_type_could_be(reinterpret_cast<const HirType*>(&ret_ty),
+                             reinterpret_cast<const HirType*>(&TPrimitive))) {
+        tc.emit<CheckExc>(out, out, tc.frame);
+      }
     }
     if (target.builtin_returns_void || target.builtin_returns_error_code) {
       // We could update the compiler so that void returning functions either
@@ -5237,7 +5242,8 @@ void HIRBuilder::emitLoadField(
     field_name = "";
   }
   tc.emit<LoadField>(result, receiver, field_name, offset, type);
-  if (type.couldBe(TNullptr)) {
+  if (hir_type_could_be(reinterpret_cast<const HirType*>(&type),
+                        reinterpret_cast<const HirType*>(&TNullptr))) {
     CheckField* cf = tc.emit<CheckField>(result, result, name, tc.frame);
     cf->setGuiltyReg(receiver);
   }
