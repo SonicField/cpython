@@ -9,6 +9,7 @@
 #include "cinderx/Jit/hir/analysis.h"
 #include "cinderx/Jit/hir/dead_code_elimination.h"
 #include "cinderx/Jit/hir/frame_state.h"
+#include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/hir/instr_effects.h"
 #include "cinderx/Jit/hir/phi_elimination.h"
 #include "cinderx/Jit/hir/printer.h"
@@ -477,7 +478,11 @@ std::vector<PredState> collectPredStates(Env& env, BasicBlock* block) {
 // Return true iff the given Register is definitely not a reference-counted
 // value.
 bool isUncounted(const Register* reg) {
-  return !reg->type().couldBe(TMortalObject);
+  auto reg_type = reg->type();
+  auto tmortal = TMortalObject;
+  return !hir_type_could_be(
+      reinterpret_cast<const HirType*>(&reg_type),
+      reinterpret_cast<const HirType*>(&tmortal));
 }
 
 // Insert an Incref of `reg` before `cursor`.
@@ -931,7 +936,11 @@ void fillDeoptLiveRegs(const StateMap& live_regs, Instr& instr) {
     auto ref_kind = rstate.kind();
     for (int i = 0, n = rstate.numCopies(); i < n; ++i) {
       Register* reg = rstate.copy(i);
-      if (reg->type().couldBe(TCPtr)) {
+      auto reg_type_for_cptr = reg->type();
+      auto tcptr = TCPtr;
+      if (hir_type_could_be(
+              reinterpret_cast<const HirType*>(&reg_type_for_cptr),
+              reinterpret_cast<const HirType*>(&tcptr))) {
         // This value will never be de-opted
         continue;
       }

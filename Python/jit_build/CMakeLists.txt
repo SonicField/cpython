@@ -122,6 +122,8 @@ list(FILTER JIT_SOURCES EXCLUDE REGEX ".*/jit_interp/.*")
 list(FILTER JIT_SOURCES EXCLUDE REGEX ".*/jit_support/.*")
 # Exclude phoenix-asm test harness (uses real asmjit for comparison)
 list(FILTER JIT_SOURCES EXCLUDE REGEX ".*/phoenix_asm/test_.*")
+# Exclude standalone C unit tests (have own main(), conflict with python binary)
+list(FILTER JIT_SOURCES EXCLUDE REGEX ".*/hir/test_.*")
 # When not using phoenix-asm AND not on ARM64, exclude phoenix_asm sources.
 # ARM64 always uses the phoenix_asm ARM64 backend (phx_a64_* functions).
 if(NOT PHOENIX_ASM AND NOT "${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "aarch64")

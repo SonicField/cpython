@@ -6,8 +6,11 @@
 #include "cinderx/Jit/dataflow.h"
 #include "cinderx/Jit/hir/function.h"
 #include "cinderx/Jit/hir/hir.h"
+#include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/hir/printer.h"
 #include "cinderx/StaticPython/checked_dict.h"
+
+#include <string.h>
 #include "cinderx/StaticPython/checked_list.h"
 
 #include <fmt/format.h>
@@ -33,34 +36,55 @@ std::ostream& operator<<(std::ostream& os, const RegisterSet& regs) {
   return os << "}";
 }
 
+/* Convert C++ Type to C HirType (layout-compatible, 16-byte copy). */
+static inline HirType to_hir(Type t) {
+  HirType h;
+  memcpy(&h, &t, sizeof(h));
+  return h;
+}
+
 static bool isSingleCInt(Type t) {
-  return t <= TCInt8 || t <= TCUInt8 || t <= TCInt16 || t <= TCUInt16 ||
-      t <= TCInt32 || t <= TCUInt32 || t <= TCInt64 || t <= TCUInt64;
+  HirType h = to_hir(t);
+  return hir_type_is_subtype(h, to_hir(TCInt8)) ||
+      hir_type_is_subtype(h, to_hir(TCUInt8)) ||
+      hir_type_is_subtype(h, to_hir(TCInt16)) ||
+      hir_type_is_subtype(h, to_hir(TCUInt16)) ||
+      hir_type_is_subtype(h, to_hir(TCInt32)) ||
+      hir_type_is_subtype(h, to_hir(TCUInt32)) ||
+      hir_type_is_subtype(h, to_hir(TCInt64)) ||
+      hir_type_is_subtype(h, to_hir(TCUInt64));
 }
 
 bool registerTypeMatches(Type op_type, OperandType expected_type) {
+  HirType op_hir = to_hir(op_type);
   switch (expected_type.kind) {
     case Constraint::kType:
-      return op_type <= expected_type.type;
+      return hir_type_is_subtype(op_hir, to_hir(expected_type.type));
     case Constraint::kTupleExactOrCPtr:
-      return op_type <= TTupleExact || op_type <= TCPtr;
+      return hir_type_is_subtype(op_hir, to_hir(TTupleExact)) ||
+          hir_type_is_subtype(op_hir, to_hir(TCPtr));
     case Constraint::kListOrChkList:
-      return op_type <= TList ||
-          (op_type.hasTypeSpec() &&
-           Ci_CheckedList_TypeCheck(op_type.typeSpec()));
+      return hir_type_is_subtype(op_hir, to_hir(TList)) ||
+          (hir_type_has_type_spec(&op_hir) &&
+           Ci_CheckedList_TypeCheck(hir_type_type_spec(&op_hir)));
     case Constraint::kDictOrChkDict:
-      return op_type <= TDict ||
-          (op_type.hasTypeSpec() &&
-           Ci_CheckedDict_TypeCheck(op_type.typeSpec()));
+      return hir_type_is_subtype(op_hir, to_hir(TDict)) ||
+          (hir_type_has_type_spec(&op_hir) &&
+           Ci_CheckedDict_TypeCheck(hir_type_type_spec(&op_hir)));
     case Constraint::kOptObjectOrCIntOrCBool:
-      return op_type <= TOptObject || op_type <= TCInt || op_type <= TCBool;
+      return hir_type_is_subtype(op_hir, to_hir(TOptObject)) ||
+          hir_type_is_subtype(op_hir, to_hir(TCInt)) ||
+          hir_type_is_subtype(op_hir, to_hir(TCBool));
     case Constraint::kOptObjectOrCInt:
-      return op_type <= TOptObject || op_type <= TCInt;
+      return hir_type_is_subtype(op_hir, to_hir(TOptObject)) ||
+          hir_type_is_subtype(op_hir, to_hir(TCInt));
     case Constraint::kMatchAllAsCInt:
       return isSingleCInt(op_type);
     case Constraint::kMatchAllAsPrimitive:
-      return isSingleCInt(op_type) || op_type <= TCBool ||
-          op_type <= TCDouble || op_type <= TCPtr;
+      return isSingleCInt(op_type) ||
+          hir_type_is_subtype(op_hir, to_hir(TCBool)) ||
+          hir_type_is_subtype(op_hir, to_hir(TCDouble)) ||
+          hir_type_is_subtype(op_hir, to_hir(TCPtr));
   }
   JIT_ABORT("unknown constraint");
 }
