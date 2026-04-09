@@ -31,9 +31,10 @@ LirOperand *
 lir_operand_new_linked(LirInstruction *parent, LirInstruction *def_instr) {
     LirOperand *op = (LirOperand *)PyMem_RawCalloc(1, sizeof(LirOperand));
     op->parent_instr_ = parent;
-    op->is_linked_ = 1;
-    /* def_opnd_ is set by caller via lir_operand_set_linked_instr */
-    op->def_opnd_ = NULL;
+    op->def_opnd_ = (def_instr != NULL)
+        ? (LirOperand *)jit_lir_instr_output(def_instr)
+        : NULL;
+    op->is_linked_ = (op->def_opnd_ != NULL);
     return op;
 }
 

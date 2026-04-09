@@ -776,16 +776,9 @@ class TestJitContainers(unittest.TestCase):
         self._jit_test(f)
 
     def test_dict_fromkeys(self):
-        """Unbound type method call — JIT bails to interpreter for this pattern.
-        Verify no crash and correct output via interpreter fallback."""
         def f():
             return dict.fromkeys(["a", "b", "c"], 0)
-        try:
-            cinderjit.force_compile(f)
-        except RuntimeError:
-            pass  # Expected — unsupported pattern, compilation bails
-        result = f()
-        self.assertEqual(result, {"a": 0, "b": 0, "c": 0})
+        self._jit_test(f)
 
     def test_dict_len(self):
         def f():
