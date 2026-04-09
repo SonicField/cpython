@@ -108,7 +108,7 @@ int jitgen_traverse(PyObject* obj, visitproc visit, void* arg) {
     // FrameHeader and contains func_closure with closure cells that may
     // participate in reference cycles. We must visit it explicitly since
     // _PyFrame_Traverse won't see it.
-    if (getConfig().frame_mode == FrameMode::kLightweight &&
+    if (jit_get_config()->frame_mode == JIT_FRAME_LIGHTWEIGHT &&
         jit_gen->gi_frame_state < FRAME_CLEARED) {
       _PyInterpreterFrame* frame = generatorFrame(jit_gen);
       BorrowedRef<PyFunctionObject> func = jitFrameGetFunction(frame);
@@ -736,7 +736,7 @@ void deopt_jit_gen_object_only(JitGenObject* gen) {
       : &PyCoro_Type;
   Py_DECREF(old_type);
   Py_SET_TYPE(reinterpret_cast<PyObject*>(gen), type);
-  if (getConfig().frame_mode == FrameMode::kLightweight) {
+  if (jit_get_config()->frame_mode == JIT_FRAME_LIGHTWEIGHT) {
     auto frame = generatorFrame(gen);
     if (gen->gi_frame_state != FRAME_CLEARED) {
       jitFrameRemoveReifier(frame);
@@ -773,7 +773,7 @@ bool deopt_jit_gen(PyObject* obj) {
         deopt_meta.inline_depth() == 0,
         "inline functions not supported for generators");
     auto frame = generatorFrame(jit_gen);
-    if (getConfig().frame_mode == FrameMode::kLightweight) {
+    if (jit_get_config()->frame_mode == JIT_FRAME_LIGHTWEIGHT) {
       jitFramePopulateFrame(frame);
     }
     reifyGeneratorFrame(

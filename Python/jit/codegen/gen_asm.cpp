@@ -27,6 +27,7 @@
 #include "cinderx/Jit/codegen/gen_asm_utils.h"
 #include "cinderx/Jit/compiled_function.h"
 #include "cinderx/Jit/config.h"
+#include "cinderx/Jit/jit_config_c.h"
 #include "cinderx/Jit/context.h"
 #include "cinderx/Jit/global_deopt_patcher.h"
 #include "cinderx/Jit/frame.h"
@@ -86,7 +87,7 @@ namespace {
 // PYTHONJITDUMPLIR env var (needed when the C++ FlagProcessor doesn't
 // pick up the flag due to init ordering).
 static bool shouldDumpLir() {
-  if (getConfig().log.dump_lir) {
+  if (jit_get_config()->log.dump_lir) {
     return true;
   }
   static int env_checked = -1;
@@ -231,7 +232,7 @@ CiPyFrameObjType* prepareForDeopt(
 #else
   _PyInterpreterFrame* frame = interpFrameFromThreadState(tstate);
 
-  if (getConfig().frame_mode == FrameMode::kLightweight) {
+  if (jit_get_config()->frame_mode == JIT_FRAME_LIGHTWEIGHT) {
     // Update prev_instr for all frames BEFORE reification.
     // getUnitFrames (called by updatePrevInstr) walks frame->previous
     // and requires isJitFrame() true for each frame. After reification,
@@ -816,7 +817,7 @@ void* generateDeoptTrampoline(bool generator_mode) {
 
   void* result = finalizeCode(a, name);
   JIT_LOGIF(
-      getConfig().log.dump_asm,
+      jit_get_config()->log.dump_asm,
       "Disassembly for {}\n{}",
       name,
       annot.disassemble(result, code));
@@ -1047,7 +1048,7 @@ void* generateDeoptTrampoline(bool generator_mode) {
 
   void* result = finalizeCode(a, name);
   JIT_LOGIF(
-      getConfig().log.dump_asm,
+      jit_get_config()->log.dump_asm,
       "Disassembly for {}\n{}",
       name,
       annot.disassemble(result, code));
@@ -1130,7 +1131,7 @@ void* generateFailedDeferredCompileTrampoline() {
   void* result = finalizeCode(a, name);
 
   JIT_LOGIF(
-      getConfig().log.dump_asm,
+      jit_get_config()->log.dump_asm,
       "Disassembly for {}\n{}",
       name,
       annot.disassemble(result, code));
@@ -1327,7 +1328,7 @@ void* NativeGenerator::getVectorcallEntry() {
   ThrowableErrorHandler eh;
   code.setErrorHandler(&eh);
 
-  if (getConfig().multiple_code_sections) {
+  if (jit_get_config()->multiple_code_sections) {
     Section* cold_text;
     ASM_CHECK_THROW(code.newSection(
         &cold_text,
@@ -3283,7 +3284,7 @@ void NativeGenerator::generateCode(CodeHolder& codeholder) {
   compiled_size_ = codeholder.codeSize();
 
   JIT_LOGIF(
-      getConfig().log.dump_asm,
+      jit_get_config()->log.dump_asm,
       "Disassembly for {}\n{}",
       GetFunction()->fullname,
       env_.annotations.disassemble(code_start_, codeholder));

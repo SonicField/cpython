@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/hir/builder.h"
+#include "cinderx/Jit/jit_config_c.h"
 #include "cinderx/Jit/jit_rt.h"
 
 #include "ceval.h"
@@ -1663,7 +1664,7 @@ void HIRBuilder::translate(
           Type type = Type::fromObject(
               PyTuple_GET_ITEM(code_->co_consts, bc_instr.oparg()));
           tc.emit<LoadConst>(reg, type);
-          if (getConfig().refine_static_python && type < TObject) {
+          if (jit_get_config()->refine_static_python && type < TObject) {
             tc.emit<RefineType>(reg, type, reg);
           }
           tc.emit<Return>(reg, type);
@@ -1686,7 +1687,7 @@ void HIRBuilder::translate(
               "Returning with non-empty block stack");
           Register* reg = tc.frame.stack.pop();
           Type ret_type = preloader_.returnType();
-          if (getConfig().refine_static_python && ret_type < TObject) {
+          if (jit_get_config()->refine_static_python && ret_type < TObject) {
             tc.emit<RefineType>(reg, ret_type, reg);
           }
           tc.emit<Return>(reg, ret_type);
@@ -2597,7 +2598,7 @@ void HIRBuilder::emitBinaryOp(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   auto& stack = tc.frame.stack;
-  if (getConfig().specialized_opcodes) {
+  if (jit_get_config()->specialized_opcodes) {
     // Bug 7 fix: Snapshot BEFORE popping operands — deopt re-executes instruction
     tc.emitSnapshot();
   }
@@ -2608,7 +2609,7 @@ void HIRBuilder::emitBinaryOp(
   int opcode = bc_instr.opcode();
   int oparg = bc_instr.oparg();
 
-  if (getConfig().specialized_opcodes) {
+  if (jit_get_config()->specialized_opcodes) {
     switch (bc_instr.specializedOpcode()) {
       case BINARY_OP_ADD_INT:
       case BINARY_OP_MULTIPLY_INT:
@@ -2919,7 +2920,7 @@ void HIRBuilder::fixStaticReturn(
   if (boxed_ret <= TPrimitive) {
     boxed_ret = boxed_ret.asBoxed();
   }
-  if (getConfig().refine_static_python && boxed_ret < TObject) {
+  if (jit_get_config()->refine_static_python && boxed_ret < TObject) {
     tc.emit<RefineType>(ret_val, boxed_ret, ret_val);
   }
 
@@ -3221,7 +3222,7 @@ void HIRBuilder::emitCompareOp(
   JIT_CHECK(compare_op >= Py_LT, "Invalid op {}", compare_op);
   JIT_CHECK(compare_op <= Py_GE, "Invalid op {}", compare_op);
   auto& stack = tc.frame.stack;
-  if (getConfig().specialized_opcodes) {
+  if (jit_get_config()->specialized_opcodes) {
     // Bug 7 fix: Snapshot BEFORE popping operands — deopt re-executes instruction
     tc.emitSnapshot();
   }
@@ -3230,7 +3231,7 @@ void HIRBuilder::emitCompareOp(
   Register* result = temps_.AllocateStack();
   CompareOp op = static_cast<CompareOp>(compare_op);
 
-  if (getConfig().specialized_opcodes) {
+  if (jit_get_config()->specialized_opcodes) {
     switch (bc_instr.specializedOpcode()) {
       case COMPARE_OP_FLOAT:
         tc.emit<GuardType>(left, TFloatExact, left);
@@ -3419,13 +3420,13 @@ void HIRBuilder::emitLoadAttr(
     }
   }
 
-  if (getConfig().specialized_opcodes) {
+  if (jit_get_config()->specialized_opcodes) {
     // Bug 7 fix: Snapshot BEFORE popping operands — deopt re-executes instruction
     tc.emitSnapshot();
   }
   Register* receiver = tc.frame.stack.pop();
 
-  if (getConfig().specialized_opcodes) {
+  if (jit_get_config()->specialized_opcodes) {
     switch (bc_instr.specializedOpcode()) {
       case LOAD_ATTR_MODULE: {
         // Guard receiver is a module
@@ -4405,7 +4406,7 @@ void HIRBuilder::emitLoadGlobal(
   }
 
   auto try_fast_path = [&] {
-    if (!getConfig().stable_frame) {
+    if (!jit_get_config()->stable_frame) {
       return false;
     }
     BorrowedRef<> value = preloader_.global(name_idx);
@@ -4793,7 +4794,7 @@ void HIRBuilder::emitStoreSubscr(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   auto& stack = tc.frame.stack;
-  if (getConfig().specialized_opcodes) {
+  if (jit_get_config()->specialized_opcodes) {
     // Bug 7 fix: Snapshot BEFORE popping operands — deopt re-executes instruction
     tc.emitSnapshot();
   }
@@ -4801,7 +4802,7 @@ void HIRBuilder::emitStoreSubscr(
   Register* container = stack.pop();
   Register* value = stack.pop();
 
-  if (getConfig().specialized_opcodes) {
+  if (jit_get_config()->specialized_opcodes) {
     switch (bc_instr.specializedOpcode()) {
       case STORE_SUBSCR_DICT:
         tc.emit<GuardType>(container, TDictExact, container);
@@ -4828,7 +4829,7 @@ void HIRBuilder::emitGetIter(
   // guard the iterator type here (once, before the loop) rather than inside
   // the loop body. This enables the Simplify pass to replace generic
   // InvokeIterNext with CallStatic(JITRT_InvokeIterNext).
-  if (getConfig().specialized_opcodes) {
+  if (jit_get_config()->specialized_opcodes) {
     // Bug 7 fix: The Snapshot/GuardType FrameState must reflect the
     // interpreter state AT FOR_ITER (not GET_ITER), because:
     // - GET_ITER already executed successfully (we have a valid iterator)
@@ -4963,7 +4964,7 @@ void HIRBuilder::emitUnpackSequence(
   auto& stack = tc.frame.stack;
   Register* seq = stack.top();
 
-  if (getConfig().specialized_opcodes) {
+  if (jit_get_config()->specialized_opcodes) {
     // Bug 6 fix: ensure dominating Snapshot for specialised-opcode GuardType
     tc.emitSnapshot();
     switch (bc_instr.specializedOpcode()) {

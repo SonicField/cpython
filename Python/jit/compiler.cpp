@@ -4,6 +4,7 @@
 
 #include "cinderx/Common/log.h"
 #include "cinderx/Jit/config.h"
+#include "cinderx/Jit/jit_config_c.h"
 #include "cinderx/Jit/frame.h"
 #include "cinderx/Jit/hir/analysis.h"
 #include "cinderx/Jit/hir/builder.h"
@@ -34,7 +35,7 @@ static void runPass(T&& pass, hir::Function& func, PostPassFunction callback) {
   COMPILE_TIMER(func.compilation_phase_timer,
                 pass.name(),
                 JIT_LOGIF(
-                    getConfig().log.dump_hir_passes,
+                    jit_get_config()->log.dump_hir_passes,
                     "HIR for {} before pass {}:\n{}",
                     func.fullname,
                     pass.name(),
@@ -46,7 +47,7 @@ static void runPass(T&& pass, hir::Function& func, PostPassFunction callback) {
                 callback(func, pass.name(), time_ns);
 
                 JIT_LOGIF(
-                    getConfig().log.dump_hir_passes,
+                    jit_get_config()->log.dump_hir_passes,
                     "HIR for {} after pass {}:\n{}",
                     func.fullname,
                     pass.name(),
@@ -119,7 +120,7 @@ void Compiler::runPasses(
 
   runPass(jit::hir::RefcountInsertion{}, irfunc, callback);
 
-  if (getConfig().dump_hir_stats) {
+  if (jit_get_config()->dump_hir_stats) {
     jit::hir::HIRStats stats;
     runPass(stats, irfunc, callback);
     stats.dump(irfunc.fullname);
@@ -129,7 +130,7 @@ void Compiler::runPasses(
       jit::hir::InsertUpdatePrevInstr{}, PassConfig::kInsertUpdatePrevInstr);
 
   JIT_LOGIF(
-      getConfig().log.dump_hir_final,
+      jit_get_config()->log.dump_hir_final,
       "Optimized HIR for {}:\n{}",
       irfunc.fullname,
       irfunc);
@@ -155,7 +156,7 @@ PassConfig createConfig() {
     }
   };
 
-  auto const& hir_opts = getConfig().hir_opts;
+  auto const& hir_opts = jit_get_config()->hir_opts;
   set(hir_opts.begin_inlined_function_elim,
       PassConfig::kBeginInlinedFunctionElim);
   set(hir_opts.builtin_load_method_elim, PassConfig::kBuiltinLoadMethodElim);
@@ -163,7 +164,7 @@ PassConfig createConfig() {
   set(hir_opts.dynamic_comparison_elim, PassConfig::kDynamicComparisonElim);
   set(hir_opts.guard_type_removal, PassConfig::kGuardTypeRemoval);
   // Inliner currently depends on code objects being stable.
-  set(hir_opts.inliner && getConfig().stable_frame, PassConfig::kInliner);
+  set(hir_opts.inliner && jit_get_config()->stable_frame, PassConfig::kInliner);
   set(hir_opts.insert_update_prev_instr, PassConfig::kInsertUpdatePrevInstr);
   set(hir_opts.phi_elim, PassConfig::kPhiElim);
   set(hir_opts.simplify, PassConfig::kSimplify);
@@ -209,7 +210,7 @@ std::optional<CompiledFunctionData> Compiler::Compile(
     compilation_phase_timer->end();
   }
 
-  if (getConfig().log.dump_hir_initial) {
+  if (jit_get_config()->log.dump_hir_initial) {
     JIT_LOG("Initial HIR for {}:\n{}", fullname, *irfunc);
   }
 
@@ -272,7 +273,7 @@ std::optional<CompiledFunctionData> Compiler::Compile(
   compiled_data.runtime = code_runtime;
   compiled_data.compile_time = compile_time;
   compiled_data.code_patchers = std::move(irfunc->code_patchers);
-  if (getConfig().log.debug) {
+  if (jit_get_config()->log.debug) {
     irfunc->setCompilationPhaseTimer(nullptr);
     compiled_data.irfunc = std::move(irfunc);
   }

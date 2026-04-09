@@ -1,3 +1,4 @@
+#include "cinderx/Jit/jit_config_c.h"
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/hir/insert_update_prev_instr.h"
@@ -140,7 +141,7 @@ void InsertUpdatePrevInstr::Run([[maybe_unused]] Function& func) {
         }
         parents[begin] = parent;
         parent = begin;
-        if (getConfig().frame_mode == FrameMode::kLightweight) {
+        if (jit_get_config()->frame_mode == JIT_FRAME_LIGHTWEIGHT) {
           inited_once = false;
         }
       } else if (instr.IsEndInlinedFunction()) {
@@ -148,7 +149,7 @@ void InsertUpdatePrevInstr::Run([[maybe_unused]] Function& func) {
             parents[static_cast<EndInlinedFunction&>(instr).matchingBegin()];
       }
 
-      if (getConfig().frame_mode == FrameMode::kLightweight) {
+      if (jit_get_config()->frame_mode == JIT_FRAME_LIGHTWEIGHT) {
         // The first LoadEvalBreaker is emitted for the RESUME instruction which
         // indicates when we should update the line number from the instruction
         // - 1 to the first instruction to indicate that the frame is now

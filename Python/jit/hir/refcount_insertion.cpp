@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/hir/refcount_insertion.h"
+#include "cinderx/Jit/jit_config_c.h"
 
 #include "cinderx/Common/log.h"
 #include "cinderx/Jit/bitvector.h"
@@ -18,7 +19,7 @@
 #include <set>
 #include <vector>
 
-#define TRACE(...) JIT_LOGIF(getConfig().log.debug_refcount, __VA_ARGS__)
+#define TRACE(...) JIT_LOGIF(jit_get_config()->log.debug_refcount, __VA_ARGS__)
 
 // This file implements our reference count insertion pass. If this is your
 // first time here, I recommend reading refcount_insertion.md first.
@@ -380,7 +381,7 @@ struct Env {
     std::string bit_names;
     auto add_support_bit = [&](Register* model) {
       if (reg_to_bit.emplace(model, num_support_bits).second) {
-        if (getConfig().log.debug_refcount) {
+        if (jit_get_config()->log.debug_refcount) {
           format_to(bit_names, "  {} => {}\n", num_support_bits, *model);
         }
         num_support_bits++;

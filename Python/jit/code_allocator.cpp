@@ -4,6 +4,7 @@
 
 #include "cinderx/Common/log.h"
 #include "cinderx/Jit/config.h"
+#include "cinderx/Jit/jit_config_c.h"
 #include "cinderx/Jit/threaded_compile.h"
 
 #ifdef WIN32
@@ -73,9 +74,9 @@ bool setHugePages([[maybe_unused]] void* ptr, [[maybe_unused]] size_t size) {
 } // namespace
 
 ICodeAllocator* CodeAllocator::make() {
-  if (getConfig().multiple_code_sections) {
+  if (jit_get_config()->multiple_code_sections) {
     return new MultipleSectionCodeAllocator{};
-  } else if (getConfig().use_huge_pages) {
+  } else if (jit_get_config()->use_huge_pages) {
     return new CodeAllocatorCinder{};
   }
   return new CodeAllocator{};
@@ -224,13 +225,13 @@ MultipleSectionCodeAllocator::~MultipleSectionCodeAllocator() {
  */
 void MultipleSectionCodeAllocator::createSlabs() noexcept {
   size_t hot_section_size =
-      asmjit::Support::alignUp(getConfig().hot_code_section_size, kAllocSize);
+      asmjit::Support::alignUp(jit_get_config()->hot_code_section_size, kAllocSize);
   JIT_CHECK(
       hot_section_size > 0,
       "Hot code section must have non-zero size when using multiple sections.");
   code_section_free_sizes_[CodeSection::kHot] = hot_section_size;
 
-  size_t cold_section_size = getConfig().cold_code_section_size;
+  size_t cold_section_size = jit_get_config()->cold_code_section_size;
   JIT_CHECK(
       cold_section_size > 0,
       "Cold code section must have non-zero size when using multiple "

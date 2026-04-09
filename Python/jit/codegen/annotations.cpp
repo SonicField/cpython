@@ -1,3 +1,4 @@
+#include "cinderx/Jit/jit_config_c.h"
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/codegen/annotations.h"
@@ -16,7 +17,7 @@ std::string Annotations::disassembleSection(
     const asmjit::CodeHolder& code,
     CodeSection section) {
   JIT_CHECK(
-      getConfig().log.dump_asm,
+      jit_get_config()->log.dump_asm,
       "Annotations are not recorded without -X jit-dump-asm");
   auto text = code.sectionByName(codeSectionName(section));
   if (text == nullptr) {

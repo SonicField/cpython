@@ -317,7 +317,7 @@ PyType_Slot framereifier_type_slots[] = {
 
 Ref<> makeFrameReifier([[maybe_unused]] BorrowedRef<PyCodeObject> code) {
 #if PY_VERSION_HEX >= 0x030E0000 && defined(ENABLE_LIGHTWEIGHT_FRAMES)
-  if (getConfig().frame_mode == FrameMode::kLightweight) {
+  if (jit_get_config()->frame_mode == JIT_FRAME_LIGHTWEIGHT) {
     PyObject* reifier =
         PyUnstable_MakeJITExecutable(reifyRunningFrame, code, nullptr);
     if (reifier == nullptr) {
@@ -603,7 +603,7 @@ void jitFrameInit(
     _frameowner owner,
     _PyInterpreterFrame* previous,
     PyObject* reifier) {
-  if (getConfig().frame_mode == FrameMode::kLightweight) {
+  if (jit_get_config()->frame_mode == JIT_FRAME_LIGHTWEIGHT) {
     jitFrameInitLightweight(
         tstate, frame, func, code, owner, previous, reifier);
     return;
@@ -628,7 +628,7 @@ void jitFrameClearExceptCode(_PyInterpreterFrame* frame) {
   // crucial that this frame has been unlinked, and is no longer visible:
   JIT_DCHECK(currentFrame(PyThreadState_Get()) != frame, "wrong current frame");
 
-  if (getConfig().frame_mode != FrameMode::kLightweight) {
+  if (jit_get_config()->frame_mode != JIT_FRAME_LIGHTWEIGHT) {
     _PyFrame_ClearExceptCode(frame);
     return;
   }

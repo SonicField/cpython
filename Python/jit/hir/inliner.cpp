@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/hir/inliner.h"
+#include "cinderx/Jit/jit_config_c.h"
 
 #include "internal/pycore_code.h"
 
@@ -17,7 +18,7 @@
 
 namespace jit::hir {
 
-#define LOG_INLINER(...) JIT_LOGIF(getConfig().log.debug_inliner, __VA_ARGS__)
+#define LOG_INLINER(...) JIT_LOGIF(jit_get_config()->log.debug_inliner, __VA_ARGS__)
 
 namespace {
 
@@ -262,7 +263,7 @@ void inlineFunctionCall(Function& caller, AbstractCall* call_instr) {
 
   // This logging is parsed by jitlist_bisect.py to find inlined functions.
   JIT_LOGIF(
-      getConfig().log.debug_inliner || getConfig().log.debug,
+      jit_get_config()->log.debug_inliner || jit_get_config()->log.debug,
       "Inlining function {} into {}",
       callee_name,
       caller.fullname);
@@ -504,7 +505,7 @@ void InlineFunctionCalls::Run(Function& irfunc) {
     return;
   }
 
-  size_t cost_limit = getConfig().inliner_cost_limit;
+  size_t cost_limit = jit_get_config()->inliner_cost_limit;
   size_t cost = codeCost(irfunc.code);
 
   // Inline as many calls as possible, starting from the top of the function and

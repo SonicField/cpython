@@ -5,6 +5,7 @@
 #include "cinderx/Common/log.h"
 #include "cinderx/Common/util.h"
 #include "cinderx/Jit/config.h"
+#include "cinderx/Jit/jit_config_c.h"
 #include "cinderx/Jit/threaded_compile.h"
 
 #include <fstream>
@@ -201,7 +202,7 @@ int JITList::lookupCode(BorrowedRef<PyCodeObject> code) const {
     return 0;
   }
 
-  if (!getConfig().jit_list.match_line_numbers) {
+  if (!jit_get_config()->jit_list.match_line_numbers) {
     return 1;
   }
 

@@ -9,6 +9,7 @@
 #include "cinderx/Common/log.h"
 #include "cinderx/Common/util.h"
 #include "cinderx/Jit/config.h"
+#include "cinderx/Jit/jit_config_c.h"
 #include "cinderx/Jit/threaded_compile.h"
 
 #include <fmt/format.h>
@@ -480,7 +481,7 @@ void copyJitdumpFile() {
 } // namespace
 
 bool isPreforkCompilationEnabled() {
-  return getConfig().compile_perf_trampoline_prefork;
+  return jit_get_config()->compile_perf_trampoline_prefork;
 }
 
 void registerFunction(

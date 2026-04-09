@@ -3,6 +3,7 @@
 #include "cinderx/Jit/lir/regalloc.h"
 
 #include "cinderx/Common/log.h"
+#include "cinderx/Jit/jit_config_c.h"
 #include "cinderx/Jit/lir/printer.h"
 
 #include <algorithm>
@@ -11,7 +12,7 @@
 
 using namespace jit::codegen;
 
-#define TRACE(...) JIT_LOGIF(getConfig().log.debug_regalloc, __VA_ARGS__)
+#define TRACE(...) JIT_LOGIF(jit_get_config()->log.debug_regalloc, __VA_ARGS__)
 
 namespace jit::lir {
 

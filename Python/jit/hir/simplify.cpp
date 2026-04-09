@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/hir/simplify.h"
+#include "cinderx/Jit/jit_config_c.h"
 
 #include "pycore_long.h"
 
@@ -621,7 +622,7 @@ Register* simplifyLoadTypeMethodCached(Env& env, const LoadMethod* load_meth) {
 }
 
 Register* simplifyLoadMethod(Env& env, const LoadMethod* load_meth) {
-  if (!getConfig().attr_caches) {
+  if (!jit_get_config()->attr_caches) {
     return nullptr;
   }
   Register* receiver = load_meth->GetOperand(0);
@@ -1503,7 +1504,7 @@ Register* simplifyLoadAttr(Env& env, const LoadAttr* load_attr) {
   if (Register* reg = simplifyLoadAttrInstanceReceiver(env, load_attr)) {
     return reg;
   }
-  if (getConfig().attr_caches) {
+  if (jit_get_config()->attr_caches) {
     Register* receiver = load_attr->GetOperand(0);
     Type ty = receiver->type();
     BorrowedRef<PyTypeObject> type{ty.runtimePyType()};
@@ -1563,7 +1564,7 @@ Register* simplifyIsNegativeAndErrOccurred(
 }
 
 Register* simplifyStoreAttr(Env& env, const StoreAttr* store_attr) {
-  if (getConfig().attr_caches) {
+  if (jit_get_config()->attr_caches) {
     return env.emit<StoreAttrCached>(
         store_attr->GetOperand(0),
         store_attr->GetOperand(1),
@@ -2452,7 +2453,7 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
 void Simplify::Run(Function& irfunc) {
   Env env{irfunc};
 
-  const SimplifierConfig& config = getConfig().simplifier;
+  const JitSimplifierCfg& config = jit_get_config()->simplifier;
   size_t new_block_limit = config.new_block_limit;
   size_t iteration_limit = config.iteration_limit;
 

@@ -2,6 +2,7 @@
 
 #include "cinderx/Jit/hir/analysis.h"
 
+#include "cinderx/Jit/jit_config_c.h"
 #include "cinderx/Jit/dataflow.h"
 #include "cinderx/Jit/hir/function.h"
 #include "cinderx/Jit/hir/hir.h"
@@ -209,7 +210,7 @@ RegisterSet DataflowAnalysis::GetOut(const BasicBlock* cfg_block) {
 }
 
 void DataflowAnalysis::dump() {
-  if (!getConfig().log.debug) {
+  if (!jit_get_config()->log.debug) {
     return;
   }
 

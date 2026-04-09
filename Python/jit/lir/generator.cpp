@@ -29,6 +29,7 @@
 #include "cinderx/Jit/codegen/arch.h"
 #include "cinderx/Jit/compiled_function.h"
 #include "cinderx/Jit/config.h"
+#include "cinderx/Jit/jit_config_c.h"
 #include "cinderx/Jit/containers.h"
 #include "cinderx/Jit/context.h"
 #include "cinderx/Jit/frame_header.h"
@@ -605,7 +606,7 @@ void LIRGenerator::MakeDecref(
   bbb.appendInstr(OutInd{instr, kRefcountOffset}, Instruction::kMove, r1);
   bbb.appendBranch(Instruction::kBranchNZ, end_decref);
   bbb.appendBlock(dealloc);
-  if (getConfig().multiple_code_sections) {
+  if (jit_get_config()->multiple_code_sections) {
     dealloc->setSection(codegen::CodeSection::kCold);
   }
 
@@ -1405,7 +1406,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
       }
       case Opcode::kLoadAttrCached: {
         JIT_DCHECK(
-            getConfig().attr_caches,
+            jit_get_config()->attr_caches,
             "Inline caches must be enabled to use LoadAttrCached");
         auto instr = static_cast<const LoadAttrCached*>(&i);
         hir::Register* dst = instr->output();
@@ -1438,7 +1439,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
       }
       case Opcode::kLoadTypeAttrCacheEntryType: {
         JIT_DCHECK(
-            getConfig().attr_caches,
+            jit_get_config()->attr_caches,
             "Inline caches must be enabled to use LoadTypeAttrCacheEntryType");
         auto instr = static_cast<const LoadTypeAttrCacheEntryType*>(&i);
         LoadTypeAttrCache* cache = load_type_attr_caches_.at(instr->cache_id());
@@ -1448,7 +1449,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
       }
       case Opcode::kLoadTypeAttrCacheEntryValue: {
         JIT_DCHECK(
-            getConfig().attr_caches,
+            jit_get_config()->attr_caches,
             "Inline caches must be enabled to use LoadTypeAttrCacheEntryValue");
         auto instr = static_cast<const LoadTypeAttrCacheEntryValue*>(&i);
         LoadTypeAttrCache* cache = load_type_attr_caches_.at(instr->cache_id());
@@ -1458,7 +1459,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
       }
       case Opcode::kFillTypeAttrCache: {
         JIT_DCHECK(
-            getConfig().attr_caches,
+            jit_get_config()->attr_caches,
             "Inline caches must be enabled to use FillTypeAttrCacheItem");
         auto instr = static_cast<const FillTypeAttrCache*>(&i);
         Instruction* name = getNameFromIdx(bbb, instr);
@@ -1472,12 +1473,12 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
       }
       case Opcode::kFillTypeMethodCache: {
         JIT_DCHECK(
-            getConfig().attr_caches,
+            jit_get_config()->attr_caches,
             "Inline caches must be enabled to use FillTypeMethodCache");
         auto instr = static_cast<const FillTypeMethodCache*>(&i);
         Instruction* name = getNameFromIdx(bbb, instr);
         auto cache_entry = load_type_method_caches_.at(instr->cache_id());
-        if (getConfig().collect_attr_cache_stats) {
+        if (jit_get_config()->collect_attr_cache_stats) {
           BorrowedRef<PyCodeObject> code = instr->frameState()->code;
           cache_entry->initCacheStats(
               PyUnicode_AsUTF8(code->co_filename),
@@ -1493,7 +1494,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
       }
       case Opcode::kLoadTypeMethodCacheEntryType: {
         JIT_DCHECK(
-            getConfig().attr_caches,
+            jit_get_config()->attr_caches,
             "Inline caches must be enabled to use "
             "LoadTypeMethodCacheEntryType");
         auto instr = static_cast<const LoadTypeMethodCacheEntryType*>(&i);
@@ -1505,7 +1506,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
       }
       case Opcode::kLoadTypeMethodCacheEntryValue: {
         JIT_DCHECK(
-            getConfig().attr_caches,
+            jit_get_config()->attr_caches,
             "Inline caches must be enabled to use "
             "LoadTypeMethodCacheEntryValue");
         auto instr = static_cast<const LoadTypeMethodCacheEntryValue*>(&i);
@@ -1528,7 +1529,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
       }
       case Opcode::kLoadMethodCached: {
         JIT_DCHECK(
-            getConfig().attr_caches,
+            jit_get_config()->attr_caches,
             "Inline caches must be enabled to use LoadMethodCached");
         auto instr = static_cast<const LoadMethodCached*>(&i);
         hir::Register* dst = instr->output();
@@ -1536,7 +1537,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         Instruction* name = getNameFromIdx(bbb, instr);
         auto cache = getContext()->allocateLoadMethodCache(
             instr->frameState()->code, instr->bytecodeOffset().value());
-        if (getConfig().collect_attr_cache_stats) {
+        if (jit_get_config()->collect_attr_cache_stats) {
           BorrowedRef<PyCodeObject> code = instr->frameState()->code;
           cache->initCacheStats(
               PyUnicode_AsUTF8(code->co_filename),
@@ -1548,7 +1549,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
       }
       case Opcode::kLoadModuleAttrCached: {
         JIT_DCHECK(
-            getConfig().attr_caches,
+            jit_get_config()->attr_caches,
             "Inline caches must be enabled to use LoadModuleAttrCached");
         auto instr = static_cast<const LoadModuleAttrCached*>(&i);
         Instruction* name = getNameFromIdx(bbb, instr);
@@ -1563,7 +1564,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
       }
       case Opcode::kLoadModuleMethodCached: {
         JIT_DCHECK(
-            getConfig().attr_caches,
+            jit_get_config()->attr_caches,
             "Inline caches must be enabled to use LoadModuleMethodCached");
         auto instr = static_cast<const LoadModuleMethodCached*>(&i);
         Instruction* name = getNameFromIdx(bbb, instr);
@@ -1991,7 +1992,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
       }
       case Opcode::kLoadGlobalCached: {
         JIT_DCHECK(
-            getConfig().stable_frame,
+            jit_get_config()->stable_frame,
             "Can only use LoadGlobalCached when frame data is stable across "
             "function calls");
         ThreadedCompileSerialize guard;
@@ -2022,7 +2023,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
       case Opcode::kLoadGlobal: {
         auto instr = static_cast<const LoadGlobal*>(&i);
         Instruction* name = getNameFromIdx(bbb, instr);
-        if (!getConfig().stable_frame) {
+        if (!jit_get_config()->stable_frame) {
           bbb.appendCallInstruction(
               instr->output(),
               JITRT_LoadGlobalFromThreadState,
@@ -2050,7 +2051,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
       }
       case Opcode::kStoreAttrCached: {
         JIT_DCHECK(
-            getConfig().attr_caches,
+            jit_get_config()->attr_caches,
             "Inline caches must be enabled to use StoreAttrCached");
         auto instr = static_cast<const StoreAttrCached*>(&i);
         hir::Register* base = instr->GetOperand(0);
@@ -2770,7 +2771,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         auto qualname = instr->GetOperand(1);
 
         Instruction* globals;
-        if (getConfig().stable_frame) {
+        if (jit_get_config()->stable_frame) {
           BorrowedRef<> obj = instr->frameState()->globals;
           env_->code_rt->addReference(obj);
           globals = bbb.appendInstr(
@@ -2928,7 +2929,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
       }
       case Opcode::kBeginInlinedFunction: {
         JIT_DCHECK(
-            getConfig().stable_frame,
+            jit_get_config()->stable_frame,
             "Inlined code stores references to code objects");
 #if PY_VERSION_HEX < 0x030C0000 || defined(ENABLE_LIGHTWEIGHT_FRAMES)
         auto instr = static_cast<const BeginInlinedFunction*>(&i);
@@ -3200,7 +3201,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         }
 #elif defined(ENABLE_LIGHTWEIGHT_FRAMES)
         JIT_CHECK(
-            getConfig().frame_mode == FrameMode::kLightweight,
+            jit_get_config()->frame_mode == JIT_FRAME_LIGHTWEIGHT,
             "Can only generate LIR for inlined functions in 3.12+ when "
             "lightweight frames are enabled");
 
@@ -3692,7 +3693,7 @@ void LIRGenerator::resolvePhiOperands(
 Instruction* LIRGenerator::getNameFromIdx(
     BasicBlockBuilder& bbb,
     const hir::DeoptBaseWithNameIdx* instr) {
-  if (!getConfig().stable_frame) {
+  if (!jit_get_config()->stable_frame) {
     return bbb.appendInstr(
         OutVReg{},
         Instruction::kCall,

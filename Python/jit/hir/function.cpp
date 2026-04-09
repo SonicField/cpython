@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/hir/function.h"
+#include "cinderx/Jit/jit_config_c.h"
 
 namespace jit::hir {
 
@@ -30,7 +31,7 @@ Function::~Function() {
 void Function::setCode(BorrowedRef<PyCodeObject> code_2) {
   this->code.reset(code_2);
   uses_runtime_func = usesRuntimeFunc(code_2);
-  frameMode = getConfig().frame_mode;
+  frameMode = static_cast<FrameMode>(jit_get_config()->frame_mode);
 }
 
 std::size_t Function::CountInstrs(InstrPredicate pred) const {

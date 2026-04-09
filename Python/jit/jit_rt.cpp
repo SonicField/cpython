@@ -898,7 +898,7 @@ void JITRT_UnlinkFrame([[maybe_unused]] bool unlink_shadow_frame) {
   Py_DECREF(frameExecutable(frame));
 #endif
 
-  if (jit::getConfig().frame_mode != jit::FrameMode::kLightweight) {
+  if (jit_get_config()->frame_mode != JIT_FRAME_LIGHTWEIGHT) {
     Cix_PyThreadState_PopFrame(tstate, frame);
   }
 
@@ -1635,7 +1635,7 @@ static inline PyObject* make_gen_object(
     jit::CodeRuntime* code_rt,
     PyCodeObject* code) {
   PyGenObject* gen = nullptr;
-  if (jit::getConfig().frame_mode == jit::FrameMode::kShadow) {
+  if (jit_get_config()->frame_mode == jit::FrameMode::kShadow) {
     if (mode == MakeGenObjectMode::kCoroutine) {
       gen = reinterpret_cast<PyGenObject*>(CiCoro_New_NoFrame(tstate, code));
     } else if (mode == MakeGenObjectMode::kAsyncGenerator) {

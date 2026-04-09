@@ -1,3 +1,4 @@
+#include "cinderx/Jit/jit_config_c.h"
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/inline_cache.h"
@@ -137,7 +138,7 @@ void maybeCollectCacheStats(
     BorrowedRef<PyTypeObject> tp,
     BorrowedRef<> name,
     CacheMissReason reason) {
-  if (!getConfig().collect_attr_cache_stats) {
+  if (!jit_get_config()->collect_attr_cache_stats) {
     return;
   }
   std::string key =
@@ -760,7 +761,7 @@ void AttributeCache::typeChanged(PyTypeObject*) {
 }
 
 std::span<AttributeMutator> AttributeCache::entries() {
-  return {entries_, getConfig().attr_cache_size};
+  return {entries_, jit_get_config()->attr_cache_size};
 }
 
 AttributeMutator* AttributeCache::findEmptyEntry() {
