@@ -56,7 +56,7 @@ static void verify_hir_type_layout() {
            "C/C++ HirType object spec value divergence");
 
     /* Verify kSpecDouble */
-    Type cpp_dbl = Type(Type::kCDouble, 3.14);
+    Type cpp_dbl = Type::fromCDouble(3.14);
     const HirType *c_dbl = reinterpret_cast<const HirType*>(&cpp_dbl);
     assert(hir_type_has_double_spec(c_dbl) &&
            "C/C++ HirType kSpecDouble divergence");
