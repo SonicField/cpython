@@ -1,11 +1,12 @@
 /* Copyright (c) Meta Platforms, Inc. and affiliates.
  *
- * C-compatible struct definitions for HIR instruction base types.
- * T2-B Phase 1: Layout-compatible with C++ Instr, DeoptBase,
- * CondBranchBase classes. For READING fields from C code only —
- * construction remains C++ until T2-E.
+ * C-compatible struct definitions for HIR instruction types.
+ * T2-B: Layout-compatible with C++ Instr, DeoptBase, etc.
  *
- * Verified via sizeof + offsetof static_asserts in hir_instr_c_verify.cpp.
+ * Uses field-flattening macros instead of struct embedding to avoid
+ * C/C++ tail padding reuse mismatch. C struct embedding pads inner
+ * structs to alignment boundary; C++ inheritance reuses tail padding.
+ * Macros inline the fields directly, matching C++ layout exactly.
  */
 #pragma once
 
@@ -16,64 +17,83 @@
 extern "C" {
 #endif
 
-/* ---- IntrusiveListNode (matches jit::IntrusiveListNode) ---- */
+/* ---- IntrusiveListNode ---- */
 typedef struct HirListNode {
     struct HirListNode *prev;
     struct HirListNode *next;
 } HirListNode;
 
-/* ---- Edge (matches jit::hir::Edge) ---- */
+/* ---- Edge ---- */
 typedef struct HirEdge {
-    void *from;   /* BasicBlock* */
-    void *to;     /* BasicBlock* */
+    void *from;
+    void *to;
 } HirEdge;
 
-/* ---- HirInstr (matches jit::hir::Instr) ----
- * Base struct for all 168 HIR instructions.
- * Offset 0 is the C++ vtable pointer (opaque, do not touch from C). */
+/* ---- Field-flattening macros ----
+ * These inline base class fields into derived structs, avoiding
+ * struct embedding and its tail padding problems. */
+
+#define HIR_INSTR_FIELDS                                    \
+    void *_vtable;              /* C++ vtable pointer */    \
+    HirListNode block_node;     /* intrusive list node */   \
+    int32_t opcode;             /* enum Opcode */           \
+    int32_t bytecode_offset;    /* BCOffset */              \
+    void *output;               /* Register* */             \
+    void *block                 /* BasicBlock* */
+
+#define HIR_DEOPT_FIELDS                                    \
+    HIR_INSTR_FIELDS;                                       \
+    char live_regs_storage[24]; /* std::vector<RegState> */ \
+    void *frame_state;          /* unique_ptr<FrameState> */\
+    void *guilty_reg;           /* Register* */             \
+    int32_t nonce;                                          \
+    int32_t _deopt_pad0;                                    \
+    char descr_storage[32];     /* std::string */           \
+    uint8_t suppress_exception_deopt
+
+/* ---- Base structs (standalone use) ---- */
+
 typedef struct HirInstr {
-    void *_vtable;              /* C++ vtable pointer — do not access */
-    HirListNode block_node;     /* intrusive list node (prev, next) */
-    int32_t opcode;             /* enum Opcode underlying int */
-    int32_t bytecode_offset;    /* BCOffset (wraps int, default -1) */
-    void *output;               /* Register* */
-    void *block;                /* BasicBlock* */
+    HIR_INSTR_FIELDS;
 } HirInstr;
-/* Expected size: 48 bytes */
 
-/* ---- HirDeoptInstr (matches jit::hir::DeoptBase) ----
- * Extends HirInstr. Contains C++ container types as opaque blobs. */
 typedef struct HirDeoptInstr {
-    HirInstr base;
-    /* std::vector<RegState> — opaque 24-byte blob */
-    char live_regs_storage[24];
-    /* std::unique_ptr<FrameState> — 8-byte pointer */
-    void *frame_state;
-    /* Register* */
-    void *guilty_reg;
-    /* int nonce (default -1) */
-    int32_t nonce;
-    /* 4 bytes padding */
-    int32_t _pad0;
-    /* std::string — opaque 32-byte blob (SSO, compiler-dependent) */
-    char descr_storage[32];
-    /* bool */
-    uint8_t suppress_exception_deopt;
-    /* 7 bytes padding */
-    uint8_t _pad1[7];
+    HIR_DEOPT_FIELDS;
 } HirDeoptInstr;
-/* Expected size: 128 bytes (verify with static_assert) */
 
-/* ---- HirCondBranchInstr (matches jit::hir::CondBranchBase) ----
- * Extends HirInstr (NOT DeoptBase). */
 typedef struct HirCondBranchInstr {
-    HirInstr base;
+    HIR_INSTR_FIELDS;
     HirEdge true_edge;
     HirEdge false_edge;
 } HirCondBranchInstr;
-/* Expected size: 80 bytes */
 
-/* ---- Field accessors for HirInstr ---- */
+/* ==== T2-B Batch 2: Simple custom-field instruction structs ====
+ * All add a single int32_t op_ field after their base fields. */
+
+/* ---- Operation-kind types (DeoptBase + enum) ---- */
+typedef struct { HIR_DEOPT_FIELDS; int32_t op; } HirBinaryOp;
+typedef struct { HIR_DEOPT_FIELDS; int32_t op; } HirUnaryOp;
+typedef struct { HIR_DEOPT_FIELDS; int32_t op; } HirInPlaceOp;
+typedef struct { HIR_DEOPT_FIELDS; int32_t op; } HirLongBinaryOp;
+typedef struct { HIR_DEOPT_FIELDS; int32_t op; } HirLongInPlaceOp;
+typedef struct { HIR_DEOPT_FIELDS; int32_t op; } HirFloatBinaryOp;
+
+/* ---- Operation-kind types (Instr + enum) ---- */
+typedef struct { HIR_INSTR_FIELDS; int32_t op; } HirIntBinaryOp;
+typedef struct { HIR_INSTR_FIELDS; int32_t op; } HirDoubleBinaryOp;
+typedef struct { HIR_INSTR_FIELDS; int32_t op; } HirPrimitiveUnaryOp;
+
+/* ---- Comparison types (DeoptBase + enum) ---- */
+typedef struct { HIR_DEOPT_FIELDS; int32_t op; } HirCompare;
+typedef struct { HIR_DEOPT_FIELDS; int32_t op; } HirCompareBool;
+
+/* ---- Comparison types (Instr + enum) ---- */
+typedef struct { HIR_INSTR_FIELDS; int32_t op; } HirFloatCompare;
+typedef struct { HIR_INSTR_FIELDS; int32_t op; } HirLongCompare;
+typedef struct { HIR_INSTR_FIELDS; int32_t op; } HirUnicodeCompare;
+typedef struct { HIR_INSTR_FIELDS; int32_t op; } HirPrimitiveCompare;
+
+/* ---- Field accessors ---- */
 
 static inline int32_t hir_instr_opcode(const HirInstr *instr) {
     return instr->opcode;
@@ -91,66 +111,14 @@ static inline int hir_instr_has_output(const HirInstr *instr) {
     return instr->output != NULL;
 }
 
-/* ---- Field accessors for HirDeoptInstr ---- */
-
-static inline void *hir_deopt_instr_frame_state(const HirDeoptInstr *instr) {
-    return instr->frame_state;
-}
-
-static inline void *hir_deopt_instr_guilty_reg(const HirDeoptInstr *instr) {
-    return instr->guilty_reg;
-}
-
-static inline int32_t hir_deopt_instr_nonce(const HirDeoptInstr *instr) {
-    return instr->nonce;
-}
-
-/* ---- Downcast helpers ---- */
-
+/* Downcast: caller must verify opcode is a DeoptBase subclass first */
 static inline const HirDeoptInstr *hir_instr_as_deopt(const HirInstr *instr) {
-    /* Caller must verify opcode is a DeoptBase subclass first */
     return (const HirDeoptInstr *)instr;
 }
 
 static inline const HirCondBranchInstr *hir_instr_as_condbranch(
         const HirInstr *instr) {
     return (const HirCondBranchInstr *)instr;
-}
-
-/* ==== T2-B Batch 2: Simple custom-field instruction structs ====
- * All add a single int32_t op_ field to their base class.
- * DeoptBase subtypes: sizeof = sizeof(HirDeoptInstr) + 8
- * Instr subtypes: sizeof = sizeof(HirInstr) + 8 */
-
-/* ---- Operation-kind types (DeoptBase + enum) ---- */
-typedef struct { HirDeoptInstr deopt; int32_t op; int32_t _pad; } HirBinaryOp;
-typedef struct { HirDeoptInstr deopt; int32_t op; int32_t _pad; } HirUnaryOp;
-typedef struct { HirDeoptInstr deopt; int32_t op; int32_t _pad; } HirInPlaceOp;
-typedef struct { HirDeoptInstr deopt; int32_t op; int32_t _pad; } HirLongBinaryOp;
-typedef struct { HirDeoptInstr deopt; int32_t op; int32_t _pad; } HirLongInPlaceOp;
-typedef struct { HirDeoptInstr deopt; int32_t op; int32_t _pad; } HirFloatBinaryOp;
-
-/* ---- Operation-kind types (Instr + enum) ---- */
-typedef struct { HirInstr base; int32_t op; int32_t _pad; } HirIntBinaryOp;
-typedef struct { HirInstr base; int32_t op; int32_t _pad; } HirDoubleBinaryOp;
-typedef struct { HirInstr base; int32_t op; int32_t _pad; } HirPrimitiveUnaryOp;
-
-/* ---- Comparison types (DeoptBase + enum) ---- */
-typedef struct { HirDeoptInstr deopt; int32_t op; int32_t _pad; } HirCompare;
-typedef struct { HirDeoptInstr deopt; int32_t op; int32_t _pad; } HirCompareBool;
-
-/* ---- Comparison types (Instr + enum) ---- */
-typedef struct { HirInstr base; int32_t op; int32_t _pad; } HirFloatCompare;
-typedef struct { HirInstr base; int32_t op; int32_t _pad; } HirLongCompare;
-typedef struct { HirInstr base; int32_t op; int32_t _pad; } HirUnicodeCompare;
-typedef struct { HirInstr base; int32_t op; int32_t _pad; } HirPrimitiveCompare;
-
-/* ---- Op accessor (works for all Batch 2 types) ---- */
-static inline int32_t hir_op_kind(const void *instr, int is_deopt) {
-    if (is_deopt) {
-        return ((const HirBinaryOp *)instr)->op;
-    }
-    return ((const HirIntBinaryOp *)instr)->op;
 }
 
 #ifdef __cplusplus

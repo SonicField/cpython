@@ -22,6 +22,9 @@
 #include <unordered_set>
 #include <vector>
 
+/* Forward declaration for T2-B layout verification (friend access) */
+struct HirInstrLayoutVerifier;
+
 namespace jit::hir {
 
 /*
@@ -267,6 +270,7 @@ class Instr {
   Register*& operandAt(std::size_t i);
 
   friend class BasicBlock;
+  friend struct ::HirInstrLayoutVerifier;
 
   // Link this Instr into its block. Meant to be called after inserting it into
   // the appropriate position in the block.
@@ -331,6 +335,8 @@ class DeoptBase : public Instr {
   // replaces the default deopt-on-exception path.
   bool suppressExceptionDeopt() const { return suppress_exception_deopt_; }
   void setSuppressExceptionDeopt(bool v) { suppress_exception_deopt_ = v; }
+
+ friend struct ::HirInstrLayoutVerifier;
 
  private:
   std::vector<RegState> live_regs_;
@@ -2230,6 +2236,8 @@ class CondBranchBase : public Instr {
   }
 
   std::span<const Edge> edges() const override;
+
+  friend struct ::HirInstrLayoutVerifier;
 
  private:
   Edge true_edge_;
