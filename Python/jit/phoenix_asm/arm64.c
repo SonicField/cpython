@@ -216,7 +216,11 @@ uint32_t phx_arm64_encode_logical_imm(uint64_t val, uint32_t width) {
                  *   esz=64: N=1, imms = 0bxxxxxx (no size encoding needed)
                  */
                 uint32_t N = (esz == 64) ? 1u : 0u;
-                uint32_t immr = (uint32_t)r;
+                /* r is how much we rotated the pattern RIGHT to reach
+                 * the canonical form (run at bit 0).  The hardware does
+                 * the INVERSE: it rotates the canonical form RIGHT by
+                 * immr.  So immr = esz - r (mod esz). */
+                uint32_t immr = (uint32_t)((esz - r) % esz);
                 uint32_t imms;
 
                 if (esz == 64) {
