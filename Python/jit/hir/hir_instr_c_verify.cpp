@@ -59,4 +59,16 @@ struct HirInstrLayoutVerifier {
     static_assert(sizeof(HirUnicodeCompare) == sizeof(UnicodeCompare));
     static_assert(sizeof(HirCompareBool) == sizeof(CompareBool));
     static_assert(sizeof(HirPrimitiveCompare) == sizeof(PrimitiveCompare));
+    /* T2-B Batch 3: Type-field struct sizes */
+    static_assert(sizeof(HirLoadConst) == sizeof(LoadConst));
+    static_assert(sizeof(HirRefineType) == sizeof(RefineType));
+    static_assert(sizeof(HirBitCast) == sizeof(BitCast));
+    static_assert(sizeof(HirReturn) == sizeof(Return));
+    static_assert(sizeof(HirUseType) == sizeof(UseType));
+    static_assert(sizeof(HirIntConvert) == sizeof(IntConvert));
+    static_assert(sizeof(HirPrimitiveUnbox) == sizeof(PrimitiveUnbox));
+    static_assert(sizeof(HirGetSecondOutput) == sizeof(GetSecondOutput));
+    static_assert(sizeof(HirStoreArrayItem) == sizeof(StoreArrayItem));
+    static_assert(sizeof(HirLoadArrayItem) == sizeof(LoadArrayItem));
+    static_assert(sizeof(HirPrimitiveBox) == sizeof(PrimitiveBox));
 };

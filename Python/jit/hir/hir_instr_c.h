@@ -10,6 +10,8 @@
  */
 #pragma once
 
+#include "cinderx/Jit/hir/hir_type_c.h"
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -92,6 +94,24 @@ typedef struct { HIR_INSTR_FIELDS; int32_t op; } HirFloatCompare;
 typedef struct { HIR_INSTR_FIELDS; int32_t op; } HirLongCompare;
 typedef struct { HIR_INSTR_FIELDS; int32_t op; } HirUnicodeCompare;
 typedef struct { HIR_INSTR_FIELDS; int32_t op; } HirPrimitiveCompare;
+
+/* ==== T2-B Batch 3: Type-field instruction structs ====
+ * All add one HirType (16 bytes) field after base fields. */
+
+/* ---- Type-field types (Instr + HirType) ---- */
+typedef struct { HIR_INSTR_FIELDS; HirType type; } HirLoadConst;
+typedef struct { HIR_INSTR_FIELDS; HirType type; } HirRefineType;
+typedef struct { HIR_INSTR_FIELDS; HirType type; } HirBitCast;
+typedef struct { HIR_INSTR_FIELDS; HirType type; } HirReturn;
+typedef struct { HIR_INSTR_FIELDS; HirType type; } HirUseType;
+typedef struct { HIR_INSTR_FIELDS; HirType type; } HirIntConvert;
+typedef struct { HIR_INSTR_FIELDS; HirType type; } HirPrimitiveUnbox;
+typedef struct { HIR_INSTR_FIELDS; HirType type; } HirGetSecondOutput;
+typedef struct { HIR_INSTR_FIELDS; HirType type; } HirStoreArrayItem;
+typedef struct { HIR_INSTR_FIELDS; intptr_t offset; HirType type; } HirLoadArrayItem;
+
+/* ---- Type-field types (DeoptBase + HirType) ---- */
+typedef struct { HIR_DEOPT_FIELDS; HirType type; } HirPrimitiveBox;
 
 /* ---- Field accessors ---- */
 
