@@ -1572,8 +1572,9 @@ class INSTR_CLASS(
 
 class InlineBase {
  public:
-  virtual ~InlineBase() = default;
-  virtual int inlineDepth() const = 0;
+  ~InlineBase() = default;
+  // Non-virtual: never called through InlineBase*. Concrete types
+  // provide their own implementation (T2-C7a devirtualization).
 };
 
 // Owns a FrameState that all inlined FrameState-owning instructions will point
@@ -1624,7 +1625,7 @@ class INSTR_CLASS(BeginInlinedFunction, (), Operands<0>), public InlineBase {
     return reifier_;
   }
 
-  int inlineDepth() const override {
+  int inlineDepth() const {
     return caller_state_->inlineDepth() + 1;
   }
 
@@ -1649,7 +1650,7 @@ class INSTR_CLASS(EndInlinedFunction, (), Operands<0>), public InlineBase {
     return begin_;
   }
 
-  int inlineDepth() const override {
+  int inlineDepth() const {
     return inline_depth_;
   }
 

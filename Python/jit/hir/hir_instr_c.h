@@ -132,7 +132,7 @@ typedef struct { HIR_INSTR_FIELDS; int32_t cache_id; } HirLoadTypeMethodCacheEnt
 
 /* ---- Multi-field (Instr base) ---- */
 typedef struct { HIR_INSTR_FIELDS; void *addr; HirType ret_type; } HirCallStatic;
-typedef struct { HIR_INSTR_FIELDS; void *_vtable_inline; void *begin; int32_t inline_depth; } HirEndInlinedFunction;
+typedef struct { HIR_INSTR_FIELDS; void *begin; int32_t inline_depth; } HirEndInlinedFunction;
 typedef struct { HIR_INSTR_FIELDS; int32_t line_no; int32_t _pad; void *parent; } HirUpdatePrevInstr;
 typedef struct { HIR_INSTR_FIELDS; uint32_t arg_idx; int32_t _pad; HirType type; } HirLoadArg;
 
@@ -189,7 +189,7 @@ typedef struct { HIR_INSTR_FIELDS; char name_storage[32]; size_t offset; HirType
 typedef struct { HIR_INSTR_FIELDS; char basic_blocks_storage[24]; } HirPhi;
 
 /* ---- Complex multi-inheritance + container types ---- */
-typedef struct { HIR_INSTR_FIELDS; void *_vtable_inline; void *func; void *reifier; void *caller_state_ptr; char fullname_storage[32]; } HirBeginInlinedFunction;
+typedef struct { HIR_INSTR_FIELDS; void *func; void *reifier; void *caller_state_ptr; char fullname_storage[32]; } HirBeginInlinedFunction;
 
 /* ---- Opaque nested container (ProfiledTypes) ---- */
 typedef struct { HIR_INSTR_FIELDS; char types_storage[24]; } HirHintType;

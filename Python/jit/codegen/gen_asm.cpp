@@ -3653,7 +3653,7 @@ int NativeGenerator::calcInlineStackSize(const hir::Function* func) {
       if (instr.opcode() != Opcode::kBeginInlinedFunction) {
         continue;
       }
-      auto bif = dynamic_cast<const BeginInlinedFunction*>(&instr);
+      auto bif = static_cast<const BeginInlinedFunction*>(&instr);
 #if PY_VERSION_HEX >= 0x030C0000
       int depth = frameHeaderSize(bif->code());
       for (auto frame = bif->callerFrameState(); frame != nullptr;
