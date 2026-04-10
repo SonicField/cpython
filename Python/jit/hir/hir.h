@@ -144,7 +144,9 @@ class Instr {
 
   static void operator delete(void* ptr);
 
-    virtual ~Instr() = default;
+  // Non-virtual destructor (T2-C6). Use Instr::Destroy() for
+  // delete-through-base-pointer sites.
+  ~Instr() = default;
 
   // Destroy an instruction and free its slab-allocated memory.
   // Dispatches to the correct concrete type destructor via opcode,

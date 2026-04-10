@@ -37,7 +37,6 @@ typedef struct HirEdge {
  * struct embedding and its tail padding problems. */
 
 #define HIR_INSTR_FIELDS                                    \
-    void *_vtable;              /* C++ vtable pointer */    \
     HirListNode block_node;     /* intrusive list node */   \
     int32_t opcode;             /* enum Opcode */           \
     int32_t bytecode_offset;    /* BCOffset */              \

@@ -237,9 +237,18 @@ void Instr::operator delete(void* ptr) {
 }
 
 void Instr::Destroy(Instr* instr) {
-  // Virtual destructor handles dispatch; Destroy() is a wrapper for
-  // consistency across all delete-through-base-pointer sites.
-  delete instr;
+  // Compute slab base BEFORE destruction.
+  void* allocation_base = instr->base();
+  // Dispatch to the correct concrete type destructor via opcode (T2-C6).
+#define DESTROY_CASE(opname) \
+  case Opcode::k##opname:   \
+    static_cast<opname*>(instr)->~opname(); \
+    break;
+  switch (instr->opcode()) {
+    FOREACH_OPCODE(DESTROY_CASE)
+  }
+#undef DESTROY_CASE
+  free(allocation_base);
 }
 
 Instr::Instr(Opcode opcode) : opcode_{opcode} {}
@@ -966,7 +975,7 @@ void BasicBlock::insert(Instr* instr, Instr::List::iterator it) {
 void BasicBlock::clear() {
   while (!instrs_.IsEmpty()) {
     Instr* instr = &(instrs_.ExtractFront());
-    delete instr;
+    Instr::Destroy(instr);
   }
 }
 
@@ -1058,7 +1067,7 @@ void BasicBlock::addPhiPredecessor(BasicBlock* old_pred, BasicBlock* new_pred) {
     }
 
     phi->ReplaceWith(*Phi::create(phi->output(), args));
-    delete phi;
+    Instr::Destroy(phi);
   }
 }
 
@@ -1080,7 +1089,7 @@ void BasicBlock::removePhiPredecessor(BasicBlock* old_pred) {
       args[block] = phi->GetOperand(i);
     }
     phi->ReplaceWith(*Phi::create(phi->output(), args));
-    delete phi;
+    Instr::Destroy(phi);
   }
 }
 

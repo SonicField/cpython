@@ -766,7 +766,7 @@ bool removeUnreachableInstructions(Function& func) {
         ++it;
         instrToDelete.unlink();
         remove_reg_uses(&instrToDelete);
-        delete &instrToDelete;
+        Instr::Destroy(&instrToDelete);
       }
     }
     if (block->begin()->IsUnreachable()) {
@@ -826,7 +826,7 @@ bool removeUnreachableInstructions(Function& func) {
           JIT_ABORT("Unexpected branch instruction {}", *branch);
         }
         remove_reg_uses(branch);
-        delete branch;
+        Instr::Destroy(branch);
       }
     }
   }
@@ -869,7 +869,7 @@ void simplifyRedundantCondBranches(CFG* cfg) {
     auto branch = block->appendWithOff<Branch>(
         term->bytecodeOffset(), term->successor(0));
     branch->copyBytecodeOffset(*term);
-    delete term;
+    Instr::Destroy(term);
   }
 }
 

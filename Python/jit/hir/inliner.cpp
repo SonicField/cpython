@@ -328,12 +328,12 @@ void inlineFunctionCall(Function& caller, AbstractCall* call_instr) {
             excess_args,
             *call_instr->instr->frameState());
         instr.ReplaceWith(*make_tuple);
-        delete &instr;
+        Instr::Destroy(&instr);
       } else {
         auto assign =
             Assign::create(instr.output(), call_instr->arg(arg_idx));
         instr.ReplaceWith(*assign);
-        delete &instr;
+        Instr::Destroy(&instr);
       }
     }
   }
@@ -347,9 +347,9 @@ void inlineFunctionCall(Function& caller, AbstractCall* call_instr) {
       Assign::create(call_instr->instr->output(), return_instr->GetOperand(0));
   auto return_branch = Branch::create(tail);
   return_instr->ExpandInto({assign, return_branch});
-  delete return_instr;
+  Instr::Destroy(return_instr);
 
-  delete call_instr->instr;
+  Instr::Destroy(call_instr->instr);
   caller.inline_function_stats.num_inlined_functions++;
 }
 
@@ -384,7 +384,7 @@ void tryEliminateBeginEnd(EndInlinedFunction* end) {
   }
   for (Instr* instr : to_delete) {
     instr->unlink();
-    delete instr;
+    Instr::Destroy(instr);
   }
 }
 
@@ -652,7 +652,7 @@ void InlineFunctionCalls::Run(Function& irfunc) {
             if (inst.IsGetSecondOutput() && inst.GetOperand(0) == call.target) {
               auto* assign = Assign::create(inst.output(), receiver);
               inst.ReplaceWith(*assign);
-              delete &inst;
+              Instr::Destroy(&inst);
             }
           }
         }
@@ -662,7 +662,7 @@ void InlineFunctionCalls::Run(Function& irfunc) {
         Type func_type = Type::fromObject(irfunc.env.addReference(func_obj));
         auto* load_const = LoadConst::create(call.target, func_type);
         target_def->ReplaceWith(*load_const);
-        delete target_def;
+        Instr::Destroy(target_def);
         LOG_INLINER(
             "Eliminated LoadMethodCached for speculative inline of {}",
             funcFullname(call.func));

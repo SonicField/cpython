@@ -2297,13 +2297,13 @@ Register* simplifyVectorCall(Env& env, const VectorCall* instr) {
 
       // We no longer need the IsTruthy instruction.
       is_truthy->unlink();
-      delete is_truthy;
+      Instr::Destroy(is_truthy);
 
       // We also no longer need the Snapshot instructions contained between the
       // IsTruthy instruction and the CondBranch instruction.
       for (auto snapshot : snapshots) {
         snapshot->unlink();
-        delete snapshot;
+        Instr::Destroy(snapshot);
       }
 
       env.emitCondSlowPath(
@@ -2599,7 +2599,7 @@ void Simplify::Run(Function& irfunc) {
         }
 
         instr.unlink();
-        delete &instr;
+        Instr::Destroy(&instr);
 
         if (env.block != &block) {
           // If we're now in a different block, `block' should only contain the

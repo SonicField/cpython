@@ -271,7 +271,7 @@ void hir_instr_copy_bytecode_offset(HirInstr dst, HirInstr src) {
 }
 
 void hir_instr_delete(HirInstr instr) {
-  delete as_instr(instr);
+  Instr::Destroy(as_instr(instr));
 }
 
 /* ---- Operand use visitation ---- */

@@ -1191,7 +1191,7 @@ InlineResult HIRBuilder::inlineHIR(
       auto assign = Assign::create(return_val, instr->GetOperand(0));
       auto branch = Branch::create(exit_block);
       instr->ExpandInto({assign, branch});
-      delete instr;
+      Instr::Destroy(instr);
     }
   }
 

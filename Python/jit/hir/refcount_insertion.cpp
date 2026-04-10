@@ -1241,7 +1241,7 @@ void bindGuards(Function& irfunc) {
   }
   for (auto& snapshot : snapshots) {
     snapshot->unlink();
-    delete snapshot;
+    Instr::Destroy(snapshot);
   }
   DeadCodeElimination{}.Run(irfunc);
 }
@@ -1289,7 +1289,7 @@ void optimizeLongDecrefRuns(Function& irfunc) {
         batch_decref->SetOperand(i, cur_iter->GetOperand(kDecrefOperandIndex));
         auto old_instr = cur_iter++;
         old_instr->unlink();
-        delete &(*old_instr);
+        Instr::Destroy(&(*old_instr));
       }
     }
   }

@@ -74,7 +74,7 @@ bool guardNeeded(const RegUses& uses, Register* new_reg, Type relaxed_type) {
 
 void GuardTypeRemoval::Run(Function& func) {
   RegUses reg_uses = collectDirectRegUses(func);
-  std::vector<std::unique_ptr<Instr>> removed_guards;
+  std::vector<Instr*> removed_guards;
   for (auto& block : func.cfg.blocks) {
     for (auto it = block.begin(); it != block.end();) {
       auto& instr = *it;
@@ -90,7 +90,7 @@ void GuardTypeRemoval::Run(Function& func) {
         auto assign = Assign::create(guard_out, guard_in);
         assign->copyBytecodeOffset(instr);
         instr.ReplaceWith(*assign);
-        removed_guards.emplace_back(&instr);
+        removed_guards.push_back(&instr);
       }
     }
   }
@@ -98,6 +98,10 @@ void GuardTypeRemoval::Run(Function& func) {
   CopyPropagation{}.Run(func);
   reflowTypes(func);
 
+  // Destroy removed guards AFTER passes complete (T2-C6).
+  for (Instr* guard : removed_guards) {
+    Instr::Destroy(guard);
+  }
 }
 
 } // namespace jit::hir

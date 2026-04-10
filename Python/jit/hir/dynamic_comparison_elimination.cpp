@@ -95,8 +95,8 @@ void DynamicComparisonElimination::Run(Function& irfunc) {
       truthy->ReplaceWith(*replacement);
 
       truthy_target->unlink();
-      delete truthy_target;
-      delete truthy;
+      Instr::Destroy(truthy_target);
+      Instr::Destroy(truthy);
 
       // There may be zero or more Snapshots between the Compare and the
       // IsTruthy that uses the output of the Compare (which we want to delete).
@@ -104,7 +104,7 @@ void DynamicComparisonElimination::Run(Function& irfunc) {
       // its use of the dead intermediate value should be deleted.
       for (auto snapshot : snapshots) {
         snapshot->unlink();
-        delete snapshot;
+        Instr::Destroy(snapshot);
       }
     }
   }

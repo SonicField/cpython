@@ -211,9 +211,9 @@ bool tryEliminateLoadMethod(Function& irfunc, MethodInvoke& invoke) {
   invoke.get_instance->ReplaceWith(
       *Assign::create(invoke.get_instance->output(), receiver));
   invoke.call_method->ReplaceWith(*call_static);
-  delete invoke.load_method;
-  delete invoke.get_instance;
-  delete invoke.call_method;
+  Instr::Destroy(invoke.load_method);
+  Instr::Destroy(invoke.get_instance);
+  Instr::Destroy(invoke.call_method);
   return true;
 }
 
