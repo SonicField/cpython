@@ -1107,6 +1107,7 @@ class INSTR_CLASS(Phi, (TTop), HasOutput, Operands<>) {
   void setArgs(const std::unordered_map<BasicBlock*, Register*>& args);
 
  private:
+  friend struct ::HirInstrLayoutVerifier;
   // List of incoming blocks, sorted by ascending block ID.
   std::vector<BasicBlock*> basic_blocks_;
 };
@@ -1394,6 +1395,7 @@ class INSTR_CLASS(LoadField, (TOptObject), HasOutput, Operands<1>) {
   }
 
  private:
+  friend struct ::HirInstrLayoutVerifier;
   std::string name_;
   std::size_t offset_;
   Type type_;
@@ -1448,6 +1450,7 @@ class INSTR_CLASS(StoreField, (TObject, TTop, TOptObject), Operands<3>) {
   }
 
  private:
+  friend struct ::HirInstrLayoutVerifier;
   std::string name_;
   std::size_t offset_;
   Type type_;
@@ -1617,6 +1620,7 @@ class INSTR_CLASS(BeginInlinedFunction, (), Operands<0>), public InlineBase {
   }
 
  private:
+  friend struct ::HirInstrLayoutVerifier;
   // BeginInlinedFunction must own the FrameState that is used for building the
   // linked list of FrameStates as well as its parent FrameState. The parent is
   // originally owned by the Call instruction, but that gets destroyed.
@@ -3468,6 +3472,7 @@ class INSTR_CLASS(HintType, (TObject), Operands<>) {
   }
 
  private:
+  friend struct ::HirInstrLayoutVerifier;
   ProfiledTypes types_;
 };
 
