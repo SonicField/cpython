@@ -1393,6 +1393,28 @@ gc_collect_main(PyThreadState *tstate, int generation,
         _PyParallelGCState *_par_gc = _PyInterpreterState_GET()->gc.parallel_gc;
         if (_par_gc != NULL && _par_gc->timing_valid) {
             _par_gc->cleanup_end_ns = _PyTime_GetPerfCounter();
+
+            // Hill-climbing adaptive worker count.
+            // Compare this collection's per-object cost against an EMA.
+            // If cost decreased (more workers helped), try more.
+            // If cost increased (overhead dominated), reduce workers.
+            // EMA provides damping to prevent oscillation.
+            int64_t parallel_time = _par_gc->cleanup_end_ns - _par_gc->gc_start_ns;
+            Py_ssize_t candidates = _par_gc->split_vector.count;
+            if (parallel_time > 0 && candidates > 0) {
+                double per_obj = (double)parallel_time / (double)candidates;
+                double prev_ema = _par_gc->ema_per_obj_ns;
+                // EMA update: 0.7 old + 0.3 new (smooth over ~3 collections)
+                _par_gc->ema_per_obj_ns = 0.7 * prev_ema + 0.3 * per_obj;
+                // Hill-climbing: if cost went up vs EMA, reduce workers.
+                // If cost went down, try more workers.
+                if (per_obj > prev_ema * 1.05 && _par_gc->adaptive_workers > 2) {
+                    _par_gc->adaptive_workers--;
+                } else if (per_obj < prev_ema * 0.95
+                           && _par_gc->adaptive_workers < _par_gc->num_workers) {
+                    _par_gc->adaptive_workers++;
+                }
+            }
         }
     }
 #endif

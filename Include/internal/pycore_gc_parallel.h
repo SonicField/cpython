@@ -294,8 +294,13 @@ typedef struct {
     // Python thread state for this worker (created at startup, needed for Py_REF_DEBUG)
     PyThreadState *tstate;
 
-    // Current phase for this worker (set by main thread before barrier)
+    // Current phase for this worker (set by main thread before dispatch)
     _PyGCPhase phase;
+
+    // Per-worker condvar for targeted wakeup (adaptive worker count)
+    PyMUTEX_T wake_mutex;
+    PyCOND_T wake_cond;
+    int wake_flag;  // 0=sleeping, 1=wake up
 
 } _PyParallelGCWorker;
 
@@ -377,6 +382,16 @@ struct _PyParallelGCState {
 
     // Flag indicating parallel GC is enabled
     int enabled;
+
+    // Adaptive worker count — how many workers to wake per collection
+    size_t adaptive_workers;
+    double ema_per_obj_ns;  // EMA of per-object collection cost (for hill-climbing)
+    int dispatch_in_progress;  // Reentrancy guard for condvar dispatch
+
+    // Per-collection done signaling (targeted dispatch)
+    PyMUTEX_T done_mutex;
+    PyCOND_T done_cond;
+    volatile int workers_done_count;  // Protected by done_mutex; volatile prevents -O3 caching
 
     // Statistics for TDD/debugging
     size_t roots_found;                      // Interpreter roots found by mark_alive

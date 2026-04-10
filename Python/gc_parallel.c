@@ -322,15 +322,15 @@ _parallel_gc_worker_thread(void *arg)
     // to ensure all workers are initialized before Start() returns
     _PyGCBarrier_Wait(&par_gc->startup_barrier);
 
-    // Main worker loop
-    // IMPORTANT: We must wait at mark_barrier BEFORE checking should_exit to avoid
-    // a race condition with _PyGC_ParallelStop(). Without this, there's a window
-    // between startup_barrier and the first mark_barrier where Stop could set
-    // should_exit, causing some workers to skip mark_barrier while the main
-    // thread waits there, resulting in deadlock.
+    // Main worker loop — per-worker condvar dispatch.
     while (1) {
-        // Wait for start signal from main thread (or stop signal)
-        _PyGCBarrier_Wait(&par_gc->mark_barrier);
+        // Wait for wake signal from main thread
+        PyMUTEX_LOCK(&worker->wake_mutex);
+        while (!worker->wake_flag) {
+            PyCOND_WAIT(&worker->wake_cond, &worker->wake_mutex);
+        }
+        worker->wake_flag = 0;
+        PyMUTEX_UNLOCK(&worker->wake_mutex);
 
         // Check if we should exit (signaled during shutdown)
         if (_Py_atomic_load_int(&worker->should_exit)) {
@@ -454,8 +454,10 @@ _parallel_gc_worker_thread(void *arg)
         // =======================================================================
         // Signal completion to main thread
         // =======================================================================
-        // Workers wait on done_barrier until all workers finish
-        _PyGCBarrier_Wait(&par_gc->done_barrier);
+        PyMUTEX_LOCK(&par_gc->done_mutex);
+        par_gc->workers_done_count++;
+        PyCOND_SIGNAL(&par_gc->done_cond);
+        PyMUTEX_UNLOCK(&par_gc->done_mutex);
     }
 
     // Clean up thread-local storage only.
@@ -471,6 +473,55 @@ _parallel_gc_worker_thread(void *arg)
     _Py_tss_tstate = NULL;
     // _Py_tss_interp not available in 3.12
     // Note: worker->tstate is cleaned up by main thread after join
+}
+
+// =============================================================================
+// Thread Pool Lifecycle
+// =============================================================================
+// Adaptive Dispatch: Wake N workers, wait for N completions
+// =============================================================================
+
+// Returns 0 if dispatched, 1 if skipped (reentrant call — caller should
+// fall through to serial path).
+static int
+_PyGC_DispatchAndWait(_PyParallelGCState *par_gc, size_t active_workers)
+{
+    if (active_workers > par_gc->num_workers)
+        active_workers = par_gc->num_workers;
+    if (active_workers < 1)
+        active_workers = 1;
+
+    // Guard against reentrant dispatch. GC can re-enter during cleanup
+    // if a __del__ releases the GIL (e.g. test_trashcan_threads). If a
+    // dispatch is already in progress, fall back to serial — the workers
+    // are busy with the first dispatch.
+    if (_Py_atomic_load_int(&par_gc->dispatch_in_progress)) {
+        return 1;  // Reentrant call — caller should use serial path
+    }
+    _Py_atomic_store_int(&par_gc->dispatch_in_progress, 1);
+
+    // Reset done counter
+    PyMUTEX_LOCK(&par_gc->done_mutex);
+    par_gc->workers_done_count = 0;
+    PyMUTEX_UNLOCK(&par_gc->done_mutex);
+
+    // Wake only active workers
+    for (size_t i = 0; i < active_workers; i++) {
+        PyMUTEX_LOCK(&par_gc->workers[i].wake_mutex);
+        par_gc->workers[i].wake_flag = 1;
+        PyCOND_SIGNAL(&par_gc->workers[i].wake_cond);
+        PyMUTEX_UNLOCK(&par_gc->workers[i].wake_mutex);
+    }
+
+    // Wait for all active workers to finish
+    PyMUTEX_LOCK(&par_gc->done_mutex);
+    while (par_gc->workers_done_count < (int)active_workers) {
+        PyCOND_WAIT(&par_gc->done_cond, &par_gc->done_mutex);
+    }
+    PyMUTEX_UNLOCK(&par_gc->done_mutex);
+
+    _Py_atomic_store_int(&par_gc->dispatch_in_progress, 0);
+    return 0;  // Dispatched successfully
 }
 
 // =============================================================================
@@ -500,6 +551,19 @@ _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
     par_gc->num_workers = num_workers;
     par_gc->enabled = 1;
     par_gc->num_workers_active = 0;
+    par_gc->adaptive_workers = (num_workers < 4) ? num_workers : 4;
+    par_gc->ema_per_obj_ns = 100.0;  // neutral initial estimate
+    par_gc->dispatch_in_progress = 0;
+
+    // Initialize per-worker condvars
+    for (size_t i = 0; i < num_workers; i++) {
+        PyMUTEX_INIT(&par_gc->workers[i].wake_mutex);
+        PyCOND_INIT(&par_gc->workers[i].wake_cond);
+        par_gc->workers[i].wake_flag = 0;
+    }
+    PyMUTEX_INIT(&par_gc->done_mutex);
+    PyCOND_INIT(&par_gc->done_cond);
+    par_gc->workers_done_count = 0;
 
     // Initialize split vector for work distribution
     if (_PyGCSplitVector_Init(&par_gc->split_vector) < 0) {
@@ -722,10 +786,13 @@ _PyGC_ParallelStop(PyInterpreterState *interp)
         _Py_atomic_store_int(&par_gc->workers[i].should_exit, 1);
     }
 
-    // Wake up workers from mark_barrier so they can check should_exit and exit
-    // Workers check should_exit right after mark_barrier and break if set
-    // They will NOT reach done_barrier when exiting, so we only signal mark_barrier
-    _PyGCBarrier_Wait(&par_gc->mark_barrier);
+    // Wake ALL workers so they can check should_exit and exit
+    for (size_t i = 0; i < par_gc->num_workers; i++) {
+        PyMUTEX_LOCK(&par_gc->workers[i].wake_mutex);
+        par_gc->workers[i].wake_flag = 1;
+        PyCOND_SIGNAL(&par_gc->workers[i].wake_cond);
+        PyMUTEX_UNLOCK(&par_gc->workers[i].wake_mutex);
+    }
 
     // Wait for workers to finish (they exit after seeing should_exit)
     // After joining, clean up each worker's tstate from the main thread.
@@ -1617,18 +1684,27 @@ _PyGC_ParallelMoveUnreachable(
     }
 
     // Divide split vector entries among workers (same pattern as subtract_refs)
-    size_t entries_per_worker = splits->count / par_gc->num_workers;
+    size_t active = par_gc->adaptive_workers;
+    if (active > par_gc->num_workers) active = par_gc->num_workers;
+    if (active < 2) active = 2;
+    size_t entries_per_worker = splits->count / active;
     if (entries_per_worker < 1) {
         entries_per_worker = 1;
     }
 
     size_t workers_to_use = 0;
-    for (size_t i = 0; i < par_gc->num_workers; i++) {
+    // Set IDLE for workers beyond adaptive count
+    for (size_t i = active; i < par_gc->num_workers; i++) {
+        par_gc->workers[i].slice_start = NULL;
+        par_gc->workers[i].slice_end = NULL;
+        par_gc->workers[i].phase = _PyGC_PHASE_IDLE;
+    }
+    for (size_t i = 0; i < active; i++) {
         size_t start_idx = i * entries_per_worker;
         size_t end_idx;
 
-        if (i == par_gc->num_workers - 1) {
-            // Last worker gets everything remaining
+        if (i == active - 1) {
+            // Last active worker gets everything remaining
             end_idx = splits->count - 1;
         } else {
             end_idx = (i + 1) * entries_per_worker;
@@ -1668,10 +1744,11 @@ _PyGC_ParallelMoveUnreachable(
     // (No work-stealing - simplified local-only marking)
 
     // Signal workers to start (they're waiting on mark_barrier)
-    _PyGCBarrier_Wait(&par_gc->mark_barrier);
 
-    // Wait for workers to finish (they'll signal done_barrier when done)
-    _PyGCBarrier_Wait(&par_gc->done_barrier);
+    // Dispatch to workers and wait. If reentrant, fall back to serial.
+    if (_PyGC_DispatchAndWait(par_gc, par_gc->adaptive_workers)) {
+        return 0;  // Reentrant — caller uses serial path
+    }
 
     // Collect stats from workers - set gc_roots_found for segment scanning roots
     // (separate from roots_found/roots_distributed set by mark_alive)
@@ -1912,18 +1989,24 @@ _PyGC_ParallelSubtractRefs(PyInterpreterState *interp, PyGC_Head *base)
 
     // Divide split vector entries among workers
     // Each worker processes a range of split vector entries
-    size_t entries_per_worker = splits->count / par_gc->num_workers;
+    size_t active = par_gc->adaptive_workers;
+    if (active > par_gc->num_workers) active = par_gc->num_workers;
+    if (active < 2) active = 2;
+    size_t entries_per_worker = splits->count / active;
     if (entries_per_worker < 1) {
         entries_per_worker = 1;
     }
 
     size_t workers_to_use = 0;
-    for (size_t i = 0; i < par_gc->num_workers; i++) {
+    // Set IDLE for workers beyond adaptive count
+    for (size_t i = active; i < par_gc->num_workers; i++) {
+        par_gc->workers[i].phase = _PyGC_PHASE_IDLE;
+    }
+    for (size_t i = 0; i < active; i++) {
         size_t start_idx = i * entries_per_worker;
         size_t end_idx;
 
-        if (i == par_gc->num_workers - 1) {
-            // Last worker gets everything remaining
+        if (i == active - 1) {
             end_idx = splits->count - 1;
         } else {
             end_idx = (i + 1) * entries_per_worker;
@@ -1933,11 +2016,10 @@ _PyGC_ParallelSubtractRefs(PyInterpreterState *interp, PyGC_Head *base)
         }
 
         if (start_idx >= splits->count - 1) {
-            // No work for this worker
             par_gc->workers[i].phase = _PyGC_PHASE_IDLE;
         } else {
-            assert(start_idx < splits->count);  // OOB on splits->entries
-            assert(end_idx < splits->count);     // OOB on splits->entries
+            assert(start_idx < splits->count);
+            assert(end_idx < splits->count);
             par_gc->workers[i].slice_start = splits->entries[start_idx];
             par_gc->workers[i].slice_end = splits->entries[end_idx];
             par_gc->workers[i].phase = _PyGC_PHASE_SUBTRACT_REFS;
@@ -1949,11 +2031,10 @@ _PyGC_ParallelSubtractRefs(PyInterpreterState *interp, PyGC_Head *base)
         return 0;  // No workers assigned, fall back to serial
     }
 
-    // Signal workers to start
-    _PyGCBarrier_Wait(&par_gc->mark_barrier);
-
-    // Wait for completion
-    _PyGCBarrier_Wait(&par_gc->done_barrier);
+    // Dispatch to workers and wait. If reentrant, fall back to serial.
+    if (_PyGC_DispatchAndWait(par_gc, par_gc->adaptive_workers)) {
+        return 0;  // Reentrant — caller uses serial path
+    }
 
     // Record end time for subtract_refs phase (only if timing not already captured)
     if (!par_gc->timing_valid) {
@@ -2175,16 +2256,15 @@ _PyGC_ParallelMarkAliveFromRoots(PyInterpreterState *interp, PyGC_Head *containe
     par_gc->steal_sema.tokens = 0;
     PyMUTEX_UNLOCK(&par_gc->steal_sema.lock);
 
-    // Set phase for all workers
+    // Set phase for active workers, IDLE for the rest
     for (size_t i = 0; i < par_gc->num_workers; i++) {
-        par_gc->workers[i].phase = _PyGC_PHASE_MARK;
+        par_gc->workers[i].phase = (i < par_gc->adaptive_workers)
+            ? _PyGC_PHASE_MARK : _PyGC_PHASE_IDLE;
     }
 
-    // Signal workers to start
-    _PyGCBarrier_Wait(&par_gc->mark_barrier);
-
-    // Wait for completion
-    _PyGCBarrier_Wait(&par_gc->done_barrier);
+    if (_PyGC_DispatchAndWait(par_gc, par_gc->adaptive_workers)) {
+        return 0;  // Reentrant — caller uses serial path
+    }
 
     // Record end time for mark_alive phase
     if (!par_gc->timing_valid) {
@@ -2236,17 +2316,15 @@ _PyGC_ParallelMarkAliveFromQueue(PyInterpreterState *interp, PyGC_Head *containe
         return 1;
     }
 
-    // Set phase for all workers to use queue-based processing
+    // Set phase for active workers, IDLE for the rest
     for (size_t i = 0; i < par_gc->num_workers; i++) {
-        par_gc->workers[i].phase = _PyGC_PHASE_MARK_ALIVE_QUEUE;
+        par_gc->workers[i].phase = (i < par_gc->adaptive_workers)
+            ? _PyGC_PHASE_MARK_ALIVE_QUEUE : _PyGC_PHASE_IDLE;
     }
 
-    // Signal workers to start
-    // Producer has already expanded all roots and filled the work queue
-    _PyGCBarrier_Wait(&par_gc->mark_barrier);
-
-    // Wait for completion
-    _PyGCBarrier_Wait(&par_gc->done_barrier);
+    if (_PyGC_DispatchAndWait(par_gc, par_gc->adaptive_workers)) {
+        return 0;  // Reentrant — caller uses serial path
+    }
 
     // Record end time for mark_alive phase
     if (!par_gc->timing_valid) {
