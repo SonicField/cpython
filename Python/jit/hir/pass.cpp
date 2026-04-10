@@ -781,7 +781,9 @@ bool removeUnreachableInstructions(Function& func) {
       for (Instr* branch : interesting_branches) {
         if (branch->IsBranch()) {
           branch->ReplaceWith(*Unreachable::create());
-        } else if (auto cond_branch = dynamic_cast<CondBranchBase*>(branch)) {
+        } else if (branch->IsCondBranch() || branch->IsCondBranchIterNotDone() ||
+                   branch->IsCondBranchCheckType()) {
+          auto cond_branch = static_cast<CondBranchBase*>(branch);
           BasicBlock* target;
           if (cond_branch->false_bb() == block) {
             target = cond_branch->true_bb();

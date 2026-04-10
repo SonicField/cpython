@@ -138,9 +138,18 @@ class Instr {
 
   static constexpr bool has_output = false;
 
+  // Public accessor for C API iteration (T2-C6).
+  IntrusiveListNode* blockNode() { return &block_node_; }
+  const IntrusiveListNode* blockNode() const { return &block_node_; }
+
   static void operator delete(void* ptr);
 
-  virtual ~Instr() = default;
+    virtual ~Instr() = default;
+
+  // Destroy an instruction and free its slab-allocated memory.
+  // Dispatches to the correct concrete type destructor via opcode,
+  // replacing virtual destructor dispatch (T2-C6).
+  static void Destroy(Instr* instr);
 
   // This defines a predicate per opcode that can be used to determine
   // if an instance of an instruction is a particular subclass

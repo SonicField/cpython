@@ -236,6 +236,12 @@ void Instr::operator delete(void* ptr) {
   free(instr->base());
 }
 
+void Instr::Destroy(Instr* instr) {
+  // Virtual destructor handles dispatch; Destroy() is a wrapper for
+  // consistency across all delete-through-base-pointer sites.
+  delete instr;
+}
+
 Instr::Instr(Opcode opcode) : opcode_{opcode} {}
 
 Instr::Instr(const Instr& other)
@@ -702,7 +708,8 @@ std::span<const Edge> CondBranchBase::edges() const {
 }
 
 bool isLoadMethodBase(const Instr& instr) {
-  return dynamic_cast<const LoadMethodBase*>(&instr) != nullptr;
+  return instr.IsLoadMethod() || instr.IsLoadMethodCached() ||
+         instr.IsLoadModuleMethodCached();
 }
 
 bool isAnyLoadMethod(const Instr& instr) {

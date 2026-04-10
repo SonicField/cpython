@@ -97,6 +97,7 @@ void GuardTypeRemoval::Run(Function& func) {
 
   CopyPropagation{}.Run(func);
   reflowTypes(func);
+
 }
 
 } // namespace jit::hir

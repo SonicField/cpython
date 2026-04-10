@@ -294,11 +294,11 @@ void hir_instr_visit_uses(HirInstr instr,
 /* ---- Branch-specific ---- */
 
 HirBasicBlock hir_branch_target(HirInstr branch) {
-  auto* br = dynamic_cast<Branch*>(as_instr(branch));
-  if (br == nullptr) {
+  auto* instr = as_instr(branch);
+  if (!instr->IsBranch()) {
     return nullptr;
   }
-  return br->target();
+  return static_cast<Branch*>(instr)->target();
 }
 
 /* ---- Register accessors ---- */
@@ -314,11 +314,11 @@ HirRegister hir_chase_assign(HirRegister reg) {
 /* ---- Phi-specific ---- */
 
 HirRegister hir_phi_is_trivial(HirInstr phi) {
-  auto* phi_instr = dynamic_cast<Phi*>(as_instr(phi));
-  if (phi_instr == nullptr) {
+  auto* instr = as_instr(phi);
+  if (!instr->IsPhi()) {
     return nullptr;
   }
-  return phi_instr->isTrivial();
+  return static_cast<Phi*>(instr)->isTrivial();
 }
 
 /* ---- Factory functions ---- */

@@ -1210,8 +1210,8 @@ InlineResult HIRBuilder::inlineHIR(
       FrameState* fs = nullptr;
       if (auto db = instr.asDeoptBase()) {
         fs = db->frameState();
-      } else if (instr.opcode() == Opcode::kSnapshot) {
-        auto snap = dynamic_cast<Snapshot*>(&instr);
+      } else if (instr.IsSnapshot()) {
+        auto snap = static_cast<Snapshot*>(&instr);
         fs = snap->frameState();
       }
       if (fs == nullptr || fs->parent == nullptr) {

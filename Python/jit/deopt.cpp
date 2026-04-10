@@ -539,7 +539,8 @@ DeoptMetadata DeoptMetadata::fromInstr(const jit::hir::DeoptBase& instr) {
       meta.reason != DeoptReason::kUnhandledNullField ||
           meta.guilty_value != -1,
       "Guilty value is required for UnhandledNullField deopts");
-  if (auto check = dynamic_cast<const hir::CheckBaseWithName*>(&instr)) {
+  if (instr.IsCheckVar() || instr.IsCheckFreevar() || instr.IsCheckField()) {
+    auto check = static_cast<const hir::CheckBaseWithName*>(&instr);
     meta.eh_name = check->name();
   }
 
