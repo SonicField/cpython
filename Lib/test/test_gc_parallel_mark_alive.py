@@ -9,7 +9,6 @@ Run with: ./python -m pytest Lib/test/test_gc_parallel_mark_alive.py -v
 """
 
 import gc
-import os
 import sys
 import unittest
 import weakref
@@ -794,20 +793,8 @@ class TestAdaptiveControllerAPI(unittest.TestCase):
             self.assertLessEqual(config[key], num_workers)
 
 
-def _load_is_reasonable():
-    """Convergence tests assume CPU is not saturated. Under high load
-    (>50), the controller correctly reduces workers because dispatch
-    overhead dominates — but this inverts the expected gen0 < gen2 ordering."""
-    try:
-        return os.getloadavg()[0] < 50
-    except (OSError, AttributeError):
-        return True  # can't check, assume OK
-
-
 @unittest.skipUnless(_has_adaptive_controller(),
                      "Per-generation adaptive controller not available")
-@unittest.skipUnless(_load_is_reasonable(),
-                     "Machine load too high for convergence tests")
 class TestAdaptiveControllerConvergence(unittest.TestCase):
     """Verify the controller converges differently for different heap sizes.
 
