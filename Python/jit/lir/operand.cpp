@@ -65,10 +65,6 @@ bool OperandBase::isVecD() const {
   return getPhyRegister().is_fp_register();
 }
 
-bool OperandBase::isLastUse() const {
-  return last_use_;
-}
-
 void OperandBase::setLastUse() {
   last_use_ = true;
 }
@@ -78,11 +74,6 @@ void OperandBase::setLastUse() {
 uint64_t OperandBase::getConstant() const {
   if (is_linked_) return def_opnd_->getConstant();
   return value_.constant;
-}
-
-double OperandBase::getFPConstant() const {
-  if (is_linked_) return def_opnd_->getFPConstant();
-  return bit_cast<double>(value_.constant);
 }
 
 PhyLocation OperandBase::getPhyRegister() const {
@@ -150,14 +141,6 @@ BasicBlock* OperandBase::getBasicBlock() const {
       type_,
       rawValue());
   return value_.block;
-}
-
-uint64_t OperandBase::getConstantOrAddress() const {
-  if (is_linked_) return def_opnd_->getConstantOrAddress();
-  if (type_ == kImm) {
-    return value_.constant;
-  }
-  return reinterpret_cast<uint64_t>(getMemoryAddress());
 }
 
 Operand* OperandBase::getDefine() {
@@ -316,13 +299,6 @@ void Operand::setConstant(uint64_t n, DataType data_type) {
   type_ = kImm;
   value_.constant = n;
   data_type_ = data_type;
-}
-
-void Operand::setFPConstant(double n) {
-  clearIndirect();
-  type_ = kImm;
-  data_type_ = kDouble;
-  value_.constant = bit_cast<uint64_t>(n);
 }
 
 void Operand::setPhyRegister(PhyLocation reg) {
