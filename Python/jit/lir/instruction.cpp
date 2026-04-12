@@ -132,20 +132,6 @@ size_t Instruction::getNumInputs() const {
   return num_inputs_;
 }
 
-void Instruction::setNumInputs(size_t n) {
-  if (n > num_inputs_) {
-    ensureInputCapacity(n);
-    for (size_t i = num_inputs_; i < n; i++) {
-      inputs_[i] = nullptr;
-    }
-  } else if (n < num_inputs_) {
-    for (size_t i = n; i < num_inputs_; i++) {
-      delete inputs_[i];
-      inputs_[i] = nullptr;
-    }
-  }
-  num_inputs_ = n;
-}
 
 size_t Instruction::getNumOutputs() const {
   return output_.type() == OperandBase::kNone ? 0 : 1;
