@@ -795,11 +795,11 @@ class TestAdaptiveControllerAPI(unittest.TestCase):
 
 
 def _load_is_reasonable():
-    """Convergence tests assume CPU is not saturated. Under extreme load
-    (>100), the controller correctly reduces workers because dispatch
+    """Convergence tests assume CPU is not saturated. Under high load
+    (>50), the controller correctly reduces workers because dispatch
     overhead dominates — but this inverts the expected gen0 < gen2 ordering."""
     try:
-        return os.getloadavg()[0] < 100
+        return os.getloadavg()[0] < 50
     except (OSError, AttributeError):
         return True  # can't check, assume OK
 
