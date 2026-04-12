@@ -1,5 +1,6 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
+#include "cinderx/Jit/hir/builtin_load_method_elimination_c.h"
 #include "cinderx/Jit/hir/builtin_load_method_elimination.h"
 
 #include "cinderx/Common/py-portability.h"
@@ -271,3 +272,8 @@ void BuiltinLoadMethodElimination::Run(Function& irfunc) {
 }
 
 } // namespace jit::hir
+
+extern "C" void hir_builtin_load_method_elimination_run(HirFunction func) {
+  jit::hir::BuiltinLoadMethodElimination{}.Run(
+      *static_cast<jit::hir::Function*>(func));
+}

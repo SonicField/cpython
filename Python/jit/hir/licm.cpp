@@ -1,5 +1,6 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
+#include "cinderx/Jit/hir/licm_c.h"
 #include "cinderx/Jit/hir/licm.h"
 
 #include "cinderx/Jit/hir/analysis.h"
@@ -207,3 +208,8 @@ void LICM::Run(Function& irfunc) {
 }
 
 } // namespace jit::hir
+
+extern "C" void hir_licm_run(HirFunction func) {
+  jit::hir::LICM{}.Run(
+      *static_cast<jit::hir::Function*>(func));
+}

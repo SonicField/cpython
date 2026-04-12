@@ -1,3 +1,4 @@
+#include "cinderx/Jit/hir/insert_update_prev_instr_c.h"
 #include "cinderx/Jit/jit_config_c.h"
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
@@ -185,3 +186,8 @@ void InsertUpdatePrevInstr::Run([[maybe_unused]] Function& func) {
 }
 
 } // namespace jit::hir
+
+extern "C" void hir_insert_update_prev_instr_run(HirFunction func) {
+  jit::hir::InsertUpdatePrevInstr{}.Run(
+      *static_cast<jit::hir::Function*>(func));
+}

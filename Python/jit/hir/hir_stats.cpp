@@ -1,5 +1,6 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
+#include "cinderx/Jit/hir/hir_stats_c.h"
 #include "cinderx/Jit/hir/hir_stats.h"
 
 namespace jit::hir {
@@ -86,3 +87,8 @@ void HIRStats::Stats::dump(std::string_view function_name) const {
 }
 
 } // namespace jit::hir
+
+extern "C" void hir_stats_run(HirFunction func) {
+  jit::hir::HIRStats{}.Run(
+      *static_cast<jit::hir::Function*>(func));
+}

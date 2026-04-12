@@ -1,5 +1,6 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
+#include "cinderx/Jit/hir/resolve_kwargs_c.h"
 #include "cinderx/Jit/hir/resolve_kwargs.h"
 
 #include "cinderx/Jit/hir/hir.h"
@@ -313,3 +314,8 @@ void ResolveKwargs::Run(Function& irfunc) {
 }
 
 }  // namespace jit::hir
+
+extern "C" void hir_resolve_kwargs_run(HirFunction func) {
+  jit::hir::ResolveKwargs{}.Run(
+      *static_cast<jit::hir::Function*>(func));
+}
