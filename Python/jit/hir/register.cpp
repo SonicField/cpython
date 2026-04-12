@@ -1,18 +1,21 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
+//
+// Minimal C++ stubs — name generation uses snprintf instead of fmt::format.
 
 #include "cinderx/Jit/hir/register.h"
 
 #include "cinderx/Common/log.h"
 
-#include <fmt/format.h>
-
+#include <cstdio>
 #include <ostream>
 
 namespace jit::hir {
 
 const std::string& Register::name() const {
   if (name_.empty()) {
-    name_ = fmt::format("v{}", id_);
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "v%d", id_);
+    name_ = buf;
   }
   return name_;
 }

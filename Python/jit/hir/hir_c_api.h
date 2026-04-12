@@ -16,6 +16,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "cinderx/Jit/hir/hir_type_c.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -191,6 +193,17 @@ HirInstr hir_compare_bool_create(
 /* Get the dominating FrameState for an instruction (opaque, for passing
  * to factory functions). Returns NULL if none. */
 void *hir_get_frame_state(HirInstr instr);
+
+/* ---- Analysis utilities (T2-D Tier 1) ---- */
+
+/* Check if instruction is a passthrough (Assign, BitCast, etc.). */
+int hir_is_passthrough(HirInstr instr);
+
+/* Check if an operand constraint requires exact type match (primitives). */
+int hir_operands_must_match(HirInstr instr, size_t operand_idx);
+
+/* Check if a register's type satisfies the expected operand constraint. */
+int hir_register_type_matches_operand(HirInstr instr, size_t operand_idx, HirRegister reg);
 
 /* ---- Memory effects ---- */
 

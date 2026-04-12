@@ -12,6 +12,7 @@
 
 #include "cinderx/Jit/hir/hir_c_api.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
+#include "cinderx/Jit/hir/analysis.h"
 
 #include "cinderx/Jit/hir/type.h"
 #include "cinderx/Jit/hir/hir.h"
@@ -351,6 +352,23 @@ int hir_type_has_known_destructor(const HirType *t) {
 PyTypeObject *hir_type_runtime_py_type(const HirType *t) {
   const auto& type = *reinterpret_cast<const Type*>(t);
   return type.runtimePyType();
+}
+
+/* ---- Analysis utilities (T2-D Tier 1) ---- */
+
+int hir_is_passthrough(HirInstr instr) {
+  return isPassthrough(*as_instr(instr)) ? 1 : 0;
+}
+
+int hir_operands_must_match(HirInstr instr, size_t operand_idx) {
+  OperandType op_type = as_instr(instr)->GetOperandType(operand_idx);
+  return operandsMustMatch(op_type) ? 1 : 0;
+}
+
+int hir_register_type_matches_operand(HirInstr instr, size_t operand_idx, HirRegister reg) {
+  OperandType expected = as_instr(instr)->GetOperandType(operand_idx);
+  Type reg_type = as_reg(reg)->type();
+  return registerTypeMatches(reg_type, expected) ? 1 : 0;
 }
 
 /* ---- Memory effects ---- */
