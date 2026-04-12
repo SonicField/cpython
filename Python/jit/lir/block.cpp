@@ -51,21 +51,12 @@ static void eraseFromBlockArray(
   }
 }
 
-int BasicBlock::id() const {
-  return id_;
-}
 
 void BasicBlock::setId(int id) {
   id_ = id;
 }
 
-Function* BasicBlock::function() {
-  return func_;
-}
 
-const Function* BasicBlock::function() const {
-  return func_;
-}
 
 void BasicBlock::addSuccessor(BasicBlock* bb) {
   appendToBlockArray(successors_, num_succs_, succs_capacity_, bb);
@@ -89,22 +80,8 @@ ConstBlockSpan BasicBlock::successors() const {
   return {successors_, num_succs_};
 }
 
-void BasicBlock::swapSuccessors() {
-  if (num_succs_ < 2) {
-    return;
-  }
 
-  JIT_DCHECK(num_succs_ == 2, "Should at most have two successors.");
-  std::swap(successors_[0], successors_[1]);
-}
 
-BasicBlock* BasicBlock::getTrueSuccessor() const {
-  return successors_[0];
-}
-
-BasicBlock* BasicBlock::getFalseSuccessor() const {
-  return successors_[1];
-}
 
 BlockSpan BasicBlock::predecessors() {
   return {predecessors_, num_preds_};
@@ -169,29 +146,11 @@ InstrRange BasicBlock::instructions() const {
   return {instr_head_, instr_tail_, num_instrs_};
 }
 
-bool BasicBlock::isEmpty() const {
-  return instr_head_ == nullptr;
-}
 
-size_t BasicBlock::getNumInstrs() const {
-  return num_instrs_;
-}
 
-Instruction* BasicBlock::getFirstInstr() {
-  return instr_head_;
-}
 
-const Instruction* BasicBlock::getFirstInstr() const {
-  return instr_head_;
-}
 
-Instruction* BasicBlock::getLastInstr() {
-  return instr_tail_;
-}
 
-const Instruction* BasicBlock::getLastInstr() const {
-  return instr_tail_;
-}
 
 instr_iter_t BasicBlock::getLastInstrIter() {
   return instr_tail_;
@@ -289,9 +248,5 @@ void BasicBlock::setSection(codegen::CodeSection section) {
   section_ = section;
 }
 
-BasicBlock::instr_iter_t BasicBlock::iterator_to(Instruction* instr) {
-  // With intrusive linked list, the instruction IS the iterator.
-  return instr;
-}
 
 } // namespace jit::lir
