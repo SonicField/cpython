@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/hir/guard_removal.h"
+#include "cinderx/Jit/hir/guard_removal_c.h"
 
 #include "cinderx/Jit/hir/analysis.h"
 #include "cinderx/Jit/hir/copy_propagation.h"
@@ -105,3 +106,8 @@ void GuardTypeRemoval::Run(Function& func) {
 }
 
 } // namespace jit::hir
+
+extern "C" void hir_guard_type_removal_run(HirFunction func) {
+  jit::hir::GuardTypeRemoval{}.Run(
+      *static_cast<jit::hir::Function*>(func));
+}
