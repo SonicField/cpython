@@ -148,6 +148,50 @@ HirInstr hir_load_const_bottom_create(HirRegister output);
 /* Create an Assign instruction (copy register). */
 HirInstr hir_assign_create(HirRegister output, HirRegister value);
 
+/* ---- Instruction predicates (T2-D) ---- */
+int hir_instr_is_condbranch(HirInstr instr);
+int hir_instr_is_istruthy(HirInstr instr);
+int hir_instr_is_compare(HirInstr instr);
+int hir_instr_is_vectorcall(HirInstr instr);
+int hir_instr_opcode(HirInstr instr);
+
+/* ---- Instruction query/mutation (T2-D) ---- */
+
+/* Get the Compare operation kind (CompareOp enum as int). */
+int hir_instr_compare_op(HirInstr instr);
+
+/* Check if instruction is replayable (can be safely re-executed). */
+int hir_instr_is_replayable(HirInstr instr);
+
+/* Check if instruction uses the given register as an input. */
+int hir_instr_uses_reg(HirInstr instr, HirRegister reg);
+
+/* Replace instruction with another (inserts before, unlinks original). */
+void hir_instr_replace_with(HirInstr old_instr, HirInstr new_instr);
+
+/* Get the last instruction in a block. Returns NULL if empty. */
+HirInstr hir_block_back(HirBasicBlock block);
+
+/* Get an instruction's block. */
+HirBasicBlock hir_instr_block(HirInstr instr);
+
+/* Get an instruction's operand by index. */
+HirRegister hir_instr_get_operand(HirInstr instr, size_t i);
+
+/* ---- Factory functions (T2-D) ---- */
+
+/* Create a CompareBool instruction. */
+HirInstr hir_compare_bool_create(
+    HirRegister output, int compare_op,
+    HirRegister left, HirRegister right,
+    HirInstr frame_state_source);
+
+/* ---- Frame state ---- */
+
+/* Get the dominating FrameState for an instruction (opaque, for passing
+ * to factory functions). Returns NULL if none. */
+void *hir_get_frame_state(HirInstr instr);
+
 /* ---- Memory effects ---- */
 
 /* Returns the may_store AliasClass bitmask. 0 means no stores. */

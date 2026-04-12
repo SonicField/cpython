@@ -378,4 +378,87 @@ void hir_reflow_types(HirFunction func) {
   reflowTypes(*as_func(func));
 }
 
+/* ---- Instruction predicates (T2-D) ---- */
+
+int hir_instr_is_condbranch(HirInstr instr) {
+  return as_instr(instr)->IsCondBranch() ? 1 : 0;
+}
+
+int hir_instr_is_istruthy(HirInstr instr) {
+  return as_instr(instr)->IsIsTruthy() ? 1 : 0;
+}
+
+int hir_instr_is_compare(HirInstr instr) {
+  return as_instr(instr)->IsCompare() ? 1 : 0;
+}
+
+int hir_instr_is_vectorcall(HirInstr instr) {
+  return as_instr(instr)->IsVectorCall() ? 1 : 0;
+}
+
+int hir_instr_opcode(HirInstr instr) {
+  return static_cast<int>(as_instr(instr)->opcode());
+}
+
+/* ---- Instruction query/mutation (T2-D) ---- */
+
+int hir_instr_compare_op(HirInstr instr) {
+  auto* i = as_instr(instr);
+  if (i->IsCompare()) {
+    return static_cast<int>(static_cast<const Compare*>(i)->op());
+  }
+  if (i->IsCompareBool()) {
+    return static_cast<int>(static_cast<const CompareBool*>(i)->op());
+  }
+  return -1;
+}
+
+int hir_instr_is_replayable(HirInstr instr) {
+  return as_instr(instr)->isReplayable() ? 1 : 0;
+}
+
+int hir_instr_uses_reg(HirInstr instr, HirRegister reg) {
+  return as_instr(instr)->Uses(as_reg(reg)) ? 1 : 0;
+}
+
+void hir_instr_replace_with(HirInstr old_instr, HirInstr new_instr) {
+  as_instr(old_instr)->ReplaceWith(*as_instr(new_instr));
+}
+
+HirInstr hir_block_back(HirBasicBlock block) {
+  auto* bb = as_block(block);
+  if (bb->empty()) return nullptr;
+  return &bb->back();
+}
+
+HirBasicBlock hir_instr_block(HirInstr instr) {
+  return as_instr(instr)->block();
+}
+
+HirRegister hir_instr_get_operand(HirInstr instr, size_t i) {
+  return as_instr(instr)->GetOperand(i);
+}
+
+/* ---- Factory functions (T2-D) ---- */
+
+HirInstr hir_compare_bool_create(
+    HirRegister output, int compare_op,
+    HirRegister left, HirRegister right,
+    HirInstr frame_state_source) {
+  auto* fs_instr = as_instr(frame_state_source);
+  const FrameState* fs = get_frame_state(*fs_instr);
+  if (fs == nullptr) return nullptr;
+  return CompareBool::create(
+      as_reg(output),
+      static_cast<CompareOp>(compare_op),
+      as_reg(left), as_reg(right),
+      *fs);
+}
+
+/* ---- Frame state ---- */
+
+void *hir_get_frame_state(HirInstr instr) {
+  return const_cast<FrameState*>(get_frame_state(*as_instr(instr)));
+}
+
 } /* extern "C" */
