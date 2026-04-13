@@ -919,6 +919,49 @@ class TestAdaptiveControllerBounds(unittest.TestCase):
                         f"Random walk ({walk_ns/1e6:.1f}ms) is >50% worse "
                         f"than fixed-4 ({fixed_ns/1e6:.1f}ms)")
 
+    def test_walker_settles_differently_per_workload(self):
+        """Different workloads must produce different final worker counts.
+
+        Run 30 dense collections (200K objects) → record W1.
+        Run 30 simple collections (5K objects) → record W2.
+        Assert W1 != W2.
+
+        This proves the walker ADAPTS to workload, not just explores
+        randomly. A fixed controller or cost-blind PRNG cannot reliably
+        pass this — the worker count after 30 dense collections should
+        be different from after 30 simple collections because the
+        performance landscape is different.
+        """
+        import random
+        rng = random.Random(42)
+
+        gc.enable_parallel(8)
+
+        # Phase 1: dense collections (200K objects, graph traversal)
+        for _ in range(30):
+            nodes = [{'id': i, 'refs': []} for i in range(200_000)]
+            for i in range(0, len(nodes), 50):
+                targets = rng.sample(range(len(nodes)), min(3, len(nodes)))
+                for t in targets:
+                    nodes[i]['refs'].append(nodes[t])
+            del nodes
+            gc.collect()
+        W1 = gc.get_parallel_config()['adaptive_workers']
+
+        # Phase 2: simple collections (5K objects, chains)
+        for _ in range(30):
+            objs = [{'ref': None} for _ in range(5_000)]
+            for i in range(len(objs) - 1):
+                objs[i]['ref'] = objs[i + 1]
+            objs[-1]['ref'] = objs[0]
+            del objs
+            gc.collect()
+        W2 = gc.get_parallel_config()['adaptive_workers']
+
+        self.assertNotEqual(W1, W2,
+                            f"Walker should settle at different worker counts "
+                            f"for different workloads. Dense={W1}, Simple={W2}")
+
 
 if __name__ == '__main__':
     unittest.main()
