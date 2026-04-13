@@ -140,6 +140,10 @@ const JitConfig* jit_get_config(void);
  * Changes are synced back to C++ Config. */
 JitConfig* jit_get_mutable_config(void);
 
+/* Invalidate the cached C config so it re-syncs on next jit_get_config().
+ * Call after modifying the C++ Config directly (e.g., flag processing). */
+void jit_config_invalidate(void);
+
 /* State query helpers */
 int jit_is_initialized(void);
 int jit_is_usable(void);
