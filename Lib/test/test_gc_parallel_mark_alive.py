@@ -922,14 +922,14 @@ class TestAdaptiveControllerBounds(unittest.TestCase):
     def test_walker_settles_differently_per_workload(self):
         """Different workloads must produce different final worker counts.
 
-        Run 30 dense collections (200K objects) → record W1.
-        Run 30 simple collections (5K objects) → record W2.
+        Run 50 dense collections (200K objects) → record W1.
+        Run 50 simple collections (5K objects) → record W2.
         Assert W1 != W2.
 
         This proves the walker ADAPTS to workload, not just explores
         randomly. A fixed controller or cost-blind PRNG cannot reliably
-        pass this — the worker count after 30 dense collections should
-        be different from after 30 simple collections because the
+        pass this — the worker count after 50 dense collections should
+        be different from after 50 simple collections because the
         performance landscape is different.
         """
         import random
@@ -938,7 +938,9 @@ class TestAdaptiveControllerBounds(unittest.TestCase):
         gc.enable_parallel(8)
 
         # Phase 1: dense collections (200K objects, graph traversal)
-        for _ in range(30):
+        # 50 collections gives the unbiased (50/50) walker enough steps
+        # to differentiate between workloads reliably.
+        for _ in range(50):
             nodes = [{'id': i, 'refs': []} for i in range(200_000)]
             for i in range(0, len(nodes), 50):
                 targets = rng.sample(range(len(nodes)), min(3, len(nodes)))
@@ -949,7 +951,7 @@ class TestAdaptiveControllerBounds(unittest.TestCase):
         W1 = gc.get_parallel_config()['adaptive_workers']
 
         # Phase 2: simple collections (5K objects, chains)
-        for _ in range(30):
+        for _ in range(50):
             objs = [{'ref': None} for _ in range(5_000)]
             for i in range(len(objs) - 1):
                 objs[i]['ref'] = objs[i + 1]
