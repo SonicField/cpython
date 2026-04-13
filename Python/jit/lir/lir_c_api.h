@@ -13,6 +13,7 @@
 #define JIT_LIR_C_API_H
 
 #include "cinderx/Jit/lir/lir_types_c.h"
+#include "cinderx/Jit/jit_config_c.h"
 #include "jit/phoenix_asm/phoenix_asm.h"
 
 #include <assert.h>
@@ -284,8 +285,10 @@ void *jit_rt_get_alloc_link_gen_frame_addr(void);
 /* Block→Label mapping for branch targets */
 PhxLabel jit_environ_get_block_label(void *env, const LirBasicBlock *block);
 
-/* JIT config accessors */
-int jit_is_frame_mode_lightweight(void);
+/* JIT config accessors — static inline for hot-path performance */
+static inline int jit_is_frame_mode_lightweight(void) {
+    return jit_get_config()->frame_mode == JIT_FRAME_LIGHTWEIGHT ? 1 : 0;
+}
 
 /* LIR inliner (C wrapper around C++ LIRInliner::inlineCalls) */
 int lir_inliner_inline_calls(void *func);

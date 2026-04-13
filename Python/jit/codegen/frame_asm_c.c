@@ -295,12 +295,10 @@ frame_asm_c_inc_ref(void *env, PhxGp obj_reg, PhxGp scratch_reg) {
  * frameHeaderSize — compute frame header size for a function
  * ================================================================ */
 
-/* Forward declaration — defined in frame_header.h as C function */
-int jit_frame_header_size(PyCodeObject *code, int frame_mode_lightweight,
-                          size_t frame_header_sizeof, size_t ptr_size);
+/* jit_frame_header_size is static inline in frame_header.h */
+#include "cinderx/Jit/frame_header.h"
 
-/* Forward declaration — C function in frame_header.c or similar */
-int jit_is_frame_mode_lightweight(void);
+/* jit_is_frame_mode_lightweight is static inline in lir_c_api.h (already included) */
 
 /* FrameHeader size — matches sizeof(jit::FrameHeader).
  * On 3.12+, FrameHeader = union { PyFunctionObject*; uintptr_t rtfs; }

@@ -4,24 +4,25 @@
 
 #include "cinderx/python.h"
 
-/* ---- C API (implemented in frame_header.c) ---- */
+/* ---- C API (static inline for zero overhead on hot paths) ---- */
 #if PY_VERSION_HEX >= 0x030C0000
-#ifdef __cplusplus
-extern "C" {
-#endif
 
-/*
- * Calculate frame header size for a code object.
- * frame_mode_lightweight: nonzero if FrameMode is kLightweight.
- * header_size: sizeof(FrameHeader).
- * frame_obj_size: sizeof(PyObject*).
- */
-int jit_frame_header_size(PyCodeObject *code, int frame_mode_lightweight,
-                          size_t header_size, size_t frame_obj_size);
+#define _JIT_CO_FLAGS_ANY_GEN \
+    (CO_ASYNC_GENERATOR | CO_COROUTINE | CO_GENERATOR | CO_ITERABLE_COROUTINE)
 
-#ifdef __cplusplus
-} /* extern "C" */
-#endif
+static inline int
+jit_frame_header_size(PyCodeObject *code, int frame_mode_lightweight,
+                      size_t header_size, size_t frame_obj_size)
+{
+    if (code->co_flags & _JIT_CO_FLAGS_ANY_GEN) {
+        return 0;
+    }
+    if (frame_mode_lightweight) {
+        return (int)(header_size + frame_obj_size * code->co_framesize);
+    }
+    return 0;
+}
+
 #endif
 
 /* ---- C++ convenience ---- */

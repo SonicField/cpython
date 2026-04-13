@@ -343,10 +343,7 @@ extern "C" LirPhyLocation jit_arch_double_return_loc(void) {
   return phyloc_from(jit::codegen::arch::reg_double_return_loc);
 }
 
-extern "C" int
-jit_is_frame_mode_lightweight(void) {
-  return jit_get_config()->frame_mode == JIT_FRAME_LIGHTWEIGHT ? 1 : 0;
-}
+/* jit_is_frame_mode_lightweight() is now static inline in lir_c_api.h */
 
 extern "C" void*
 jit_environ_get_phx_builder(void* env_ptr) {
