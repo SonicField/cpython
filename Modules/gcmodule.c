@@ -1304,15 +1304,14 @@ gc_collect_main(PyThreadState *tstate, int generation,
     validate_list(old, collecting_clear_unreachable_clear);
 
 #ifdef Py_PARALLEL_GC
-    // Set adaptive_workers for this collection from per-generation state.
-    // Must happen before deduce_unreachable which dispatches parallel work.
+    // Record which generation we're collecting (for API observability).
+    // adaptive_workers is already set by the random walk controller.
     {
         _PyParallelGCState *_par_gc = _PyInterpreterState_GET()->gc.parallel_gc;
         if (_par_gc != NULL && _par_gc->enabled) {
             int gen = generation;
             if (gen < 0) gen = 0;
             if (gen > 2) gen = 2;
-            _par_gc->adaptive_workers = _par_gc->adaptive_workers_by_gen[gen];
             _par_gc->last_generation = gen;
         }
     }
@@ -1403,60 +1402,27 @@ gc_collect_main(PyThreadState *tstate, int generation,
     validate_list(old, collecting_clear_unreachable_clear);
 
 #ifdef Py_PARALLEL_GC
-    // Record cleanup end time and run stochastic hill-climbing controller
+    // Record cleanup end time and run biased constrained random walk controller.
+    // Each collection: with 20% probability, step current±1 workers.
+    // Proactive: always step when dice fires. Good values stick naturally.
     {
         _PyParallelGCState *_par_gc = _PyInterpreterState_GET()->gc.parallel_gc;
         if (_par_gc != NULL && _par_gc->timing_valid) {
             _par_gc->cleanup_end_ns = _PyTime_GetPerfCounter();
 
-            // Stochastic hill-climbing adaptive worker count (per-generation).
-            // Each generation independently tracks its own EMA and worker count.
-            // Epsilon-greedy exploration prevents getting stuck in local optima
-            // when workload characteristics change.
-            int gen = generation;
-            if (gen < 0) gen = 0;
-            if (gen > 2) gen = 2;
-
             int64_t parallel_time = _par_gc->cleanup_end_ns - _par_gc->gc_start_ns;
             Py_ssize_t candidates = _par_gc->split_vector.count;
             if (parallel_time > 0 && candidates > 0) {
-                double per_obj = (double)parallel_time / (double)candidates;
-                double prev_ema = _par_gc->ema_per_obj_ns_by_gen[gen];
+                double cost = (double)parallel_time / (double)candidates;
+                double prev_cost = _par_gc->prev_cost_per_obj_ns;
+                _par_gc->prev_cost_per_obj_ns = cost;
 
-                // Track per-generation collection count (saturates at 255)
-                uint8_t gen_count = _par_gc->collections_by_gen[gen];
-                if (gen_count < 255) {
-                    _par_gc->collections_by_gen[gen] = ++gen_count;
-                }
-
-                // Workload shift detection: 3 consecutive collections with
-                // cost > 2x EMA resets exploration (not a single outlier).
-                // Skip during EMA warmup (first 3 collections per gen).
-                if (gen_count > 3 && per_obj > 2.0 * prev_ema) {
-                    _par_gc->shift_count++;
-                    if (_par_gc->shift_count >= 3) {
-                        _par_gc->epsilon = 0.3;
-                        _par_gc->shift_count = 0;
-                    }
-                } else if (gen_count > 3) {
-                    _par_gc->shift_count = 0;
-                }
-
-                // EMA update: 0.7 old + 0.3 new (smooth over ~3 collections)
-                _par_gc->ema_per_obj_ns_by_gen[gen] = 0.7 * prev_ema + 0.3 * per_obj;
-
-                // Skip explore/exploit during EMA warmup (first 3 collections
-                // per generation). The EMA needs time to converge to the
-                // actual per-object cost before hill-climbing decisions
-                // are meaningful. Without this, cold-start EMA (100.0) vs
-                // real cost (potentially millions) causes the controller
-                // to always decrease workers on first contact with a gen.
-                if (gen_count <= 3) {
+                // Skip adjustment on first collection (no baseline yet)
+                if (prev_cost <= 0.0) {
                     goto controller_done;
                 }
 
-                // Epsilon-greedy: explore or exploit
-                // xorshift32 PRNG for exploration decisions
+                // xorshift32 PRNG
                 uint32_t rng = _par_gc->explore_rng;
                 rng ^= rng << 13;
                 rng ^= rng >> 17;
@@ -1464,32 +1430,21 @@ gc_collect_main(PyThreadState *tstate, int generation,
                 _par_gc->explore_rng = rng;
                 double rand_val = (double)(rng & 0xFFFF) / 65535.0;
 
-                if (rand_val < _par_gc->epsilon) {
-                    // EXPLORE: random worker count in [2, num_workers]
-                    uint32_t range = (uint32_t)(_par_gc->num_workers - 1);
-                    if (range == 0) range = 1;
-                    _par_gc->adaptive_workers_by_gen[gen] = 2 + (rng % range);
-                    if (_par_gc->adaptive_workers_by_gen[gen] > _par_gc->num_workers) {
-                        _par_gc->adaptive_workers_by_gen[gen] = _par_gc->num_workers;
-                    }
-                } else {
-                    // EXPLOIT: hill-climb with 15% dead zone
-                    if (per_obj > prev_ema * 1.15
-                            && _par_gc->adaptive_workers_by_gen[gen] > 2) {
-                        _par_gc->adaptive_workers_by_gen[gen]--;
-                    } else if (per_obj < prev_ema * 0.85
-                            && _par_gc->adaptive_workers_by_gen[gen]
-                               < _par_gc->num_workers) {
-                        _par_gc->adaptive_workers_by_gen[gen]++;
-                    }
-                }
+                // 20% chance to step ±1 (proactive exploration)
+                if (rand_val < 0.2) {
+                    // Bias uphill: 60% chance to increase, 40% to decrease
+                    double dir_val = (double)((rng >> 16) & 0xFFFF) / 65535.0;
+                    int delta = (dir_val < 0.6) ? 1 : -1;
 
-                // Decay epsilon: multiply by 0.95 after non-exploratory collections
-                if (rand_val >= _par_gc->epsilon) {
-                    _par_gc->epsilon *= 0.95;
-                    if (_par_gc->epsilon < 0.05) {
-                        _par_gc->epsilon = 0.05;  // floor: 5% ongoing exploration
+                    // Always step when the dice fires. Good values stick
+                    // because they don't trigger further corrective steps.
+                    size_t trial = _par_gc->adaptive_workers;
+                    if (delta > 0 && trial < _par_gc->num_workers) {
+                        trial++;
+                    } else if (delta < 0 && trial > 2) {
+                        trial--;
                     }
+                    _par_gc->adaptive_workers = trial;
                 }
 controller_done: ;
             }

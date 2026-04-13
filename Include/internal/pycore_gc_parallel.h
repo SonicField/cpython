@@ -384,25 +384,16 @@ struct _PyParallelGCState {
     int enabled;
 
     // Adaptive worker count — how many workers to wake per collection.
-    // adaptive_workers is set at the start of each collection from the
-    // per-generation array, and used by dispatch functions during collection.
+    // Biased constrained random walk: start at min(4, num_workers),
+    // stochastically sample ±1 with uphill bias, clamp to [2, num_workers].
     size_t adaptive_workers;
 
-    // Per-generation adaptive state (0=gen0, 1=gen1, 2=gen2).
-    // Each generation independently hill-climbs to its own optimal worker count.
-    size_t adaptive_workers_by_gen[3];
-    double ema_per_obj_ns_by_gen[3];
+    // Random walk state: previous collection's per-object cost (nanoseconds).
+    // Used to compare trial worker counts against the previous configuration.
+    double prev_cost_per_obj_ns;
 
-    // Stochastic exploration (epsilon-greedy).
-    // epsilon: probability of exploring a random worker count instead of
-    //          following the hill-climbing gradient. Decays over time.
-    // explore_rng: xorshift32 PRNG state for exploration decisions.
-    // shift_count: consecutive collections with cost > 2x EMA.
-    //              After 3 consecutive, reset epsilon (workload shift detected).
-    double epsilon;
+    // xorshift32 PRNG state for stochastic sampling decisions.
     uint32_t explore_rng;
-    uint8_t shift_count;
-    uint8_t collections_by_gen[3];  // Per-gen collection count (saturates at 255)
 
     int last_generation;      // Last generation collected (for API observability)
     int dispatch_in_progress;  // Reentrancy guard for condvar dispatch

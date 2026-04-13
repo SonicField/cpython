@@ -551,16 +551,12 @@ _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
     par_gc->num_workers = num_workers;
     par_gc->enabled = 1;
     par_gc->num_workers_active = 0;
-    // Per-generation adaptive workers: start at min(4, num_workers) for each gen
+    // Biased constrained random walk: start at min(4, num_workers)
     size_t initial_workers = (num_workers < 4) ? num_workers : 4;
-    for (int g = 0; g < 3; g++) {
-        par_gc->adaptive_workers_by_gen[g] = initial_workers;
-        par_gc->ema_per_obj_ns_by_gen[g] = 100.0;  // neutral initial estimate
-    }
     par_gc->adaptive_workers = initial_workers;
+    par_gc->prev_cost_per_obj_ns = 0.0;  // no previous measurement yet
 
-    // Stochastic exploration: seed from GC_TEST_SEED or perf counter
-    par_gc->epsilon = 0.3;  // 30% exploration initially
+    // Seed PRNG from GC_TEST_SEED or perf counter
     const char *seed_env = getenv("GC_TEST_SEED");
     if (seed_env != NULL) {
         par_gc->explore_rng = (uint32_t)atoi(seed_env);
@@ -569,10 +565,6 @@ _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
     }
     if (par_gc->explore_rng == 0) {
         par_gc->explore_rng = 1;  // xorshift32 absorbing state guard
-    }
-    par_gc->shift_count = 0;
-    for (int g = 0; g < 3; g++) {
-        par_gc->collections_by_gen[g] = 0;
     }
 
     par_gc->dispatch_in_progress = 0;
@@ -901,29 +893,15 @@ _PyGC_ParallelGetConfig(PyInterpreterState *interp)
     }
     Py_DECREF(workers_obj);
 
-    // Per-generation adaptive worker counts and epsilon (if enabled)
+    // Adaptive worker count (current random walk position)
     if (par_gc != NULL && par_gc->enabled) {
-        static const char *gen_keys[] = {
-            "adaptive_workers_gen0",
-            "adaptive_workers_gen1",
-            "adaptive_workers_gen2",
-        };
-        for (int g = 0; g < 3; g++) {
-            PyObject *v = PyLong_FromSize_t(par_gc->adaptive_workers_by_gen[g]);
-            if (v == NULL || PyDict_SetItemString(result, gen_keys[g], v) < 0) {
-                Py_XDECREF(v);
-                Py_DECREF(result);
-                return NULL;
-            }
-            Py_DECREF(v);
-        }
-        PyObject *eps = PyFloat_FromDouble(par_gc->epsilon);
-        if (eps == NULL || PyDict_SetItemString(result, "epsilon", eps) < 0) {
-            Py_XDECREF(eps);
+        PyObject *aw = PyLong_FromSize_t(par_gc->adaptive_workers);
+        if (aw == NULL || PyDict_SetItemString(result, "adaptive_workers", aw) < 0) {
+            Py_XDECREF(aw);
             Py_DECREF(result);
             return NULL;
         }
-        Py_DECREF(eps);
+        Py_DECREF(aw);
     }
 
     return result;
@@ -1282,22 +1260,15 @@ _PyGC_ParallelGetStats(PyInterpreterState *interp)
     }
     Py_DECREF(phase_timing);
 
-    // Per-generation EMA values for controller observability
+    // Random walk controller state for observability
     {
-        static const char *ema_keys[] = {
-            "ema_per_obj_ns_gen0",
-            "ema_per_obj_ns_gen1",
-            "ema_per_obj_ns_gen2",
-        };
-        for (int g = 0; g < 3; g++) {
-            PyObject *v = PyFloat_FromDouble(par_gc->ema_per_obj_ns_by_gen[g]);
-            if (v == NULL || PyDict_SetItemString(result, ema_keys[g], v) < 0) {
-                Py_XDECREF(v);
-                Py_DECREF(result);
-                return NULL;
-            }
-            Py_DECREF(v);
+        PyObject *v = PyFloat_FromDouble(par_gc->prev_cost_per_obj_ns);
+        if (v == NULL || PyDict_SetItemString(result, "prev_cost_per_obj_ns", v) < 0) {
+            Py_XDECREF(v);
+            Py_DECREF(result);
+            return NULL;
         }
+        Py_DECREF(v);
     }
 
     // Last generation collected
