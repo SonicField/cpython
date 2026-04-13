@@ -21,6 +21,7 @@
 #include "cinderx/Jit/hir/instr_effects.h"
 #include "cinderx/Jit/hir/pass.h"
 
+#include <cstring>
 #include <vector>
 
 using namespace jit::hir;
@@ -369,6 +370,86 @@ int hir_register_type_matches_operand(HirInstr instr, size_t operand_idx, HirReg
   OperandType expected = as_instr(instr)->GetOperandType(operand_idx);
   Type reg_type = as_reg(reg)->type();
   return registerTypeMatches(reg_type, expected) ? 1 : 0;
+}
+
+int hir_type_matches_operand(HirInstr instr, size_t operand_idx,
+                             const HirType *type) {
+  OperandType expected = as_instr(instr)->GetOperandType(operand_idx);
+  const Type& cpp_type = *reinterpret_cast<const Type*>(type);
+  return registerTypeMatches(cpp_type, expected) ? 1 : 0;
+}
+
+/* ---- Instruction count ---- */
+
+size_t hir_instr_num_operands(HirInstr instr) {
+  return as_instr(instr)->NumOperands();
+}
+
+/* ---- Register type ---- */
+
+HirType hir_register_type(HirRegister reg) {
+  Type cpp_type = as_reg(reg)->type();
+  HirType result;
+  memcpy(&result, &cpp_type, sizeof(HirType));
+  return result;
+}
+
+/* ---- GuardType predicate ---- */
+
+int hir_instr_is_guard_type(HirInstr instr) {
+  return as_instr(instr)->IsGuardType() ? 1 : 0;
+}
+
+/* ---- RegUses (opaque handle) ---- */
+
+HirRegUses hir_collect_reg_uses(HirFunction func) {
+  auto* uses = new RegUses(collectDirectRegUses(*as_func(func)));
+  return static_cast<HirRegUses>(uses);
+}
+
+int hir_reg_uses_contains(HirRegUses uses, HirRegister reg) {
+  auto* map = static_cast<RegUses*>(uses);
+  return map->find(as_reg(reg)) != map->end() ? 1 : 0;
+}
+
+size_t hir_reg_uses_count(HirRegUses uses, HirRegister reg) {
+  auto* map = static_cast<RegUses*>(uses);
+  auto it = map->find(as_reg(reg));
+  if (it == map->end()) return 0;
+  return it->second.size();
+}
+
+HirInstr hir_reg_uses_get(HirRegUses uses, HirRegister reg, size_t idx) {
+  auto* map = static_cast<RegUses*>(uses);
+  auto it = map->find(as_reg(reg));
+  if (it == map->end()) return nullptr;
+  auto& set = it->second;
+  if (idx >= set.size()) return nullptr;
+  auto sit = set.begin();
+  for (size_t i = 0; i < idx; i++) ++sit;
+  return *sit;
+}
+
+void hir_reg_uses_destroy(HirRegUses uses) {
+  delete static_cast<RegUses*>(uses);
+}
+
+/* ---- outputType with override ---- */
+
+HirType hir_output_type_with_override(HirInstr instr,
+                                      size_t override_idx,
+                                      const HirType *override_type) {
+  const Type& cpp_override = *reinterpret_cast<const Type*>(override_type);
+  Instr* i = as_instr(instr);
+  Type result = outputType(*i, [&](std::size_t ind) -> Type {
+    if (ind == override_idx) {
+      return cpp_override;
+    }
+    return i->GetOperand(ind)->type();
+  });
+  HirType c_result;
+  memcpy(&c_result, &result, sizeof(HirType));
+  return c_result;
 }
 
 /* ---- Memory effects ---- */

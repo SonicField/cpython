@@ -205,6 +205,54 @@ int hir_operands_must_match(HirInstr instr, size_t operand_idx);
 /* Check if a register's type satisfies the expected operand constraint. */
 int hir_register_type_matches_operand(HirInstr instr, size_t operand_idx, HirRegister reg);
 
+/* Check if a given type satisfies the expected operand constraint.
+ * Like hir_register_type_matches_operand but takes an explicit type
+ * instead of reading from the register. */
+int hir_type_matches_operand(HirInstr instr, size_t operand_idx,
+                             const HirType *type);
+
+/* ---- Instruction count ---- */
+
+/* Number of operands. */
+size_t hir_instr_num_operands(HirInstr instr);
+
+/* ---- Register type ---- */
+
+/* Get the type of a register (returned by value as HirType). */
+HirType hir_register_type(HirRegister reg);
+
+/* ---- GuardType predicate ---- */
+
+int hir_instr_is_guard_type(HirInstr instr);
+
+/* ---- RegUses (opaque handle) ---- */
+typedef void* HirRegUses;
+
+/* Collect direct register uses for all registers in a function.
+ * Caller must destroy with hir_reg_uses_destroy. */
+HirRegUses hir_collect_reg_uses(HirFunction func);
+
+/* Returns 1 if the register has any uses. */
+int hir_reg_uses_contains(HirRegUses uses, HirRegister reg);
+
+/* Number of instructions that use this register. */
+size_t hir_reg_uses_count(HirRegUses uses, HirRegister reg);
+
+/* Get the i-th instruction that uses this register. */
+HirInstr hir_reg_uses_get(HirRegUses uses, HirRegister reg, size_t idx);
+
+/* Free the RegUses handle. */
+void hir_reg_uses_destroy(HirRegUses uses);
+
+/* ---- outputType with override ---- */
+
+/* Compute the output type of an instruction, but override one operand's
+ * type at override_idx with override_type. Used by guard removal to
+ * compute what the output type would be if a guard were relaxed. */
+HirType hir_output_type_with_override(HirInstr instr,
+                                      size_t override_idx,
+                                      const HirType *override_type);
+
 /* ---- Memory effects ---- */
 
 /* Returns the may_store AliasClass bitmask. 0 means no stores. */

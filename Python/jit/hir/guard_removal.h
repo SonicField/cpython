@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "cinderx/Jit/hir/guard_removal_c.h"
 #include "cinderx/Jit/hir/pass.h"
 
 namespace jit::hir {
