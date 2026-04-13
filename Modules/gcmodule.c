@@ -1432,9 +1432,9 @@ gc_collect_main(PyThreadState *tstate, int generation,
 
                 // 20% chance to step ±1 (proactive exploration)
                 if (rand_val < 0.2) {
-                    // Bias uphill: 60% chance to increase, 40% to decrease
+                    // No directional bias: 50/50 chance to increase or decrease
                     double dir_val = (double)((rng >> 16) & 0xFFFF) / 65535.0;
-                    int delta = (dir_val < 0.6) ? 1 : -1;
+                    int delta = (dir_val < 0.5) ? 1 : -1;
 
                     // Always step when the dice fires. Good values stick
                     // because they don't trigger further corrective steps.
