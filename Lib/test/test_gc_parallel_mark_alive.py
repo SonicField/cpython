@@ -963,5 +963,142 @@ class TestAdaptiveControllerBounds(unittest.TestCase):
                             f"for different workloads. Dense={W1}, Simple={W2}")
 
 
+class TestCondvarStress(unittest.TestCase):
+    """Stress-test the condvar dispatch path under varying worker counts.
+
+    Designed to catch races in _PyGC_DispatchAndWait when the number of
+    active workers changes between collections (as the proactive walker
+    does). Particularly useful under TSAN.
+    """
+
+    def setUp(self):
+        _setup_parallel_gc(self)
+
+    def tearDown(self):
+        _teardown_parallel_gc(self)
+
+    def test_rapid_collections_varying_heaps(self):
+        """200 rapid collections with wildly varying heap sizes.
+
+        The proactive walker changes adaptive_workers on ~20% of collections.
+        With 200 collections, we expect ~40 worker-count changes, exercising
+        the condvar wake/wait path with different participant counts.
+        """
+        import random
+        rng = random.Random(42)
+        gc.enable_parallel(8)
+
+        for i in range(200):
+            # Alternate between tiny and large heaps to stress the
+            # dispatch path with different workload characteristics
+            size = rng.choice([50, 500, 5_000, 50_000, 200_000])
+            objs = [{'ref': None} for _ in range(size)]
+            # Create cycles so GC has work to do
+            for j in range(len(objs) - 1):
+                objs[j]['ref'] = objs[(j + 1) % len(objs)]
+            del objs
+            gc.collect()
+
+    def test_enable_disable_cycles(self):
+        """Rapid enable/disable/re-enable with collections in between.
+
+        Tests the full lifecycle: pool start -> dispatch -> pool stop,
+        repeated with different worker counts each time. This exercises
+        the condvar init/fini paths and catches races in shutdown.
+        """
+        for num_workers in [2, 4, 8, 3, 6, 2, 8, 4]:
+            gc.enable_parallel(num_workers)
+            # Run a few collections at this worker count
+            for _ in range(10):
+                objs = [{'ref': None} for _ in range(10_000)]
+                for j in range(len(objs) - 1):
+                    objs[j]['ref'] = objs[(j + 1) % len(objs)]
+                del objs
+                gc.collect()
+            gc.disable_parallel()
+            # Collect once with parallel disabled to test serial fallback
+            gc.collect()
+
+    def test_concurrent_allocation_during_gc(self):
+        """Run GC collections while other threads allocate objects.
+
+        This simulates real-world conditions where GC runs concurrently
+        with application threads. The condvar dispatch must not deadlock
+        when the GIL is contended.
+        """
+        import time
+
+        stop = threading.Event()
+        errors = []
+
+        def allocator():
+            """Continuously allocate and release cyclic garbage."""
+            try:
+                while not stop.is_set():
+                    objs = [{'ref': None} for _ in range(1_000)]
+                    for j in range(len(objs) - 1):
+                        objs[j]['ref'] = objs[(j + 1) % len(objs)]
+                    del objs
+                    # Don't call gc.collect() -- let the main thread drive GC
+            except Exception as e:
+                errors.append(e)
+
+        gc.enable_parallel(8)
+
+        # Start allocator threads
+        threads = []
+        for _ in range(4):
+            t = threading.Thread(target=allocator)
+            t.start()
+            threads.append(t)
+
+        try:
+            # Run collections while allocators are running
+            for _ in range(100):
+                gc.collect()
+        finally:
+            stop.set()
+            for t in threads:
+                t.join(timeout=10)
+
+        self.assertEqual(errors, [], f"Allocator threads had errors: {errors}")
+
+    def test_walker_transitions_through_range(self):
+        """Force the walker through a wide range of worker counts.
+
+        Start with a large heap (walker climbs toward 8), then switch
+        to tiny heap (walker drops). This ensures the condvar dispatch
+        exercises N=2 through N=8 over the test run.
+        """
+        gc.enable_parallel(8)
+        all_aw = set()
+
+        # Phase 1: large heap -- walker should climb
+        for _ in range(50):
+            nodes = [{'id': i, 'refs': []} for i in range(100_000)]
+            for i in range(0, len(nodes), 100):
+                nodes[i]['refs'].append(nodes[(i + 7) % len(nodes)])
+            del nodes
+            gc.collect()
+            all_aw.add(gc.get_parallel_config()['adaptive_workers'])
+
+        # Phase 2: tiny heap -- walker should drop
+        for _ in range(50):
+            objs = [{'ref': None} for _ in range(100)]
+            if len(objs) > 1:
+                objs[0]['ref'] = objs[1]
+                objs[1]['ref'] = objs[0]
+            del objs
+            gc.collect()
+            all_aw.add(gc.get_parallel_config()['adaptive_workers'])
+
+        # The walker should have visited at least 3 different worker counts
+        # across both phases. This proves the condvar dispatch path exercised
+        # different participant counts.
+        self.assertGreaterEqual(len(all_aw), 3,
+                                f"Walker only visited {all_aw} -- expected >=3 "
+                                f"distinct values for condvar coverage")
+
+
 if __name__ == '__main__':
     unittest.main()
