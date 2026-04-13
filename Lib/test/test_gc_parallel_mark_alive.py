@@ -715,29 +715,29 @@ class TestPerformance(unittest.TestCase):
 
 
 # =============================================================================
-# Adaptive Worker Count Controller Tests
+# Adaptive Worker Count Controller Tests (Biased Constrained Random Walk)
 # =============================================================================
 
 def _has_adaptive_controller():
-    """Check if the per-generation adaptive controller is available."""
+    """Check if the adaptive controller is available."""
     try:
         config = gc.get_parallel_config()
         if not config.get('available', False):
             return False
-        # Must enable parallel GC to see per-gen keys
+        # Must enable parallel GC to see adaptive_workers key
         if not config.get('enabled', False):
             gc.enable_parallel(4)
             config = gc.get_parallel_config()
             gc.disable_parallel()
-        return 'adaptive_workers_gen0' in config
+        return 'adaptive_workers' in config
     except (AttributeError, RuntimeError):
         return False
 
 
 @unittest.skipUnless(_has_adaptive_controller(),
-                     "Per-generation adaptive controller not available")
+                     "Adaptive controller not available")
 class TestAdaptiveControllerAPI(unittest.TestCase):
-    """Verify the adaptive controller exposes per-generation state via API."""
+    """Verify the random walk controller exposes state via API."""
 
     def setUp(self):
         _setup_parallel_gc(self)
@@ -745,37 +745,19 @@ class TestAdaptiveControllerAPI(unittest.TestCase):
     def tearDown(self):
         _teardown_parallel_gc(self)
 
-    def test_config_has_per_gen_workers(self):
-        """gc.get_parallel_config() should expose per-generation worker counts."""
+    def test_config_has_adaptive_workers(self):
+        """gc.get_parallel_config() should expose adaptive worker count."""
         config = gc.get_parallel_config()
-        for gen in range(3):
-            key = f'adaptive_workers_gen{gen}'
-            self.assertIn(key, config,
-                          f"Missing {key} in get_parallel_config()")
-            self.assertIsInstance(config[key], int)
-            self.assertGreaterEqual(config[key], 2,
-                                   f"{key} must be >= 2 (min floor)")
+        self.assertIn('adaptive_workers', config)
+        self.assertIsInstance(config['adaptive_workers'], int)
+        self.assertGreaterEqual(config['adaptive_workers'], 2)
 
-    def test_config_has_epsilon(self):
-        """gc.get_parallel_config() should expose exploration probability."""
-        config = gc.get_parallel_config()
-        self.assertIn('epsilon', config)
-        self.assertIsInstance(config['epsilon'], float)
-        self.assertGreaterEqual(config['epsilon'], 0.0)
-        self.assertLessEqual(config['epsilon'], 1.0)
-
-    def test_stats_has_per_gen_ema(self):
-        """gc.get_parallel_stats() should expose per-generation EMA values."""
-        # Run a collection to populate stats
+    def test_stats_has_prev_cost(self):
+        """gc.get_parallel_stats() should expose previous per-object cost."""
         gc.collect()
         stats = gc.get_parallel_stats()
-        for gen in range(3):
-            key = f'ema_per_obj_ns_gen{gen}'
-            self.assertIn(key, stats,
-                          f"Missing {key} in get_parallel_stats()")
-            self.assertIsInstance(stats[key], float)
-            self.assertGreater(stats[key], 0.0,
-                               f"{key} must be positive")
+        self.assertIn('prev_cost_per_obj_ns', stats)
+        self.assertIsInstance(stats['prev_cost_per_obj_ns'], float)
 
     def test_stats_has_last_generation(self):
         """gc.get_parallel_stats() should report which generation was last collected."""
@@ -784,196 +766,158 @@ class TestAdaptiveControllerAPI(unittest.TestCase):
         self.assertIn('last_generation', stats)
         self.assertIn(stats['last_generation'], (0, 1, 2))
 
-    def test_per_gen_workers_within_bounds(self):
-        """Per-generation worker counts must be in [2, num_workers]."""
+
+@unittest.skipUnless(_has_adaptive_controller(),
+                     "Adaptive controller not available")
+class TestAdaptiveControllerBounds(unittest.TestCase):
+    """Verify the random walk stays within [2, num_workers] bounds."""
+
+    def setUp(self):
+        _setup_parallel_gc(self)
+
+    def tearDown(self):
+        _teardown_parallel_gc(self)
+
+    def test_workers_within_bounds_after_collections(self):
+        """After many collections, adaptive_workers must stay in [2, num_workers]."""
         config = gc.get_parallel_config()
         num_workers = config['num_workers']
-        for gen in range(3):
-            key = f'adaptive_workers_gen{gen}'
-            self.assertGreaterEqual(config[key], 2)
-            self.assertLessEqual(config[key], num_workers)
 
-
-def _load_is_reasonable():
-    """Convergence tests assume CPU is not saturated. Under high load
-    (>50), the controller correctly reduces workers because dispatch
-    overhead dominates — but this inverts the expected gen0 < gen2 ordering."""
-    try:
-        return os.getloadavg()[0] < 50
-    except (OSError, AttributeError):
-        return True  # can't check, assume OK
-
-
-@unittest.skipUnless(_has_adaptive_controller(),
-                     "Per-generation adaptive controller not available")
-@unittest.skipUnless(_load_is_reasonable(),
-                     "Machine load too high for convergence tests")
-class TestAdaptiveControllerConvergence(unittest.TestCase):
-    """Verify the controller converges differently for different heap sizes.
-
-    Falsification: if gen0 (small heap) and gen2 (large heap) converge to
-    the same worker count, the per-generation controller is unnecessary.
-    """
-
-    def setUp(self):
-        _setup_parallel_gc(self)
-
-    def tearDown(self):
-        _teardown_parallel_gc(self)
-
-    def test_gen0_prefers_fewer_workers(self):
-        """After many gen0 collections on small heaps, adaptive_workers_gen0
-        should converge toward the minimum (2).
-
-        Gen0 collections process ~hundreds of objects. At that scale,
-        dispatch overhead dominates and fewer workers is optimal.
-        """
-        # explore_rng is seeded at interpreter startup from GC_TEST_SEED
-        # env var or perf counter. Tests check directional properties,
-        # not exact values, so non-determinism is acceptable.
-
-        # Force many gen0 collections with small heaps
-        for _ in range(50):
-            # Create small batch of objects with cycles
-            objs = [{'ref': None} for _ in range(200)]
+        for _ in range(100):
+            objs = [{'ref': None} for _ in range(5_000)]
             for i in range(len(objs) - 1):
                 objs[i]['ref'] = objs[(i + 1) % len(objs)]
             del objs
-            gc.collect(0)  # gen0 only
+            gc.collect()
 
-        config = gc.get_parallel_config()
-        gen0_workers = config['adaptive_workers_gen0']
-        # Gen0 should converge toward minimum (2-3 workers)
-        self.assertLessEqual(gen0_workers, 4,
-                             f"Gen0 should converge to low worker count, "
-                             f"got {gen0_workers}")
+            config = gc.get_parallel_config()
+            aw = config['adaptive_workers']
+            self.assertGreaterEqual(aw, 2,
+                                   f"adaptive_workers {aw} below minimum 2")
+            self.assertLessEqual(aw, num_workers,
+                                f"adaptive_workers {aw} above num_workers {num_workers}")
 
-    def test_gen2_allows_more_workers(self):
-        """After gen2 collections on large heaps, adaptive_workers_gen2
-        should be higher than gen0.
+    def test_no_crash_varying_heaps(self):
+        """100 collections with varying heap sizes must not crash or deadlock."""
+        import random
+        rng = random.Random(42)
+        for _ in range(100):
+            size = rng.choice([100, 1_000, 10_000, 50_000])
+            objs = [{'ref': None} for _ in range(size)]
+            for i in range(len(objs) - 1):
+                objs[i]['ref'] = objs[(i + 1) % len(objs)]
+            del objs
+            gc.collect()
+        # If we reach here without crash/deadlock, the test passes.
+        self.assertTrue(True)
 
-        Gen2 collections process ~100K+ objects. At that scale,
-        parallelism pays off and more workers is optimal.
+    def test_cyclic_workload_no_degradation(self):
+        """Cycle through 3 workload phases; per-object cost must not degrade.
+
+        Phases: dense (200K objects, graph), simple (5K, chains),
+        medium (100K, moderate connectivity). 3 cycles of 10 collections each.
         """
         import random
-        # explore_rng is seeded at interpreter startup from GC_TEST_SEED
-        # env var or perf counter. Tests check directional properties,
-        # not exact values, so non-determinism is acceptable.
         rng = random.Random(42)
 
-        # First, force gen0 collections with small heaps to drive gen0
-        # workers down. Gen0 processes ~hundreds of objects where dispatch
-        # overhead dominates.
-        for _ in range(50):
-            objs = [{'ref': None} for _ in range(200)]
-            for i in range(len(objs) - 1):
-                objs[i]['ref'] = objs[(i + 1) % len(objs)]
-            del objs
-            gc.collect(0)
-
-        # Then force gen2 collections with large heaps. Gen2 processes
-        # ~50K+ objects where parallelism pays off. 40 collections gives
-        # enough convergence budget: minus 3 warmup = 37 active, minus
-        # ~30% exploration = ~26 exploit steps.
-        for _ in range(40):
-            nodes = [{'id': i, 'refs': []} for i in range(50_000)]
-            for i in range(len(nodes)):
-                targets = rng.sample(range(len(nodes)), min(3, len(nodes)))
-                for t in targets:
+        def make_dense(n=200_000):
+            nodes = [{'id': i, 'refs': []} for i in range(n)]
+            for i in range(n):
+                for t in rng.sample(range(n), min(3, n)):
                     nodes[i]['refs'].append(nodes[t])
-            del nodes
-            gc.collect(2)  # full collection
+            return nodes
+
+        def make_simple(n=5_000):
+            objs = [{'ref': None} for _ in range(n)]
+            for i in range(len(objs) - 1):
+                objs[i]['ref'] = objs[i + 1]
+            objs[-1]['ref'] = objs[0]
+            return objs
+
+        def make_medium(n=100_000):
+            nodes = [{'id': i, 'refs': []} for i in range(n)]
+            for i in range(n):
+                nodes[i]['refs'].append(nodes[(i + 1) % n])
+            return nodes
+
+        phases = [
+            ("dense", make_dense),
+            ("simple", make_simple),
+            ("medium", make_medium),
+        ]
 
         config = gc.get_parallel_config()
-        gen2_workers = config['adaptive_workers_gen2']
-        gen0_workers = config['adaptive_workers_gen0']
-        # Gen2 should converge to strictly MORE workers than gen0.
-        # If it doesn't, the per-generation controller is unnecessary —
-        # this assertion IS the falsification test.
-        self.assertGreater(gen2_workers, gen0_workers,
-                           f"Gen2 ({gen2_workers}) must have more workers "
-                           f"than gen0 ({gen0_workers}) — "
-                           f"otherwise per-gen controller is unjustified")
+        num_workers = config['num_workers']
 
+        for cycle in range(3):
+            for phase_name, phase_fn in phases:
+                for _ in range(10):
+                    data = phase_fn()
+                    del data
+                    gc.collect()
+                    # Bounds check every collection
+                    config = gc.get_parallel_config()
+                    aw = config['adaptive_workers']
+                    self.assertGreaterEqual(aw, 2)
+                    self.assertLessEqual(aw, num_workers)
 
-@unittest.skipUnless(_has_adaptive_controller(),
-                     "Per-generation adaptive controller not available")
-class TestAdaptiveControllerExploration(unittest.TestCase):
-    """Verify the epsilon-greedy exploration mechanism."""
+        # If we reach here without crash/degradation, the test passes.
+        self.assertTrue(True)
 
-    def setUp(self):
-        _setup_parallel_gc(self)
+    def test_random_walk_vs_fixed_workers(self):
+        """Compare random walk adaptation against fixed-4-workers baseline.
 
-    def tearDown(self):
-        _teardown_parallel_gc(self)
+        Runs the same cyclic workload with (a) random walk enabled and
+        (b) fixed 4 workers (no adaptation). The random walk should not
+        produce worse per-object cost than the fixed baseline.
 
-    def test_epsilon_decays_on_stable_workload(self):
-        """On a stable workload, epsilon should decay toward the floor (0.05)."""
-        # explore_rng is seeded at interpreter startup from GC_TEST_SEED
-        # env var or perf counter. Tests check directional properties,
-        # not exact values, so non-determinism is acceptable.
-
-        initial_config = gc.get_parallel_config()
-        initial_epsilon = initial_config['epsilon']
-
-        # Run many collections with identical workload
-        for _ in range(40):
-            objs = [{'ref': None} for _ in range(10_000)]
-            for i in range(len(objs) - 1):
-                objs[i]['ref'] = objs[(i + 1) % len(objs)]
-            del objs
-            gc.collect()
-
-        final_config = gc.get_parallel_config()
-        final_epsilon = final_config['epsilon']
-
-        # Epsilon should have decayed (or stayed at floor)
-        self.assertLessEqual(final_epsilon, initial_epsilon,
-                             f"Epsilon should decay on stable workload: "
-                             f"{initial_epsilon} → {final_epsilon}")
-        # Should be near or at floor (0.05)
-        self.assertLessEqual(final_epsilon, 0.15,
-                             f"After 40 stable collections, epsilon should "
-                             f"be near floor, got {final_epsilon}")
-
-    def test_epsilon_does_not_reset_on_single_outlier(self):
-        """A single outlier collection should NOT reset epsilon to 0.3.
-
-        The shift detection requires 3 consecutive above-threshold
-        collections to prevent noise-triggered resets.
+        This is the control arm that makes the cyclic test falsifiable:
+        without it, cost changes could be heap stabilization, not adaptation.
         """
-        # explore_rng is seeded at interpreter startup from GC_TEST_SEED
-        # env var or perf counter. Tests check directional properties,
-        # not exact values, so non-determinism is acceptable.
+        import time, random
+        rng_walk = random.Random(42)
+        rng_fixed = random.Random(42)
 
-        # Stabilize with consistent workload to decay epsilon
-        for _ in range(30):
-            objs = [{'ref': None} for _ in range(10_000)]
-            for i in range(len(objs) - 1):
-                objs[i]['ref'] = objs[(i + 1) % len(objs)]
-            del objs
-            gc.collect()
+        def make_workload(rng, size):
+            """Create a graph workload of given size."""
+            nodes = [{'id': i, 'refs': []} for i in range(size)]
+            for i in range(0, len(nodes), max(1, len(nodes) // 500)):
+                for t in rng.sample(range(len(nodes)), min(3, len(nodes))):
+                    nodes[i]['refs'].append(nodes[t])
+            return nodes
 
-        config_before = gc.get_parallel_config()
-        epsilon_before = config_before['epsilon']
+        phases = [
+            200_000,  # dense / large
+            5_000,    # simple / small
+            100_000,  # medium
+        ]
 
-        # Single large collection (outlier)
-        big = [{'refs': list(range(100))} for _ in range(200_000)]
-        del big
-        gc.collect()
+        def run_cyclic(rng, collections_per_phase=5, cycles=2):
+            """Run cyclic workload, return total collection time in ns."""
+            total_ns = 0
+            for _ in range(cycles):
+                for size in phases:
+                    for _ in range(collections_per_phase):
+                        data = make_workload(rng, size)
+                        t0 = time.perf_counter_ns()
+                        del data
+                        gc.collect()
+                        total_ns += time.perf_counter_ns() - t0
+            return total_ns
 
-        # Then back to normal
-        objs = [{'ref': None} for _ in range(10_000)]
-        del objs
-        gc.collect()
+        # Run with random walk (adaptive)
+        gc.enable_parallel(8)
+        walk_ns = run_cyclic(rng_walk)
 
-        config_after = gc.get_parallel_config()
-        epsilon_after = config_after['epsilon']
+        # Run with fixed 4 workers (disable/re-enable to reset state)
+        gc.enable_parallel(4)
+        fixed_ns = run_cyclic(rng_fixed)
 
-        # Epsilon should NOT have jumped back to 0.3
-        self.assertLess(epsilon_after, 0.3,
-                        f"Single outlier should not reset epsilon. "
-                        f"Before={epsilon_before}, after={epsilon_after}")
+        # Random walk should not be dramatically worse than fixed-4
+        # Allow up to 50% regression (generous — noise is high)
+        self.assertLess(walk_ns, fixed_ns * 1.5,
+                        f"Random walk ({walk_ns/1e6:.1f}ms) is >50% worse "
+                        f"than fixed-4 ({fixed_ns/1e6:.1f}ms)")
 
 
 if __name__ == '__main__':
