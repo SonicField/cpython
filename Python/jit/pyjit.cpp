@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/pyjit.h"
+#include "cinderx/Jit/jit_config_c.h"
 #include "cinderx/Jit/jit_log.h"
 
 #if PY_VERSION_HEX < 0x030C0000
@@ -3911,6 +3912,10 @@ int initialize() {
   }
 
   getMutableConfig().state = State::kRunning;
+
+  /* Sync C++ Config → C JitConfig once after all config is finalized.
+   * jit_get_config() is now static inline returning &g_jit_config_c. */
+  jit_config_sync();
 
   mod_state->setJitList(std::move(jit_list));
 

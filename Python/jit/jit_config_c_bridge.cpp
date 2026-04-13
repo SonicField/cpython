@@ -97,30 +97,18 @@ static void sync_cpp_to_c(const jit::Config& src, JitConfig* dst) {
     dst->asm_syntax = static_cast<JitAsmSyntax>(src.asm_syntax);
 }
 
-/* Track whether the C config is in sync with the C++ config.
- * Cleared when mutable config is accessed (which may change values).
- * Config is effectively immutable during compilation, so syncing once
- * per mutable access is sufficient. */
-static int g_config_synced = 0;
-
 extern "C" {
 
-const JitConfig* jit_get_config(void) {
-    if (!g_config_synced) {
-        sync_cpp_to_c(jit::getConfig(), &g_jit_config_c);
-        g_config_synced = 1;
-    }
-    return &g_jit_config_c;
+/* jit_get_config() is now static inline in jit_config_c.h —
+ * returns &g_jit_config_c directly, zero overhead. */
+
+void jit_config_sync(void) {
+    sync_cpp_to_c(jit::getConfig(), &g_jit_config_c);
 }
 
 JitConfig* jit_get_mutable_config(void) {
     sync_cpp_to_c(jit::getMutableConfig(), &g_jit_config_c);
-    g_config_synced = 1;  /* synced after this access */
     return &g_jit_config_c;
-}
-
-void jit_config_invalidate(void) {
-    g_config_synced = 0;
 }
 
 int jit_is_initialized(void) {

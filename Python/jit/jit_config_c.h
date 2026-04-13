@@ -133,16 +133,20 @@ extern JitConfig g_jit_config_c;
 
 /* ---- Accessors ---- */
 
-/* Get the current JIT config (read-only). */
-const JitConfig* jit_get_config(void);
+/* Get the current JIT config (read-only).
+ * Static inline — no function call overhead on hot paths.
+ * The config is synced from C++ at JIT init via jit_config_sync(). */
+static inline const JitConfig* jit_get_config(void) {
+    return &g_jit_config_c;
+}
 
 /* Get a mutable pointer to the JIT config.
- * Changes are synced back to C++ Config. */
+ * Call jit_config_sync() after modifying C++ config directly. */
 JitConfig* jit_get_mutable_config(void);
 
-/* Invalidate the cached C config so it re-syncs on next jit_get_config().
- * Call after modifying the C++ Config directly (e.g., flag processing). */
-void jit_config_invalidate(void);
+/* Sync C++ Config → C JitConfig. Called once at JIT init and
+ * after any C++ config modification (flag processing, etc.). */
+void jit_config_sync(void);
 
 /* State query helpers */
 int jit_is_initialized(void);
