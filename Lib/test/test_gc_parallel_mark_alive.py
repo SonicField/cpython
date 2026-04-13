@@ -931,23 +931,29 @@ class TestAdaptiveControllerBounds(unittest.TestCase):
     def test_walker_settles_differently_per_workload(self):
         """Different workloads must produce different final worker counts.
 
-        Run 30 dense collections (200K objects) → record W1.
-        Run 30 simple collections (5K objects) → record W2.
+        Run 50 dense collections (200K objects) → record W1.
+        Run 50 simple collections (5K objects) → record W2.
         Assert W1 != W2.
 
         This proves the walker ADAPTS to workload, not just explores
         randomly. A fixed controller or cost-blind PRNG cannot reliably
-        pass this — the worker count after 30 dense collections should
-        be different from after 30 simple collections because the
+        pass this — the worker count after 50 dense collections should
+        be different from after 50 simple collections because the
         performance landscape is different.
         """
         import random
         rng = random.Random(42)
 
+        try:
+            gc.disable_parallel()
+        except (ValueError, RuntimeError):
+            pass
         gc.enable_parallel(8)
 
         # Phase 1: dense collections (200K objects, graph traversal)
-        for _ in range(30):
+        # 50 collections gives the unbiased (50/50) walker enough steps
+        # to differentiate between workloads reliably.
+        for _ in range(50):
             nodes = [{'id': i, 'refs': []} for i in range(200_000)]
             for i in range(0, len(nodes), 50):
                 targets = rng.sample(range(len(nodes)), min(3, len(nodes)))
@@ -958,7 +964,7 @@ class TestAdaptiveControllerBounds(unittest.TestCase):
         W1 = gc.get_parallel_config()['adaptive_workers']
 
         # Phase 2: simple collections (5K objects, chains)
-        for _ in range(30):
+        for _ in range(50):
             objs = [{'ref': None} for _ in range(5_000)]
             for i in range(len(objs) - 1):
                 objs[i]['ref'] = objs[i + 1]
@@ -995,6 +1001,10 @@ class TestCondvarStress(unittest.TestCase):
         """
         import random
         rng = random.Random(42)
+        try:
+            gc.disable_parallel()
+        except (ValueError, RuntimeError):
+            pass
         gc.enable_parallel(8)
 
         for i in range(200):
@@ -1016,6 +1026,10 @@ class TestCondvarStress(unittest.TestCase):
         the condvar init/fini paths and catches races in shutdown.
         """
         for num_workers in [2, 4, 8, 3, 6, 2, 8, 4]:
+            try:
+                gc.disable_parallel()
+            except (ValueError, RuntimeError):
+                pass
             gc.enable_parallel(num_workers)
             # Run a few collections at this worker count
             for _ in range(10):
@@ -1035,7 +1049,6 @@ class TestCondvarStress(unittest.TestCase):
         with application threads. The condvar dispatch must not deadlock
         when the GIL is contended.
         """
-        import time
 
         stop = threading.Event()
         errors = []
@@ -1052,6 +1065,10 @@ class TestCondvarStress(unittest.TestCase):
             except Exception as e:
                 errors.append(e)
 
+        try:
+            gc.disable_parallel()
+        except (ValueError, RuntimeError):
+            pass
         gc.enable_parallel(8)
 
         # Start allocator threads
@@ -1079,6 +1096,10 @@ class TestCondvarStress(unittest.TestCase):
         to tiny heap (walker drops). This ensures the condvar dispatch
         exercises N=2 through N=8 over the test run.
         """
+        try:
+            gc.disable_parallel()
+        except (ValueError, RuntimeError):
+            pass
         gc.enable_parallel(8)
         all_aw = set()
 
