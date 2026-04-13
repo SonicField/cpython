@@ -581,26 +581,46 @@ frame_asm_c_link_lightweight_function_frame(
     (-frame_header_size + (int32_t)offsetof(_PyInterpreterFrame, NAME) \
      + (int32_t)JIT_FRAME_HEADER_SIZE)
 
-    /* Zero-fill the entire frame region to prevent uninitialized field
-     * crashes (frame_obj, localsplus, f_globals, etc.). The cost is
-     * ~10-15 stores of zero, negligible vs function call overhead. */
+    /* Selective zero-fill: only zero fields NOT explicitly set below.
+     * Skip: FrameHeader, f_code, previous, f_funcobj, f_globals,
+     * f_builtins, frame_obj, prev_instr (all overwritten by field stores).
+     * Keep: f_locals (not set on 3.12), stacktop/return_offset (not set),
+     * localsplus entries (GC safety — scanned as potential roots). */
     {
-        int frame_words = frame_header_size / (int)sizeof(void*);
+        int nslots = _PyFrame_NumSlotsForCodeObject(code);
+        int localsplus_base = FRM_OFF(localsplus);
 #if defined(CINDER_X86_64)
         PhxGp rbp_z = {5, 8};
-        for (int i = 0; i < frame_words; i++) {
+        /* Zero f_locals (not explicitly set on 3.12) */
+        phx_x86_mov_mi(pb,
+            phx_qword_ptr(rbp_z, FRM_OFF(f_locals)), 0);
+        /* Zero stacktop + return_offset + owner padding (whole qword).
+         * Owner byte is explicitly set afterward. */
+        phx_x86_mov_mi(pb,
+            phx_qword_ptr(rbp_z, FRM_OFF(stacktop)), 0);
+        /* Zero localsplus entries for GC safety */
+        for (int i = 0; i < nslots; i++) {
             phx_x86_mov_mi(pb,
-                phx_qword_ptr(rbp_z, -frame_header_size + i * (int)sizeof(void*)),
+                phx_qword_ptr(rbp_z, localsplus_base + i * (int)sizeof(void*)),
                 0);
         }
 #elif defined(CINDER_AARCH64)
         PhxGp fp_z = {29, 8};
         PhxGp xzr_z = {31, 8};
         PhxGp scratch1_z = {13, 8};
-        for (int i = 0; i < frame_words; i++) {
+        /* Zero f_locals */
+        phx_a64_str(pb, xzr_z,
+            jit_arch_ptr_resolve(pb, fp_z, FRM_OFF(f_locals),
+                scratch1_z, 8));
+        /* Zero stacktop + return_offset + owner padding */
+        phx_a64_str(pb, xzr_z,
+            jit_arch_ptr_resolve(pb, fp_z, FRM_OFF(stacktop),
+                scratch1_z, 8));
+        /* Zero localsplus entries for GC safety */
+        for (int i = 0; i < nslots; i++) {
             phx_a64_str(pb, xzr_z,
                 jit_arch_ptr_resolve(pb, fp_z,
-                    -frame_header_size + i * (int)sizeof(void*),
+                    localsplus_base + i * (int)sizeof(void*),
                     scratch1_z, 8));
         }
 #endif
