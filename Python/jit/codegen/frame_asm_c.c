@@ -584,26 +584,21 @@ frame_asm_c_link_lightweight_function_frame(
     /* Selective zero-fill: only zero fields NOT explicitly set below.
      * Skip: FrameHeader, f_code, previous, f_funcobj, f_globals,
      * f_builtins, frame_obj, prev_instr (all overwritten by field stores).
-     * Keep: f_locals (not set on 3.12), stacktop/return_offset (not set),
-     * localsplus entries (GC safety — scanned as potential roots). */
+     * Skip localsplus: GC uses stacktop to bound scanning (pycore_frame.h:150:
+     * "Having stacktop <= 0 ensures that invalid values are not visible to
+     * the cycle GC"). With stacktop=0, no localsplus entries are visited.
+     * Keep: f_locals (not set on 3.12), stacktop/return_offset (not set). */
     {
-        int nslots = _PyFrame_NumSlotsForCodeObject(code);
-        int localsplus_base = FRM_OFF(localsplus);
 #if defined(CINDER_X86_64)
         PhxGp rbp_z = {5, 8};
         /* Zero f_locals (not explicitly set on 3.12) */
         phx_x86_mov_mi(pb,
             phx_qword_ptr(rbp_z, FRM_OFF(f_locals)), 0);
         /* Zero stacktop + return_offset + owner padding (whole qword).
+         * stacktop=0 prevents GC from scanning localsplus garbage.
          * Owner byte is explicitly set afterward. */
         phx_x86_mov_mi(pb,
             phx_qword_ptr(rbp_z, FRM_OFF(stacktop)), 0);
-        /* Zero localsplus entries for GC safety */
-        for (int i = 0; i < nslots; i++) {
-            phx_x86_mov_mi(pb,
-                phx_qword_ptr(rbp_z, localsplus_base + i * (int)sizeof(void*)),
-                0);
-        }
 #elif defined(CINDER_AARCH64)
         PhxGp fp_z = {29, 8};
         PhxGp xzr_z = {31, 8};
@@ -616,13 +611,6 @@ frame_asm_c_link_lightweight_function_frame(
         phx_a64_str(pb, xzr_z,
             jit_arch_ptr_resolve(pb, fp_z, FRM_OFF(stacktop),
                 scratch1_z, 8));
-        /* Zero localsplus entries for GC safety */
-        for (int i = 0; i < nslots; i++) {
-            phx_a64_str(pb, xzr_z,
-                jit_arch_ptr_resolve(pb, fp_z,
-                    localsplus_base + i * (int)sizeof(void*),
-                    scratch1_z, 8));
-        }
 #endif
     }
 
