@@ -23,15 +23,14 @@ class GenYieldPoint {
     return offsetof(GenYieldPoint, resume_target_);
   }
 
-  GenYieldPoint(std::size_t deopt_idx, ptrdiff_t yield_from_offset);
+  GenYieldPoint(std::size_t deopt_idx, ptrdiff_t yield_from_offset)
+      : deopt_idx_{deopt_idx}, yield_from_offset_{yield_from_offset} {}
 
-  // Get and set what address the yield should resume from.
-  uintptr_t resumeTarget() const;
-  void setResumeTarget(uintptr_t resume_target);
-
-  std::size_t deoptIdx() const;
-  bool isYieldFrom() const;
-  ptrdiff_t yieldFromOffset() const;
+  uintptr_t resumeTarget() const { return resume_target_; }
+  void setResumeTarget(uintptr_t resume_target) { resume_target_ = resume_target; }
+  std::size_t deoptIdx() const { return deopt_idx_; }
+  bool isYieldFrom() const { return yield_from_offset_ != kInvalidYieldFromOffset; }
+  ptrdiff_t yieldFromOffset() const { return yield_from_offset_; }
 
  private:
   uintptr_t resume_target_{0};
@@ -52,13 +51,11 @@ class alignas(16) RuntimeFrameState {
       BorrowedRef<PyFunctionObject> func = nullptr)
       : code_{code}, builtins_{builtins}, globals_{globals}, func_{func} {}
 
-  // Check if this is a generator frame.
-  bool isGen() const;
-
-  BorrowedRef<PyCodeObject> code() const;
-  BorrowedRef<PyDictObject> builtins() const;
-  BorrowedRef<PyDictObject> globals() const;
-  BorrowedRef<PyFunctionObject> func() const;
+  bool isGen() const { return code()->co_flags & kCoFlagsAnyGenerator; }
+  BorrowedRef<PyCodeObject> code() const { return code_; }
+  BorrowedRef<PyDictObject> builtins() const { return builtins_; }
+  BorrowedRef<PyDictObject> globals() const { return globals_; }
+  BorrowedRef<PyFunctionObject> func() const { return func_; }
 
  private:
   // All fields are owned by the CodeRuntime that owns this RuntimeFrameState.
