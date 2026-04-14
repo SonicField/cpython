@@ -103,3 +103,49 @@ class TestHirTypeCppBaseline(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestHirTypeSpecObjectRegression(unittest.TestCase):
+    """Regression tests for kSpecObject handling in hir::Type C API."""
+
+    def test_object_spec_subtype_via_jit(self):
+        try:
+            import cinderjit
+        except ImportError:
+            self.skipTest("cinderjit not available")
+        def return_none(): return None
+        def return_true(): return True
+        def return_int(): return 42
+        for f in [return_none, return_true, return_int]:
+            cinderjit.force_compile(f)
+            self.assertTrue(cinderjit.is_jit_compiled(f))
+        self.assertIsNone(return_none())
+        self.assertTrue(return_true())
+        self.assertEqual(return_int(), 42)
+
+    def test_mixed_type_operations_via_jit(self):
+        try:
+            import cinderjit
+        except ImportError:
+            self.skipTest("cinderjit not available")
+        def mixed_types(x):
+            if isinstance(x, int): return x + 1
+            elif isinstance(x, str): return len(x)
+            else: return 0
+        cinderjit.force_compile(mixed_types)
+        self.assertTrue(cinderjit.is_jit_compiled(mixed_types))
+        self.assertEqual(mixed_types(5), 6)
+        self.assertEqual(mixed_types("hello"), 5)
+        self.assertEqual(mixed_types(None), 0)
+
+    def test_object_identity_spec(self):
+        try:
+            import cinderjit
+        except ImportError:
+            self.skipTest("cinderjit not available")
+        sentinel = object()
+        def check_sentinel(x): return x is sentinel
+        cinderjit.force_compile(check_sentinel)
+        self.assertTrue(cinderjit.is_jit_compiled(check_sentinel))
+        self.assertTrue(check_sentinel(sentinel))
+        self.assertFalse(check_sentinel(object()))
