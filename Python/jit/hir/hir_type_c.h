@@ -151,6 +151,40 @@ static inline int hir_type_equal(const HirType *a, const HirType *b) {
            a->int_val == b->int_val;
 }
 
+/* ---- Predefined type constants (C equivalents of T* constexpr) ----
+ * Generated from HIR_TYPES macro in type_generated.h.
+ * bits_and_flags = bits | (lifetime << 44).
+ * kLifetimeBottom=0, kLifetimeTop=3. */
+
+#define HIR_TYPE_LIFETIME_BOTTOM 0ULL
+#define HIR_TYPE_LIFETIME_TOP    3ULL
+
+/* Helper: construct a simple HirType initializer (no spec). */
+#define HIR_TYPE_SIMPLE(bits, lifetime) \
+    { (bits) | ((lifetime) << HIR_TYPE_LIFETIME_SHIFT), {0} }
+
+/* Primitive C types (kLifetimeBottom = 0) */
+#define HIR_TYPE_CBOOL    HIR_TYPE_SIMPLE(0x00100000000ULL, HIR_TYPE_LIFETIME_BOTTOM)
+#define HIR_TYPE_CINT8    HIR_TYPE_SIMPLE(0x00200000000ULL, HIR_TYPE_LIFETIME_BOTTOM)
+#define HIR_TYPE_CINT16   HIR_TYPE_SIMPLE(0x00400000000ULL, HIR_TYPE_LIFETIME_BOTTOM)
+#define HIR_TYPE_CINT32   HIR_TYPE_SIMPLE(0x00800000000ULL, HIR_TYPE_LIFETIME_BOTTOM)
+#define HIR_TYPE_CINT64   HIR_TYPE_SIMPLE(0x01000000000ULL, HIR_TYPE_LIFETIME_BOTTOM)
+#define HIR_TYPE_CUINT8   HIR_TYPE_SIMPLE(0x02000000000ULL, HIR_TYPE_LIFETIME_BOTTOM)
+#define HIR_TYPE_CUINT16  HIR_TYPE_SIMPLE(0x04000000000ULL, HIR_TYPE_LIFETIME_BOTTOM)
+#define HIR_TYPE_CUINT32  HIR_TYPE_SIMPLE(0x08000000000ULL, HIR_TYPE_LIFETIME_BOTTOM)
+#define HIR_TYPE_CUINT64  HIR_TYPE_SIMPLE(0x10000000000ULL, HIR_TYPE_LIFETIME_BOTTOM)
+#define HIR_TYPE_CDOUBLE  HIR_TYPE_SIMPLE(0x40000000000ULL, HIR_TYPE_LIFETIME_BOTTOM)
+
+/* Object types (kLifetimeTop = 3) */
+#define HIR_TYPE_OPTOBJECT HIR_TYPE_SIMPLE(0x800ffffffffULL, HIR_TYPE_LIFETIME_TOP)
+#define HIR_TYPE_BOTTOM    HIR_TYPE_SIMPLE(0x00000000000ULL, HIR_TYPE_LIFETIME_BOTTOM)
+
+/* ---- C function: prim_type_to_type ---- */
+
+/* Convert a Static Python primitive type code to a HirType.
+ * Returns HIR_TYPE_BOTTOM on unknown types. */
+HirType hir_prim_type_to_type(int prim_type);
+
 /* ---- Set operations ---- */
 
 /* Specialization subtype check (helper for operators) */

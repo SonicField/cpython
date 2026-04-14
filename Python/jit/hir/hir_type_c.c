@@ -237,3 +237,41 @@ HirType hir_type_union(HirType a, HirType b) {
                          is_exact ? HIR_SPEC_TYPE_EXACT : HIR_SPEC_TYPE,
                          (intptr_t)supertype);
 }
+
+/* ---- prim_type_to_type ---- */
+
+/* TYPED_* constants from Static Python (classloader.h) */
+#ifndef TYPED_BOOL
+#define TYPED_BOOL    7
+#define TYPED_CHAR   11
+#define TYPED_INT8    1
+#define TYPED_INT16   2
+#define TYPED_INT32   3
+#define TYPED_INT64   4
+#define TYPED_UINT8   5
+#define TYPED_UINT16  6
+#define TYPED_UINT32   8
+#define TYPED_UINT64   9
+#define TYPED_OBJECT  0
+#define TYPED_DOUBLE 10
+#define TYPED_ERROR  12
+#endif
+
+HirType hir_prim_type_to_type(int prim_type) {
+    switch (prim_type) {
+        case TYPED_BOOL:   { HirType r = HIR_TYPE_CBOOL;   return r; }
+        case TYPED_CHAR:
+        case TYPED_INT8:   { HirType r = HIR_TYPE_CINT8;   return r; }
+        case TYPED_INT16:  { HirType r = HIR_TYPE_CINT16;  return r; }
+        case TYPED_INT32:  { HirType r = HIR_TYPE_CINT32;  return r; }
+        case TYPED_INT64:  { HirType r = HIR_TYPE_CINT64;  return r; }
+        case TYPED_UINT8:  { HirType r = HIR_TYPE_CUINT8;  return r; }
+        case TYPED_UINT16: { HirType r = HIR_TYPE_CUINT16; return r; }
+        case TYPED_UINT32: { HirType r = HIR_TYPE_CUINT32; return r; }
+        case TYPED_UINT64: { HirType r = HIR_TYPE_CUINT64; return r; }
+        case TYPED_OBJECT: { HirType r = HIR_TYPE_OPTOBJECT; return r; }
+        case TYPED_DOUBLE: { HirType r = HIR_TYPE_CDOUBLE; return r; }
+        case TYPED_ERROR:  { HirType r = HIR_TYPE_CINT32;  return r; }
+        default:           { HirType r = HIR_TYPE_BOTTOM;  return r; }
+    }
+}
