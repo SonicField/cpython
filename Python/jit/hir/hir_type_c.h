@@ -174,6 +174,9 @@ static inline int hir_type_equal(const HirType *a, const HirType *b) {
 #define HIR_TYPE_CUINT32  HIR_TYPE_SIMPLE(0x08000000000ULL, HIR_TYPE_LIFETIME_BOTTOM)
 #define HIR_TYPE_CUINT64  HIR_TYPE_SIMPLE(0x10000000000ULL, HIR_TYPE_LIFETIME_BOTTOM)
 #define HIR_TYPE_CDOUBLE  HIR_TYPE_SIMPLE(0x40000000000ULL, HIR_TYPE_LIFETIME_BOTTOM)
+#define HIR_TYPE_CINT     HIR_TYPE_SIMPLE(0x1fe00000000ULL, HIR_TYPE_LIFETIME_BOTTOM)
+#define HIR_TYPE_CPTR     HIR_TYPE_SIMPLE(0x20000000000ULL, HIR_TYPE_LIFETIME_BOTTOM)
+#define HIR_TYPE_NULLPTR  HIR_TYPE_SIMPLE(0x80000000000ULL, HIR_TYPE_LIFETIME_BOTTOM)
 
 /* Object types (kLifetimeTop = 3) */
 #define HIR_TYPE_OBJECT         HIR_TYPE_SIMPLE(0x000ffffffffULL, HIR_TYPE_LIFETIME_TOP)
@@ -212,6 +215,12 @@ PyObject *hir_type_as_object(const HirType *t);
 
 /* Check if this type represents a single value. */
 int hir_type_is_single_value(const HirType *t);
+
+/* Get the boxed equivalent of a primitive type (CBool→Bool, CInt→Long, etc). */
+HirType hir_type_as_boxed(const HirType *t);
+
+/* Get the size in bytes of a type (1/2/4/8). */
+unsigned int hir_type_size_in_bytes(const HirType *t);
 
 /* ---- C functions for type conversion ---- */
 

@@ -402,6 +402,42 @@ int hir_type_is_single_value(const HirType *t) {
     return 0;
 }
 
+/* ---- asBoxed / sizeInBytes ---- */
+
+/* Helper: check if type a is subtype of type b (bits only, no spec). */
+static int bits_subtype(uint64_t a_bits, uint64_t b_bits) {
+    return (a_bits & b_bits) == a_bits && a_bits != 0;
+}
+
+HirType hir_type_as_boxed(const HirType *t) {
+    uint64_t bits = hir_type_bits(t);
+    if (bits_subtype(bits, 0x00100000000ULL)) { /* TCBool */
+        HirType r = HIR_TYPE_BOOL; return r;
+    }
+    if (bits_subtype(bits, 0x1fe00000000ULL)) { /* TCInt */
+        HirType r = HIR_TYPE_LONG; return r;
+    }
+    if (bits_subtype(bits, 0x40000000000ULL)) { /* TCDouble */
+        HirType r = HIR_TYPE_FLOAT; return r;
+    }
+    /* No boxed equivalent — return Bottom. */
+    HirType r = HIR_TYPE_BOTTOM;
+    return r;
+}
+
+unsigned int hir_type_size_in_bytes(const HirType *t) {
+    uint64_t bits = hir_type_bits(t);
+    /* CBool|CInt8|CUInt8 = 0x100|0x200|0x2000 = ... check each */
+    if (bits_subtype(bits, 0x00100000000ULL | 0x00200000000ULL | 0x02000000000ULL))
+        return 1;
+    if (bits_subtype(bits, 0x00400000000ULL | 0x04000000000ULL))
+        return 2;
+    if (bits_subtype(bits, 0x00800000000ULL | 0x08000000000ULL))
+        return 4;
+    /* 8-byte types: CInt64|CUInt64|CPtr|CDouble|Object|Nullptr */
+    return 8;
+}
+
 /* ---- Factory: fromObject ---- */
 
 HirType hir_type_from_object(PyObject *obj) {
