@@ -4,7 +4,8 @@
 
 #include "cinderx/Jit/hir/type.h"
 
-#include <iosfwd>
+#include <cstdio>
+#include <ostream>
 #include <string>
 
 namespace jit::hir {
@@ -48,7 +49,14 @@ class Register {
 
   // A unique name for this value. This name has no connection to the original
   // Python program.
-  const std::string& name() const;
+  const std::string& name() const {
+    if (name_.empty()) {
+      char buf[32];
+      std::snprintf(buf, sizeof(buf), "v%d", id_);
+      name_ = buf;
+    }
+    return name_;
+  }
 
  private:
   DISALLOW_COPY_AND_ASSIGN(Register);
@@ -99,9 +107,29 @@ struct RegState {
   ValueKind value_kind{ValueKind::kObject};
 };
 
-std::ostream& operator<<(std::ostream& os, const Register& reg);
-std::ostream& operator<<(std::ostream& os, RefKind kind);
-std::ostream& operator<<(std::ostream& os, ValueKind kind);
+inline std::ostream& operator<<(std::ostream& os, const Register& reg) {
+  return os << reg.name();
+}
+
+inline std::ostream& operator<<(std::ostream& os, RefKind kind) {
+  switch (kind) {
+    case RefKind::kUncounted: return os << "Uncounted";
+    case RefKind::kBorrowed: return os << "Borrowed";
+    case RefKind::kOwned: return os << "Owned";
+  }
+  return os;
+}
+
+inline std::ostream& operator<<(std::ostream& os, ValueKind kind) {
+  switch (kind) {
+    case ValueKind::kObject: return os << "Object";
+    case ValueKind::kSigned: return os << "Signed";
+    case ValueKind::kUnsigned: return os << "Unsigned";
+    case ValueKind::kBool: return os << "Bool";
+    case ValueKind::kDouble: return os << "Double";
+  }
+  return os;
+}
 
 inline auto format_as(const jit::hir::RefKind& kind) {
   return fmt::underlying(kind);
