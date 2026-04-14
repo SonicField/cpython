@@ -656,10 +656,10 @@ unsigned int hir_type_size_in_bytes(const HirType *t) {
 
 HirType hir_type_from_object(PyObject *obj) {
     if (obj == Py_None) {
-        /* NoneType — always immortal in 3.12+ */
+        /* NoneType — immortal (lifetime=2, not kTop=3) in 3.12+ */
         HirType r;
         r.bits_and_flags = 0x00000000080ULL |
-            (HIR_TYPE_LIFETIME_TOP << HIR_TYPE_LIFETIME_SHIFT);
+            (2ULL << HIR_TYPE_LIFETIME_SHIFT);  /* kLifetimeImmortal = 2 */
         r.int_val = 0;
         return r;
     }

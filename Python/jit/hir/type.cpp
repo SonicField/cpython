@@ -390,25 +390,9 @@ Type Type::fromTypeExact(PyTypeObject* type) {
   return fromHirType(hir_type_from_pytype(type, 1));
 }
 
+// Phase 3D: delegate to C (assertion-verified zero mismatches).
 Type Type::fromObject(PyObject* obj) {
-  if (obj == Py_None) {
-    // There's only one value of type NoneType, so we don't need the result to
-    // be specialized and it's always immortal.
-    if constexpr (PY_VERSION_HEX >= 0x030C0000) {
-      return TImmortalNoneType;
-    }
-    return TNoneType;
-  }
-
-  bits_t lifetime = [&]() {
-    // Serialize to silence TSAN errors about accessing the reference count of
-    // which can change during compliation. However, this is really a false
-    // positive as the mortality of an object should not change during
-    // compilation.
-    ThreadedCompileSerialize guard;
-    return _Py_IsImmortal(obj) ? kLifetimeImmortal : kLifetimeMortal;
-  }();
-  return Type{fromTypeExact(Py_TYPE(obj)).bits_, lifetime, obj};
+  return fromHirType(hir_type_from_object(obj));
 }
 
 // Phase 3D: delegate to C (assertion-verified zero mismatches).
