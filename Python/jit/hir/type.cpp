@@ -85,13 +85,6 @@ const std::unordered_map<Type, PyTypeObject*>& typeToPyTypeWithExact() {
         result_map.emplace(pair.first & TBuiltinExact, pair.second);
       }
     }
-    // Phase 3D: dump reverse map for C table
-    for (auto& [type, pytype] : result_map) {
-      HirType h = Type::toHirType(type);
-      uint64_t bits_only = h.bits_and_flags & ((1ULL << 44) - 1);
-      fprintf(stderr, "REVERSE_MAP {0x%lxULL, \"%s\"},\n",
-          (unsigned long)bits_only, pytype->tp_name);
-    }
     return result_map;
   }();
 
@@ -381,44 +374,10 @@ std::string Type::toStringSafe() const {
   }
 }
 
+// Phase 3D: fromTypeImpl body deleted — fromType/fromTypeExact delegate to C.
+// Declaration kept in type.h for ABI compatibility but body is unused.
 Type Type::fromTypeImpl(PyTypeObject* type, bool exact) {
-  auto& type_map = exact ? pyTypeToTypeForExact() : pyTypeToType();
-
-  auto it = type_map.find(type);
-  if (it != type_map.end()) {
-    return exact ? it->second & TBuiltinExact : it->second;
-  }
-
-  // Heap types that we're aware of, not statically known
-  if (PyType_IsSubtype(type, PyStaticArray_Type)) {
-    return TArray;
-  }
-
-  {
-    ThreadedCompileSerialize guard;
-    if (type->tp_mro == nullptr && !(type->tp_flags & Py_TPFLAGS_READY)) {
-      PyType_Ready(type);
-    }
-  }
-  JIT_CHECK(
-      type->tp_mro != nullptr,
-      "Type {}({}) has a null mro",
-      type->tp_name,
-      reinterpret_cast<void*>(type));
-
-  PyObject* mro = type->tp_mro;
-  for (Py_ssize_t i = 0; i < PyTuple_GET_SIZE(mro); ++i) {
-    auto ty = reinterpret_cast<PyTypeObject*>(PyTuple_GET_ITEM(mro, i));
-    auto it_2 = type_map.find(ty);
-    if (it_2 != type_map.end()) {
-      auto bits = it_2->second.bits_;
-      return Type{bits & kUser, kLifetimeTop, type, exact};
-    }
-  }
-  JIT_ABORT(
-      "Type {}({}) doesn't have object in its mro",
-      type->tp_name,
-      reinterpret_cast<void*>(type));
+  return fromHirType(hir_type_from_pytype(type, exact ? 1 : 0));
 }
 
 // Phase 3D: delegate to C implementation.
