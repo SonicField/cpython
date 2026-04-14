@@ -29,7 +29,8 @@ void hir_dynamic_comparison_elimination_run(HirFunction func) {
         }
 
         /* Looking for: truthy = IsTruthy(compare); CondBranch truthy */
-        HirRegister truthy_reg = hir_instr_get_operand(instr, 0);
+        HirRegister truthy_reg = hir_c_get_operand(instr, 0);
+        assert(truthy_reg == hir_instr_get_operand(instr, 0));
         HirInstr truthy = hir_reg_instr(truthy_reg);
         if (!hir_c_is_istruthy(truthy) ||
             hir_c_block(truthy) != block) {
@@ -37,7 +38,8 @@ void hir_dynamic_comparison_elimination_run(HirFunction func) {
             continue;
         }
 
-        HirRegister truthy_input_reg = hir_instr_get_operand(truthy, 0);
+        HirRegister truthy_input_reg = hir_c_get_operand(truthy, 0);
+        assert(truthy_input_reg == hir_instr_get_operand(truthy, 0));
         HirInstr truthy_target = hir_reg_instr(truthy_input_reg);
         if (hir_c_block(truthy_target) != block ||
             (!hir_c_is_compare(truthy_target) &&
@@ -99,8 +101,8 @@ void hir_dynamic_comparison_elimination_run(HirFunction func) {
             int op = hir_c_compare_op(truthy_target);
             /* Assert: C struct accessor matches C++ bridge */
             assert(op == hir_instr_compare_op(truthy_target));
-            HirRegister left = hir_instr_get_operand(truthy_target, 0);
-            HirRegister right = hir_instr_get_operand(truthy_target, 1);
+            HirRegister left = hir_c_get_operand(truthy_target, 0);
+            HirRegister right = hir_c_get_operand(truthy_target, 1);
             replacement = hir_compare_bool_create(
                 hir_c_output(truthy), op, left, right, truthy);
         }

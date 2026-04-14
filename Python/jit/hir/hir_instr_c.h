@@ -400,6 +400,28 @@ static inline void hir_c_copy_bytecode_offset(void *dst, const void *src) {
         ((const HirInstrLayout *)src)->bytecode_offset;
 }
 
+/* ==== Operand access ====
+ * Operands are stored BEFORE the instruction in memory:
+ *   [Register*[N] operands] [size_t num_operands] [HirInstrLayout fields...]
+ * NumOperands is at ((size_t*)instr)[-1].
+ * Operands array starts at ((void**)instr) - 1 - N. */
+
+static inline size_t hir_c_num_operands(const void *instr) {
+    return ((const size_t *)instr)[-1];
+}
+
+static inline void *hir_c_get_operand(const void *instr, size_t i) {
+    const size_t n = hir_c_num_operands(instr);
+    void *const *ops = (void *const *)((const size_t *)instr - 1) - n;
+    return ops[i];
+}
+
+static inline void hir_c_set_operand(void *instr, size_t i, void *reg) {
+    const size_t n = hir_c_num_operands(instr);
+    void **ops = (void **)((size_t *)instr - 1) - n;
+    ops[i] = reg;
+}
+
 /* ==== Opcode predicates ====
  * Direct opcode field read — no C++ bridge. These replace the
  * hir_instr_is_* functions in hir_c_api.h for C consumers that
