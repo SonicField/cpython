@@ -13,6 +13,7 @@
 #include "cinderx/Jit/hir/hir_c_api.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/hir/analysis.h"
+#include "cinderx/Jit/bytecode_offsets.h"
 
 #include "cinderx/Jit/hir/type.h"
 #include "cinderx/Jit/hir/hir.h"
