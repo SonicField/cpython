@@ -38,6 +38,9 @@ typedef void* HirRegister;
 /* Get the CFG from a function. */
 HirCFG hir_func_cfg(HirFunction func);
 
+/* Get the function's full qualified name (C string, valid until function freed). */
+const char *hir_func_fullname(HirFunction func);
+
 /* Get blocks in reverse postorder. Caller provides output array.
  * Returns number of blocks written (clamped to capacity). */
 size_t hir_cfg_get_rpo(HirCFG cfg, HirBasicBlock *out, size_t capacity);
@@ -252,6 +255,21 @@ void hir_reg_uses_destroy(HirRegUses uses);
 HirType hir_output_type_with_override(HirInstr instr,
                                       size_t override_idx,
                                       const HirType *override_type);
+
+/* ---- Instruction opname ---- */
+
+/* Get the opcode name as a C string. The returned pointer is valid
+ * for the lifetime of the process (static string table). */
+const char *hir_instr_opname(HirInstr instr);
+
+/* ---- Type to string ---- */
+
+/* Write a human-readable type string into buf (NUL-terminated).
+ * Returns the number of chars written (excluding NUL), or the
+ * number that would have been written if buf were large enough.
+ * safe=1 uses toStringSafe (no GIL needed). */
+size_t hir_type_to_string(const HirType *type, char *buf, size_t bufsz,
+                          int safe);
 
 /* ---- Memory effects ---- */
 

@@ -143,6 +143,10 @@ HirCFG hir_func_cfg(HirFunction func) {
   return &as_func(func)->cfg;
 }
 
+const char *hir_func_fullname(HirFunction func) {
+  return as_func(func)->fullname.c_str();
+}
+
 size_t hir_cfg_get_rpo(HirCFG cfg, HirBasicBlock *out, size_t capacity) {
   auto rpo = as_cfg(cfg)->GetRPOTraversal();
   size_t count = rpo.size() < capacity ? rpo.size() : capacity;
@@ -450,6 +454,28 @@ HirType hir_output_type_with_override(HirInstr instr,
   HirType c_result;
   memcpy(&c_result, &result, sizeof(HirType));
   return c_result;
+}
+
+/* ---- Instruction opname ---- */
+
+const char *hir_instr_opname(HirInstr instr) {
+  std::string_view sv = as_instr(instr)->opname();
+  return sv.data();
+}
+
+/* ---- Type to string ---- */
+
+size_t hir_type_to_string(const HirType *type, char *buf, size_t bufsz,
+                          int safe) {
+  const Type& cpp_type = *reinterpret_cast<const Type*>(type);
+  std::string s = safe ? cpp_type.toStringSafe() : cpp_type.toString();
+  size_t len = s.size();
+  if (buf && bufsz > 0) {
+    size_t copy = len < bufsz ? len : bufsz - 1;
+    memcpy(buf, s.data(), copy);
+    buf[copy] = '\0';
+  }
+  return len;
 }
 
 /* ---- Memory effects ---- */

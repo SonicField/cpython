@@ -151,10 +151,6 @@ static inline int hir_type_equal(const HirType *a, const HirType *b) {
            a->int_val == b->int_val;
 }
 
-/* Get a string representation of the type.
- * Writes to caller-provided buffer. Returns chars written. */
-int hir_type_to_string(HirType type, char *buf, size_t len);
-
 /* ---- Set operations ---- */
 
 /* Specialization subtype check (helper for operators) */
