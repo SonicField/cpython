@@ -315,6 +315,63 @@ static inline const HirCondBranchInstr *hir_instr_as_condbranch(
     return (const HirCondBranchInstr *)instr;
 }
 
+/* ==== Step 6: Per-opcode data accessors via C struct casts ====
+ * These validate that C consumers can access per-opcode fields
+ * through the existing layout-compatible structs.
+ * Pattern: cast HirInstr* to the per-opcode struct and read the field. */
+
+static inline int32_t hir_binary_op_kind(const HirInstr *instr) {
+    return ((const HirBinaryOp *)instr)->op;
+}
+
+static inline int32_t hir_unary_op_kind(const HirInstr *instr) {
+    return ((const HirUnaryOp *)instr)->op;
+}
+
+static inline int32_t hir_compare_op(const HirInstr *instr) {
+    return ((const HirCompare *)instr)->op;
+}
+
+static inline int32_t hir_inplace_op_kind(const HirInstr *instr) {
+    return ((const HirInPlaceOp *)instr)->op;
+}
+
+static inline HirType hir_load_const_type(const HirInstr *instr) {
+    return ((const HirLoadConst *)instr)->type;
+}
+
+static inline HirType hir_guard_type_target(const HirInstr *instr) {
+    return ((const HirGuardType *)instr)->target;
+}
+
+static inline void *hir_guard_is_target(const HirInstr *instr) {
+    return ((const HirGuardIs *)instr)->target;
+}
+
+static inline int32_t hir_load_arg_idx(const HirInstr *instr) {
+    return ((const HirLoadArg *)instr)->arg_idx;
+}
+
+static inline HirType hir_load_arg_type(const HirInstr *instr) {
+    return ((const HirLoadArg *)instr)->type;
+}
+
+static inline int32_t hir_cache_entry_id(const HirInstr *instr) {
+    return ((const HirLoadTypeAttrCacheEntryType *)instr)->cache_id;
+}
+
+static inline uint32_t hir_call_flags(const HirInstr *instr) {
+    return ((const HirVectorCall *)instr)->flags;
+}
+
+static inline void *hir_deopt_patchpoint_patcher(const HirInstr *instr) {
+    return ((const HirDeoptPatchpoint *)instr)->patcher;
+}
+
+static inline HirType hir_return_type(const HirInstr *instr) {
+    return ((const HirReturn *)instr)->type;
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
