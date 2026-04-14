@@ -5,6 +5,7 @@
 #include "cinderx/Jit/containers.h"
 #include "cinderx/Jit/hir/cfg.h"
 #include "cinderx/Jit/hir/hir.h"
+#include "cinderx/Jit/jit_config_c.h"
 #include "cinderx/Jit/jit_time_log.h"
 #include "cinderx/StaticPython/typed-args-info.h"
 
@@ -14,8 +15,14 @@ class Function {
  public:
   using InlineFailureStats =
       UnorderedMap<InlineFailureType, UnorderedSet<std::string>>;
-  Function();
-  ~Function();
+  Function() {}
+  ~Function() {
+    ThreadedCompileSerialize guard;
+    code.reset();
+    builtins.reset();
+    globals.reset();
+    prim_args_info.reset();
+  }
 
   ThreadedRef<PyCodeObject> code;
   ThreadedRef<PyDictObject> builtins;
@@ -86,10 +93,24 @@ class Function {
   }
 
   // Set code and a number of other members that are derived from it.
-  void setCode(BorrowedRef<PyCodeObject> code);
+  void setCode(BorrowedRef<PyCodeObject> code_2) {
+    this->code.reset(code_2);
+    uses_runtime_func = usesRuntimeFunc(code_2);
+    frameMode = static_cast<FrameMode>(jit_get_config()->frame_mode);
+  }
 
   // Count the number of instructions that match the predicate
-  std::size_t CountInstrs(InstrPredicate pred) const;
+  std::size_t CountInstrs(InstrPredicate pred) const {
+    std::size_t result = 0;
+    for (const auto& block : cfg.blocks) {
+      for (const auto& instr : block) {
+        if (pred(instr)) {
+          result++;
+        }
+      }
+    }
+    return result;
+  }
 
   bool returnsPrimitive() const { return return_type <= TPrimitive; }
   bool returnsPrimitiveDouble() const { return return_type <= TCDouble; }
@@ -98,7 +119,16 @@ class Function {
     compilation_phase_timer = std::move(cpt);
   }
 
-  bool canDeopt() const;
+  bool canDeopt() const {
+    for (const BasicBlock& block : cfg.blocks) {
+      for (const Instr& instr : block) {
+        if (instr.asDeoptBase()) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
 
   template <typename T, typename... Args>
   T* allocateCodePatcher(Args&&... args) {
@@ -113,7 +143,22 @@ class Function {
   // functions that cannot deopt, we will have to do something different.
   //
   // The instruction must be part of this function.
-  BorrowedRef<PyCodeObject> codeFor(const Instr& instr) const;
+  BorrowedRef<PyCodeObject> codeFor(const Instr& instr) const {
+    if (instr.IsBeginInlinedFunction()) {
+      auto bif = static_cast<const BeginInlinedFunction*>(&instr);
+      return bif->func()->func_code;
+    }
+    if (instr.IsLoadGlobalCached()) {
+      auto load_global = static_cast<const LoadGlobalCached*>(&instr);
+      return load_global->code();
+    }
+    if (auto deopt_base = instr.asDeoptBase()) {
+      auto fs = deopt_base->frameState();
+      return fs != nullptr ? fs->code : nullptr;
+    }
+    const FrameState* fs = instr.getDominatingFrameState();
+    return fs == nullptr ? code : fs->code;
+  }
 
   ThreadedRef<> reifier;
 
@@ -122,6 +167,21 @@ class Function {
 };
 
 using OpcodeCounts = std::array<int, kNumOpcodes>;
-OpcodeCounts count_opcodes(const Function& func);
+inline OpcodeCounts count_opcodes(const Function& func) {
+  OpcodeCounts counts{};
+  for (const BasicBlock& block : func.cfg.blocks) {
+    for (const Instr& instr : block) {
+      counts[static_cast<size_t>(instr.opcode())]++;
+    }
+  }
+  return counts;
+}
+
+#ifndef _LIBCPP_VERSION
+static_assert(sizeof(Function) == 48 * kPointerSize);
+static_assert(sizeof(CFG) == 5 * kPointerSize);
+static_assert(sizeof(BasicBlock) == 20 * kPointerSize);
+static_assert(sizeof(Instr) == 5 * kPointerSize);
+#endif
 
 } // namespace jit::hir
