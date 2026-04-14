@@ -218,41 +218,12 @@ void hir_block_fixup_phis(HirBasicBlock block,
   as_block(block)->fixupPhis(as_block(old_pred), as_block(new_pred));
 }
 
-/* ---- Instruction predicates ---- */
-
-int hir_instr_is_terminator(HirInstr instr) {
-  return as_instr(instr)->IsTerminator() ? 1 : 0;
-}
-
-int hir_instr_is_snapshot(HirInstr instr) {
-  return as_instr(instr)->IsSnapshot() ? 1 : 0;
-}
-
-int hir_instr_is_phi(HirInstr instr) {
-  return as_instr(instr)->IsPhi() ? 1 : 0;
-}
-
-int hir_instr_is_assign(HirInstr instr) {
-  return as_instr(instr)->IsAssign() ? 1 : 0;
-}
-
-int hir_instr_is_primitive_box(HirInstr instr) {
-  return as_instr(instr)->IsPrimitiveBox() ? 1 : 0;
-}
-
-int hir_instr_is_branch(HirInstr instr) {
-  return as_instr(instr)->IsBranch() ? 1 : 0;
-}
-
-int hir_instr_has_deopt_base(HirInstr instr) {
-  return as_instr(instr)->asDeoptBase() != nullptr ? 1 : 0;
-}
+/* Instruction predicates moved to hir_instr_c.h as hir_c_is_* inline functions
+ * (direct opcode field read, no C++ bridge needed). */
 
 /* ---- Instruction accessors ---- */
 
-HirRegister hir_instr_output(HirInstr instr) {
-  return as_instr(instr)->output();
-}
+/* hir_instr_output deleted — use hir_c_output from hir_instr_c.h */
 
 size_t hir_instr_num_edges(HirInstr instr) {
   return as_instr(instr)->numEdges();
@@ -272,9 +243,7 @@ void hir_instr_insert_before(HirInstr instr, HirInstr before) {
   as_instr(instr)->InsertBefore(*as_instr(before));
 }
 
-void hir_instr_copy_bytecode_offset(HirInstr dst, HirInstr src) {
-  as_instr(dst)->copyBytecodeOffset(*as_instr(src));
-}
+/* hir_instr_copy_bytecode_offset moved to hir_instr_c.h as hir_c_copy_bytecode_offset */
 
 void hir_instr_delete(HirInstr instr) {
   Instr::Destroy(as_instr(instr));
@@ -453,12 +422,7 @@ HirType hir_output_type_with_override(HirInstr instr,
   return c_result;
 }
 
-/* ---- Instruction opname ---- */
-
-const char *hir_instr_opname(HirInstr instr) {
-  std::string_view sv = as_instr(instr)->opname();
-  return sv.data();
-}
+/* hir_instr_opname deleted — use hir_instr_info_name(hir_c_opcode(instr)) */
 
 /* ---- Type to string ---- */
 
@@ -500,27 +464,8 @@ void hir_reflow_types(HirFunction func) {
   reflowTypes(*as_func(func));
 }
 
-/* ---- Instruction predicates (T2-D) ---- */
-
-int hir_instr_is_condbranch(HirInstr instr) {
-  return as_instr(instr)->IsCondBranch() ? 1 : 0;
-}
-
-int hir_instr_is_istruthy(HirInstr instr) {
-  return as_instr(instr)->IsIsTruthy() ? 1 : 0;
-}
-
-int hir_instr_is_compare(HirInstr instr) {
-  return as_instr(instr)->IsCompare() ? 1 : 0;
-}
-
-int hir_instr_is_vectorcall(HirInstr instr) {
-  return as_instr(instr)->IsVectorCall() ? 1 : 0;
-}
-
-int hir_instr_opcode(HirInstr instr) {
-  return static_cast<int>(as_instr(instr)->opcode());
-}
+/* T2-D predicates (is_condbranch, is_istruthy, is_compare, is_vectorcall,
+ * opcode) deleted — moved to hir_instr_c.h as hir_c_* inline functions. */
 
 /* ---- Instruction query/mutation (T2-D) ---- */
 
@@ -553,9 +498,7 @@ HirInstr hir_block_back(HirBasicBlock block) {
   return &bb->back();
 }
 
-HirBasicBlock hir_instr_block(HirInstr instr) {
-  return as_instr(instr)->block();
-}
+/* hir_instr_block deleted — use hir_c_block from hir_instr_c.h */
 
 HirRegister hir_instr_get_operand(HirInstr instr, size_t i) {
   return as_instr(instr)->GetOperand(i);

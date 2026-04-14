@@ -79,22 +79,13 @@ void hir_block_fixup_phis(HirBasicBlock block,
                           HirBasicBlock old_pred,
                           HirBasicBlock new_pred);
 
-/* ---- Instruction predicates ---- */
-
-int hir_instr_is_terminator(HirInstr instr);
-int hir_instr_is_snapshot(HirInstr instr);
-int hir_instr_is_phi(HirInstr instr);
-int hir_instr_is_assign(HirInstr instr);
-int hir_instr_is_primitive_box(HirInstr instr);
-int hir_instr_is_branch(HirInstr instr);
-
-/* Returns 1 if the instruction is a DeoptBase subclass, 0 otherwise. */
-int hir_instr_has_deopt_base(HirInstr instr);
+/* ---- Instruction predicates ----
+ * Most predicates moved to hir_instr_c.h as hir_c_is_* inline functions
+ * (direct opcode field read, no C++ bridge). Only complex predicates
+ * that need C++ internals remain here. */
 
 /* ---- Instruction accessors ---- */
-
-/* Get the output register (may be NULL for side-effect-only instrs). */
-HirRegister hir_instr_output(HirInstr instr);
+/* hir_instr_output moved to hir_instr_c.h as hir_c_output */
 
 /* Control flow edges. */
 size_t hir_instr_num_edges(HirInstr instr);
@@ -107,9 +98,6 @@ void hir_instr_unlink(HirInstr instr);
 
 /* Insert instr immediately before 'before'. */
 void hir_instr_insert_before(HirInstr instr, HirInstr before);
-
-/* Copy bytecode offset from src to dst. */
-void hir_instr_copy_bytecode_offset(HirInstr dst, HirInstr src);
 
 /* Free an unlinked instruction. Caller must unlink first. */
 void hir_instr_delete(HirInstr instr);
@@ -153,16 +141,10 @@ HirInstr hir_load_const_bottom_create(HirRegister output);
 /* Create an Assign instruction (copy register). */
 HirInstr hir_assign_create(HirRegister output, HirRegister value);
 
-/* ---- Instruction predicates (T2-D) ---- */
-int hir_instr_is_condbranch(HirInstr instr);
-int hir_instr_is_istruthy(HirInstr instr);
-int hir_instr_is_compare(HirInstr instr);
-int hir_instr_is_vectorcall(HirInstr instr);
-int hir_instr_opcode(HirInstr instr);
-
 /* ---- Instruction query/mutation (T2-D) ---- */
 
-/* Get the Compare operation kind (CompareOp enum as int). */
+/* Get the Compare operation kind (CompareOp enum as int).
+ * Kept for assertion wrappers — C consumers also have hir_c_compare_op. */
 int hir_instr_compare_op(HirInstr instr);
 
 /* Check if instruction is replayable (can be safely re-executed). */
@@ -224,9 +206,7 @@ size_t hir_instr_num_operands(HirInstr instr);
 /* Get the type of a register (returned by value as HirType). */
 HirType hir_register_type(HirRegister reg);
 
-/* ---- GuardType predicate ---- */
-
-int hir_instr_is_guard_type(HirInstr instr);
+/* GuardType predicate moved to hir_instr_c.h as hir_c_is_guard_type */
 
 /* ---- RegUses (opaque handle) ---- */
 typedef void* HirRegUses;
@@ -256,11 +236,7 @@ HirType hir_output_type_with_override(HirInstr instr,
                                       size_t override_idx,
                                       const HirType *override_type);
 
-/* ---- Instruction opname ---- */
-
-/* Get the opcode name as a C string. The returned pointer is valid
- * for the lifetime of the process (static string table). */
-const char *hir_instr_opname(HirInstr instr);
+/* hir_instr_opname moved to hir_instr_c.h as hir_instr_info_name(hir_c_opcode()) */
 
 /* ---- Type to string ---- */
 
