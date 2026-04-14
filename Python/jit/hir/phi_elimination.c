@@ -7,6 +7,7 @@
 #include "cinderx/Jit/hir/phi_elimination_c.h"
 #include "cinderx/Jit/hir/copy_propagation_c.h"
 #include "cinderx/Jit/hir/hir_c_api.h"
+#include "cinderx/Jit/hir/hir_instr_c.h"
 
 #include <stdlib.h>
 
@@ -31,7 +32,7 @@ void hir_phi_elimination_run(HirFunction func) {
             while (instr != NULL) {
                 HirInstr next = hir_block_next(block, instr);
 
-                if (!hir_instr_is_phi(instr)) {
+                if (!hir_c_is_phi(instr)) {
                     /* First non-Phi: insert all replacements before it */
                     for (size_t i = 0; i < repl_len; i++) {
                         hir_instr_insert_before(replacements[i], instr);
@@ -42,7 +43,7 @@ void hir_phi_elimination_run(HirFunction func) {
                 HirRegister trivial_value = hir_phi_is_trivial(instr);
                 if (trivial_value != NULL) {
                     HirRegister model = hir_chase_assign(trivial_value);
-                    HirRegister output = hir_instr_output(instr);
+                    HirRegister output = hir_c_output(instr);
                     HirInstr new_instr;
 
                     if (model == output) {
@@ -51,7 +52,7 @@ void hir_phi_elimination_run(HirFunction func) {
                     } else {
                         new_instr = hir_assign_create(output, trivial_value);
                     }
-                    hir_instr_copy_bytecode_offset(new_instr, instr);
+                    hir_c_copy_bytecode_offset(new_instr, instr);
 
                     /* Grow replacements array if needed */
                     if (repl_len >= repl_cap) {

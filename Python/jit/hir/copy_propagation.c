@@ -6,6 +6,7 @@
 
 #include "cinderx/Jit/hir/copy_propagation_c.h"
 #include "cinderx/Jit/hir/hir_c_api.h"
+#include "cinderx/Jit/hir/hir_instr_c.h"
 
 #include <stdlib.h>
 
@@ -50,7 +51,7 @@ void hir_copy_propagation_run(HirFunction func) {
 
             hir_instr_visit_uses(instr, chase_assign_cb, NULL);
 
-            if (hir_instr_is_assign(instr)) {
+            if (hir_c_is_assign(instr)) {
                 if (assigns_len >= assigns_cap) {
                     assigns_cap *= 2;
                     HirInstr *tmp = realloc(assigns, assigns_cap * sizeof(HirInstr));

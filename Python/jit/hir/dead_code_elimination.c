@@ -6,6 +6,7 @@
 
 #include "cinderx/Jit/hir/dead_code_elimination_c.h"
 #include "cinderx/Jit/hir/hir_c_api.h"
+#include "cinderx/Jit/hir/hir_instr_c.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -118,11 +119,11 @@ static void wl_free(Worklist *w) { free(w->items); }
 /* ---- isUseful predicate ---- */
 
 static int is_useful(HirInstr instr) {
-    if (hir_instr_is_terminator(instr)) return 1;
-    if (hir_instr_is_snapshot(instr)) return 1;
-    if (hir_instr_has_deopt_base(instr) && !hir_instr_is_primitive_box(instr))
+    if (hir_c_is_terminator(instr)) return 1;
+    if (hir_c_is_snapshot(instr)) return 1;
+    if (hir_c_is_deopt_base(instr) && !hir_c_is_primitive_box(instr))
         return 1;
-    if (!hir_instr_is_phi(instr) &&
+    if (!hir_c_is_phi(instr) &&
         hir_memory_effects_may_store(instr) != HIR_ACLS_EMPTY)
         return 1;
     return 0;

@@ -7,6 +7,7 @@
 
 #include "cinderx/Jit/hir/guard_removal_c.h"
 #include "cinderx/Jit/hir/hir_c_api.h"
+#include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/hir/copy_propagation_c.h"
 
@@ -144,9 +145,9 @@ static int guard_needed(HirRegUses uses, HirRegister new_reg,
                 }
 
                 /* If this is a passthrough or Phi with output, propagate. */
-                HirRegister output = hir_instr_output(instr);
+                HirRegister output = hir_c_output(instr);
                 if (output != NULL &&
-                    (hir_instr_is_phi(instr) || hir_is_passthrough(instr))) {
+                    (hir_c_is_phi(instr) || hir_is_passthrough(instr))) {
                     HirType passthrough_type =
                         hir_output_type_with_override(instr, i, &cur_type);
                     if (seen_insert(&seen, output, &passthrough_type)) {
@@ -193,18 +194,18 @@ void hir_guard_type_removal_run(HirFunction func) {
         while (instr != NULL) {
             HirInstr next = hir_block_next(block, instr);
 
-            if (!hir_instr_is_guard_type(instr)) {
+            if (!hir_c_is_guard_type(instr)) {
                 instr = next;
                 continue;
             }
 
-            HirRegister guard_out = hir_instr_output(instr);
+            HirRegister guard_out = hir_c_output(instr);
             HirRegister guard_in = hir_instr_get_operand(instr, 0);
             HirType guard_in_type = hir_register_type(guard_in);
 
             if (!guard_needed(reg_uses, guard_out, guard_in_type)) {
                 HirInstr assign = hir_assign_create(guard_out, guard_in);
-                hir_instr_copy_bytecode_offset(assign, instr);
+                hir_c_copy_bytecode_offset(assign, instr);
                 hir_instr_replace_with(instr, assign);
 
                 /* Track for deferred destruction. */
