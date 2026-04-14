@@ -6,6 +6,7 @@
 
 #include "cinderx/Common/log.h"
 #include "cinderx/Common/util.h"
+#include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/hir/type_generated.h"
 #include "fmt/ostream.h"
 
@@ -180,6 +181,26 @@ class Type {
   Type& operator|=(Type other);
   Type& operator&=(Type other);
   Type& operator-=(Type other);
+
+  // Phase 3D: Type↔HirType field-by-field conversion.
+  static HirType toHirType(const Type& t) {
+    HirType h;
+    h.bits_and_flags = (static_cast<uint64_t>(t.bits_)
+        | (static_cast<uint64_t>(t.lifetime_) << HIR_TYPE_LIFETIME_SHIFT)
+        | (static_cast<uint64_t>(t.spec_kind_) << HIR_TYPE_SPEC_SHIFT));
+    h.int_val = t.int_;
+    return h;
+  }
+  static Type fromHirType(HirType h) {
+    uint64_t bits = h.bits_and_flags & HIR_TYPE_BITS_MASK;
+    uint64_t lifetime = (h.bits_and_flags >> HIR_TYPE_LIFETIME_SHIFT) & 0x3;
+    uint64_t spec_kind = (h.bits_and_flags >> HIR_TYPE_SPEC_SHIFT) & 0x7;
+    return Type(
+        static_cast<bits_t>(bits),
+        static_cast<bits_t>(lifetime),
+        static_cast<SpecKind>(spec_kind),
+        static_cast<intptr_t>(h.int_val));
+  }
 
  private:
   // HIRParser needs to be able to construct Type objects and then add them to

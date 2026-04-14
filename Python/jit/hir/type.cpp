@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/hir/type.h"
+#include "cinderx/Jit/hir/hir_type_c.h"
 
 #include "cinderx/StaticPython/static_array.h"
 #include "cinderx/StaticPython/type_code.h"
@@ -503,160 +504,26 @@ bool Type::isSingleValue() const {
       hasIntSpec() || hasDoubleSpec();
 }
 
+// Phase 3D: operators delegate to C API in hir_type_c.c.
 bool Type::operator<=(Type other) const {
-  return (bits_ & other.bits_) == bits_ &&
-      (lifetime_ & other.lifetime_) == lifetime_ && specSubtype(other);
+  return hir_type_is_subtype(toHirType(*this), toHirType(other));
 }
 
 bool Type::specSubtype(Type other) const {
-  if (other.specKind() == kSpecTop || specKind() == kSpecBottom) {
-    // Top is a supertype of everything, and Bottom is a subtype of everything.
-    return true;
-  }
-  if (!hasSpec()) {
-    // The only unspecialized Type that is a subtype of any specialized type is
-    // TBottom, which is covered by the previous case.
-    return false;
-  }
-  if ((hasIntSpec() || other.hasIntSpec()) ||
-      (hasDoubleSpec() || other.hasDoubleSpec())) {
-    // Primitive specializations don't support subtypes other than exact
-    // equality.
-    return *this == other;
-  }
-
-  // Check other's specialization type in decreasing order of specificity.
-  if (other.hasObjectSpec()) {
-    return hasObjectSpec() && objectSpec() == other.objectSpec();
-  }
-  if (other.hasTypeExactSpec()) {
-    return hasTypeExactSpec() && typeSpec() == other.typeSpec();
-  }
-  return PyType_IsSubtype(typeSpec(), other.typeSpec());
+  HirType a = toHirType(*this), b = toHirType(other);
+  return hir_type_spec_subtype(&a, &b);
 }
 
 Type Type::operator|(Type other) const {
-  // Check trivial, specialization-preserving cases first.
-  if (*this <= other) {
-    return other;
-  }
-  if (other <= *this) {
-    return *this;
-  }
-
-  bits_t bits = bits_ | other.bits_;
-  bits_t lifetime = lifetime_ | other.lifetime_;
-
-  Type no_spec{bits, lifetime};
-  if (!hasTypeSpec() || !other.hasTypeSpec()) {
-    // If either type doesn't have a specialization with a PyTypeObject*, the
-    // result is only specialized if we hit one of the trivial cases up above.
-    return no_spec;
-  }
-
-  if (hasObjectSpec() && other.hasObjectSpec() &&
-      objectSpec() == other.objectSpec()) {
-    JIT_DCHECK(
-        *this == other,
-        "Types with identical object specializations aren't equal");
-    return *this;
-  }
-
-  PyTypeObject* type_a = typeSpec();
-  PyTypeObject* type_b = other.typeSpec();
-  PyTypeObject* supertype;
-  // This logic will need to be more complicated if we want to more precisely
-  // unify type specializations with a common supertype that isn't one of the
-  // two.
-  if (PyType_IsSubtype(type_a, type_b)) {
-    supertype = type_b;
-  } else if (PyType_IsSubtype(type_b, type_a)) {
-    supertype = type_a;
-  } else {
-    return no_spec;
-  }
-  if (pyTypeToType().contains(supertype)) {
-    // If the resolved supertype is a builtin type, the result doesn't need to
-    // be specialized; the bits uniquely describe it already.
-    return no_spec;
-  }
-
-  // The resulting specialization can only be exact if the two types are the
-  // same exact type.
-  bool is_exact =
-      hasTypeExactSpec() && other.hasTypeExactSpec() && type_a == type_b;
-  return Type{bits, lifetime, supertype, is_exact};
+  return fromHirType(hir_type_union(toHirType(*this), toHirType(other)));
 }
 
 Type Type::operator&(Type other) const {
-  bits_t bits = bits_ & other.bits_;
-  bits_t lifetime = lifetime_ & other.lifetime_;
-
-  // The kObject part of 'bits' and all of 'lifetime' are only meaningful if
-  // both are non-zero. If one has gone to zero, clear the other as well. This
-  // prevents creating types like "MortalBottom" or "LifetimeBottomList", both
-  // of which we canonicalize to Bottom.
-  if ((bits & kObject) == 0) {
-    lifetime = kLifetimeBottom;
-  } else if (lifetime == kLifetimeBottom) {
-    bits &= ~kObject;
-  }
-
-  if (bits == kBottom) {
-    return TBottom;
-  }
-  if (specSubtype(other)) {
-    return Type{bits, lifetime, specKind(), int_};
-  }
-  if (other.specSubtype(*this)) {
-    return Type{bits, lifetime, other.specKind(), other.int_};
-  }
-
-  // Two different, non-exact type specializations can still have a non-empty
-  // intersection thanks to multiple inheritance. We can't represent the
-  // intersection of two arbitrary classes, and we want to avoid returning a
-  // type that's wider than either input type.
-  //
-  // Returning either the lhs or rhs would be correct within our constraints,
-  // so keep this operation commutative by returning the type with the name
-  // that's alphabetically first. Fall back to pointer comparison if they have
-  // the same name.
-  if (specKind() == kSpecType && other.specKind() == kSpecType) {
-    auto type_a = typeSpec();
-    auto type_b = other.typeSpec();
-    auto cmp = std::strcmp(type_a->tp_name, type_b->tp_name);
-    if (cmp < 0 || (cmp == 0 && type_a < type_b)) {
-      return Type{bits, lifetime, type_a, false};
-    }
-    return Type{bits, lifetime, type_b, false};
-  }
-
-  return TBottom;
+  return fromHirType(hir_type_intersect(toHirType(*this), toHirType(other)));
 }
 
 Type Type::operator-(Type rhs) const {
-  if (*this <= rhs) {
-    return TBottom;
-  }
-  if (!specSubtype(rhs)) {
-    return *this;
-  }
-
-  bits_t bits = bits_ & ~(rhs.bits_ & kPrimitive);
-  bits_t lifetime = lifetime_;
-  auto bits_subset = [](bits_t a, bits_t b) { return (a & b) == a; };
-
-  // We only want to remove the kObject parts of 'bits', or any part of
-  // 'lifetime', when the corresponding parts of the other component are
-  // subsumed by rhs's part.
-  if (bits_subset(lifetime_, rhs.lifetime_)) {
-    bits &= ~(rhs.bits_ & kObject);
-  }
-  if (bits_subset(bits_ & kObject, rhs.bits_ & kObject)) {
-    lifetime &= ~rhs.lifetime_;
-  }
-
-  return Type{bits, lifetime, specKind(), int_};
+  return fromHirType(hir_type_subtract(toHirType(*this), toHirType(rhs)));
 }
 
 Type Type::asBoxed() const {
