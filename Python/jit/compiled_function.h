@@ -67,6 +67,7 @@ bool isJitCompiled(const PyFunctionObject* func);
 
 #ifdef __cplusplus
 
+#include "cinderx/Common/extra-py-flags.h"
 #include "cinderx/Common/util.h"
 #include "cinderx/Jit/code_patcher.h"
 #include "cinderx/Jit/code_runtime.h"
