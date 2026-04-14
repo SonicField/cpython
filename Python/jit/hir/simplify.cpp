@@ -157,6 +157,19 @@ struct Env {
     }
   }
 
+  // Insert a pre-created instruction from a C factory into the current block.
+  // Sets bytecode offset, inserts at cursor, computes output type.
+  // Returns the output register (or nullptr if no output).
+  Register* emitCInstr(Instr* instr) {
+    optimized = true;
+    instr->setBytecodeOffset(bc_off);
+    block->insert(instr, cursor);
+    if (instr->output()) {
+      instr->output()->set_type(outputType(*instr));
+    }
+    return instr->output();
+  }
+
   // Similar to emit<T>(), but does not automatically create an output
   // register.
   template <typename T, typename... Args>
@@ -797,8 +810,8 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
                           reinterpret_cast<const HirType*>(&TFloatExact))) {
       if (FloatBinaryOp::slotMethod(op) || op == BinaryOpKind::kPower) {
         env.emit<UseType>(lhs, TFloatExact);
-        Register* guarded = env.emit<GuardType>(TFloatExact, rhs,
-                                                 *instr->frameState());
+        Register* guarded = env.emitCInstr(static_cast<Instr*>(
+            hir_c_create_guard_type(&env.func, to_hir(TFloatExact), rhs, instr->frameState())));
         return env.emit<FloatBinaryOp>(op, lhs, guarded,
                                         *instr->frameState());
       }
@@ -809,8 +822,8 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
                           reinterpret_cast<const HirType*>(&TFloatExact))) {
       if (FloatBinaryOp::slotMethod(op) || op == BinaryOpKind::kPower) {
         env.emit<UseType>(rhs, TFloatExact);
-        Register* guarded = env.emit<GuardType>(TFloatExact, lhs,
-                                                 *instr->frameState());
+        Register* guarded = env.emitCInstr(static_cast<Instr*>(
+            hir_c_create_guard_type(&env.func, to_hir(TFloatExact), lhs, instr->frameState())));
         return env.emit<FloatBinaryOp>(op, guarded, rhs,
                                         *instr->frameState());
       }
@@ -824,26 +837,18 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
         hir_type_could_be(reinterpret_cast<const HirType*>(&rhs_type_l),
                           reinterpret_cast<const HirType*>(&TLongExact))) {
       env.emit<UseType>(lhs, TLongExact);
-      // Phase I integration test: C factory for GuardType
-      {
-        env.optimized = true;
-        auto* gt = static_cast<Instr*>(hir_c_create_guard_type(
-            &env.func, to_hir(TLongExact), rhs, instr->frameState()));
-        gt->setBytecodeOffset(env.bc_off);
-        env.block->insert(gt, env.cursor);
-        gt->output()->set_type(outputType(*gt));
-        Register* guarded = gt->output();
-        return env.emit<LongBinaryOp>(op, lhs, guarded,
-                                        *instr->frameState());
-      }
+      Register* guarded = env.emitCInstr(static_cast<Instr*>(
+          hir_c_create_guard_type(&env.func, to_hir(TLongExact), rhs, instr->frameState())));
+      return env.emit<LongBinaryOp>(op, lhs, guarded,
+                                      *instr->frameState());
     }
     auto lhs_type_l = lhs->type();
     if (rhs->isA(TLongExact) && !lhs->isA(TLongExact) &&
         hir_type_could_be(reinterpret_cast<const HirType*>(&lhs_type_l),
                           reinterpret_cast<const HirType*>(&TLongExact))) {
       env.emit<UseType>(rhs, TLongExact);
-      Register* guarded = env.emit<GuardType>(TLongExact, lhs,
-                                               *instr->frameState());
+      Register* guarded = env.emitCInstr(static_cast<Instr*>(
+          hir_c_create_guard_type(&env.func, to_hir(TLongExact), lhs, instr->frameState())));
       return env.emit<LongBinaryOp>(op, guarded, rhs,
                                       *instr->frameState());
     }
@@ -959,7 +964,8 @@ Register* simplifyInPlaceOp(Env& env, const InPlaceOp* instr) {
       default: break;
     }
     if (binop && (FloatBinaryOp::slotMethod(*binop) || *binop == BinaryOpKind::kPower)) {
-      Register* guarded_lhs = env.emit<GuardType>(TFloatExact, lhs, *instr->frameState());
+      Register* guarded_lhs = env.emitCInstr(static_cast<Instr*>(
+          hir_c_create_guard_type(&env.func, to_hir(TFloatExact), lhs, instr->frameState())));
       env.emit<UseType>(rhs, TFloatExact);
       return env.emit<FloatBinaryOp>(*binop, guarded_lhs, rhs, *instr->frameState());
     }
@@ -996,8 +1002,8 @@ Register* simplifyInPlaceOp(Env& env, const InPlaceOp* instr) {
     if (binop && (FloatBinaryOp::slotMethod(*binop) ||
                   *binop == BinaryOpKind::kPower)) {
       env.emit<UseType>(lhs, TFloatExact);
-      Register* guarded = env.emit<GuardType>(TFloatExact, rhs,
-                                               *instr->frameState());
+      Register* guarded = env.emitCInstr(static_cast<Instr*>(
+          hir_c_create_guard_type(&env.func, to_hir(TFloatExact), rhs, instr->frameState())));
       return env.emit<FloatBinaryOp>(*binop, lhs, guarded,
                                       *instr->frameState());
     }
@@ -1010,8 +1016,8 @@ Register* simplifyInPlaceOp(Env& env, const InPlaceOp* instr) {
     if (binop && (FloatBinaryOp::slotMethod(*binop) ||
                   *binop == BinaryOpKind::kPower)) {
       env.emit<UseType>(rhs, TFloatExact);
-      Register* guarded = env.emit<GuardType>(TFloatExact, lhs,
-                                               *instr->frameState());
+      Register* guarded = env.emitCInstr(static_cast<Instr*>(
+          hir_c_create_guard_type(&env.func, to_hir(TFloatExact), lhs, instr->frameState())));
       return env.emit<FloatBinaryOp>(*binop, guarded, rhs,
                                       *instr->frameState());
     }
