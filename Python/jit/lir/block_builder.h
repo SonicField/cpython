@@ -5,6 +5,7 @@
 #include "cinderx/Jit/codegen/environ.h"
 #include "cinderx/Jit/hir/hir.h"
 #include "cinderx/Jit/lir/block.h"
+#include "cinderx/Jit/lir/function.h"
 
 #include <fmt/format.h>
 #include <fmt/ostream.h>
@@ -21,28 +22,67 @@
 namespace jit::lir {
 
 // Convert an HIR type into an LIR type.
-DataType hirTypeToDataType(hir::Type tp);
+inline DataType hirTypeToDataType(hir::Type tp) {
+  if (tp <= hir::TCDouble) {
+    return DataType::kDouble;
+  } else if (tp <= (hir::TCInt8 | hir::TCUInt8 | hir::TCBool)) {
+    return DataType::k8bit;
+  } else if (tp <= (hir::TCInt16 | hir::TCUInt16)) {
+    return DataType::k16bit;
+  } else if (tp <= (hir::TCInt32 | hir::TCUInt32)) {
+    return DataType::k32bit;
+  } else if (tp <= (hir::TCInt64 | hir::TCUInt64)) {
+    return DataType::k64bit;
+  } else {
+    return DataType::kObject;
+  }
+}
 
 class BasicBlockBuilder {
  public:
-  BasicBlockBuilder(jit::codegen::Environ* env, Function* func);
+  BasicBlockBuilder(jit::codegen::Environ* env, Function* func)
+      : env_(env), func_(func) {}
 
-  void setCurrentInstr(const hir::Instr* inst);
+  void setCurrentInstr(const hir::Instr* inst) {
+    cur_hir_instr_ = inst;
+    cur_deopt_metadata_ = std::nullopt;
+  }
 
   // Return the id of a DeoptMetadata for the current instruction, returning
   // the same id if called multiple times for the same instruction.
-  std::size_t makeDeoptMetadata();
+  std::size_t makeDeoptMetadata() {
+    JIT_CHECK(
+        cur_hir_instr_ != nullptr,
+        "Can't make DeoptMetadata with a nullptr HIR instruction");
+    auto deopt_base = cur_hir_instr_->asDeoptBase();
+    JIT_CHECK(deopt_base != nullptr, "Current HIR instruction can't deopt");
+    if (!cur_deopt_metadata_.has_value()) {
+      cur_deopt_metadata_ =
+          env_->code_rt->addDeoptMetadata(DeoptMetadata::fromInstr(*deopt_base));
+    }
+    return cur_deopt_metadata_.value();
+  }
 
   // Allocate a new block, not yet attached anywhere in the current CFG.
-  BasicBlock* allocateBlock();
+  BasicBlock* allocateBlock() {
+    return func_->allocateBasicBlock();
+  }
 
   // Append a block to the CFG and switch to it.
-  void appendBlock(BasicBlock* block);
+  void appendBlock(BasicBlock* block) {
+    if (cur_bb_->successors().size() < 2) {
+      cur_bb_->addSuccessor(block);
+    }
+    switchBlock(block);
+  }
 
   // Terminate the current block and switch over to a new one.
   //
   // Any predecessor/successor links are expected to be set up already.
-  void switchBlock(BasicBlock* block);
+  void switchBlock(BasicBlock* block) {
+    bbs_.push_back(block);
+    cur_bb_ = block;
+  }
 
   // Allocate and append a new instruction to the instruction stream.
   template <class... Args>
@@ -116,7 +156,11 @@ class BasicBlockBuilder {
   }
 
   // Allocate and append a new branching instruction which is checking a flag
-  Instruction* appendBranch(Instruction::Opcode opcode, BasicBlock* true_bb);
+  Instruction* appendBranch(Instruction::Opcode opcode, BasicBlock* true_bb) {
+    auto instr = appendInstr(opcode);
+    cur_bb_->addSuccessor(true_bb);
+    return instr;
+  }
 
   template <
       typename FuncReturnType,
@@ -170,14 +214,44 @@ class BasicBlockBuilder {
   }
 
   // Create a new LIR instruction for the current HIR instruction.
-  Instruction* createInstr(Instruction::Opcode opcode);
+  Instruction* createInstr(Instruction::Opcode opcode) {
+    return cur_bb_->allocateInstr(opcode, cur_hir_instr_);
+  }
 
-  Instruction* getDefInstr(const hir::Register* reg);
+  Instruction* getDefInstr(const hir::Register* reg) {
+    auto def_instr = map_get(env_->output_map, reg, nullptr);
+    if (def_instr == nullptr) {
+      hir::Register* def_reg = nullptr;
+      auto iter = env_->copy_propagation_map.find(reg);
+      while (iter != env_->copy_propagation_map.end()) {
+        def_reg = iter->second;
+        iter = env_->copy_propagation_map.find(def_reg);
+      }
+      if (def_reg != nullptr) {
+        def_instr = map_get(env_->output_map, def_reg, nullptr);
+      }
+    }
+    return def_instr;
+  }
 
-  void createInstrInput(Instruction* instr, hir::Register* reg);
-  void createInstrOutput(Instruction* instr, hir::Register* dst);
+  void createInstrInput(Instruction* instr, hir::Register* reg) {
+    instr->allocateLinkedInput(getDefInstr(reg));
+  }
 
-  std::vector<BasicBlock*> Generate();
+  void createInstrOutput(Instruction* instr, hir::Register* dst) {
+    auto pair = env_->output_map.emplace(dst, instr);
+    JIT_DCHECK(
+        pair.second,
+        "Multiple outputs with the same name ({})- HIR is not in SSA form.",
+        dst->name());
+    auto output = instr->output();
+    output->setVirtualRegister();
+    output->setDataType(hirTypeToDataType(dst->type()));
+  }
+
+  std::vector<BasicBlock*> Generate() {
+    return bbs_;
+  }
 
  private:
   const hir::Instr* cur_hir_instr_{nullptr};
