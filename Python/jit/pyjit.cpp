@@ -39,7 +39,7 @@
 #include "cinderx/Jit/frame.h"
 #include "cinderx/Jit/generators_rt.h"
 #include "cinderx/Jit/iterator_types.h"
-#include "cinderx/Jit/hir/annotation_index.h"
+#include "cinderx/Jit/hir/annotation_index_c.h"
 #include "cinderx/Jit/hir/preload.h"
 #include "cinderx/Jit/inline_cache.h"
 #include "cinderx/Jit/bytecode.h"

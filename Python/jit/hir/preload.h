@@ -6,7 +6,7 @@
 
 #include "cinderx/Common/log.h"
 #include "cinderx/Common/ref.h"
-#include "cinderx/Jit/hir/annotation_index.h"
+#include "cinderx/Jit/hir/annotation_index_c.h"
 #include "cinderx/Jit/hir/function.h"
 #include "cinderx/Jit/hir/hir.h"
 #include "cinderx/Jit/hir/type.h"
@@ -88,6 +88,9 @@ class Preloader {
  public:
   Preloader(Preloader&&) = default;
   Preloader() = default;
+  ~Preloader() {
+    hir_annotation_index_destroy(annotations_);
+  }
 
   static std::unique_ptr<Preloader> makePreloader(
       BorrowedRef<PyFunctionObject> func,
@@ -96,7 +99,7 @@ class Preloader {
         func->func_code,
         func->func_builtins,
         func->func_globals,
-        AnnotationIndex::from_function(func),
+        hir_annotation_index_from_function(func),
         funcFullname(func),
         std::move(reifier));
   }
@@ -105,14 +108,14 @@ class Preloader {
       BorrowedRef<PyCodeObject> code,
       BorrowedRef<PyDictObject> builtins,
       BorrowedRef<PyDictObject> globals,
-      std::unique_ptr<AnnotationIndex> annotations,
+      HirAnnotationIndex* annotations,
       const std::string& fullname,
       Ref<> reifier = nullptr) {
     auto preloader = std::unique_ptr<Preloader>(new Preloader(
         code,
         builtins,
         globals,
-        std::move(annotations),
+        annotations,
         fullname,
         std::move(reifier)));
     bool success = preloader->preload();
@@ -164,8 +167,8 @@ class Preloader {
     return builtins_;
   }
 
-  AnnotationIndex* annotations() const {
-    return annotations_.get();
+  HirAnnotationIndex* annotations() const {
+    return annotations_;
   }
 
   const std::string& fullname() const {
@@ -214,13 +217,13 @@ class Preloader {
       BorrowedRef<PyCodeObject> code,
       BorrowedRef<PyDictObject> builtins,
       BorrowedRef<PyDictObject> globals,
-      std::unique_ptr<AnnotationIndex> annotations,
+      HirAnnotationIndex* annotations,
       const std::string& fullname,
       Ref<> reifier)
       : code_(Ref<>::create(code)),
         builtins_(Ref<>::create(builtins)),
         globals_(Ref<>::create(globals)),
-        annotations_(std::move(annotations)),
+        annotations_(annotations),
         fullname_(fullname),
         reifier_(std::move(reifier)) {
     JIT_CHECK(PyCode_Check(code_), "Expected PyCodeObject");
@@ -229,7 +232,7 @@ class Preloader {
   Ref<PyCodeObject> code_;
   Ref<PyDictObject> builtins_;
   Ref<PyDictObject> globals_;
-  std::unique_ptr<AnnotationIndex> annotations_;
+  HirAnnotationIndex* annotations_;
   const std::string fullname_;
   Ref<> reifier_;
 

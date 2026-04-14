@@ -25,7 +25,7 @@
 #include "cinderx/Jit/containers.h"
 #include "cinderx/Jit/context.h"
 #include "cinderx/Jit/iterator_types.h"
-#include "cinderx/Jit/hir/annotation_index.h"
+#include "cinderx/Jit/hir/annotation_index_c.h"
 #include "cinderx/Jit/hir/ssa.h"
 #include "cinderx/Jit/hir/type.h"
 #include "cinderx/StaticPython/checked_dict.h"
@@ -1042,7 +1042,7 @@ std::unique_ptr<Function> HIRBuilder::buildHIR() {
 // Loop through each of the arguments on the current translation context and
 // check and see if there is any annotation to guard against.
 void HIRBuilder::emitTypeAnnotationGuards(TranslationContext& tc) {
-  AnnotationIndex* index = preloader_.annotations();
+  HirAnnotationIndex* index = preloader_.annotations();
 
   // Bail out if there are no annotations.
   if (!index) {
@@ -1053,7 +1053,7 @@ void HIRBuilder::emitTypeAnnotationGuards(TranslationContext& tc) {
   bool first = true;
 
   for (int arg_idx = 0; arg_idx < preloader_.numArgs(); arg_idx++) {
-    PyObject* annotation = index->find(getVarname(code, arg_idx));
+    PyObject* annotation = hir_annotation_index_find(index, getVarname(code, arg_idx));
 
     // If there is no annotation or if the annotation is an unexpected type,
     // then skip over this argument.
