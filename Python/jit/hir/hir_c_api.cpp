@@ -339,10 +339,7 @@ HirInstr hir_assign_create(HirRegister output, HirRegister value) {
 
 /* ---- Type queries (bridge) ---- */
 
-PyObject *hir_type_as_object(const HirType *t) {
-  const auto& type = *reinterpret_cast<const Type*>(t);
-  return type.asObject();
-}
+/* hir_type_as_object() — moved to hir_type_c.c (pure C) */
 
 int hir_type_is_exact(const HirType *t) {
   const auto& type = *reinterpret_cast<const Type*>(t);

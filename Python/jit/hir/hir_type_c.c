@@ -340,3 +340,63 @@ HirType hir_prim_type_to_type(int prim_type) {
         default:           { HirType r = HIR_TYPE_BOTTOM;  return r; }
     }
 }
+
+/* ---- Type query functions ---- */
+
+PyTypeObject *hir_type_unique_pytype(const HirType *t) {
+    if (hir_type_has_object_spec(t)) return NULL;
+    if (hir_type_has_type_spec(t)) return t->pytype;
+    if (hir_type_has_type_exact_spec(t)) return t->pytype;
+
+    /* Reverse lookup: find matching bits in the type table. */
+    uint64_t bits = hir_type_bits(t);
+
+    /* Check NoneType */
+    if (bits == 0x00000000080ULL) return Py_TYPE(Py_None);
+
+    /* Check BaseException */
+    if (bits == 0x00000801000ULL) return (PyTypeObject *)PyExc_BaseException;
+
+    /* Scan static table */
+    for (size_t i = 0; i < PYTYPE_MAP_SIZE; i++) {
+        if (s_pytype_to_type[i].bits == bits) {
+            return s_pytype_to_type[i].type;
+        }
+    }
+
+    return NULL;
+}
+
+PyTypeObject *hir_type_runtime_pytype(const HirType *t) {
+    if (!hir_type_has_type_exact_spec(t) &&
+        !hir_type_is_exact(t)) {
+        return NULL;
+    }
+    if (hir_type_has_type_spec(t) || hir_type_has_type_exact_spec(t)) {
+        return t->pytype;
+    }
+    return hir_type_unique_pytype(t);
+}
+
+PyObject *hir_type_as_object(const HirType *t) {
+    uint64_t bits = hir_type_bits(t);
+    /* TNoneType bits = 0x80 — check if type is subtype of NoneType */
+    if ((bits & 0x00000000080ULL) == bits && bits != 0) {
+        return Py_None;
+    }
+    if (hir_type_has_object_spec(t)) {
+        return t->pyobject;
+    }
+    return NULL;
+}
+
+int hir_type_is_single_value(const HirType *t) {
+    uint64_t bits = hir_type_bits(t);
+    /* TNoneType = 0x80, TNullptr = 0x80000000000 */
+    if ((bits & 0x00000000080ULL) == bits && bits != 0) return 1;
+    if ((bits & 0x80000000000ULL) == bits && bits != 0) return 1;
+    if (hir_type_has_object_spec(t)) return 1;
+    if (hir_type_has_int_spec(t)) return 1;
+    if (hir_type_has_double_spec(t)) return 1;
+    return 0;
+}

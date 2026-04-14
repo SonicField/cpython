@@ -199,6 +199,20 @@ static inline int hir_type_equal(const HirType *a, const HirType *b) {
 #define HIR_TYPE_ARRAY          HIR_TYPE_SIMPLE(0x00000000001ULL, HIR_TYPE_LIFETIME_TOP)
 #define HIR_TYPE_BOTTOM         HIR_TYPE_SIMPLE(0x00000000000ULL, HIR_TYPE_LIFETIME_BOTTOM)
 
+/* ---- Type query functions ---- */
+
+/* Get the unique PyTypeObject* for this type, or NULL if ambiguous. */
+PyTypeObject *hir_type_unique_pytype(const HirType *t);
+
+/* Get the runtime PyTypeObject* (only for exact types with type spec). */
+PyTypeObject *hir_type_runtime_pytype(const HirType *t);
+
+/* Get the PyObject* value if this is a known single-value type, or NULL. */
+PyObject *hir_type_as_object(const HirType *t);
+
+/* Check if this type represents a single value. */
+int hir_type_is_single_value(const HirType *t);
+
 /* ---- C functions for type conversion ---- */
 
 /* Convert a Static Python primitive type code to a HirType. */
