@@ -3,6 +3,7 @@
 
 #include "cinderx/Common/ref.h"
 #include "cinderx/Jit/code_patcher.h"
+#include "cinderx/Jit/context.h"
 #include "cinderx/Jit/threaded_compile.h"
 
 namespace jit {
@@ -25,7 +26,14 @@ class GlobalDeoptPatcher : public JumpPatcher {
     expected_value_.reset(expected_value);
   }
 
-  ~GlobalDeoptPatcher();
+  ~GlobalDeoptPatcher() {
+    if (isLinked() && key_name_.get() != nullptr) {
+      Context* ctx = getContext();
+      if (ctx != nullptr) {
+        ctx->unwatchGlobal(globals_, key_name_, this);
+      }
+    }
+  }
 
   bool maybePatch(BorrowedRef<> new_value) {
     if (new_value == expected_value_.get()) {

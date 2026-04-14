@@ -24,7 +24,9 @@
 #include "cinderx/Jit/inline_cache.h"
 #include "cinderx/Jit/pyjit_result.h"
 #include "cinderx/Jit/type_deopt_patchers.h"
-#include "cinderx/Jit/global_deopt_patcher.h"
+// Forward declaration — full definition in global_deopt_patcher.h.
+// context.h only uses GlobalDeoptPatcher* (pointer), never dereferences it.
+namespace jit { class GlobalDeoptPatcher; }
 
 #include <functional>
 #include <memory>

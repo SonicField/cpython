@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/context.h"
+#include "cinderx/Jit/global_deopt_patcher.h"
 #include "cinderx/Jit/jit_log.h"
 
 #include "internal/pycore_interp.h"
