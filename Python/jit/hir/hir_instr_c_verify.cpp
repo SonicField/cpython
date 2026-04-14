@@ -12,7 +12,7 @@
 using namespace jit::hir;
 
 /* ---- Compile-time size checks ---- */
-static_assert(sizeof(HirInstr) == sizeof(Instr),
+static_assert(sizeof(HirInstrLayout) == sizeof(Instr),
     "HirInstr size must match C++ Instr");
 static_assert(sizeof(HirCondBranchInstr) == sizeof(CondBranchBase),
     "HirCondBranchInstr size must match C++ CondBranchBase");
@@ -24,19 +24,19 @@ static_assert(sizeof(HirEdge) == sizeof(Edge),
 /* ---- Per-field offsetof checks via friend struct ---- */
 struct HirInstrLayoutVerifier {
     /* HirInstr vs Instr */
-    static_assert(offsetof(HirInstr, block_node) == offsetof(Instr, block_node_));
-    static_assert(offsetof(HirInstr, opcode) == offsetof(Instr, opcode_));
-    static_assert(offsetof(HirInstr, bytecode_offset) == offsetof(Instr, bytecode_offset_));
-    static_assert(offsetof(HirInstr, output) == offsetof(Instr, output_));
-    static_assert(offsetof(HirInstr, block) == offsetof(Instr, block_));
+    static_assert(offsetof(HirInstrLayout, block_node) == offsetof(Instr, block_node_));
+    static_assert(offsetof(HirInstrLayout, opcode) == offsetof(Instr, opcode_));
+    static_assert(offsetof(HirInstrLayout, bytecode_offset) == offsetof(Instr, bytecode_offset_));
+    static_assert(offsetof(HirInstrLayout, output) == offsetof(Instr, output_));
+    static_assert(offsetof(HirInstrLayout, block) == offsetof(Instr, block_));
 
-    /* HirDeoptInstr field offsets vs DeoptBase */
-    static_assert(offsetof(HirDeoptInstr, live_regs_storage) == offsetof(DeoptBase, live_regs_));
-    static_assert(offsetof(HirDeoptInstr, frame_state) == offsetof(DeoptBase, frame_state_));
-    static_assert(offsetof(HirDeoptInstr, guilty_reg) == offsetof(DeoptBase, guilty_reg_));
-    static_assert(offsetof(HirDeoptInstr, nonce) == offsetof(DeoptBase, nonce_));
-    static_assert(offsetof(HirDeoptInstr, descr_storage) == offsetof(DeoptBase, descr_));
-    static_assert(offsetof(HirDeoptInstr, suppress_exception_deopt) ==
+    /* HirDeoptLayout field offsets vs DeoptBase */
+    static_assert(offsetof(HirDeoptLayout, live_regs_storage) == offsetof(DeoptBase, live_regs_));
+    static_assert(offsetof(HirDeoptLayout, frame_state) == offsetof(DeoptBase, frame_state_));
+    static_assert(offsetof(HirDeoptLayout, guilty_reg) == offsetof(DeoptBase, guilty_reg_));
+    static_assert(offsetof(HirDeoptLayout, nonce) == offsetof(DeoptBase, nonce_));
+    static_assert(offsetof(HirDeoptLayout, descr_storage) == offsetof(DeoptBase, descr_));
+    static_assert(offsetof(HirDeoptLayout, suppress_exception_deopt) ==
         offsetof(DeoptBase, suppress_exception_deopt_));
 
     /* HirCondBranchInstr field offsets vs CondBranchBase */
@@ -136,10 +136,10 @@ static void verify_hir_instr_read_through_cast() {
     auto lc = LoadConst(nullptr, TLong);
     const HirLoadConst *c_lc = reinterpret_cast<const HirLoadConst *>(&lc);
 
-    assert(hir_instr_opcode(reinterpret_cast<const HirInstr *>(&lc)) ==
+    assert(hir_c_opcode(&lc) ==
            static_cast<int32_t>(Opcode::kLoadConst) &&
            "C/C++ opcode read mismatch for LoadConst");
-    assert(!hir_instr_has_output(reinterpret_cast<const HirInstr *>(&lc)) ||
+    assert(!hir_c_has_output(&lc) ||
            true && "output check");
 
     /* Verify Type field reads correctly through cast */

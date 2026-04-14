@@ -53,15 +53,19 @@ typedef struct HirEdge {
     char descr_storage[32];     /* std::string */           \
     uint8_t suppress_exception_deopt
 
-/* ---- Base structs (standalone use) ---- */
+/* ---- Base structs (standalone use) ----
+ * Named HirInstrLayout / HirDeoptLayout to avoid collision with
+ * the void* HirInstr typedef in hir_c_api.h.  C passes include
+ * both headers; the void* handle is cast to these layout structs
+ * inside the static-inline accessors below. */
 
-typedef struct HirInstr {
+typedef struct HirInstrLayout {
     HIR_INSTR_FIELDS;
-} HirInstr;
+} HirInstrLayout;
 
-typedef struct HirDeoptInstr {
+typedef struct HirDeoptLayout {
     HIR_DEOPT_FIELDS;
-} HirDeoptInstr;
+} HirDeoptLayout;
 
 typedef struct HirCondBranchInstr {
     HIR_INSTR_FIELDS;
@@ -276,107 +280,172 @@ typedef union HirOpcodeData {
  * common layout, with the understanding that non-deopt instructions
  * leave the deopt fields unused. */
 
-/* ---- Field accessors ---- */
+/* ---- Field accessors ----
+ * All take void* to match hir_c_api.h's opaque HirInstr handle.
+ * Internally cast to HirInstrLayout for base field access,
+ * or to per-opcode structs for opcode-specific fields. */
 
-static inline int32_t hir_instr_opcode(const HirInstr *instr) {
-    return instr->opcode;
+static inline int32_t hir_c_opcode(const void *instr) {
+    return ((const HirInstrLayout *)instr)->opcode;
 }
 
-static inline int32_t hir_instr_bytecode_offset(const HirInstr *instr) {
-    return instr->bytecode_offset;
+static inline int32_t hir_c_bytecode_offset(const void *instr) {
+    return ((const HirInstrLayout *)instr)->bytecode_offset;
 }
 
-static inline void *hir_instr_output(const HirInstr *instr) {
-    return instr->output;
+static inline void *hir_c_output(const void *instr) {
+    return ((const HirInstrLayout *)instr)->output;
 }
 
-static inline int hir_instr_has_output(const HirInstr *instr) {
-    return instr->output != NULL;
+static inline int hir_c_has_output(const void *instr) {
+    return ((const HirInstrLayout *)instr)->output != NULL;
 }
 
-/* Safe downcast: returns NULL if not a DeoptBase subclass (T2-C1) */
-static inline const HirDeoptInstr *hir_instr_as_deopt(const HirInstr *instr) {
-    if (!hir_instr_info_is_deopt_base(instr->opcode)) {
+static inline void *hir_c_block(const void *instr) {
+    return ((const HirInstrLayout *)instr)->block;
+}
+
+/* Safe downcast: returns NULL if not a DeoptBase subclass */
+static inline const HirDeoptLayout *hir_c_as_deopt(const void *instr) {
+    if (!hir_instr_info_is_deopt_base(hir_c_opcode(instr))) {
         return NULL;
     }
-    return (const HirDeoptInstr *)instr;
+    return (const HirDeoptLayout *)instr;
 }
 
 /* Mutable variant */
-static inline HirDeoptInstr *hir_instr_as_deopt_mut(HirInstr *instr) {
-    if (!hir_instr_info_is_deopt_base(instr->opcode)) {
+static inline HirDeoptLayout *hir_c_as_deopt_mut(void *instr) {
+    if (!hir_instr_info_is_deopt_base(hir_c_opcode(instr))) {
         return NULL;
     }
-    return (HirDeoptInstr *)instr;
+    return (HirDeoptLayout *)instr;
 }
 
-static inline const HirCondBranchInstr *hir_instr_as_condbranch(
-        const HirInstr *instr) {
+static inline const HirCondBranchInstr *hir_c_as_condbranch(const void *instr) {
     return (const HirCondBranchInstr *)instr;
 }
 
-/* ==== Step 6: Per-opcode data accessors via C struct casts ====
- * These validate that C consumers can access per-opcode fields
- * through the existing layout-compatible structs.
- * Pattern: cast HirInstr* to the per-opcode struct and read the field. */
+/* ==== Per-opcode data accessors via C struct casts ====
+ * Pattern: cast void* to the per-opcode struct and read the field.
+ * Step 6 validated this approach: C struct layout matches C++ at runtime. */
 
-/* Get the target block from a Branch instruction's edge.
- * This is the canonical Step 6 validation: a C consumer (clean_cfg.c)
- * calls this to access per-opcode data through the C struct layout. */
-static inline void *hir_branch_edge_target(const HirInstr *instr) {
+/* Branch edge target (the block a Branch jumps to). */
+static inline void *hir_c_branch_target(const void *instr) {
     return ((const HirBranch *)instr)->edge.to;
 }
 
-static inline int32_t hir_binary_op_kind(const HirInstr *instr) {
+/* CondBranch edges */
+static inline void *hir_c_condbranch_true_target(const void *instr) {
+    return ((const HirCondBranchInstr *)instr)->true_edge.to;
+}
+static inline void *hir_c_condbranch_false_target(const void *instr) {
+    return ((const HirCondBranchInstr *)instr)->false_edge.to;
+}
+
+static inline int32_t hir_c_binary_op_kind(const void *instr) {
     return ((const HirBinaryOp *)instr)->op;
 }
 
-static inline int32_t hir_unary_op_kind(const HirInstr *instr) {
+static inline int32_t hir_c_unary_op_kind(const void *instr) {
     return ((const HirUnaryOp *)instr)->op;
 }
 
-static inline int32_t hir_compare_op(const HirInstr *instr) {
+static inline int32_t hir_c_compare_op(const void *instr) {
     return ((const HirCompare *)instr)->op;
 }
 
-static inline int32_t hir_inplace_op_kind(const HirInstr *instr) {
+static inline int32_t hir_c_inplace_op_kind(const void *instr) {
     return ((const HirInPlaceOp *)instr)->op;
 }
 
-static inline HirType hir_load_const_type(const HirInstr *instr) {
+static inline HirType hir_c_load_const_type(const void *instr) {
     return ((const HirLoadConst *)instr)->type;
 }
 
-static inline HirType hir_guard_type_target(const HirInstr *instr) {
+static inline HirType hir_c_guard_type_target(const void *instr) {
     return ((const HirGuardType *)instr)->target;
 }
 
-static inline void *hir_guard_is_target(const HirInstr *instr) {
+static inline void *hir_c_guard_is_target(const void *instr) {
     return ((const HirGuardIs *)instr)->target;
 }
 
-static inline int32_t hir_load_arg_idx(const HirInstr *instr) {
+static inline int32_t hir_c_load_arg_idx(const void *instr) {
     return ((const HirLoadArg *)instr)->arg_idx;
 }
 
-static inline HirType hir_load_arg_type(const HirInstr *instr) {
+static inline HirType hir_c_load_arg_type(const void *instr) {
     return ((const HirLoadArg *)instr)->type;
 }
 
-static inline int32_t hir_cache_entry_id(const HirInstr *instr) {
+static inline int32_t hir_c_cache_entry_id(const void *instr) {
     return ((const HirLoadTypeAttrCacheEntryType *)instr)->cache_id;
 }
 
-static inline uint32_t hir_call_flags(const HirInstr *instr) {
+static inline uint32_t hir_c_call_flags(const void *instr) {
     return ((const HirVectorCall *)instr)->flags;
 }
 
-static inline void *hir_deopt_patchpoint_patcher(const HirInstr *instr) {
+static inline void *hir_c_deopt_patchpoint_patcher(const void *instr) {
     return ((const HirDeoptPatchpoint *)instr)->patcher;
 }
 
-static inline HirType hir_return_type(const HirInstr *instr) {
+static inline HirType hir_c_return_type(const void *instr) {
     return ((const HirReturn *)instr)->type;
+}
+
+/* Bytecode offset copy (C-level, no bridge needed) */
+static inline void hir_c_copy_bytecode_offset(void *dst, const void *src) {
+    ((HirInstrLayout *)dst)->bytecode_offset =
+        ((const HirInstrLayout *)src)->bytecode_offset;
+}
+
+/* ==== Opcode predicates ====
+ * Direct opcode field read — no C++ bridge. These replace the
+ * hir_instr_is_* functions in hir_c_api.h for C consumers that
+ * include this header. */
+
+static inline int hir_c_is_branch(const void *instr) {
+    return hir_c_opcode(instr) == HIR_OP_Branch;
+}
+static inline int hir_c_is_phi(const void *instr) {
+    return hir_c_opcode(instr) == HIR_OP_Phi;
+}
+static inline int hir_c_is_snapshot(const void *instr) {
+    return hir_c_opcode(instr) == HIR_OP_Snapshot;
+}
+static inline int hir_c_is_assign(const void *instr) {
+    return hir_c_opcode(instr) == HIR_OP_Assign;
+}
+static inline int hir_c_is_condbranch(const void *instr) {
+    int op = hir_c_opcode(instr);
+    return op == HIR_OP_CondBranch ||
+           op == HIR_OP_CondBranchIterNotDone ||
+           op == HIR_OP_CondBranchCheckType;
+}
+static inline int hir_c_is_istruthy(const void *instr) {
+    return hir_c_opcode(instr) == HIR_OP_IsTruthy;
+}
+static inline int hir_c_is_compare(const void *instr) {
+    return hir_c_opcode(instr) == HIR_OP_Compare;
+}
+static inline int hir_c_is_comparebool(const void *instr) {
+    return hir_c_opcode(instr) == HIR_OP_CompareBool;
+}
+static inline int hir_c_is_vectorcall(const void *instr) {
+    return hir_c_opcode(instr) == HIR_OP_VectorCall;
+}
+static inline int hir_c_is_guard_type(const void *instr) {
+    return hir_c_opcode(instr) == HIR_OP_GuardType;
+}
+static inline int hir_c_is_primitive_box(const void *instr) {
+    return hir_c_opcode(instr) == HIR_OP_PrimitiveBox;
+}
+static inline int hir_c_is_terminator(const void *instr) {
+    return hir_instr_info_is_terminator(hir_c_opcode(instr));
+}
+static inline int hir_c_is_deopt_base(const void *instr) {
+    return hir_instr_info_is_deopt_base(hir_c_opcode(instr));
 }
 
 #ifdef __cplusplus

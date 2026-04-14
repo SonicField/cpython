@@ -7,26 +7,10 @@
 #include "cinderx/Jit/hir/clean_cfg_c.h"
 #include "cinderx/Jit/hir/phi_elimination_c.h"
 #include "cinderx/Jit/hir/hir_c_api.h"
+#include "cinderx/Jit/hir/hir_instr_c.h"
 
 #include <assert.h>
-#include <stdint.h>
 #include <stdlib.h>
-
-/* Step 6: Pure C accessor for Branch edge target.
- * Reads directly from the C struct layout (HirBranch.edge.to)
- * without going through the C++ API. Layout:
- *   HirBranch = { HIR_INSTR_FIELDS; HirEdge edge; }
- *   HIR_INSTR_FIELDS = { block_node(16), opcode(4), bc_off(4), output(8), block(8) }
- *   HirEdge = { from(8), to(8) }
- * So edge.to is at offset 40 + 8 = 48 from struct start. */
-static inline void *clean_cfg_branch_edge_target(const void *instr) {
-    const uint8_t *p = (const uint8_t *)instr;
-    /* offset of edge.to = sizeof(HIR_INSTR_FIELDS) + sizeof(void*) */
-    const size_t edge_to_offset = 40 + sizeof(void *);
-    void *target;
-    __builtin_memcpy(&target, p + edge_to_offset, sizeof(target));
-    return target;
-}
 
 /* Try to absorb the successor block into block when:
  * - block ends with an unconditional Branch
@@ -35,13 +19,15 @@ static inline void *clean_cfg_branch_edge_target(const void *instr) {
  * Returns 1 if absorption happened, 0 otherwise. */
 static int absorb_dst_block(HirBasicBlock block) {
     HirInstr term = hir_block_terminator(block);
-    if (!hir_instr_is_branch(term)) {
+    /* C struct predicate — direct opcode read, no C++ bridge */
+    if (!hir_c_is_branch(term)) {
         return 0;
     }
 
-    HirBasicBlock target = hir_branch_target(term);
-    /* Step 6 validation: C struct accessor returns same target as C++ API */
-    assert(target == (HirBasicBlock)clean_cfg_branch_edge_target(term));
+    /* C struct accessor — reads HirBranch.edge.to directly */
+    HirBasicBlock target = hir_c_branch_target(term);
+    /* Assertion wrapper: C struct matches C++ bridge (wiring methodology) */
+    assert(target == hir_branch_target(term));
     if (target == block) {
         return 0;
     }
@@ -55,7 +41,7 @@ static int absorb_dst_block(HirBasicBlock block) {
     /* Move all instructions from target into block */
     while (!hir_block_empty(target)) {
         HirInstr instr = hir_block_pop_front(target);
-        assert(!hir_instr_is_phi(instr));
+        assert(!hir_c_is_phi(instr));
         hir_block_append(block, instr);
     }
 
