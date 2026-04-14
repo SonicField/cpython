@@ -320,6 +320,13 @@ static inline const HirCondBranchInstr *hir_instr_as_condbranch(
  * through the existing layout-compatible structs.
  * Pattern: cast HirInstr* to the per-opcode struct and read the field. */
 
+/* Get the target block from a Branch instruction's edge.
+ * This is the canonical Step 6 validation: a C consumer (clean_cfg.c)
+ * calls this to access per-opcode data through the C struct layout. */
+static inline void *hir_branch_edge_target(const HirInstr *instr) {
+    return ((const HirBranch *)instr)->edge.to;
+}
+
 static inline int32_t hir_binary_op_kind(const HirInstr *instr) {
     return ((const HirBinaryOp *)instr)->op;
 }

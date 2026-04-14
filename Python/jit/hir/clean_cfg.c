@@ -9,7 +9,24 @@
 #include "cinderx/Jit/hir/hir_c_api.h"
 
 #include <assert.h>
+#include <stdint.h>
 #include <stdlib.h>
+
+/* Step 6: Pure C accessor for Branch edge target.
+ * Reads directly from the C struct layout (HirBranch.edge.to)
+ * without going through the C++ API. Layout:
+ *   HirBranch = { HIR_INSTR_FIELDS; HirEdge edge; }
+ *   HIR_INSTR_FIELDS = { block_node(16), opcode(4), bc_off(4), output(8), block(8) }
+ *   HirEdge = { from(8), to(8) }
+ * So edge.to is at offset 40 + 8 = 48 from struct start. */
+static inline void *clean_cfg_branch_edge_target(const void *instr) {
+    const uint8_t *p = (const uint8_t *)instr;
+    /* offset of edge.to = sizeof(HIR_INSTR_FIELDS) + sizeof(void*) */
+    const size_t edge_to_offset = 40 + sizeof(void *);
+    void *target;
+    __builtin_memcpy(&target, p + edge_to_offset, sizeof(target));
+    return target;
+}
 
 /* Try to absorb the successor block into block when:
  * - block ends with an unconditional Branch
@@ -23,6 +40,8 @@ static int absorb_dst_block(HirBasicBlock block) {
     }
 
     HirBasicBlock target = hir_branch_target(term);
+    /* Step 6 validation: C struct accessor returns same target as C++ API */
+    assert(target == (HirBasicBlock)clean_cfg_branch_edge_target(term));
     if (target == block) {
         return 0;
     }
