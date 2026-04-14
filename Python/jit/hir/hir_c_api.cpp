@@ -364,11 +364,7 @@ HirType hir_register_type(HirRegister reg) {
   return result;
 }
 
-/* ---- GuardType predicate ---- */
-
-int hir_instr_is_guard_type(HirInstr instr) {
-  return as_instr(instr)->IsGuardType() ? 1 : 0;
-}
+/* hir_instr_is_guard_type deleted — use hir_c_is_guard_type from hir_instr_c.h */
 
 /* ---- RegUses (opaque handle) ---- */
 
