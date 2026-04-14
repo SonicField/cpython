@@ -82,11 +82,21 @@ class alignas(16) CodeRuntime {
     return CodeRuntime::frameStateOffset() + RuntimeFrameState::codeOffset();
   }
 
-  explicit CodeRuntime(BorrowedRef<PyFunctionObject> func);
+  explicit CodeRuntime(BorrowedRef<PyFunctionObject> func)
+      : CodeRuntime{
+            BorrowedRef<PyCodeObject>{func->func_code},
+            func->func_builtins,
+            func->func_globals} {}
+
   CodeRuntime(
       BorrowedRef<PyCodeObject> code,
       BorrowedRef<PyDictObject> builtins,
-      BorrowedRef<PyDictObject> globals);
+      BorrowedRef<PyDictObject> globals)
+      : frame_state_{code, builtins, globals} {
+    addReference(code);
+    addReference(builtins);
+    addReference(globals);
+  }
 
   template <typename... Args>
   RuntimeFrameState* allocateRuntimeFrameState(Args&&... args) {
@@ -99,37 +109,50 @@ class alignas(16) CodeRuntime {
   // Ensure that this CodeRuntime owns a reference to the given borrowed
   // object, keeping it alive for use by the compiled code. Make CodeRuntime a
   // new owner of the object.
-  void addReference(BorrowedRef<> obj);
+  void addReference(BorrowedRef<> obj) {
+    ThreadedCompileSerialize guard;
+    references_.emplace(ThreadedRef<>::create(obj));
+  }
 
-  // Release any references this CodeRuntime holds to Python objects.
-  void releaseReferences();
+  void releaseReferences() {
+    ThreadedCompileSerialize guard;
+    references_.clear();
+#if PY_VERSION_HEX >= 0x030E0000 && defined(ENABLE_LIGHTWEIGHT_FRAMES)
+    reifier_.reset(nullptr);
+#endif
+  }
 
-  // Store meta-data about generator yield point.
-  GenYieldPoint* addGenYieldPoint(GenYieldPoint&& gen_yield_point);
+  GenYieldPoint* addGenYieldPoint(GenYieldPoint&& gen_yield_point) {
+    gen_yield_points_.emplace_back(std::move(gen_yield_point));
+    return &gen_yield_points_.back();
+  }
 
-  // Add metadata used during a deopt.  Return an ID that can be used to fetch
-  // the metadata from generated code.
-  std::size_t addDeoptMetadata(DeoptMetadata&& deopt_meta);
+  std::size_t addDeoptMetadata(DeoptMetadata&& deopt_meta) {
+    deopt_metadatas_.emplace_back(std::move(deopt_meta));
+    return deopt_metadatas_.size() - 1;
+  }
 
-  // Get a reference to the DeoptMetadata with the given ID.
-  DeoptMetadata& getDeoptMetadata(std::size_t id);
-  const DeoptMetadata& getDeoptMetadata(std::size_t id) const;
+  DeoptMetadata& getDeoptMetadata(std::size_t id) {
+    return deopt_metadatas_[id];
+  }
+  const DeoptMetadata& getDeoptMetadata(std::size_t id) const {
+    return deopt_metadatas_[id];
+  }
 
-  // Get all deopt metadatas for the given CodeRuntime.
-  const std::vector<DeoptMetadata>& deoptMetadatas() const;
+  const std::vector<DeoptMetadata>& deoptMetadatas() const {
+    return deopt_metadatas_;
+  }
 
-  // Get the top-level runtime frame state for this CodeRuntime's PyCodeObject.
-  const RuntimeFrameState* frameState() const;
+  const RuntimeFrameState* frameState() const { return &frame_state_; }
 
-  // Get and set the total size of a stack frame for this compiled code object.
-  int frameSize() const;
-  void setFrameSize(int size);
+  int frameSize() const { return frame_size_; }
+  void setFrameSize(int size) { frame_size_ = size; }
 #if defined(__aarch64__)
-  int savedIpFpOffset() const;
-  void setSavedIpFpOffset(int offset);
+  int savedIpFpOffset() const { return saved_ip_fp_offset_; }
+  void setSavedIpFpOffset(int offset) { saved_ip_fp_offset_ = offset; }
 #endif
 
-  DebugInfo* debugInfo();
+  DebugInfo* debugInfo() { return &debug_info_; }
 
 #if PY_VERSION_HEX >= 0x030E0000 && defined(ENABLE_LIGHTWEIGHT_FRAMES)
   void setReifier(BorrowedRef<> reifier) {
