@@ -288,11 +288,14 @@ HirType hir_type_from_pytype(PyTypeObject *type, int is_exact) {
     }
 
     /* Linear scan — 18 entries, called infrequently. */
+#define HIR_TYPE_KBUILTIN_EXACT 0x000001fffffULL
     for (size_t i = 0; i < PYTYPE_MAP_SIZE; i++) {
         if (s_pytype_to_type[i].type == type) {
             uint64_t bits = s_pytype_to_type[i].bits;
+            if (is_exact) {
+                bits &= HIR_TYPE_KBUILTIN_EXACT;
+            }
             HirType r;
-            /* kLifetimeTop = 3 for object types */
             r.bits_and_flags = bits | (HIR_TYPE_LIFETIME_TOP << HIR_TYPE_LIFETIME_SHIFT);
             r.int_val = 0;
             return r;

@@ -414,8 +414,9 @@ Type Type::fromTypeImpl(PyTypeObject* type, bool exact) {
       reinterpret_cast<void*>(type));
 }
 
+// Phase 3D: delegate to C implementation.
 Type Type::fromType(PyTypeObject* type) {
-  return fromTypeImpl(type, false);
+  return fromHirType(hir_type_from_pytype(type, 0));
 }
 
 Type Type::fromTypeExact(PyTypeObject* type) {
