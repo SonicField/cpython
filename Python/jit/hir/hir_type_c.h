@@ -156,6 +156,13 @@ static inline int hir_type_equal(const HirType *a, const HirType *b) {
            a->int_val == b->int_val;
 }
 
+/* ---- Type to string ---- */
+
+/* Write a human-readable type string into buf. Returns chars written
+ * (excluding NUL). safe=1 avoids GIL-requiring operations. */
+size_t hir_type_to_string_c(const HirType *type, char *buf, size_t bufsz,
+                             int safe);
+
 /* ---- Predefined type constants (C equivalents of T* constexpr) ----
  * Generated from HIR_TYPES macro in type_generated.h.
  * bits_and_flags = bits | (lifetime << 44).

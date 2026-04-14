@@ -404,6 +404,109 @@ HirType hir_type_from_pytype(PyTypeObject *type, int is_exact) {
     return r;
 }
 
+/* ---- Type to string ---- */
+
+/* Simplified type name table for toString. Each entry has bits + name.
+ * Sorted by popcount descending for greedy decomposition. */
+static const struct { uint64_t bits; const char *name; } s_type_names[] = {
+    /* Compound types first (more bits set) */
+    {0x000ffffffffULL, "Object"},
+    {0x1fe00000000ULL, "CInt"},
+    {0x000001fffffULL, "BuiltinExact"},
+    /* Individual types */
+    {0x00080100000ULL, "Unicode"},
+    {0x00040080000ULL, "Type"},
+    {0x00020040000ULL, "Tuple"},
+    {0x00010020000ULL, "Set"},
+    {0x00008010000ULL, "List"},
+    {0x00004008000ULL, "Float"},
+    {0x00002004000ULL, "Dict"},
+    {0x00001002000ULL, "Bytes"},
+    {0x00000801000ULL, "BaseException"},
+    {0x00000200402ULL, "Long"},
+    {0x40000000000ULL, "CDouble"},
+    {0x20000000000ULL, "CPtr"},
+    {0x10000000000ULL, "CUInt64"},
+    {0x08000000000ULL, "CUInt32"},
+    {0x04000000000ULL, "CUInt16"},
+    {0x02000000000ULL, "CUInt8"},
+    {0x01000000000ULL, "CInt64"},
+    {0x00800000000ULL, "CInt32"},
+    {0x00400000000ULL, "CInt16"},
+    {0x00200000000ULL, "CInt8"},
+    {0x00100000000ULL, "CBool"},
+    {0x80000000000ULL, "Nullptr"},
+    {0x00000000100ULL, "Slice"},
+    {0x00000000080ULL, "NoneType"},
+    {0x00000000040ULL, "Gen"},
+    {0x00000000020ULL, "Func"},
+    {0x00000000010ULL, "Frame"},
+    {0x00000000008ULL, "Code"},
+    {0x00000000004ULL, "Cell"},
+    {0x00000000002ULL, "Bool"},
+    {0x00000000001ULL, "Array"},
+};
+#define TYPE_NAMES_SIZE (sizeof(s_type_names) / sizeof(s_type_names[0]))
+
+size_t hir_type_to_string_c(const HirType *type, char *buf, size_t bufsz,
+                             int safe) {
+    uint64_t bits = hir_type_bits(type);
+    uint64_t lifetime = hir_type_lifetime(type);
+    uint64_t sk = hir_type_spec_kind(type);
+    size_t pos = 0;
+
+    #define APPEND(...) do { \
+        int n = snprintf(buf + pos, bufsz > pos ? bufsz - pos : 0, __VA_ARGS__); \
+        if (n > 0) pos += (size_t)n; \
+    } while(0)
+
+    if (bits == 0 && lifetime == 0) {
+        APPEND("Bottom");
+        return pos;
+    }
+
+    /* Lifetime prefix */
+    if (lifetime == 1) APPEND("Mortal");
+    else if (lifetime == 2) APPEND("Immortal");
+
+    /* Decompose bits into named parts */
+    uint64_t remaining = bits;
+    int first = 1;
+    for (size_t i = 0; i < TYPE_NAMES_SIZE && remaining; i++) {
+        if ((remaining & s_type_names[i].bits) == s_type_names[i].bits) {
+            if (!first) APPEND("|");
+            APPEND("%s", s_type_names[i].name);
+            remaining &= ~s_type_names[i].bits;
+            first = 0;
+        }
+    }
+    if (remaining) {
+        if (!first) APPEND("|");
+        APPEND("0x%lx", (unsigned long)remaining);
+    }
+    if (first) {
+        APPEND("Top");
+    }
+
+    /* Specialization suffix */
+    if (sk == HIR_SPEC_TYPE) {
+        APPEND(":%s", hir_type_type_spec(type)->tp_name);
+    } else if (sk == HIR_SPEC_TYPE_EXACT) {
+        APPEND(":%s:Exact", hir_type_type_spec(type)->tp_name);
+    } else if (sk == HIR_SPEC_OBJECT) {
+        APPEND("[obj@%p]", (void*)type->pyobject);
+    } else if (sk == 4) { /* kSpecInt */
+        APPEND("[%ld]", (long)type->int_val);
+    } else if (sk == 5) { /* kSpecDouble */
+        double d;
+        memcpy(&d, &type->double_val, sizeof(d));
+        APPEND("[%g]", d);
+    }
+
+    #undef APPEND
+    return pos;
+}
+
 /* ---- prim_type_to_type ---- */
 
 /* TYPED_* constants from Static Python (classloader.h) */
