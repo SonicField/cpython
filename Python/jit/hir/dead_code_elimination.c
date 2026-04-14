@@ -136,9 +136,9 @@ typedef struct {
     Worklist *worklist;
 } DceCtx;
 
-static int dce_visit_cb(HirRegister *reg_slot, void *ctx) {
+static int dce_visit_cb(void **reg_slot, void *ctx) {
     DceCtx *dce = (DceCtx *)ctx;
-    HirRegister reg = *reg_slot;
+    void *reg = *reg_slot;
     HirInstr def = hir_reg_instr(reg);
     if (!ptrset_contains(dce->live_set, def)) {
         wl_push(dce->worklist, def);
@@ -176,7 +176,7 @@ void hir_dead_code_elimination_run(HirFunction func) {
     while (!wl_empty(&worklist)) {
         HirInstr live_op = (HirInstr)wl_pop(&worklist);
         if (ptrset_insert(&live_set, live_op)) {
-            hir_instr_visit_uses(live_op, dce_visit_cb, &dce_ctx);
+            hir_c_visit_uses(live_op, dce_visit_cb, &dce_ctx);
         }
     }
 

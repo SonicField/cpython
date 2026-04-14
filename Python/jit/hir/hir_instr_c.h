@@ -566,6 +566,45 @@ static inline int hir_c_is_replayable(const void *instr) {
     return hir_instr_info_is_replayable(hir_c_opcode(instr));
 }
 
+/* ==== visitUses — C implementation with C++ delegation ====
+ * Iterates operand array in pure C. Delegates Snapshot/DeoptBase
+ * extension uses (frame_state, live_regs, guilty_reg) to C++ bridge.
+ *
+ * Callback signature: int (*)(void **reg_slot, void *ctx)
+ *   - reg_slot: pointer to the Register* slot (mutable for replacement)
+ *   - return 1 to continue, 0 to stop early
+ *
+ * Forward-declare the bridge function (defined in hir_c_api.cpp). */
+int hir_c_visit_deopt_extension(void *instr,
+                                int (*callback)(void **reg_slot, void *ctx),
+                                void *ctx);
+
+static inline int hir_c_visit_uses(void *instr,
+                                   int (*callback)(void **reg_slot, void *ctx),
+                                   void *ctx) {
+    int op = hir_c_opcode(instr);
+
+    /* Snapshot: no operands, only frame_state uses */
+    if (op == HIR_OP_Snapshot) {
+        return hir_c_visit_deopt_extension(instr, callback, ctx);
+    }
+
+    /* Base: iterate operand array in pure C */
+    size_t n = hir_c_num_operands(instr);
+    void **ops = (void **)((size_t *)instr - 1) - n;
+    for (size_t i = 0; i < n; i++) {
+        if (!callback(&ops[i], ctx)) return 0;
+    }
+
+    /* DeoptBase extension: frame_state + live_regs + guilty_reg */
+    if (hir_instr_info_is_deopt_base(op)) {
+        return hir_c_visit_deopt_extension(instr, callback, ctx);
+    }
+
+    return 1;
+}
+
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

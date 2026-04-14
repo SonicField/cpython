@@ -114,6 +114,15 @@ void hir_instr_visit_uses(HirInstr instr,
                           int (*callback)(HirRegister *reg_slot, void *ctx),
                           void *ctx);
 
+/* Visit DeoptBase/Snapshot extension uses (frame_state, live_regs, guilty_reg).
+ * Called by hir_c_visit_uses after operand array iteration.
+ * For Snapshot: visits frame_state only.
+ * For DeoptBase: visits frame_state + live_regs + guilty_reg.
+ * Uses void** to match hir_instr_c.h's hir_c_visit_uses signature. */
+int hir_c_visit_deopt_extension(void *instr,
+                                int (*callback)(void **reg_slot, void *ctx),
+                                void *ctx);
+
 /* ---- Branch-specific ---- */
 
 /* Get the target block of a Branch instruction. */

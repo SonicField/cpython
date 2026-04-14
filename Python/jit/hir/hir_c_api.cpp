@@ -266,6 +266,30 @@ void hir_instr_visit_uses(HirInstr instr,
   });
 }
 
+int hir_c_visit_deopt_extension(void *instr_ptr,
+                                int (*callback)(void **reg_slot, void *ctx),
+                                void *ctx) {
+  auto wrap = [callback, ctx](Register*& reg) -> bool {
+    void *reg_as_handle = static_cast<void *>(reg);
+    int result = callback(&reg_as_handle, ctx);
+    reg = static_cast<Register*>(reg_as_handle);
+    return result != 0;
+  };
+
+  auto* i = as_instr(instr_ptr);
+  if (i->opcode() == Opcode::kSnapshot) {
+    auto* snap = static_cast<Snapshot*>(i);
+    return snap->visitUses(wrap) ? 1 : 0;
+  }
+
+  auto* db = i->asDeoptBase();
+  if (db) {
+    return db->visitUsesDeopt(wrap) ? 1 : 0;
+  }
+
+  return 1;
+}
+
 /* ---- Branch-specific ---- */
 
 HirBasicBlock hir_branch_target(HirInstr branch) {

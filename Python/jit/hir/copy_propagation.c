@@ -10,9 +10,9 @@
 
 #include <stdlib.h>
 
-/* Callback for hir_instr_visit_uses: chase each register operand through
+/* Callback for hir_c_visit_uses: chase each register operand through
  * Assign chains to the original value. */
-static int chase_assign_cb(HirRegister *reg_slot, void *ctx) {
+static int chase_assign_cb(void **reg_slot, void *ctx) {
     (void)ctx;
     *reg_slot = hir_chase_assign(*reg_slot);
     return 1; /* continue */
@@ -49,7 +49,7 @@ void hir_copy_propagation_run(HirFunction func) {
         while (instr != NULL) {
             HirInstr next = hir_block_next(block, instr);
 
-            hir_instr_visit_uses(instr, chase_assign_cb, NULL);
+            hir_c_visit_uses(instr, chase_assign_cb, NULL);
 
             if (hir_c_is_assign(instr)) {
                 if (assigns_len >= assigns_cap) {
