@@ -75,10 +75,15 @@ class Function {
 
   // Return the total number of arguments (positional + kwonly + varargs +
   // varkeywords)
-  int numArgs() const;
+  int numArgs() const {
+    if (code == nullptr) return 0;
+    return code->co_argcount + code->co_kwonlyargcount +
+        bool(code->co_flags & CO_VARARGS) + bool(code->co_flags & CO_VARKEYWORDS);
+  }
 
-  // Return the number of locals + cellvars + freevars
-  Py_ssize_t numVars() const;
+  Py_ssize_t numVars() const {
+    return code != nullptr ? numLocalsplus(code) : 0;
+  }
 
   // Set code and a number of other members that are derived from it.
   void setCode(BorrowedRef<PyCodeObject> code);
@@ -86,13 +91,12 @@ class Function {
   // Count the number of instructions that match the predicate
   std::size_t CountInstrs(InstrPredicate pred) const;
 
-  // Does this function return a primitive type?
-  bool returnsPrimitive() const;
+  bool returnsPrimitive() const { return return_type <= TPrimitive; }
+  bool returnsPrimitiveDouble() const { return return_type <= TCDouble; }
 
-  // Does this function return a primitive double?
-  bool returnsPrimitiveDouble() const;
-
-  void setCompilationPhaseTimer(std::unique_ptr<CompilationPhaseTimer> cpt);
+  void setCompilationPhaseTimer(std::unique_ptr<CompilationPhaseTimer> cpt) {
+    compilation_phase_timer = std::move(cpt);
+  }
 
   bool canDeopt() const;
 
