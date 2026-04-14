@@ -458,12 +458,23 @@ PyTypeObject *hir_type_unique_pytype(const HirType *t) {
     /* Check BaseException */
     if (bits == 0x00000801000ULL) return (PyTypeObject *)PyExc_BaseException;
 
-    /* Scan static table */
+    /* Scan base table (non-exact bits) */
     for (size_t i = 0; i < PYTYPE_MAP_SIZE; i++) {
         if (s_pytype_to_type[i].bits == bits) {
             return s_pytype_to_type[i].type;
         }
     }
+
+    /* Scan exact table (exact variant bits) */
+    for (size_t i = 0; i < EXACT_MAP_SIZE; i++) {
+        uint64_t exact_bits = s_exact[i].bf & HIR_TYPE_BITS_MASK;
+        if (exact_bits == bits) {
+            return s_exact[i].type;
+        }
+    }
+
+    /* Check BaseException exact */
+    if (bits == 0x00000001000ULL) return (PyTypeObject *)PyExc_BaseException;
 
     return NULL;
 }
@@ -474,7 +485,7 @@ PyTypeObject *hir_type_runtime_pytype(const HirType *t) {
         return NULL;
     }
     if (hir_type_has_type_spec(t) || hir_type_has_type_exact_spec(t)) {
-        return t->pytype;
+        return hir_type_type_spec(t);  /* handles kSpecObject via Py_TYPE */
     }
     return hir_type_unique_pytype(t);
 }

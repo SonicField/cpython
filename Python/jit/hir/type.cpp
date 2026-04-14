@@ -85,6 +85,13 @@ const std::unordered_map<Type, PyTypeObject*>& typeToPyTypeWithExact() {
         result_map.emplace(pair.first & TBuiltinExact, pair.second);
       }
     }
+    // Phase 3D: dump reverse map for C table
+    for (auto& [type, pytype] : result_map) {
+      HirType h = Type::toHirType(type);
+      uint64_t bits_only = h.bits_and_flags & ((1ULL << 44) - 1);
+      fprintf(stderr, "REVERSE_MAP {0x%lxULL, \"%s\"},\n",
+          (unsigned long)bits_only, pytype->tp_name);
+    }
     return result_map;
   }();
 
@@ -445,30 +452,15 @@ Type Type::fromObject(PyObject* obj) {
   return Type{fromTypeExact(Py_TYPE(obj)).bits_, lifetime, obj};
 }
 
+// Phase 3D: delegate to C (assertion-verified zero mismatches).
 PyTypeObject* Type::uniquePyType() const {
-  if (hasObjectSpec()) {
-    return nullptr;
-  }
-  if (hasTypeSpec()) {
-    return typeSpec();
-  }
-  auto& type_map = typeToPyTypeWithExact();
-  auto it = type_map.find(dropMortality());
-  if (it != type_map.end()) {
-    return it->second;
-  }
-  // Heap types that we're aware of, not statically known
-  if (dropMortality() == TArray) {
-    return PyStaticArray_Type;
-  }
-  return nullptr;
+  HirType h = toHirType(*this);
+  return hir_type_unique_pytype(&h);
 }
 
 PyTypeObject* Type::runtimePyType() const {
-  if (!isExact()) {
-    return nullptr;
-  }
-  return hasTypeSpec() ? typeSpec() : uniquePyType();
+  HirType h = toHirType(*this);
+  return hir_type_runtime_pytype(&h);
 }
 
 std::optional<destructor> Type::runtimePyTypeDestructor() const {
@@ -492,18 +484,13 @@ std::optional<destructor> Type::runtimePyTypeDestructor() const {
 }
 
 PyObject* Type::asObject() const {
-  if (*this <= TNoneType) {
-    return Py_None;
-  }
-  if (hasObjectSpec()) {
-    return objectSpec();
-  }
-  return nullptr;
+  HirType h = toHirType(*this);
+  return hir_type_as_object(&h);
 }
 
 bool Type::isSingleValue() const {
-  return *this <= TNoneType || *this <= TNullptr || hasObjectSpec() ||
-      hasIntSpec() || hasDoubleSpec();
+  HirType h = toHirType(*this);
+  return hir_type_is_single_value(&h);
 }
 
 // Phase 3D: operators delegate to C API in hir_type_c.c.
@@ -529,32 +516,13 @@ Type Type::operator-(Type rhs) const {
 }
 
 Type Type::asBoxed() const {
-  if (*this <= TCBool) {
-    return TBool;
-  }
-  if (*this <= TCInt) {
-    return TLong;
-  }
-  if (*this <= TCDouble) {
-    return TFloat;
-  }
-  JIT_ABORT("{} does not have a boxed equivalent", *this);
+  HirType h = toHirType(*this);
+  return fromHirType(hir_type_as_boxed(&h));
 }
 
 unsigned int Type::sizeInBytes() const {
-  if (*this <= (TCBool | TCInt8 | TCUInt8)) {
-    return 1;
-  }
-  if (*this <= (TCInt16 | TCUInt16)) {
-    return 2;
-  }
-  if (*this <= (TCInt32 | TCUInt32)) {
-    return 4;
-  }
-  if (*this <= (TCInt64 | TCUInt64 | TCPtr | TCDouble | TObject | TNullptr)) {
-    return 8;
-  }
-  JIT_ABORT("Unexpected type {}", *this);
+  HirType h = toHirType(*this);
+  return hir_type_size_in_bytes(&h);
 }
 
 Type OwnedType::toHir() const {
@@ -572,35 +540,7 @@ Type OwnedType::toHir() const {
 }
 
 Type prim_type_to_type(int prim_type) {
-  switch (prim_type) {
-    case TYPED_BOOL:
-      return TCBool;
-    case TYPED_CHAR:
-    case TYPED_INT8:
-      return TCInt8;
-    case TYPED_INT16:
-      return TCInt16;
-    case TYPED_INT32:
-      return TCInt32;
-    case TYPED_INT64:
-      return TCInt64;
-    case TYPED_UINT8:
-      return TCUInt8;
-    case TYPED_UINT16:
-      return TCUInt16;
-    case TYPED_UINT32:
-      return TCUInt32;
-    case TYPED_UINT64:
-      return TCUInt64;
-    case TYPED_OBJECT:
-      return TOptObject;
-    case TYPED_DOUBLE:
-      return TCDouble;
-    case TYPED_ERROR:
-      return TCInt32;
-    default:
-      JIT_ABORT("Non-primitive or unsupported Python type: {}", prim_type);
-  }
+  return Type::fromHirType(hir_prim_type_to_type(prim_type));
 }
 
 } // namespace jit::hir
