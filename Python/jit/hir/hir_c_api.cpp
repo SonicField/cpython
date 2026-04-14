@@ -565,8 +565,7 @@ HirInstr hir_c_create_guard_type(HirFunction func, HirType target,
                                  HirRegister src, void *frame_state) {
   auto* f = static_cast<Function*>(func);
   auto* dst = f->env.AllocateRegister();
-  Type cpp_target;
-  std::memcpy(&cpp_target, &target, sizeof(Type));
+  const Type& cpp_target = *reinterpret_cast<const Type*>(&target);
   if (frame_state) {
     return GuardType::create(
         dst, cpp_target, as_reg(src),
