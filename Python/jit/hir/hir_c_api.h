@@ -41,6 +41,10 @@ HirCFG hir_func_cfg(HirFunction func);
 /* Get the function's full qualified name (C string, valid until function freed). */
 const char *hir_func_fullname(HirFunction func);
 
+/* Allocate a new Register from the function's Environment.
+ * Returns an opaque HirRegister handle. */
+HirRegister hir_func_alloc_register(HirFunction func);
+
 /* Get blocks in reverse postorder. Caller provides output array.
  * Returns number of blocks written (clamped to capacity). */
 size_t hir_cfg_get_rpo(HirCFG cfg, HirBasicBlock *out, size_t capacity);
@@ -67,6 +71,10 @@ HirInstr hir_block_terminator(HirBasicBlock block);
 
 /* Append an instruction to the end of the block. Returns the instr. */
 HirInstr hir_block_append(HirBasicBlock block, HirInstr instr);
+
+/* Append instruction to block and set its bytecode offset.
+ * Convenience for factory functions (alloc + init + append). */
+HirInstr hir_block_append_at(HirBasicBlock block, HirInstr instr, int32_t bc_off);
 
 /* Remove and return the first instruction. */
 HirInstr hir_block_pop_front(HirBasicBlock block);

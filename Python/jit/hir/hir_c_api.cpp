@@ -147,6 +147,10 @@ const char *hir_func_fullname(HirFunction func) {
   return as_func(func)->fullname.c_str();
 }
 
+HirRegister hir_func_alloc_register(HirFunction func) {
+  return as_func(func)->env.AllocateRegister();
+}
+
 size_t hir_cfg_get_rpo(HirCFG cfg, HirBasicBlock *out, size_t capacity) {
   auto rpo = as_cfg(cfg)->GetRPOTraversal();
   size_t count = rpo.size() < capacity ? rpo.size() : capacity;
@@ -201,6 +205,11 @@ HirInstr hir_block_terminator(HirBasicBlock block) {
 }
 
 HirInstr hir_block_append(HirBasicBlock block, HirInstr instr) {
+  return as_block(block)->Append(as_instr(instr));
+}
+
+HirInstr hir_block_append_at(HirBasicBlock block, HirInstr instr, int32_t bc_off) {
+  as_instr(instr)->setBytecodeOffset(bc_off);
   return as_block(block)->Append(as_instr(instr));
 }
 
