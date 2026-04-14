@@ -1,17 +1,18 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
+//
+// Phase 3D: Minimal stub — only methods with complex logic or
+// circular deps. Simple accessors moved inline to block.h.
 
 #include "cinderx/Jit/lir/block.h"
 
 #include "cinderx/Common/log.h"
-#include "cinderx/Jit/codegen/code_section.h"
 #include "cinderx/Jit/lir/function.h"
+
+#include <cstring>
 
 namespace jit::lir {
 
-BasicBlock::BasicBlock(Function* func) : id_(func->allocateId()), func_(func) {}
-
 BasicBlock::~BasicBlock() {
-  // Free all owned instructions.
   Instruction* cur = instr_head_;
   while (cur) {
     Instruction* next = cur->next_;
@@ -51,13 +52,6 @@ static void eraseFromBlockArray(
   }
 }
 
-
-void BasicBlock::setId(int id) {
-  id_ = id;
-}
-
-
-
 void BasicBlock::addSuccessor(BasicBlock* bb) {
   appendToBlockArray(successors_, num_succs_, succs_capacity_, bb);
   appendToBlockArray(bb->predecessors_, bb->num_preds_, bb->preds_capacity_, this);
@@ -67,28 +61,8 @@ void BasicBlock::setSuccessor(size_t index, BasicBlock* bb) {
   JIT_CHECK(index < num_succs_, "Index out of range");
   BasicBlock* old_bb = successors_[index];
   eraseFromBlockArray(old_bb->predecessors_, old_bb->num_preds_, this);
-
   successors_[index] = bb;
   appendToBlockArray(bb->predecessors_, bb->num_preds_, bb->preds_capacity_, this);
-}
-
-BlockSpan BasicBlock::successors() {
-  return {successors_, num_succs_};
-}
-
-ConstBlockSpan BasicBlock::successors() const {
-  return {successors_, num_succs_};
-}
-
-
-
-
-BlockSpan BasicBlock::predecessors() {
-  return {predecessors_, num_preds_};
-}
-
-ConstBlockSpan BasicBlock::predecessors() const {
-  return {predecessors_, num_preds_};
 }
 
 void BasicBlock::appendInstr(Instruction* instr) {
@@ -105,7 +79,6 @@ void BasicBlock::appendInstr(Instruction* instr) {
 
 void BasicBlock::insertInstrBefore(Instruction* pos, Instruction* instr) {
   if (pos == nullptr) {
-    // Insert at end.
     appendInstr(instr);
     return;
   }
@@ -138,26 +111,7 @@ Instruction* BasicBlock::removeInstr(instr_iter_t pos) {
   return instr;
 }
 
-InstrRange BasicBlock::instructions() {
-  return {instr_head_, instr_tail_, num_instrs_};
-}
-
-InstrRange BasicBlock::instructions() const {
-  return {instr_head_, instr_tail_, num_instrs_};
-}
-
-
-
-
-
-
-
-instr_iter_t BasicBlock::getLastInstrIter() {
-  return instr_tail_;
-}
-
 BasicBlock* BasicBlock::insertBasicBlockBetween(BasicBlock* block) {
-  // Find block in successors.
   size_t idx = num_succs_;
   for (size_t i = 0; i < num_succs_; i++) {
     if (successors_[i] == block) { idx = i; break; }
@@ -169,31 +123,22 @@ BasicBlock* BasicBlock::insertBasicBlockBetween(BasicBlock* block) {
   appendToBlockArray(
       new_block->predecessors_, new_block->num_preds_,
       new_block->preds_capacity_, this);
-
   eraseFromBlockArray(block->predecessors_, block->num_preds_, this);
-
   new_block->addSuccessor(block);
-
   return new_block;
 }
 
 BasicBlock* BasicBlock::splitBefore(Instruction* instr) {
-  JIT_CHECK(
-      func_ != nullptr, "cannot split block that doesn't belong to a function");
-  JIT_CHECK(
-      instr->opcode_ != Instruction::kPhi, "cannot split block at a phi node");
+  JIT_CHECK(func_ != nullptr, "cannot split block that doesn't belong to a function");
+  JIT_CHECK(instr->opcode_ != Instruction::kPhi, "cannot split block at a phi node");
 
-  // find the instruction in this block
   bool found = false;
   for (Instruction* i = instr_head_; i; i = i->next_) {
     if (i == instr) { found = true; break; }
   }
-  if (!found) {
-    return nullptr;
-  }
+  if (!found) return nullptr;
 
   auto second_block = func_->allocateBasicBlockAfter(this);
-  // move all instructions from instr onward to second_block
   Instruction* cur = instr;
   while (cur) {
     Instruction* next = cur->next_;
@@ -203,16 +148,12 @@ BasicBlock* BasicBlock::splitBefore(Instruction* instr) {
     cur = next;
   }
 
-  // fix up successors
   for (size_t i = 0; i < num_succs_; i++) {
     auto* bb = successors_[i];
-    // fix up phis in successors
     bb->fixupPhis(this, second_block);
-    // update successors of second block
     appendToBlockArray(
         second_block->successors_, second_block->num_succs_,
         second_block->succs_capacity_, bb);
-    // replace this with second_block in bb's predecessors
     for (size_t j = 0; j < bb->num_preds_; j++) {
       if (bb->predecessors_[j] == this) {
         bb->predecessors_[j] = second_block;
@@ -220,9 +161,7 @@ BasicBlock* BasicBlock::splitBefore(Instruction* instr) {
     }
   }
 
-  // update successors of first block
   num_succs_ = 0;
-  // addSuccessor also fixes predecessors of second block
   addSuccessor(second_block);
   return second_block;
 }
@@ -239,14 +178,5 @@ void BasicBlock::fixupPhis(BasicBlock* old_pred, BasicBlock* new_pred) {
     }
   });
 }
-
-codegen::CodeSection BasicBlock::section() const {
-  return section_;
-}
-
-void BasicBlock::setSection(codegen::CodeSection section) {
-  section_ = section;
-}
-
 
 } // namespace jit::lir

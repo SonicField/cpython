@@ -16,15 +16,12 @@ struct Function {
     int end_bb;
   };
 
-  explicit Function(const hir::Function* hir_func = nullptr);
+  explicit Function(const hir::Function* hir_func = nullptr)
+      : hir_func_{hir_func} {}
   ~Function();
 
-  // Allocate a new ID for a basic block or an instruction.
-  int allocateId();
-
-  // Set the next ID to return from allocateId().  Only meant to be used by the
-  // LIR parser.
-  void setNextId(int id);
+  int allocateId() { return next_id_++; }
+  void setNextId(int id) { next_id_ = id; }
 
   // Deep copy function into dest_func.
   // Insert the blocks between prev_bb and next_bb.
@@ -48,16 +45,15 @@ struct Function {
   // Returns the list of all the basic blocks.
   // The basic blocks will be in RPO as long as the CFG has not been
   // modified since the last call to SortRPO().
-  BlockSpan basicblocks();
-  ConstBlockSpan basicblocks() const;
+  BlockSpan basicblocks() { return {blocks_, num_blocks_}; }
+  ConstBlockSpan basicblocks() const { return {blocks_, num_blocks_}; }
 
-  BasicBlock* entryBlock() const;
-
-  size_t getNumBasicBlocks() const;
+  BasicBlock* entryBlock() const { return num_blocks_ > 0 ? blocks_[0] : nullptr; }
+  size_t getNumBasicBlocks() const { return num_blocks_; }
 
   void sortBasicBlocks();
 
-  const hir::Function* hirFunc() const;
+  const hir::Function* hirFunc() const { return hir_func_; }
 
   // Phase B4c: all fields public.
   const hir::Function* hir_func_;

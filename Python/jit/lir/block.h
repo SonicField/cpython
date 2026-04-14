@@ -52,36 +52,37 @@ struct BasicBlock {
   // Phase B3c-2: instr_iter_t is now Instruction* (linked list position).
   using instr_iter_t = Instruction*;
 
-  explicit BasicBlock(Function* func);
+  // Phase 3D: Constructor uses C API to break circular dep with function.h.
+  explicit BasicBlock(Function* func)
+      : id_(lir_function_allocate_id(
+            reinterpret_cast<LirFunction*>(func))),
+        func_(func) {}
   ~BasicBlock();
 
-  // Get the unique ID representing this block within its function.
-  int id() const;
-
-  // Change the block's ID.  This is only meant to be used by the LIR
-  // parser.  LIR strongly expects unique instruction IDs.
-  void setId(int id);
-
-  // Get the function that has this block as part of its CFG.
-  Function* function();
-  const Function* function() const;
+  int id() const { return id_; }
+  void setId(int id) { id_ = id; }
+  Function* function() { return func_; }
+  const Function* function() const { return func_; }
 
   void addSuccessor(BasicBlock* bb);
-
-  // Set successor at index to bb.
-  // Expects index to be within the current size of successors.
   void setSuccessor(size_t index, BasicBlock* bb);
 
-  BlockSpan successors();
-  ConstBlockSpan successors() const;
+  BlockSpan successors() { return {successors_, num_succs_}; }
+  ConstBlockSpan successors() const { return {successors_, num_succs_}; }
 
-  void swapSuccessors();
+  void swapSuccessors() {
+    if (num_succs_ >= 2) {
+      BasicBlock* tmp = successors_[0];
+      successors_[0] = successors_[1];
+      successors_[1] = tmp;
+    }
+  }
 
-  BasicBlock* getTrueSuccessor() const;
-  BasicBlock* getFalseSuccessor() const;
+  BasicBlock* getTrueSuccessor() const { return num_succs_ > 1 ? successors_[1] : nullptr; }
+  BasicBlock* getFalseSuccessor() const { return num_succs_ > 0 ? successors_[0] : nullptr; }
 
-  BlockSpan predecessors();
-  ConstBlockSpan predecessors() const;
+  BlockSpan predecessors() { return {predecessors_, num_preds_}; }
+  ConstBlockSpan predecessors() const { return {predecessors_, num_preds_}; }
 
   // Allocate an instruction and its operands and append it to the
   // instruction list. For the details on how to allocate instruction
@@ -128,20 +129,19 @@ struct BasicBlock {
   // returned pointer (must delete it or transfer elsewhere).
   Instruction* removeInstr(instr_iter_t pos);
 
-  InstrRange instructions();
-  InstrRange instructions() const;
+  InstrRange instructions() { return {instr_head_, instr_tail_, num_instrs_}; }
+  InstrRange instructions() const { return {instr_head_, instr_tail_, num_instrs_}; }
 
-  bool isEmpty() const;
+  bool isEmpty() const { return num_instrs_ == 0; }
+  size_t getNumInstrs() const { return num_instrs_; }
 
-  size_t getNumInstrs() const;
+  Instruction* getFirstInstr() { return instr_head_; }
+  const Instruction* getFirstInstr() const { return instr_head_; }
 
-  Instruction* getFirstInstr();
-  const Instruction* getFirstInstr() const;
+  Instruction* getLastInstr() { return instr_tail_; }
+  const Instruction* getLastInstr() const { return instr_tail_; }
 
-  Instruction* getLastInstr();
-  const Instruction* getLastInstr() const;
-
-  instr_iter_t getLastInstrIter();
+  instr_iter_t getLastInstrIter() { return instr_tail_; }
 
   template <typename Func>
   void foreachPhiInstr(const Func& f) const {
@@ -164,15 +164,11 @@ struct BasicBlock {
   // Replace any references to old_pred in this block's Phis with new_pred.
   void fixupPhis(BasicBlock* old_pred, BasicBlock* new_pred);
 
-  codegen::CodeSection section() const;
-  void setSection(codegen::CodeSection section);
+  codegen::CodeSection section() const { return section_; }
+  void setSection(codegen::CodeSection section) { section_ = section; }
 
-  // Return an iterator to the given instruction. Behavior is undefined if the
-  // given Instruction is not in this block.
-  //
-  // This function is O(getNumInstrs()) due to implementation details in
-  // InstrList.
-  instr_iter_t iterator_to(Instruction* instr);
+  // Phase B3c-2: iterator_to is identity — Instruction* IS the iterator.
+  instr_iter_t iterator_to(Instruction* instr) { return instr; }
 
   // Phase B4b: all fields public.
   int id_;
