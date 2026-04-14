@@ -90,15 +90,18 @@ static inline int hir_type_could_be(const HirType *a, const HirType *b) {
     return (hir_type_bits(a) & hir_type_bits(b)) != 0;
 }
 
-/* Check if type has a type specialization */
+/* Check if type has a type specialization (includes object spec —
+ * object specialization implies type specialization via Py_TYPE). */
 static inline int hir_type_has_type_spec(const HirType *t) {
     uint64_t sk = hir_type_spec_kind(t);
-    return sk == HIR_SPEC_TYPE || sk == HIR_SPEC_TYPE_EXACT;
+    return sk == HIR_SPEC_TYPE || sk == HIR_SPEC_TYPE_EXACT || sk == HIR_SPEC_OBJECT;
 }
 
-/* Check if type has an exact type specialization */
+/* Check if type has an exact type specialization (includes object spec —
+ * object specialization is always exact). */
 static inline int hir_type_has_type_exact_spec(const HirType *t) {
-    return hir_type_spec_kind(t) == HIR_SPEC_TYPE_EXACT;
+    uint64_t sk = hir_type_spec_kind(t);
+    return sk == HIR_SPEC_TYPE_EXACT || sk == HIR_SPEC_OBJECT;
 }
 
 /* Check if type has an object specialization */
@@ -122,11 +125,13 @@ static inline int hir_type_has_spec(const HirType *t) {
     return sk != HIR_SPEC_TOP && sk != HIR_SPEC_BOTTOM;
 }
 
-/* Get the type specialization (PyTypeObject*), or NULL */
+/* Get the type specialization (PyTypeObject*), or NULL.
+ * For kSpecObject, returns Py_TYPE(pyobject) — the object's type. */
 static inline PyTypeObject *hir_type_type_spec(const HirType *t) {
-    if (!hir_type_has_type_spec(t) && !hir_type_has_type_exact_spec(t))
-        return NULL;
-    return t->pytype;
+    uint64_t sk = hir_type_spec_kind(t);
+    if (sk == HIR_SPEC_OBJECT) return Py_TYPE(t->pyobject);
+    if (sk == HIR_SPEC_TYPE || sk == HIR_SPEC_TYPE_EXACT) return t->pytype;
+    return NULL;
 }
 
 /* Get the object specialization (PyObject*), or NULL */

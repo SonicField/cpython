@@ -65,11 +65,11 @@ int hir_type_spec_subtype(const HirType *self, const HirType *other) {
     }
     if (hir_type_has_type_exact_spec(other)) {
         return hir_type_has_type_exact_spec(self) &&
-               self->pytype == other->pytype;
+               hir_type_type_spec(self) == hir_type_type_spec(other);
     }
 
     /* Both have type specs — check PyType_IsSubtype */
-    return PyType_IsSubtype(self->pytype, other->pytype);
+    return PyType_IsSubtype(hir_type_type_spec(self), hir_type_type_spec(other));
 }
 
 /* ---- intersect (operator&) ---- */
@@ -212,8 +212,8 @@ HirType hir_type_union(HirType a, HirType b) {
         return a;
     }
 
-    PyTypeObject *type_a = a.pytype;
-    PyTypeObject *type_b = b.pytype;
+    PyTypeObject *type_a = hir_type_type_spec(&a);
+    PyTypeObject *type_b = hir_type_type_spec(&b);
     PyTypeObject *supertype;
 
     if (PyType_IsSubtype(type_a, type_b)) {
