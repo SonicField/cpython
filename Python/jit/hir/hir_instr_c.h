@@ -15,6 +15,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -400,6 +401,36 @@ static inline void hir_c_copy_bytecode_offset(void *dst, const void *src) {
         ((const HirInstrLayout *)src)->bytecode_offset;
 }
 
+/* ==== Register layout ====
+ * Minimal C view of hir::Register for field access.
+ * Fields: HirType type_ (16 bytes), void* instr_ (8 bytes), int id_ (4 bytes).
+ * Followed by std::string name_ (opaque, not accessed from C). */
+
+typedef struct HirRegLayout {
+    HirType type;       /* Register::type_ */
+    void *instr;        /* Register::instr_ — points to defining Instr */
+    int32_t id;         /* Register::id_ */
+} HirRegLayout;
+
+/* Get the defining instruction for a register */
+static inline void *hir_c_reg_instr(const void *reg) {
+    return ((const HirRegLayout *)reg)->instr;
+}
+
+/* Set output register on an instruction (mirrors Instr::setOutput) */
+static inline void hir_c_set_output(void *instr, void *dst) {
+    HirInstrLayout *i = (HirInstrLayout *)instr;
+    /* Clear old output's back-pointer */
+    if (i->output != NULL) {
+        ((HirRegLayout *)i->output)->instr = NULL;
+    }
+    /* Set new output's back-pointer */
+    if (dst != NULL) {
+        ((HirRegLayout *)dst)->instr = instr;
+    }
+    i->output = dst;
+}
+
 /* ==== Operand access ====
  * Operands are stored BEFORE the instruction in memory:
  *   [Register*[N] operands] [size_t num_operands] [HirInstrLayout fields...]
@@ -420,6 +451,39 @@ static inline void hir_c_set_operand(void *instr, size_t i, void *reg) {
     const size_t n = hir_c_num_operands(instr);
     void **ops = (void **)((size_t *)instr - 1) - n;
     ops[i] = reg;
+}
+
+/* ==== Instruction allocation ====
+ * Mirrors Instr::allocate: calloc preamble + struct, return struct ptr.
+ * Layout: [Register*[num_ops]] [size_t num_ops] [HirInstrLayout...] */
+
+static inline void *hir_c_alloc_instr(size_t struct_size, size_t num_operands) {
+    size_t preamble = num_operands * sizeof(void *) + sizeof(size_t);
+    char *ptr = (char *)calloc(preamble + struct_size, 1);
+    if (!ptr) return NULL;
+    ptr += num_operands * sizeof(void *);
+    *(size_t *)ptr = num_operands;
+    ptr += sizeof(size_t);
+    return ptr;
+}
+
+/* Free an instruction allocated by hir_c_alloc_instr */
+static inline void hir_c_free_instr(void *instr) {
+    size_t n = hir_c_num_operands(instr);
+    char *base = (char *)instr - sizeof(size_t) - n * sizeof(void *);
+    free(base);
+}
+
+/* ==== Instruction factory: Branch ====
+ * Prototype factory — validates the C construction pattern.
+ * Branch has 0 operands and 1 edge (target block). */
+
+static inline void *hir_c_create_branch(void *target_block) {
+    HirBranch *br = (HirBranch *)hir_c_alloc_instr(sizeof(HirBranch), 0);
+    if (!br) return NULL;
+    br->opcode = HIR_OP_Branch;
+    br->edge.to = target_block;
+    return br;
 }
 
 /* ==== Opcode predicates ====
