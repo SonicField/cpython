@@ -32,7 +32,7 @@ class BytecodeInstruction {
   // Return the position of the opcode, skipping over any EXTENDED_ARGs if
   // present.
   BCOffset opcodeOffset() const { calcOpcodeOffsetAndOparg(); return opcodeIndex_; }
-  BCIndex opcodeIndex() const;
+  BCIndex opcodeIndex() const { return opcodeOffset(); }
 
   // Get the instruction's opcode or oparg.
   //
