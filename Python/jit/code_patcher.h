@@ -49,22 +49,12 @@ class CodePatcher {
   // The patcher must be linked before this can be called.
   void unpatch();
 
-  // Check if the patcher has been linked.
-  bool isLinked() const;
-
-  // Check if the patcher is currently patched.
-  bool isPatched() const;
-
-  // Get where in the code to patch.  Will be nullptr before the patcher is
-  // linked.
-  uint8_t* patchpoint() const;
-
-  // Get the bytes that are stored within the patcher right now.
-  //
-  // This either contains the bytes that will be patched in, or the bytes that
-  // were there originally.  The former is injected with patch(), the latter can
-  // be put back in with unpatch().
-  std::span<const uint8_t> storedBytes() const;
+  bool isLinked() const { return patchpoint_ != nullptr; }
+  bool isPatched() const { return flags_.is_patched; }
+  uint8_t* patchpoint() const { return patchpoint_; }
+  std::span<const uint8_t> storedBytes() const {
+    return std::span{data_.data(), flags_.data_len};
+  }
 
  protected:
   // Callback to execute after linking (e.g. subscribing to changes).

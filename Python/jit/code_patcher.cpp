@@ -105,22 +105,6 @@ void CodePatcher::unpatch() {
   onUnpatch();
 }
 
-bool CodePatcher::isLinked() const {
-  return patchpoint_ != nullptr;
-}
-
-bool CodePatcher::isPatched() const {
-  return flags_.is_patched;
-}
-
-uint8_t* CodePatcher::patchpoint() const {
-  return patchpoint_;
-}
-
-std::span<const uint8_t> CodePatcher::storedBytes() const {
-  return std::span{data_.data(), flags_.data_len};
-}
-
 void CodePatcher::swap() {
 #ifdef Py_GIL_DISABLED
   SwapLockGuard lock{*this};
