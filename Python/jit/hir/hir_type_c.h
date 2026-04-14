@@ -223,6 +223,10 @@ HirType hir_prim_type_to_type(int prim_type);
  * If is_exact is nonzero, returns the exact variant. */
 HirType hir_type_from_pytype(PyTypeObject *type, int is_exact);
 
+/* Create a HirType from a PyObject* (C equivalent of Type::fromObject).
+ * Determines type from Py_TYPE(obj), exact match, with lifetime. */
+HirType hir_type_from_object(PyObject *obj);
+
 /* ---- Set operations ---- */
 
 /* Specialization subtype check (helper for operators) */

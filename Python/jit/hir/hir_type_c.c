@@ -11,6 +11,7 @@
  */
 
 #include "cinderx/Jit/hir/hir_type_c.h"
+#include "cinderx/Jit/threaded_compile_c.h"
 #include <string.h>  /* strcmp */
 
 /* ---- Helper: pack bitfields into uint64_t ---- */
@@ -399,4 +400,34 @@ int hir_type_is_single_value(const HirType *t) {
     if (hir_type_has_int_spec(t)) return 1;
     if (hir_type_has_double_spec(t)) return 1;
     return 0;
+}
+
+/* ---- Factory: fromObject ---- */
+
+HirType hir_type_from_object(PyObject *obj) {
+    if (obj == Py_None) {
+        /* NoneType — always immortal in 3.12+ */
+        HirType r;
+        r.bits_and_flags = 0x00000000080ULL |
+            (HIR_TYPE_LIFETIME_TOP << HIR_TYPE_LIFETIME_SHIFT);
+        r.int_val = 0;
+        return r;
+    }
+
+    /* Determine lifetime. */
+    uint64_t lifetime;
+    jit_compile_lock();
+    lifetime = _Py_IsImmortal(obj) ? 2ULL : 1ULL;  /* kImmortal=2, kMortal=1 */
+    jit_compile_unlock();
+
+    /* Get exact type. */
+    HirType base = hir_type_from_pytype(Py_TYPE(obj), 1 /* exact */);
+    uint64_t bits = hir_type_bits(&base);
+
+    /* Create specialized object type. */
+    HirType r;
+    r.bits_and_flags = bits | (lifetime << HIR_TYPE_LIFETIME_SHIFT)
+                     | (((uint64_t)HIR_SPEC_OBJECT) << HIR_TYPE_SPEC_SHIFT);
+    r.pyobject = obj;
+    return r;
 }
