@@ -5,6 +5,7 @@
 #include "Python.h"
 #include "cinderx/Common/log.h"
 #include "cinderx/Jit/lir/arch.h"
+#include "cinderx/Jit/lir/lir_c_api.h"
 #include "cinderx/Jit/lir/type.h"
 
 #include <cstdint>
@@ -35,13 +36,27 @@ class OperandBase {
   void operator delete(void* ptr) { PyMem_RawFree(ptr); }
 
   OperandBase() = default;
-  explicit OperandBase(Instruction* parent);
+  explicit OperandBase(Instruction* parent) : parent_instr_{parent} {}
 
   // Phase B5: Non-virtual destructor. Operand/LinkedOperand add no data
   // members, so destruction through OperandBase* is safe.
-  ~OperandBase();
+  // Uses lir_memind_free (C API) to avoid needing full MemoryIndirect definition.
+  ~OperandBase() {
+    if (!is_linked_ && type_ == kInd && value_.indirect) {
+      lir_memind_free(reinterpret_cast<LirMemoryIndirect*>(value_.indirect));
+      value_.indirect = nullptr;
+    }
+  }
 
-  OperandBase(const OperandBase& ob);
+  OperandBase(const OperandBase& ob)
+      : parent_instr_{ob.parent_instr_},
+        last_use_{ob.last_use_},
+        is_linked_{ob.is_linked_},
+        type_{ob.type_},
+        data_type_{ob.data_type_},
+        def_opnd_{ob.def_opnd_} {
+    // value_ is not copied (same as original Operand copy ctor behavior).
+  }
 
   // Phase B5: Delete copy assignment — raw MemoryIndirect* in value_.indirect
   // would be shallow-copied, creating double-free risk. Copy constructor
@@ -64,21 +79,22 @@ class OperandBase {
   size_t sizeInBits() const;
 
   // Get the instruction using this operand.
-  Instruction* instr();
-  const Instruction* instr() const;
+  Instruction* instr() { return parent_instr_; }
+  const Instruction* instr() const { return parent_instr_; }
 
   // Set and unset the instruction using this operand.
-  void assignToInstr(Instruction* instr);
-  void releaseFromInstr();
+  void assignToInstr(Instruction* instr) { parent_instr_ = instr; }
+  void releaseFromInstr() { parent_instr_ = nullptr; }
 
   bool isFp() const;
   bool isVecD() const;
 
-  bool isLastUse() const;
-  void setLastUse();
+  bool isLastUse() const { return last_use_; }
+  void setLastUse() { last_use_ = true; }
 
   // Data accessors — dispatch via is_linked_ flag.
   // When linked, delegates to def_opnd_ (the defining Operand).
+  // Defined out-of-class (bottom of header) because they reference Operand.
   uint64_t getConstant() const;
   double getFPConstant() const;
   PhyLocation getPhyRegister() const;
@@ -101,15 +117,28 @@ class OperandBase {
  // B5 devirtualized dispatch — protected modifier no longer guards invariants.
  public:
   // Phase B5: Free owned MemoryIndirect before type change.
+  // Uses lir_memind_free (C API) to avoid needing full MemoryIndirect definition.
   void clearIndirect() {
     if (type_ == kInd && value_.indirect) {
-      delete value_.indirect;
+      lir_memind_free(reinterpret_cast<LirMemoryIndirect*>(value_.indirect));
       value_.indirect = nullptr;
     }
   }
 
   // Raw value accessor for diagnostics (works on non-linked operands only).
-  uint64_t rawValue() const;
+  uint64_t rawValue() const {
+    switch (type_) {
+      case kImm: return value_.constant;
+      case kMem: return reinterpret_cast<uint64_t>(value_.address);
+      case kLabel: return reinterpret_cast<uint64_t>(value_.block);
+      case kInd: return reinterpret_cast<uint64_t>(value_.indirect);
+      case kReg:
+      case kStack: return static_cast<uint64_t>(value_.phy_loc.loc);
+      case kVreg:
+      case kNone: return 0;
+    }
+    JIT_ABORT("Unknown operand type");
+  }
 
   Instruction* parent_instr_{nullptr};
   bool last_use_{false};
@@ -140,36 +169,69 @@ class MemoryIndirect {
   void* operator new(size_t size) { return PyMem_RawCalloc(1, size); }
   void operator delete(void* ptr) { PyMem_RawFree(ptr); }
 
-  explicit MemoryIndirect(Instruction* parent);
-  ~MemoryIndirect();
+  explicit MemoryIndirect(Instruction* parent) : parent_(parent) {}
+  ~MemoryIndirect() {
+    delete base_reg_;
+    delete index_reg_;
+  }
 
-  void setMemoryIndirect(Instruction* base, int32_t offset);
-  void setMemoryIndirect(PhyLocation base, int32_t offset = 0);
-
+  void setMemoryIndirect(Instruction* base, int32_t offset) {
+    setMemoryIndirect(base, nullptr, 0, offset);
+  }
+  void setMemoryIndirect(PhyLocation base, int32_t offset = 0) {
+    setMemoryIndirect(base, PhyLocation::REG_INVALID, 0, offset);
+  }
   void setMemoryIndirect(
-      PhyLocation base,
-      PhyLocation index_reg,
-      uint8_t multiplier);
-
+      PhyLocation base, PhyLocation index_reg, uint8_t multiplier) {
+    setMemoryIndirect(base, index_reg, multiplier, 0);
+  }
   void setMemoryIndirect(
       std::variant<Instruction*, PhyLocation> base,
       std::variant<Instruction*, PhyLocation> index,
-      uint8_t multiplier,
-      int32_t offset);
+      uint8_t multiplier, int32_t offset) {
+    setBaseIndex(base_reg_, base);
+    setBaseIndex(index_reg_, index);
+    multiplier_ = multiplier;
+    offset_ = offset;
+  }
 
-  OperandBase* getBaseRegOperand() const;
-  OperandBase* getIndexRegOperand() const;
+  OperandBase* getBaseRegOperand() const { return base_reg_; }
+  OperandBase* getIndexRegOperand() const { return index_reg_; }
+  uint8_t getMultipiler() const { return multiplier_; }
+  int32_t getOffset() const { return offset_; }
 
-  uint8_t getMultipiler() const;
-  int32_t getOffset() const;
-
- private:
-  // Phase B5: Raw pointers replace unique_ptr<OperandBase>.
-  void setBaseIndex(OperandBase*& base_index_opnd, Instruction* base_index);
-  void setBaseIndex(OperandBase*& base_index_opnd, PhyLocation base_index);
-  void setBaseIndex(
-      OperandBase*& base_index_opnd,
-      std::variant<Instruction*, PhyLocation> base_index);
+ // Phase 3D: Fields and helpers public for inline implementation.
+ public:
+  void setBaseIndex(OperandBase*& opnd, Instruction* base_index) {
+    if (opnd) { lir_operand_free(reinterpret_cast<LirOperand*>(opnd)); }
+    if (base_index != nullptr) {
+      opnd = reinterpret_cast<OperandBase*>(
+          lir_operand_new_linked(
+              reinterpret_cast<LirInstruction*>(parent_),
+              reinterpret_cast<LirInstruction*>(base_index)));
+    } else {
+      opnd = nullptr;
+    }
+  }
+  void setBaseIndex(OperandBase*& opnd, PhyLocation base_index) {
+    if (opnd) { lir_operand_free(reinterpret_cast<LirOperand*>(opnd)); }
+    if (base_index != PhyLocation::REG_INVALID) {
+      auto* operand = lir_operand_new(
+          reinterpret_cast<LirInstruction*>(parent_));
+      lir_operand_set_phy_register(operand, {base_index.loc, base_index.bitSize});
+      opnd = reinterpret_cast<OperandBase*>(operand);
+    } else {
+      opnd = nullptr;
+    }
+  }
+  void setBaseIndex(OperandBase*& opnd,
+      std::variant<Instruction*, PhyLocation> base_index) {
+    if (Instruction** instrp = std::get_if<Instruction*>(&base_index)) {
+      setBaseIndex(opnd, *instrp);
+    } else {
+      setBaseIndex(opnd, std::get<PhyLocation>(base_index));
+    }
+  }
 
   Instruction* parent_{nullptr};
   OperandBase* base_reg_{nullptr};
@@ -186,43 +248,113 @@ class MemoryIndirect {
 class Operand : public OperandBase {
  public:
   Operand() = default;
-  explicit Operand(Instruction* parent);
-
+  explicit Operand(Instruction* parent) : OperandBase{parent} {}
   ~Operand() = default;
 
   // Only copies simple fields (type and data type) from operand.
-  // The value_ field is not copied.
-  Operand(Instruction* parent, Operand* operand);
-
-  Operand(Instruction* parent, DataType data_type, Type type, uint64_t data);
-  Operand(Instruction* parent, Type type, double data);
+  Operand(Instruction* parent, Operand* operand) : OperandBase(parent) {
+    type_ = operand->type_;
+    data_type_ = operand->data_type_;
+  }
+  Operand(Instruction* parent, DataType data_type, Type type, uint64_t data)
+      : OperandBase(parent) {
+    type_ = type;
+    data_type_ = data_type;
+    value_.constant = data;
+  }
+  Operand(Instruction* parent, Type type, double data)
+      : OperandBase(parent) {
+    type_ = type;
+    data_type_ = kDouble;
+    value_.constant = bit_cast<uint64_t>(data);
+  }
 
   // Setters (modify base class fields directly):
-  void setConstant(uint64_t n, DataType data_type = k64bit);
-  void setFPConstant(double n);
-  void setPhyRegister(PhyLocation reg);
-  void setStackSlot(PhyLocation slot);
-  void setPhyRegOrStackSlot(PhyLocation loc);
-  void setMemoryAddress(void* addr);
+  void setConstant(uint64_t n, DataType data_type = k64bit) {
+    clearIndirect();
+    type_ = kImm;
+    value_.constant = n;
+    data_type_ = data_type;
+  }
+  void setFPConstant(double n) {
+    clearIndirect();
+    type_ = kImm;
+    value_.constant = bit_cast<uint64_t>(n);
+    data_type_ = kDouble;
+  }
+  void setPhyRegister(PhyLocation reg) {
+    clearIndirect();
+    type_ = kReg;
+    value_.phy_loc = reg;
+  }
+  void setStackSlot(PhyLocation slot) {
+    clearIndirect();
+    type_ = kStack;
+    value_.phy_loc = slot;
+  }
+  void setPhyRegOrStackSlot(PhyLocation loc) {
+    if (loc.loc < 0) { setStackSlot(loc); }
+    else { setPhyRegister(loc); }
+  }
+  void setMemoryAddress(void* addr) {
+    clearIndirect();
+    type_ = kMem;
+    value_.address = addr;
+  }
 
-  // Phase B5: Explicit overloads replace variadic template (no more
-  // std::make_unique / std::move into variant).
-  void setMemoryIndirect(Instruction* base, int32_t offset);
-  void setMemoryIndirect(PhyLocation base, int32_t offset = 0);
+  void setMemoryIndirect(Instruction* base, int32_t offset) {
+    clearIndirect();
+    type_ = kInd;
+    auto* ind = new MemoryIndirect(instr());
+    ind->setMemoryIndirect(base, offset);
+    value_.indirect = ind;
+  }
+  void setMemoryIndirect(PhyLocation base, int32_t offset = 0) {
+    clearIndirect();
+    type_ = kInd;
+    auto* ind = new MemoryIndirect(instr());
+    ind->setMemoryIndirect(base, offset);
+    value_.indirect = ind;
+  }
   void setMemoryIndirect(
-      PhyLocation base,
-      PhyLocation index_reg,
-      uint8_t multiplier);
+      PhyLocation base, PhyLocation index_reg, uint8_t multiplier) {
+    clearIndirect();
+    type_ = kInd;
+    auto* ind = new MemoryIndirect(instr());
+    ind->setMemoryIndirect(base, index_reg, multiplier);
+    value_.indirect = ind;
+  }
   void setMemoryIndirect(
       std::variant<Instruction*, PhyLocation> base,
       std::variant<Instruction*, PhyLocation> index,
-      uint8_t multiplier,
-      int32_t offset);
+      uint8_t multiplier, int32_t offset) {
+    clearIndirect();
+    type_ = kInd;
+    auto* ind = new MemoryIndirect(instr());
+    ind->setMemoryIndirect(base, index, multiplier, offset);
+    value_.indirect = ind;
+  }
 
-  void setBasicBlock(BasicBlock* block);
-  void setDataType(DataType data_type);
-  void setNone();
-  void setVirtualRegister();
+  void setBasicBlock(BasicBlock* block) {
+    clearIndirect();
+    type_ = kLabel;
+    data_type_ = kObject;
+    value_.block = block;
+  }
+  void setDataType(DataType data_type) {
+    data_type_ = data_type;
+    if (type_ == kReg || type_ == kStack) {
+      value_.phy_loc.bitSize = bitSize(data_type);
+    }
+  }
+  void setNone() {
+    clearIndirect();
+    type_ = kNone;
+  }
+  void setVirtualRegister() {
+    clearIndirect();
+    type_ = kVreg;
+  }
 };
 
 // An operand that points to the output value of an instruction.  Represents a
@@ -234,18 +366,33 @@ class Operand : public OperandBase {
 // is_linked_ dispatch.  LinkedOperand just has constructors and helpers.
 class LinkedOperand : public OperandBase {
  public:
-  explicit LinkedOperand(Instruction* def);
-  LinkedOperand(Instruction* parent, Instruction* def);
+  explicit LinkedOperand(Instruction* def) {
+    def_opnd_ = (def != nullptr)
+        ? static_cast<Operand*>(jit_lir_instr_output(
+              static_cast<JitLirInstr>(def)))
+        : nullptr;
+    is_linked_ = (def_opnd_ != nullptr);
+  }
+  LinkedOperand(Instruction* parent, Instruction* def)
+      : LinkedOperand{def} {
+    assignToInstr(parent);
+  }
 
   ~LinkedOperand() = default;
 
-  Operand* getLinkedOperand();
-  const Operand* getLinkedOperand() const;
+  Operand* getLinkedOperand() { return def_opnd_; }
+  const Operand* getLinkedOperand() const { return def_opnd_; }
 
-  Instruction* getLinkedInstr();
-  const Instruction* getLinkedInstr() const;
+  Instruction* getLinkedInstr() { return def_opnd_->instr(); }
+  const Instruction* getLinkedInstr() const { return def_opnd_->instr(); }
 
-  void setLinkedInstr(Instruction* def);
+  void setLinkedInstr(Instruction* def) {
+    def_opnd_ = (def != nullptr)
+        ? static_cast<Operand*>(jit_lir_instr_output(
+              static_cast<JitLirInstr>(def)))
+        : nullptr;
+    is_linked_ = (def_opnd_ != nullptr);
+  }
 };
 
 // OperandArg reqresents different operand data types, and is used as
@@ -362,5 +509,93 @@ DECLARE_TYPE_ARG(OutLbl, BasicBlock*, true)
 DECLARE_TYPE_ARG(OutDbl, double, true)
 DECLARE_TYPE_ARG(OutInd, MemoryIndirect, true)
 DECLARE_TYPE_ARG(OutVReg, void, true)
+
+// Phase B5: Verify that Operand/LinkedOperand add no data members beyond
+// OperandBase. Prerequisite for safe deletion through OperandBase*.
+static_assert(sizeof(OperandBase) == sizeof(Operand),
+    "Operand must not add data members beyond OperandBase");
+static_assert(sizeof(OperandBase) == sizeof(LinkedOperand),
+    "LinkedOperand must not add data members beyond OperandBase");
+
+// ---- Deferred inline definitions (need complete Operand type) ----
+
+inline size_t OperandBase::sizeInBits() const { return bitSize(dataType()); }
+inline bool OperandBase::isFp() const { return dataType() == kDouble; }
+inline bool OperandBase::isVecD() const { return getPhyRegister().is_fp_register(); }
+
+inline uint64_t OperandBase::getConstant() const {
+  if (is_linked_) return def_opnd_->getConstant();
+  return value_.constant;
+}
+inline double OperandBase::getFPConstant() const {
+  return bit_cast<double>(getConstant());
+}
+inline PhyLocation OperandBase::getPhyRegister() const {
+  if (is_linked_) return def_opnd_->getPhyRegister();
+  JIT_CHECK(type_ == kReg,
+      "Trying to treat operand [type={},val={:#x}] as a physical register",
+      type_, rawValue());
+  return value_.phy_loc;
+}
+inline PhyLocation OperandBase::getStackSlot() const {
+  if (is_linked_) return def_opnd_->getStackSlot();
+  JIT_CHECK(type_ == kStack,
+      "Trying to treat operand [type={},val={:#x}] as a stack slot",
+      type_, rawValue());
+  return value_.phy_loc;
+}
+inline PhyLocation OperandBase::getPhyRegOrStackSlot() const {
+  if (is_linked_) return def_opnd_->getPhyRegOrStackSlot();
+  switch (type_) {
+    case kReg: return getPhyRegister();
+    case kStack: return getStackSlot();
+    default:
+      JIT_ABORT(
+          "Trying to treat operand [type={},val={:#x} as a physical register "
+          "or a stack slot", type_, rawValue());
+  }
+  return -1;
+}
+inline void* OperandBase::getMemoryAddress() const {
+  if (is_linked_) return def_opnd_->getMemoryAddress();
+  JIT_CHECK(type_ == kMem,
+      "Trying to treat operand [type={},val={:#x}] as a memory address",
+      type_, rawValue());
+  return value_.address;
+}
+inline MemoryIndirect* OperandBase::getMemoryIndirect() const {
+  if (is_linked_) return def_opnd_->getMemoryIndirect();
+  JIT_CHECK(type_ == kInd,
+      "Trying to treat operand [type={},val={:#x}] as a memory indirect",
+      type_, rawValue());
+  return value_.indirect;
+}
+inline BasicBlock* OperandBase::getBasicBlock() const {
+  if (is_linked_) return def_opnd_->getBasicBlock();
+  JIT_CHECK(type_ == kLabel,
+      "Trying to treat operand [type={},val={:#x}] as a basic block address",
+      type_, rawValue());
+  return value_.block;
+}
+inline uint64_t OperandBase::getConstantOrAddress() const {
+  if (type_ == kMem) return reinterpret_cast<uint64_t>(getMemoryAddress());
+  return getConstant();
+}
+inline Operand* OperandBase::getDefine() {
+  if (is_linked_) return def_opnd_;
+  return static_cast<Operand*>(this);
+}
+inline const Operand* OperandBase::getDefine() const {
+  if (is_linked_) return def_opnd_;
+  return static_cast<const Operand*>(this);
+}
+inline DataType OperandBase::dataType() const {
+  if (is_linked_) return def_opnd_->dataType();
+  return data_type_;
+}
+inline OperandBase::Type OperandBase::type() const {
+  if (is_linked_) return def_opnd_->type();
+  return type_;
+}
 
 } // namespace jit::lir
