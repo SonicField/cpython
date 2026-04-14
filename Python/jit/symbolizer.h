@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "cinderx/Common/log.h"
 #include "cinderx/Jit/mmap_file.h"
 #include "cinderx/Jit/symbolizer_iface.h"
 
@@ -35,11 +36,24 @@ class Symbolizer : public ISymbolizer {
   std::optional<std::string_view> symbolize(const void* func) override;
 
  private:
-  void deinit();
+  void deinit() {
+    try {
+      file_.close();
+    } catch (const std::exception& exn) {
+      JIT_LOG("{}", exn.what());
+    }
+    symtab_ = nullptr;
+    strtab_ = nullptr;
+    cache_.clear();
+  }
 
   std::optional<std::string_view> cache(
       const void* func,
-      std::optional<std::string> name);
+      std::optional<std::string> name) {
+    auto pair = cache_.emplace(func, std::move(name));
+    JIT_CHECK(pair.second, "{} already exists in cache", func);
+    return pair.first->second;
+  }
 
   MmapFile file_;
 

@@ -164,14 +164,6 @@ Symbolizer::Symbolizer(const char* exe_path) {
 #endif
 }
 
-std::optional<std::string_view> Symbolizer::cache(
-    const void* func,
-    std::optional<std::string> name) {
-  auto pair = cache_.emplace(func, std::move(name));
-  JIT_CHECK(pair.second, "{} already exists in cache", func);
-  return pair.first->second;
-}
-
 std::optional<std::string_view> Symbolizer::symbolize(const void* func) {
 #ifdef ENABLE_SYMBOLIZER
   // Try the cache first. We might have looked it up before.
@@ -214,18 +206,6 @@ std::optional<std::string_view> Symbolizer::symbolize(const void* func) {
 #else
   return std::nullopt;
 #endif
-}
-
-void Symbolizer::deinit() {
-  try {
-    file_.close();
-  } catch (const std::exception& exn) {
-    JIT_LOG("{}", exn.what());
-  }
-
-  symtab_ = nullptr;
-  strtab_ = nullptr;
-  cache_.clear();
 }
 
 std::optional<std::string> demangle(const std::string& mangled_name) {
