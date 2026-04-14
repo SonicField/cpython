@@ -306,7 +306,8 @@ Register* simplifyCheckSequenceBounds(
       env.emit<UseType>(sequence, sequence->type());
       env.emit<UseType>(idx, idx->type());
       if (adjusted) {
-        return env.emit<LoadConst>(Type::fromCInt(idx_value, TCInt64));
+        return env.emitCInstr(static_cast<Instr*>(hir_c_create_load_const(
+            env.func.env.AllocateRegister(), to_hir(Type::fromCInt(idx_value, TCInt64)))));
       } else {
         return idx;
       }
@@ -536,13 +537,15 @@ Register* simplifyIsTruthy(Env& env, const IsTruthy* instr) {
       // Since we no longer use instr->GetOperand(0), we need to make sure that
       // we don't lose any associated type checks
       env.emit<UseType>(instr->GetOperand(0), ty);
-      return env.emit<LoadConst>(Type::fromCBool(res));
+      return env.emitCInstr(static_cast<Instr*>(hir_c_create_load_const(
+          env.func.env.AllocateRegister(), to_hir(Type::fromCBool(res)))));
     }
   }
   if (ty <= TBool) {
     Register* left = instr->GetOperand(0);
     env.emit<UseType>(left, TBool);
-    Register* right = env.emit<LoadConst>(Type::fromObject(Py_True));
+    Register* right = env.emitCInstr(static_cast<Instr*>(hir_c_create_load_const(
+        env.func.env.AllocateRegister(), to_hir(Type::fromObject(Py_True)))));
     Register* result =
         env.emit<PrimitiveCompare>(PrimitiveCompareOp::kEqual, left, right);
     return result;
@@ -553,7 +556,8 @@ Register* simplifyIsTruthy(Env& env, const IsTruthy* instr) {
   if (ty <= TLongExact) {
     Register* left = instr->GetOperand(0);
     env.emit<UseType>(left, ty);
-    Register* right = env.emit<LoadConst>(Type::fromObject(_PyLong_GetZero()));
+    Register* right = env.emitCInstr(static_cast<Instr*>(hir_c_create_load_const(
+        env.func.env.AllocateRegister(), to_hir(Type::fromObject(_PyLong_GetZero())))));
     Register* result =
         env.emit<PrimitiveCompare>(PrimitiveCompareOp::kNotEqual, left, right);
     return result;

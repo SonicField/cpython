@@ -503,6 +503,19 @@ static inline void hir_c_free_instr(void *instr) {
     free(base);
 }
 
+/* ==== Instruction factory: LoadConst ====
+ * Pure C factory — Instr base + HirType field, 0 operands.
+ * No DeoptBase, no C++ containers. */
+
+static inline void *hir_c_create_load_const(void *dst_reg, HirType type) {
+    HirLoadConst *lc = (HirLoadConst *)hir_c_alloc_instr(sizeof(HirLoadConst), 0);
+    if (!lc) return NULL;
+    lc->opcode = HIR_OP_LoadConst;
+    lc->type = type;
+    hir_c_set_output(lc, dst_reg);
+    return lc;
+}
+
 /* ==== Instruction factory: Branch ====
  * Prototype factory — validates the C construction pattern.
  * Branch has 0 operands and 1 edge (target block). */
