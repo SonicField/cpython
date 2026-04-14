@@ -209,7 +209,7 @@ HirInstr hir_block_append(HirBasicBlock block, HirInstr instr) {
 }
 
 HirInstr hir_block_append_at(HirBasicBlock block, HirInstr instr, int32_t bc_off) {
-  as_instr(instr)->setBytecodeOffset(bc_off);
+  as_instr(instr)->setBytecodeOffset(BCOffset{bc_off});
   return as_block(block)->Append(as_instr(instr));
 }
 
