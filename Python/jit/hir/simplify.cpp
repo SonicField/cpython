@@ -3,6 +3,7 @@
 #include "cinderx/Jit/hir/simplify.h"
 #include "cinderx/Jit/jit_config_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
+#include "cinderx/Jit/hir/hir_c_api.h"
 
 #include "pycore_long.h"
 
@@ -823,10 +824,18 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
         hir_type_could_be(reinterpret_cast<const HirType*>(&rhs_type_l),
                           reinterpret_cast<const HirType*>(&TLongExact))) {
       env.emit<UseType>(lhs, TLongExact);
-      Register* guarded = env.emit<GuardType>(TLongExact, rhs,
-                                               *instr->frameState());
-      return env.emit<LongBinaryOp>(op, lhs, guarded,
-                                      *instr->frameState());
+      // Phase I integration test: C factory for GuardType
+      {
+        env.optimized = true;
+        auto* gt = static_cast<Instr*>(hir_c_create_guard_type(
+            &env.func, to_hir(TLongExact), rhs, instr->frameState()));
+        gt->setBytecodeOffset(env.bc_off);
+        env.block->insert(gt, env.cursor);
+        gt->output()->set_type(outputType(*gt));
+        Register* guarded = gt->output();
+        return env.emit<LongBinaryOp>(op, lhs, guarded,
+                                        *instr->frameState());
+      }
     }
     auto lhs_type_l = lhs->type();
     if (rhs->isA(TLongExact) && !lhs->isA(TLongExact) &&
