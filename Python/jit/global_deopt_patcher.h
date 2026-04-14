@@ -18,19 +18,31 @@ class GlobalDeoptPatcher : public JumpPatcher {
   GlobalDeoptPatcher(
       BorrowedRef<PyDictObject> globals,
       BorrowedRef<PyUnicodeObject> key_name,
-      BorrowedRef<> expected_value);
+      BorrowedRef<> expected_value)
+      : globals_{globals} {
+    ThreadedCompileSerialize guard;
+    key_name_.reset(key_name);
+    expected_value_.reset(expected_value);
+  }
 
-  // Called when a watched global changes.  If the new value differs from
-  // the expected value, patch the compiled code to deopt.  Returns true if
-  // the patcher fired (and should be removed from the watch list).
   ~GlobalDeoptPatcher();
-  bool maybePatch(BorrowedRef<> new_value);
+
+  bool maybePatch(BorrowedRef<> new_value) {
+    if (new_value == expected_value_.get()) {
+      return false;
+    }
+    patch();
+    return true;
+  }
 
   BorrowedRef<PyDictObject> globals() const { return globals_; }
   BorrowedRef<PyUnicodeObject> keyName() const { return key_name_; }
 
  private:
-  void onPatch() override;
+  void onPatch() override {
+    key_name_.reset();
+    expected_value_.reset();
+  }
 
   BorrowedRef<PyDictObject> globals_;
   ThreadedRef<PyUnicodeObject> key_name_;

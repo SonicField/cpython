@@ -1,4 +1,9 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
+//
+// Phase 3D: Reduced — compileTime, setCompileTime, setCodePatchers,
+// setHirFunc, staticEntry inlined to compiled_function.h.
+// Remaining: isJitCompiled (extern C), ~CompiledFunction, disassemble,
+// printHIR (need Disassembler/HIRPrinter/ModuleState).
 
 #include "cinderx/Jit/compiled_function.h"
 
@@ -14,28 +19,21 @@
 extern "C" {
 
 bool isJitCompiled(const PyFunctionObject* func) {
-  // Possible that this is called during finalization after the module state is
-  // destroyed.
   cinderx::ModuleState* mod_state = cinderx::getModuleState();
   if (mod_state == nullptr) {
     return false;
   }
-  // Primary check: vectorcall points into JIT-allocated code.
   jit::ICodeAllocator* code_allocator = mod_state->codeAllocator();
   if (code_allocator != nullptr &&
       code_allocator->contains(reinterpret_cast<const void*>(func->vectorcall))) {
     return true;
   }
-
-  // Secondary check: the vectorcall entry may not be in the code allocator
-  // (e.g. after deopt). Check the JIT context for compilation status.
   jit::IJitContext* jit_ctx = mod_state->jitContext();
   if (jit_ctx != nullptr) {
     auto* mutable_func = const_cast<PyFunctionObject*>(func);
     return jit_ctx->didCompile(mutable_func)
         && !jit_ctx->isDeoptimized(mutable_func);
   }
-
   return false;
 }
 
@@ -47,7 +45,6 @@ CompiledFunction::~CompiledFunction() {
   if (data_.runtime != nullptr) {
     data_.runtime->releaseReferences();
   }
-
   auto code_allocator = cinderx::getModuleState()->codeAllocator();
   code_allocator->releaseCode(const_cast<std::byte*>(data_.code.data()));
 }
@@ -64,34 +61,6 @@ void CompiledFunction::printHIR() const {
       "Can only call CompiledFunction::printHIR() from a debug build");
   jit::hir::HIRPrinter printer;
   printer.Print(std::cout, *data_.irfunc);
-}
-
-std::chrono::nanoseconds CompiledFunction::compileTime() const {
-  return data_.compile_time;
-}
-
-void CompiledFunction::setCompileTime(std::chrono::nanoseconds time) {
-  data_.compile_time = time;
-}
-
-void CompiledFunction::setCodePatchers(
-    std::vector<std::unique_ptr<CodePatcher>>&& code_patchers) {
-  data_.code_patchers = std::move(code_patchers);
-}
-
-void CompiledFunction::setHirFunc(std::unique_ptr<hir::Function>&& irfunc) {
-  data_.irfunc = std::move(irfunc);
-}
-
-void* CompiledFunction::staticEntry() const {
-  if (data_.runtime == nullptr ||
-      !(data_.runtime->frameState()->code()->co_flags &
-        CI_CO_STATICALLY_COMPILED)) {
-    return nullptr;
-  }
-
-  return reinterpret_cast<void*>(
-      JITRT_GET_STATIC_ENTRY(data_.vectorcall_entry));
 }
 
 } // namespace jit

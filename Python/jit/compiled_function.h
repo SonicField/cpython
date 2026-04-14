@@ -154,7 +154,15 @@ class CompiledFunction {
     return data_.vectorcall_entry;
   }
 
-  void* staticEntry() const;
+  void* staticEntry() const {
+    if (data_.runtime == nullptr ||
+        !(data_.runtime->frameState()->code()->co_flags &
+          CI_CO_STATICALLY_COMPILED)) {
+      return nullptr;
+    }
+    return reinterpret_cast<void*>(
+        JITRT_GET_STATIC_ENTRY(data_.vectorcall_entry));
+  }
 
   CodeRuntime* runtime() const {
     return data_.runtime;
@@ -184,13 +192,19 @@ class CompiledFunction {
     return data_.spill_stack_size;
   }
 
-  std::chrono::nanoseconds compileTime() const;
-  void setCompileTime(std::chrono::nanoseconds time);
+  std::chrono::nanoseconds compileTime() const { return data_.compile_time; }
+  void setCompileTime(std::chrono::nanoseconds time) {
+    data_.compile_time = time;
+  }
 
   void setCodePatchers(
-      std::vector<std::unique_ptr<CodePatcher>>&& code_patchers);
+      std::vector<std::unique_ptr<CodePatcher>>&& code_patchers) {
+    data_.code_patchers = std::move(code_patchers);
+  }
 
-  void setHirFunc(std::unique_ptr<hir::Function>&& irfunc);
+  void setHirFunc(std::unique_ptr<hir::Function>&& irfunc) {
+    data_.irfunc = std::move(irfunc);
+  }
 
   const hir::Function::InlineFunctionStats& inlinedFunctionsStats() const {
     return data_.inline_function_stats;

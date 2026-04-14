@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 #pragma once
 
+#include "cinderx/Common/log.h"
 #include "cinderx/Common/ref.h"
 #include "cinderx/Jit/code_patcher.h"
 #include "cinderx/Jit/threaded_compile.h"
@@ -13,16 +14,22 @@ namespace jit {
 // the change to the type happens after PyType_Modified() is called).
 class TypeDeoptPatcher : public JumpPatcher {
  public:
-  explicit TypeDeoptPatcher(BorrowedRef<PyTypeObject> type);
+  explicit TypeDeoptPatcher(BorrowedRef<PyTypeObject> type) : type_{type} {}
   virtual ~TypeDeoptPatcher();
 
-  virtual bool maybePatch(BorrowedRef<PyTypeObject> new_ty);
+  virtual bool maybePatch(BorrowedRef<PyTypeObject>) {
+    patch();
+    return true;
+  }
 
-  // Access the type being watched.
-  BorrowedRef<PyTypeObject> type() const;
+  BorrowedRef<PyTypeObject> type() const { return type_; }
 
  protected:
-  void onUnpatch() override;
+  void onUnpatch() override {
+    JIT_ABORT(
+        "TypeDeoptPatcher for type {} being unpatched but that's not supported!",
+        type_->tp_name);
+  }
 
   // The type being watched.  It outlives this object because this object will
   // be cleaned up by a type watcher notification.
