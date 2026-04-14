@@ -238,6 +238,71 @@ HirType hir_type_union(HirType a, HirType b) {
                          (intptr_t)supertype);
 }
 
+/* ---- Type registration map (PyTypeObject* → HirType) ---- */
+
+typedef struct {
+    PyTypeObject **type_ptr;  /* pointer to the type object global */
+    uint64_t bits;            /* HirType bits (without lifetime) */
+} HirTypeMapEntry;
+
+/* The registration table maps builtin Python types to their HIR Type bits.
+ * Entries use pointers-to-pointers because some type objects (like Py_None's
+ * type) are only available at runtime. */
+static const struct {
+    PyTypeObject *type;
+    uint64_t bits;
+} s_pytype_to_type[] = {
+    { &PyBaseObject_Type,   0x000ffffffffULL },  /* TObject */
+    { &PyBool_Type,         0x00000000002ULL },  /* TBool */
+    { &PyBytes_Type,        0x00001002000ULL },  /* TBytes */
+    { &PyCell_Type,         0x00000000004ULL },  /* TCell */
+    { &PyCode_Type,         0x00000000008ULL },  /* TCode */
+    { &PyDict_Type,         0x00002004000ULL },  /* TDict */
+    /* BaseException: PyExc_BaseException resolved at runtime in lookup function */
+    { &PyFloat_Type,        0x00004008000ULL },  /* TFloat */
+    { &PyFrame_Type,        0x00000000010ULL },  /* TFrame */
+    { &PyFunction_Type,     0x00000000020ULL },  /* TFunc */
+    { &PyGen_Type,          0x00000000040ULL },  /* TGen */
+    { &PyList_Type,         0x00008010000ULL },  /* TList */
+    { &PyLong_Type,         0x00000200402ULL },  /* TLong */
+    { &PySet_Type,          0x00010020000ULL },  /* TSet */
+    { &PySlice_Type,        0x00000000100ULL },  /* TSlice */
+    { &PyTuple_Type,        0x00020040000ULL },  /* TTuple */
+    { &PyType_Type,         0x00040080000ULL },  /* TType */
+    { &PyUnicode_Type,      0x00080100000ULL },  /* TUnicode */
+    /* NoneType: Py_TYPE(Py_None) — resolved at runtime in lookup function */
+};
+
+#define PYTYPE_MAP_SIZE (sizeof(s_pytype_to_type) / sizeof(s_pytype_to_type[0]))
+
+HirType hir_type_from_pytype(PyTypeObject *type, int is_exact) {
+    /* Runtime-resolved types (not in the static table). */
+    if (type == Py_TYPE(Py_None)) {
+        HirType r = HIR_TYPE_NONETYPE;
+        return r;
+    }
+    if (type == (PyTypeObject *)PyExc_BaseException) {
+        HirType r = HIR_TYPE_BASEEXCEPTION;
+        return r;
+    }
+
+    /* Linear scan — 18 entries, called infrequently. */
+    for (size_t i = 0; i < PYTYPE_MAP_SIZE; i++) {
+        if (s_pytype_to_type[i].type == type) {
+            uint64_t bits = s_pytype_to_type[i].bits;
+            HirType r;
+            /* kLifetimeTop = 3 for object types */
+            r.bits_and_flags = bits | (HIR_TYPE_LIFETIME_TOP << HIR_TYPE_LIFETIME_SHIFT);
+            r.int_val = 0;
+            return r;
+        }
+    }
+
+    /* Not found — return Bottom. */
+    HirType r = HIR_TYPE_BOTTOM;
+    return r;
+}
+
 /* ---- prim_type_to_type ---- */
 
 /* TYPED_* constants from Static Python (classloader.h) */
