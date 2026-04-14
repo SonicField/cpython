@@ -7,6 +7,7 @@
 
 #include "cinderx/Jit/hir/hir_stats_c.h"
 #include "cinderx/Jit/hir/hir_c_api.h"
+#include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/jit_config_c.h"
 #include "cinderx/Jit/threaded_compile_c.h"
 
@@ -132,12 +133,12 @@ void hir_stats_run(HirFunction func, const char *func_name) {
     while (block) {
         HirInstr instr = hir_block_first(block);
         while (instr) {
-            /* Count opcodes. */
-            const char *opname = hir_instr_opname(instr);
+            /* Count opcodes — pure C via opcode table. */
+            const char *opname = hir_instr_info_name(hir_c_opcode(instr));
             stats_map_increment(&instrs, opname);
 
             /* Count output types. */
-            HirRegister output = hir_instr_output(instr);
+            HirRegister output = hir_c_output(instr);
             if (output) {
                 HirType t = hir_register_type(output);
                 char type_str[256];
