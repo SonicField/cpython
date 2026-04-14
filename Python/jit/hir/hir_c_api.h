@@ -190,6 +190,22 @@ HirInstr hir_compare_bool_create(
     HirRegister left, HirRegister right,
     HirInstr frame_state_source);
 
+/* Create a BinaryOp instruction (DeoptBase + enum op).
+ * Allocates output register from func's env. Returns the instruction. */
+HirInstr hir_c_create_binary_op(HirFunction func, int32_t op_kind,
+                                HirRegister left, HirRegister right,
+                                void *frame_state);
+
+/* Create a GuardType instruction (DeoptBase + HirType target).
+ * Allocates output register from func's env. Returns the instruction. */
+HirInstr hir_c_create_guard_type(HirFunction func, HirType target,
+                                 HirRegister src, void *frame_state);
+
+/* Create a CheckExc instruction (DeoptBase, no custom fields).
+ * Allocates output register from func's env. Returns the instruction. */
+HirInstr hir_c_create_check_exc(HirFunction func, HirRegister src,
+                                void *frame_state);
+
 /* ---- Frame state ---- */
 
 /* Get the dominating FrameState for an instruction (opaque, for passing

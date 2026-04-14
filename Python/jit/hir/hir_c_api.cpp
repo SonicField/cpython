@@ -549,6 +549,42 @@ HirInstr hir_compare_bool_create(
       *fs);
 }
 
+HirInstr hir_c_create_binary_op(HirFunction func, int32_t op_kind,
+                                HirRegister left, HirRegister right,
+                                void *frame_state) {
+  if (!frame_state) return nullptr;
+  auto* f = static_cast<Function*>(func);
+  auto* dst = f->env.AllocateRegister();
+  return BinaryOp::create(
+      dst, static_cast<BinaryOpKind>(op_kind),
+      as_reg(left), as_reg(right),
+      *static_cast<const FrameState*>(frame_state));
+}
+
+HirInstr hir_c_create_guard_type(HirFunction func, HirType target,
+                                 HirRegister src, void *frame_state) {
+  auto* f = static_cast<Function*>(func);
+  auto* dst = f->env.AllocateRegister();
+  Type cpp_target;
+  std::memcpy(&cpp_target, &target, sizeof(Type));
+  if (frame_state) {
+    return GuardType::create(
+        dst, cpp_target, as_reg(src),
+        *static_cast<const FrameState*>(frame_state));
+  }
+  return GuardType::create(dst, cpp_target, as_reg(src));
+}
+
+HirInstr hir_c_create_check_exc(HirFunction func, HirRegister src,
+                                void *frame_state) {
+  if (!frame_state) return nullptr;
+  auto* f = static_cast<Function*>(func);
+  auto* dst = f->env.AllocateRegister();
+  return CheckExc::create(
+      dst, as_reg(src),
+      *static_cast<const FrameState*>(frame_state));
+}
+
 /* ---- Frame state ---- */
 
 void *hir_get_frame_state(HirInstr instr) {
