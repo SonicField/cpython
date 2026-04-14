@@ -26,12 +26,12 @@ class BytecodeInstruction {
 
   // Return the position of the first EXTENDED_ARG (if any) making up the full
   // instruction.
-  BCOffset baseOffset() const;
-  BCIndex baseIndex() const;
+  BCOffset baseOffset() const { return baseOffset_; }
+  BCIndex baseIndex() const { return baseOffset(); }
 
   // Return the position of the opcode, skipping over any EXTENDED_ARGs if
   // present.
-  BCOffset opcodeOffset() const;
+  BCOffset opcodeOffset() const { calcOpcodeOffsetAndOparg(); return opcodeIndex_; }
   BCIndex opcodeIndex() const;
 
   // Get the instruction's opcode or oparg.
@@ -41,7 +41,7 @@ class BytecodeInstruction {
   // oparg will be return in one go from oparg().
   int opcode() const;
   int specializedOpcode() const;
-  int oparg() const;
+  int oparg() const { calcOpcodeOffsetAndOparg(); return extendedOparg_; }
 
   // Check if this instruction is a branch, a return, or a general basic block
   // terminator.
@@ -70,7 +70,7 @@ class BytecodeInstruction {
   void calcOpcodeOffsetAndOparg() const;
 
   // Return the opcode of the bytecode instruction without instrumentation.
-  int uninstrumentedOpcode() const;
+  int uninstrumentedOpcode() const { return uninstrument(code_, opcodeIndex().value()); }
 
   // Get the instruction's code unit (opcode + oparg). The oparg is NOT extended
   // from any prior EXTENDED_ARGs and doesn't include the EXTENDED_OPCODE_FLAG.

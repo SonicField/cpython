@@ -4,23 +4,6 @@
 
 namespace jit {
 
-BCOffset BytecodeInstruction::baseOffset() const {
-  return baseOffset_;
-}
-
-BCIndex BytecodeInstruction::baseIndex() const {
-  return baseOffset();
-}
-
-BCOffset BytecodeInstruction::opcodeOffset() const {
-  calcOpcodeOffsetAndOparg();
-  return opcodeIndex_;
-}
-
-BCIndex BytecodeInstruction::opcodeIndex() const {
-  return opcodeOffset();
-}
-
 int BytecodeInstruction::opcode() const {
   int op = _Py_OPCODE(word());
   if (extendedOpcode_) {
@@ -66,10 +49,6 @@ void BytecodeInstruction::calcOpcodeOffsetAndOparg() const {
   extendedOparg_ = (extendedOparg_ << 8) | _Py_OPARG(word());
 }
 
-int BytecodeInstruction::uninstrumentedOpcode() const {
-  return uninstrument(code_, opcodeIndex().value());
-}
-
 int BytecodeInstruction::specializedOpcode() const {
 #if PY_VERSION_HEX >= 0x030C0000
   int opcode = uninstrumentedOpcode();
@@ -108,11 +87,6 @@ int BytecodeInstruction::specializedOpcode() const {
 #else
   return opcode();
 #endif
-}
-
-int BytecodeInstruction::oparg() const {
-  calcOpcodeOffsetAndOparg();
-  return extendedOparg_;
 }
 
 bool BytecodeInstruction::isBranch() const {
