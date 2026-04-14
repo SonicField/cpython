@@ -4,6 +4,7 @@
 
 #include "cinderx/python.h"
 
+#include "cinderx/Common/log.h"
 #include "cinderx/Common/ref.h"
 #include "cinderx/Jit/bytecode_offsets.h"
 #include "cinderx/Jit/containers.h"
@@ -14,6 +15,7 @@
 #include <asmjit/asmjit.h>
 #endif
 
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -73,7 +75,20 @@ class DebugInfo {
   // generated code.
   //
   // Returns std::nullopt if no location information was found.
-  std::optional<UnitCallStack> getUnitCallStack(uintptr_t addr) const;
+  std::optional<UnitCallStack> getUnitCallStack(uintptr_t addr) const {
+    auto it = addr_locs_.find(addr);
+    if (it == addr_locs_.end()) {
+      return std::nullopt;
+    }
+    LocNode node = it->second;
+    UnitCallStack stack{getCodeObjLoc(node)};
+    while (node.hasCaller()) {
+      node = inlined_calls_[node.caller_id];
+      stack.emplace_back(getCodeObjLoc(node));
+    }
+    std::reverse(stack.begin(), stack.end());
+    return stack;
+  }
 
   // Add location information for pending by resolving labels to their
   // addresses in generated code.
@@ -134,13 +149,24 @@ class DebugInfo {
       const jit::hir::FrameState* caller_frame_state);
 
   // Get or assign an id for codeobj
-  uint16_t getCodeObjID(BorrowedRef<PyCodeObject> codeobj);
+  uint16_t getCodeObjID(BorrowedRef<PyCodeObject> code_obj) {
+    for (uint16_t i = 0; i < code_objs_.size(); i++) {
+      if (code_objs_[i] == code_obj) {
+        return i;
+      }
+    }
+    JIT_CHECK(code_objs_.size() < kMaxCodeObjs, "too many inlined functions");
+    code_objs_.emplace_back(code_obj);
+    return code_objs_.size() - 1;
+  }
 
   // Get or assign an id for the code location in caller
   uint16_t getCallerID(const jit::hir::FrameState* caller);
 
   // Decompress a LocNode to a CodeObjLoc
-  CodeObjLoc getCodeObjLoc(const LocNode& node) const;
+  CodeObjLoc getCodeObjLoc(const LocNode& node) const {
+    return CodeObjLoc(code_objs_.at(node.code_obj_id), node.bc_off);
+  }
 
   // All the code objects in the unit
   std::vector<BorrowedRef<PyCodeObject>> code_objs_;

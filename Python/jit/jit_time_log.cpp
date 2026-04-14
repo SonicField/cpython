@@ -1,74 +1,28 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
+//
+// Phase 3D: Reduced — isMatch, parseAndSetFuncList, captureCompilationTimeFor
+// moved to jit_time_log_c.c. start() and end() inlined to jit_time_log.h.
+// Remaining: dumpPhaseTimingsAndTidy (fmt::format, std::chrono).
 
 #include "cinderx/Jit/jit_time_log.h"
 
 #include "cinderx/Common/log.h"
 #include "cinderx/Jit/containers.h"
+#include "cinderx/Jit/jit_time_log_c.h"
 
 #include <fmt/core.h>
 #include <fmt/format.h>
 
-#include <memory>
-#include <sstream>
-#include <vector>
+#include <cmath>
 
 namespace jit {
 
-static std::vector<std::string> capture_compilation_times_for;
-
 void parseAndSetFuncList(const std::string& flag_value) {
-  capture_compilation_times_for.clear();
-
-  std::stringstream ss(flag_value);
-
-  while (ss.good()) {
-    std::string substr;
-    getline(ss, substr, ',');
-    if (!substr.empty()) {
-      capture_compilation_times_for.emplace_back(substr);
-    }
-  }
-}
-
-bool isMatch(
-    const std::string& word,
-    int n,
-    const std::string& pattern,
-    int m) {
-  if (m == static_cast<int>(pattern.size())) {
-    return n == static_cast<int>(word.size());
-  }
-
-  if (n == static_cast<int>(word.size())) {
-    for (int i = m; i < static_cast<int>(pattern.size()); i++) {
-      if (pattern[i] != '*') {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  if (pattern[m] == '?' || pattern[m] == word[n]) {
-    return isMatch(word, n + 1, pattern, m + 1);
-  }
-
-  if (pattern[m] == '*') {
-    return isMatch(word, n + 1, pattern, m) || isMatch(word, n, pattern, m + 1);
-  }
-  return false;
-}
-
-bool isMatch(const std::string& word, const std::string& pattern) {
-  return isMatch(word, 0, pattern, 0);
+  jit_time_parse_func_list(flag_value.c_str());
 }
 
 bool captureCompilationTimeFor(const std::string& function_name) {
-  for (const std::string& pattern : capture_compilation_times_for) {
-    if (isMatch(function_name, pattern)) {
-      return true;
-    }
-  }
-  return false;
+  return jit_time_capture_for(function_name.c_str());
 }
 
 void CompilationPhaseTimer::dumpPhaseTimingsAndTidy() {
@@ -178,34 +132,6 @@ void CompilationPhaseTimer::dumpPhaseTimingsAndTidy() {
       header + phase_info);
 
   root_ = nullptr;
-}
-
-void CompilationPhaseTimer::start(std::string_view phase_name) {
-  JIT_CHECK(!phase_name.empty(), "Phase name cannot be empty");
-  auto timer = std::make_unique<SubPhaseTimer>(phase_name);
-  SubPhaseTimer* timerptr = timer.get();
-  if (root_ == nullptr) {
-    root_ = std::move(timer);
-  } else {
-    current_phase_stack_.back()->children.emplace_back(std::move(timer));
-  }
-  current_phase_stack_.push_back(timerptr);
-  timerptr->start = time_provider_();
-}
-
-void CompilationPhaseTimer::end() {
-  if (current_phase_stack_.empty()) {
-    // if called end at root_ level already then stop
-    return;
-  }
-
-  current_phase_stack_.back()->end = time_provider_();
-
-  if (current_phase_stack_.back() == root_.get()) {
-    dumpPhaseTimingsAndTidy();
-  }
-
-  current_phase_stack_.pop_back();
 }
 
 } // namespace jit

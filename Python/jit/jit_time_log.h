@@ -2,7 +2,9 @@
 
 #pragma once
 
+#include "cinderx/Common/log.h"
 #include "cinderx/Common/util.h"
+#include "cinderx/Jit/jit_time_log_c.h"
 
 #include <chrono>
 #include <memory>
@@ -76,12 +78,32 @@ class CompilationPhaseTimer {
           return std::chrono::steady_clock::now();
         }) {}
 
-  void start(std::string_view phase_name);
+  void start(std::string_view phase_name) {
+    JIT_CHECK(!phase_name.empty(), "Phase name cannot be empty");
+    auto timer = std::make_unique<SubPhaseTimer>(phase_name);
+    SubPhaseTimer* timerptr = timer.get();
+    if (root_ == nullptr) {
+      root_ = std::move(timer);
+    } else {
+      current_phase_stack_.back()->children.emplace_back(std::move(timer));
+    }
+    current_phase_stack_.push_back(timerptr);
+    timerptr->start = time_provider_();
+  }
 
   // when final start end pair is called with no nesting, then
   // dumpPhaseTimingsAndTidy is invoked and the output dumped to the JIT debug
   // log
-  void end();
+  void end() {
+    if (current_phase_stack_.empty()) {
+      return;
+    }
+    current_phase_stack_.back()->end = time_provider_();
+    if (current_phase_stack_.back() == root_.get()) {
+      dumpPhaseTimingsAndTidy();
+    }
+    current_phase_stack_.pop_back();
+  }
 
  private:
   DISALLOW_COPY_AND_ASSIGN(CompilationPhaseTimer);
@@ -90,20 +112,6 @@ class CompilationPhaseTimer {
   std::function<time_point()> time_provider_;
   std::unique_ptr<SubPhaseTimer> root_{nullptr};
 
-  // Dumps a table of the following information concerning each phase
-  // Phase Name, Time/µs    Leaf/%     Sub Phase/%     Unattributed Time/µs|%
-  // * Phase Name - Descriptive Phase or sub phase name
-  // * Time/µs - Time in microseconds spent in phase
-  // * Leaf/% - Proportion of time spent in phases which have no sub phases
-  // * Sub Phase/% - Proportion of time spent in sub phase relative to other
-  //    phases sharing the same common parent phase
-  // * Unattributed Time/µs|% - Time reported at phase level minus sum of time
-  //    spent in subphases of that phase. Reported as microseconds and % of
-  //    total phase time. Useful for detecting opportunities to drill into
-  //    more detail of a phase and detecting bugs. For example, a new
-  //    compilation phase without a start end wrapper around it would
-  //    manifest as a large Unattributed Time value on the parent phase -
-  //    thus indicating a problem.
   void dumpPhaseTimingsAndTidy();
 };
 
