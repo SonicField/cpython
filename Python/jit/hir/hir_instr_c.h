@@ -193,6 +193,89 @@ typedef struct { HIR_INSTR_FIELDS; void *func; void *reifier; void *caller_state
 /* ---- Opaque nested container (ProfiledTypes) ---- */
 typedef struct { HIR_INSTR_FIELDS; char types_storage[24]; } HirHintType;
 
+/* ==== Phase H1b: Unified per-opcode data union ====
+ * Single tagged union containing all per-opcode data fields.
+ * Used by the flattened HirInstrUnified struct.
+ * Simple opcodes (no custom fields) need no union entry. */
+
+typedef union HirOpcodeData {
+    /* ---- Operation-kind (single enum) ---- */
+    struct { int32_t op; } binary_op;       /* BinaryOp, UnaryOp, InPlaceOp, etc. */
+    struct { int32_t op; } compare;         /* Compare, CompareBool, FloatCompare, etc. */
+
+    /* ---- Type field (single HirType) ---- */
+    struct { HirType type; } typed;         /* LoadConst, RefineType, BitCast, Return, etc. */
+
+    /* ---- Branch/Edge ---- */
+    struct { HirEdge edge; } branch;        /* Branch */
+    struct { HirEdge true_edge; HirEdge false_edge; } cond_branch; /* CondBranch */
+    struct { HirEdge true_edge; HirEdge false_edge; HirType type; } cond_branch_check_type;
+
+    /* ---- Single scalar ---- */
+    struct { int32_t field; } set_func_attr;        /* SetFunctionAttr */
+    struct { size_t index; } call_intrinsic;        /* CallIntrinsic */
+    struct { void *addr; } call_static_ret_void;    /* CallStaticRetVoid */
+    struct { void *exc; } index_unbox;              /* IndexUnbox */
+    struct { size_t idx; } load_tuple_item;         /* LoadTupleItem */
+    struct { intptr_t item_idx; } load_split_dict_item; /* LoadSplitDictItem */
+    struct { int32_t cells; } init_frame_cell_vars; /* InitFrameCellVars */
+    struct { int32_t cache_id; } cache_entry;       /* LoadType*CacheEntry* */
+    struct { uint32_t flags; } call_flags;          /* VectorCall, CallEx, CallMethod */
+    struct { void *pytype; } tp_alloc;              /* TpAlloc */
+    struct { void *target; } guard_is;              /* GuardIs */
+    struct { HirType target; } guard_type;          /* GuardType */
+    struct { size_t capacity; } make_dict;          /* MakeDict */
+    struct { void *patcher; } deopt_patchpoint;     /* DeoptPatchpoint */
+    struct { uint8_t is_aenter; } raise_awaitable;  /* RaiseAwaitableError */
+    struct { int32_t conversion; } format_value;    /* FormatValue, BuildInterpolation */
+    struct { int32_t converter_idx; } convert_value; /* ConvertValue */
+    struct { int32_t special_idx; } load_special;   /* LoadSpecial */
+    struct { uint8_t already_optimized; } load_attr; /* LoadAttr */
+
+    /* ---- Multi-field scalar ---- */
+    struct { void *addr; HirType ret_type; } call_static;       /* CallStatic */
+    struct { void *begin; int32_t inline_depth; } end_inlined;  /* EndInlinedFunction */
+    struct { int32_t line_no; int32_t _pad; void *parent; } update_prev_instr; /* UpdatePrevInstr */
+    struct { uint32_t arg_idx; int32_t _pad; HirType type; } load_arg; /* LoadArg */
+    struct { intptr_t offset; HirType type; } load_array_item;  /* LoadArrayItem */
+    struct { HirType type; } store_array_item;                  /* StoreArrayItem */
+    struct { void *pytype; uint8_t optional; uint8_t exact; } cast; /* Cast */
+    struct { void *funcptr; void *descr; } load_func_indirect;  /* LoadFunctionIndirect */
+    struct { const char *fmt; void *exc_type; } raise_static;   /* RaiseStatic */
+    struct { const char *name; HirType ret_type; } call_ind;    /* CallInd */
+    struct { size_t capacity; HirType type; } make_checked_dict; /* MakeCheckedDict */
+    struct { HirType type; } make_checked_list;                 /* MakeCheckedList */
+    struct { int32_t before; int32_t after; } unpack_ex;        /* UnpackExToTuple */
+    struct { void *func; HirType ret_type; } invoke_static;     /* InvokeStaticFunction */
+
+    /* ---- BorrowedRef types ---- */
+    struct { void *code; void *builtins; void *globals; int32_t name_idx; } load_global_cached;
+
+    /* ---- Container types (opaque storage) ---- */
+    struct { char name_storage[32]; size_t offset; HirType type; uint8_t borrowed; } load_field;
+    struct { char name_storage[32]; size_t offset; HirType type; } store_field;
+    struct { char basic_blocks_storage[24]; } phi;              /* Phi: vector<BasicBlock*> */
+    struct { char types_storage[24]; } hint_type;               /* HintType: ProfiledTypes */
+    struct { void *func; void *reifier; void *caller_state_ptr; char fullname_storage[32]; } begin_inlined;
+    struct { void *frame_state_ptr; } snapshot;                 /* Snapshot */
+    struct { int32_t func; } call_cfunc;                        /* CallCFunc */
+
+    /* ---- Cache types ---- */
+    struct { int32_t name_idx; int32_t cache_id; } fill_cache;  /* FillTypeAttrCache, FillTypeMethodCache */
+    struct { void *id; const char *failure_fmt; } load_attr_special; /* LoadAttrSpecial */
+} HirOpcodeData;
+
+/* ==== Unified instruction struct ====
+ * Base fields + per-opcode data union.
+ * sizeof(HirOpcodeData) is dominated by load_field/store_field (~57 bytes)
+ * and begin_inlined (~56 bytes). */
+
+/* Note: Two variants — one for Instr base, one for DeoptBase.
+ * The DeoptBase variant includes deopt fields between base and union.
+ * For a truly unified struct, we use the largest (DeoptBase) as the
+ * common layout, with the understanding that non-deopt instructions
+ * leave the deopt fields unused. */
+
 /* ---- Field accessors ---- */
 
 static inline int32_t hir_instr_opcode(const HirInstr *instr) {
