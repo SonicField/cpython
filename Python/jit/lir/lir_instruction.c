@@ -423,3 +423,39 @@ lir_instruction_compare_to_branch_cc(int opcode) {
 }
 
 #undef CASE_FLIP
+
+/* ---- Opcode name table (86 entries, matches FOREACH_INSTR_TYPE order) ---- */
+
+static const char *const s_opcode_names[] = {
+    "Bind", "Nop", "Unreachable", "Call", "VectorCall", "VarArgCall",
+    "Guard", "DeoptPatchpoint", "Sext", "Zext", "Negate", "Invert",
+    "Add", "Sub", "And", "Xor", "Div", "DivUn", "Mul", "Or",
+    "Fadd", "Fsub", "Fmul", "Fdiv",
+    "LShift", "RShift", "RShiftUn", "Test", "Test32",
+    "Equal", "NotEqual",
+    "GreaterThanSigned", "LessThanSigned",
+    "GreaterThanEqualSigned", "LessThanEqualSigned",
+    "GreaterThanUnsigned", "LessThanUnsigned",
+    "GreaterThanEqualUnsigned", "LessThanEqualUnsigned",
+    "Cmp", "Lea", "LoadArg", "LoadSecondCallResult", "Exchange",
+    "Move", "MoveRelaxed", "Push", "Pop", "Cdq", "Cwd", "Cqo",
+    "Branch", "BranchNZ", "BranchZ",
+    "BranchA", "BranchB", "BranchAE", "BranchBE",
+    "BranchG", "BranchL", "BranchGE", "BranchLE",
+    "BranchC", "BranchNC", "BranchO", "BranchNO",
+    "BranchS", "BranchNS", "BranchE", "BranchNE",
+    "BitTest", "Inc", "Dec", "CondBranch", "Select", "Phi", "Return",
+    "MovZX", "MovSX", "MovSXD", "IntToBool",
+    "YieldInitial", "YieldFrom", "YieldFromSkipInitialSend",
+    "YieldFromHandleStopAsyncIteration", "YieldValue",
+};
+
+#define NUM_LIR_OPCODES (sizeof(s_opcode_names) / sizeof(s_opcode_names[0]))
+
+const char *
+lir_instruction_opcode_name(int opcode) {
+    if (opcode < 0 || (size_t)opcode >= NUM_LIR_OPCODES) {
+        return "<unknown>";
+    }
+    return s_opcode_names[opcode];
+}

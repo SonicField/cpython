@@ -534,12 +534,7 @@ jit_rt_get_alloc_link_gen_frame_addr(void) {
 
 /* ---- LIR printer support (Phase 3D: printer.cpp → printer_c.c) ---- */
 
-extern "C" const char*
-lir_instruction_opcode_name(int opcode) {
-  auto& info = jit::lir::InstrProperty::getProperties(
-      static_cast<jit::lir::Instruction::Opcode>(opcode));
-  return info.name.data();
-}
+/* lir_instruction_opcode_name() — moved to lir_instruction.c (pure C table) */
 
 extern "C" const char*
 lir_operand_data_type_name(int dt) {

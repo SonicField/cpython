@@ -211,41 +211,38 @@ class Instruction {
   FOREACH_INSTR_TYPE(DECL_OPCODE_TEST)
 #undef DECL_OPCODE_TEST
 
-  Instruction(BasicBlock* basic_block, Opcode opcode, const hir::Instr* origin);
+  // Phase 3D: Inline constructors use C API lir_function_allocate_id()
+  // to break circular dep with block.h/function.h.
+  Instruction(BasicBlock* basic_block, Opcode opcode, const hir::Instr* origin)
+      : id_(lir_function_allocate_id(
+            reinterpret_cast<LirBasicBlock*>(basic_block)->func_)),
+        opcode_(opcode),
+        output_(this),
+        basic_block_(basic_block),
+        origin_(origin) {}
 
-  // Copies another instruction's opcode and simple fields from its output.  The
-  // inputs are not copied.
-  Instruction(BasicBlock* block, Instruction* instr, const hir::Instr* origin);
+  // Copies another instruction's opcode and simple fields from its output.
+  Instruction(BasicBlock* block, Instruction* instr, const hir::Instr* origin)
+      : id_(lir_function_allocate_id(
+            reinterpret_cast<LirBasicBlock*>(block)->func_)),
+        opcode_(instr->opcode_),
+        output_(this, &instr->output_),
+        basic_block_(block),
+        origin_(origin) {}
 
-  // Get the unique ID representing this instruction within its function.
-  int id() const;
-
-  // Change the instruction's ID.  This is only meant to be used by the LIR
-  // parser.  LIR strongly expects unique instruction IDs.
-  void setId(int id);
-
-  // Get the output of this function.
-  //
-  // All functions have an output object, even if they don't use it.
-  Operand* output();
-  const Operand* output() const;
-
-  // Get the HIR instruction that this LIR instruction was lowered from.
-  const hir::Instr* origin() const;
-
-  // Get the number of inputs passed into this instruction.
-  size_t getNumInputs() const;
-
-  // Change the number of inputs passed into this instruction.  Will add nullptr
-  // Operand objects if the number increases.
+  // Phase 3D: Simple accessors inlined.
+  int id() const { return id_; }
+  void setId(int id) { id_ = id; }
+  Operand* output() { return &output_; }
+  const Operand* output() const { return &output_; }
+  const hir::Instr* origin() const { return origin_; }
+  size_t getNumInputs() const { return num_inputs_; }
   void setNumInputs(size_t n);
-
-  // Get the number of outputs set by this instruction.
-  size_t getNumOutputs() const;
+  size_t getNumOutputs() const { return output_.type() == OperandBase::kNone ? 0 : 1; }
 
   // Get an input by index.
-  OperandBase* getInput(size_t i);
-  const OperandBase* getInput(size_t i) const;
+  OperandBase* getInput(size_t i) { return inputs_[i]; }
+  const OperandBase* getInput(size_t i) const { return inputs_[i]; }
 
   Operand* allocateImmediateInput(
       uint64_t n,
@@ -341,17 +338,17 @@ class Instruction {
     return this;
   }
 
-  void setbasicblock(BasicBlock* bb);
+  void setbasicblock(BasicBlock* bb) { basic_block_ = bb; }
+  BasicBlock* basicblock() { return basic_block_; }
+  const BasicBlock* basicblock() const { return basic_block_; }
 
-  BasicBlock* basicblock();
-  const BasicBlock* basicblock() const;
+  Opcode opcode() const { return opcode_; }
+  void setOpcode(Opcode opcode) { opcode_ = opcode; }
 
-  Opcode opcode() const;
-  void setOpcode(Opcode opcode);
-
-  // Get the name of this instruction's opcode.  This is a null-terminated
-  // literal value.
-  std::string_view opname() const;
+  // Phase 3D: opcode name from C table in lir_instruction.c.
+  std::string_view opname() const {
+    return lir_instruction_opcode_name(opcode_);
+  }
 
   template <typename Func>
   void foreachInputOperand(const Func& f) const {
@@ -404,23 +401,30 @@ class Instruction {
   bool getInputPhyRegUse(size_t i) const;
   bool inputsLiveAcross() const;
 
-  bool isCompare() const;
-  bool isBranchCC() const;
-  bool isAnyBranch() const;
-  bool isTerminator() const;
-  bool isAnyYield() const;
+  // Phase 3D: Delegate to C implementations in lir_instruction.c.
+  bool isCompare() const { return lir_instruction_is_compare(opcode_); }
+  bool isBranchCC() const { return lir_instruction_is_branch_cc(opcode_); }
+  bool isAnyBranch() const { return lir_instruction_is_any_branch(opcode_); }
+  bool isTerminator() const { return lir_instruction_is_terminator(opcode_); }
+  bool isAnyYield() const { return lir_instruction_is_any_yield(opcode_); }
 
   // negate the branch condition:
   // e.g. A >= B -> !(A < B)
-  static Opcode negateBranchCC(Opcode opcode);
+  static Opcode negateBranchCC(Opcode opcode) {
+    return static_cast<Opcode>(lir_instruction_negate_branch_cc(opcode));
+  }
 
   // flipping the direction of comparison:
   // e.g. A >= B -> B <= A
-  static Opcode flipBranchCCDirection(Opcode opcode);
-
-  static Opcode flipComparisonDirection(Opcode opcode);
-
-  static Opcode compareToBranchCC(Opcode opcode);
+  static Opcode flipBranchCCDirection(Opcode opcode) {
+    return static_cast<Opcode>(lir_instruction_flip_branch_cc_direction(opcode));
+  }
+  static Opcode flipComparisonDirection(Opcode opcode) {
+    return static_cast<Opcode>(lir_instruction_flip_comparison_direction(opcode));
+  }
+  static Opcode compareToBranchCC(Opcode opcode) {
+    return static_cast<Opcode>(lir_instruction_compare_to_branch_cc(opcode));
+  }
 
  // Phase B3b: Instruction now owns operands via raw pointers.
   ~Instruction();

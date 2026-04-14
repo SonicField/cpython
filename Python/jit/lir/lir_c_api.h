@@ -104,6 +104,9 @@ void jit_lir_block_remove_dead_instrs(
 /* These operate directly on LirOperand/LirMemoryIndirect structs.
  * New C code should use these directly rather than the opaque
  * jit_lir_* wrappers above. */
+/* ---- Function ID allocation ---- */
+int lir_function_allocate_id(LirFunction *func);
+
 LirOperand *lir_operand_new(LirInstruction *parent);
 LirOperand *lir_operand_new_linked(LirInstruction *parent,
                                    LirInstruction *def_instr);
