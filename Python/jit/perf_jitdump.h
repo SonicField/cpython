@@ -2,6 +2,8 @@
 
 #pragma once
 
+#include "cinderx/Jit/jit_config_c.h"
+
 #include <cstddef>
 #include <string>
 #include <string_view>
@@ -25,7 +27,9 @@ extern int jit_perfmap;
 //                   directory.
 extern std::string perf_jitdump_dir;
 
-bool isPreforkCompilationEnabled();
+inline bool isPreforkCompilationEnabled() {
+  return jit_get_config()->compile_perf_trampoline_prefork;
+}
 
 void registerFunction(
     const std::vector<std::pair<void*, std::size_t>>& code_sections,

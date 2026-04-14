@@ -480,10 +480,6 @@ void copyJitdumpFile() {
 
 } // namespace
 
-bool isPreforkCompilationEnabled() {
-  return jit_get_config()->compile_perf_trampoline_prefork;
-}
-
 void registerFunction(
     const std::vector<std::pair<void*, std::size_t>>& code_sections,
     std::string_view name,
