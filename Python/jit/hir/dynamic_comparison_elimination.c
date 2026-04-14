@@ -70,6 +70,7 @@ void hir_dynamic_comparison_elimination_run(HirFunction func) {
         int found_truthy = 0;
         while (it != NULL) {
             HirInstr next = hir_block_next(block, it);
+            assert(hir_c_is_replayable(it) == hir_instr_is_replayable(it));
             if (it == truthy_target) {
                 found_target = 1;
             } else if (found_target && it != truthy && it != instr) {
@@ -79,7 +80,7 @@ void hir_dynamic_comparison_elimination_run(HirFunction func) {
                             snapshots[num_snapshots++] = it;
                         }
                     }
-                } else if (!hir_instr_is_replayable(it)) {
+                } else if (!hir_c_is_replayable(it)) {
                     can_optimize = 0;
                     break;
                 } else if (hir_instr_uses_reg(it, truthy_input_reg)) {

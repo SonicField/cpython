@@ -19,6 +19,7 @@ typedef struct {
     int has_output;       /* 0 or 1 */
     int is_deopt_base;    /* 0 or 1 */
     int is_terminator;    /* 0 or 1 */
+    int is_replayable;    /* 0 or 1 — from Instr::isReplayable() */
 } HirInstrInfo;
 
 /* Accessor: get metadata for an opcode */
@@ -43,6 +44,10 @@ static inline int hir_instr_info_has_output(int opcode) {
 
 static inline const char *hir_instr_info_name(int opcode) {
     return hir_instr_get_info(opcode)->name;
+}
+
+static inline int hir_instr_info_is_replayable(int opcode) {
+    return hir_instr_get_info(opcode)->is_replayable;
 }
 
 #ifdef __cplusplus

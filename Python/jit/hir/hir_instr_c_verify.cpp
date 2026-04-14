@@ -148,7 +148,27 @@ static void verify_hir_instr_read_through_cast() {
            "C/C++ Type bits mismatch in LoadConst");
 }
 
+/* Spot-check is_replayable info table against known values.
+ * Full validation happens via assertion wrappers in C passes at runtime. */
+static void verify_is_replayable_table() {
+    /* Replayable opcodes */
+    assert(hir_instr_info_is_replayable(static_cast<int>(Opcode::kAssign)) == 1);
+    assert(hir_instr_info_is_replayable(static_cast<int>(Opcode::kLoadConst)) == 1);
+    assert(hir_instr_info_is_replayable(static_cast<int>(Opcode::kGuardType)) == 1);
+    assert(hir_instr_info_is_replayable(static_cast<int>(Opcode::kRefineType)) == 1);
+    assert(hir_instr_info_is_replayable(static_cast<int>(Opcode::kLoadArg)) == 1);
+    assert(hir_instr_info_is_replayable(static_cast<int>(Opcode::kRaise)) == 1);
+    /* Non-replayable opcodes */
+    assert(hir_instr_info_is_replayable(static_cast<int>(Opcode::kBinaryOp)) == 0);
+    assert(hir_instr_info_is_replayable(static_cast<int>(Opcode::kCallMethod)) == 0);
+    assert(hir_instr_info_is_replayable(static_cast<int>(Opcode::kBranch)) == 0);
+    assert(hir_instr_info_is_replayable(static_cast<int>(Opcode::kSnapshot)) == 0);
+    assert(hir_instr_info_is_replayable(static_cast<int>(Opcode::kReturn)) == 0);
+    assert(hir_instr_info_is_replayable(static_cast<int>(Opcode::kVectorCall)) == 0);
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
+    verify_is_replayable_table();
 }

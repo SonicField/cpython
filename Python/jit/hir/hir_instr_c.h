@@ -562,6 +562,9 @@ static inline int hir_c_is_terminator(const void *instr) {
 static inline int hir_c_is_deopt_base(const void *instr) {
     return hir_instr_info_is_deopt_base(hir_c_opcode(instr));
 }
+static inline int hir_c_is_replayable(const void *instr) {
+    return hir_instr_info_is_replayable(hir_c_opcode(instr));
+}
 
 #ifdef __cplusplus
 } /* extern "C" */
