@@ -49,9 +49,11 @@ static int absorb_dst_block(HirBasicBlock block) {
      * Retarget them to refer to block. */
     HirInstr new_term = hir_block_terminator(block);
     assert(new_term != NULL);
-    size_t num_edges = hir_instr_num_edges(new_term);
+    size_t num_edges = hir_c_num_edges(new_term);
+    assert(num_edges == hir_instr_num_edges(new_term));
     for (size_t i = 0; i < num_edges; i++) {
-        HirBasicBlock succ = hir_instr_successor(new_term, i);
+        HirBasicBlock succ = hir_c_successor(new_term, i);
+        assert(succ == hir_instr_successor(new_term, i));
         hir_block_fixup_phis(succ, target, block);
     }
 

@@ -395,10 +395,39 @@ static inline HirType hir_c_return_type(const void *instr) {
     return ((const HirReturn *)instr)->type;
 }
 
+/* Bytecode offset setter */
+static inline void hir_c_set_bytecode_offset(void *instr, int32_t off) {
+    ((HirInstrLayout *)instr)->bytecode_offset = off;
+}
+
 /* Bytecode offset copy (C-level, no bridge needed) */
 static inline void hir_c_copy_bytecode_offset(void *dst, const void *src) {
     ((HirInstrLayout *)dst)->bytecode_offset =
         ((const HirInstrLayout *)src)->bytecode_offset;
+}
+
+/* ==== Edge/successor access ====
+ * numEdges: Branch=1, CondBranch*=2, else=0.
+ * successor(i): read edge[i].to from per-opcode struct layout. */
+
+static inline size_t hir_c_num_edges(const void *instr) {
+    int op = hir_c_opcode(instr);
+    if (op == HIR_OP_Branch) return 1;
+    if (op == HIR_OP_CondBranch ||
+        op == HIR_OP_CondBranchIterNotDone ||
+        op == HIR_OP_CondBranchCheckType) return 2;
+    return 0;
+}
+
+static inline void *hir_c_successor(const void *instr, size_t i) {
+    int op = hir_c_opcode(instr);
+    if (op == HIR_OP_Branch) {
+        return ((const HirBranch *)instr)->edge.to;
+    }
+    /* CondBranch variants: i=0 → true_edge, i=1 → false_edge */
+    const HirCondBranchInstr *cb = (const HirCondBranchInstr *)instr;
+    if (i == 0) return cb->true_edge.to;
+    return cb->false_edge.to;
 }
 
 /* ==== Register layout ====
