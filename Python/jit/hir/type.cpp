@@ -419,8 +419,9 @@ Type Type::fromType(PyTypeObject* type) {
   return fromHirType(hir_type_from_pytype(type, 0));
 }
 
+// Phase 3D: delegate to C implementation (assertion-verified zero mismatches).
 Type Type::fromTypeExact(PyTypeObject* type) {
-  return fromTypeImpl(type, true);
+  return fromHirType(hir_type_from_pytype(type, 1));
 }
 
 Type Type::fromObject(PyObject* obj) {

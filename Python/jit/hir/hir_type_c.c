@@ -276,6 +276,28 @@ static const struct {
 
 #define PYTYPE_MAP_SIZE (sizeof(s_pytype_to_type) / sizeof(s_pytype_to_type[0]))
 
+/* Exact lookup table — ground truth from C++ pyTypeToTypeForExact & TBuiltinExact. */
+static const struct { PyTypeObject *type; uint64_t bf; } s_exact[] = {
+    { &PyBaseObject_Type,   0x300000000800ULL },
+    { &PyBool_Type,         0x300000000002ULL },
+    { &PyBytes_Type,        0x300000002000ULL },
+    { &PyCell_Type,         0x300000000004ULL },
+    { &PyCode_Type,         0x300000000008ULL },
+    { &PyDict_Type,         0x300000004000ULL },
+    { &PyFloat_Type,        0x300000008000ULL },
+    { &PyFrame_Type,        0x300000000010ULL },
+    { &PyFunction_Type,     0x300000000020ULL },
+    { &PyGen_Type,          0x300000000040ULL },
+    { &PyList_Type,         0x300000010000ULL },
+    { &PyLong_Type,         0x300000000400ULL },
+    { &PySet_Type,          0x300000020000ULL },
+    { &PySlice_Type,        0x300000000100ULL },
+    { &PyTuple_Type,        0x300000040000ULL },
+    { &PyType_Type,         0x300000080000ULL },
+    { &PyUnicode_Type,      0x300000100000ULL },
+};
+#define EXACT_MAP_SIZE (sizeof(s_exact) / sizeof(s_exact[0]))
+
 HirType hir_type_from_pytype(PyTypeObject *type, int is_exact) {
     /* Runtime-resolved types (not in the static table). */
     if (type == Py_TYPE(Py_None)) {
@@ -287,14 +309,28 @@ HirType hir_type_from_pytype(PyTypeObject *type, int is_exact) {
         return r;
     }
 
-    /* Linear scan — 18 entries, called infrequently. */
-#define HIR_TYPE_KBUILTIN_EXACT 0x000001fffffULL
+    /* Exact lookup using ground truth table. */
+    if (is_exact) {
+        /* Check NoneType */
+        if (type == Py_TYPE(Py_None)) {
+            HirType r; r.bits_and_flags = 0x300000000080ULL; r.int_val = 0; return r;
+        }
+        /* Check BaseException */
+        if (type == (PyTypeObject *)PyExc_BaseException) {
+            HirType r; r.bits_and_flags = 0x300000001000ULL; r.int_val = 0; return r;
+        }
+        for (size_t i = 0; i < EXACT_MAP_SIZE; i++) {
+            if (s_exact[i].type == type) {
+                HirType r; r.bits_and_flags = s_exact[i].bf; r.int_val = 0; return r;
+            }
+        }
+        /* Fall through to MRO for non-builtin types */
+    }
+
+    /* Non-exact lookup — use base registration table. */
     for (size_t i = 0; i < PYTYPE_MAP_SIZE; i++) {
         if (s_pytype_to_type[i].type == type) {
             uint64_t bits = s_pytype_to_type[i].bits;
-            if (is_exact) {
-                bits &= HIR_TYPE_KBUILTIN_EXACT;
-            }
             HirType r;
             r.bits_and_flags = bits | (HIR_TYPE_LIFETIME_TOP << HIR_TYPE_LIFETIME_SHIFT);
             r.int_val = 0;
@@ -323,10 +359,21 @@ HirType hir_type_from_pytype(PyTypeObject *type, int is_exact) {
     for (Py_ssize_t i = 0; i < mro_len; i++) {
         PyTypeObject *base = (PyTypeObject *)PyTuple_GET_ITEM(mro, i);
 
-        /* Check static table. */
+        /* Check static table. For exact mode MRO, use adjusted bits
+         * (PyBaseObject→TObjectExact|TObjectUser, PyLong→TLongExact|TLongUser)
+         * then apply & kUser. For non-exact, use base table & kUser. */
         for (size_t j = 0; j < PYTYPE_MAP_SIZE; j++) {
             if (s_pytype_to_type[j].type == base) {
                 uint64_t base_bits = s_pytype_to_type[j].bits;
+                /* For exact mode: adjust PyBaseObject and PyLong entries
+                 * (matches C++ pyTypeToTypeForExact adjustments). */
+                if (is_exact) {
+                    if (base == &PyBaseObject_Type) {
+                        base_bits = 0x00000400800ULL; /* TObjectExact|TObjectUser */
+                    } else if (base == &PyLong_Type) {
+                        base_bits = 0x00000200400ULL; /* TLongExact|TLongUser */
+                    }
+                }
                 uint64_t user_bits = base_bits & HIR_TYPE_KUSER;
                 HirType r;
                 r.bits_and_flags = user_bits
