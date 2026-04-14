@@ -299,7 +299,57 @@ HirType hir_type_from_pytype(PyTypeObject *type, int is_exact) {
         }
     }
 
-    /* Not found — return Bottom. */
+    /* Not found in direct lookup — walk MRO to find base type. */
+#define HIR_TYPE_KUSER 0x000ffe00000ULL  /* user-defined type bits mask */
+
+    /* Ensure type is ready (has MRO). */
+    jit_compile_lock();
+    if (type->tp_mro == NULL && !(type->tp_flags & Py_TPFLAGS_READY)) {
+        PyType_Ready(type);
+    }
+    jit_compile_unlock();
+
+    if (type->tp_mro == NULL) {
+        HirType r = HIR_TYPE_BOTTOM;
+        return r;
+    }
+
+    /* Walk MRO: find first base type in our registration table. */
+    PyObject *mro = type->tp_mro;
+    Py_ssize_t mro_len = PyTuple_GET_SIZE(mro);
+    for (Py_ssize_t i = 0; i < mro_len; i++) {
+        PyTypeObject *base = (PyTypeObject *)PyTuple_GET_ITEM(mro, i);
+
+        /* Check static table. */
+        for (size_t j = 0; j < PYTYPE_MAP_SIZE; j++) {
+            if (s_pytype_to_type[j].type == base) {
+                uint64_t base_bits = s_pytype_to_type[j].bits;
+                uint64_t user_bits = base_bits & HIR_TYPE_KUSER;
+                HirType r;
+                r.bits_and_flags = user_bits
+                    | (HIR_TYPE_LIFETIME_TOP << HIR_TYPE_LIFETIME_SHIFT)
+                    | (((uint64_t)(is_exact ? HIR_SPEC_TYPE_EXACT : HIR_SPEC_TYPE))
+                       << HIR_TYPE_SPEC_SHIFT);
+                r.pytype = type;
+                return r;
+            }
+        }
+        /* Check runtime-resolved types. */
+        if (base == Py_TYPE(Py_None) || base == (PyTypeObject *)PyExc_BaseException) {
+            uint64_t base_bits = (base == Py_TYPE(Py_None))
+                ? 0x00000000080ULL : 0x00000801000ULL;
+            uint64_t user_bits = base_bits & HIR_TYPE_KUSER;
+            HirType r;
+            r.bits_and_flags = user_bits
+                | (HIR_TYPE_LIFETIME_TOP << HIR_TYPE_LIFETIME_SHIFT)
+                | (((uint64_t)(is_exact ? HIR_SPEC_TYPE_EXACT : HIR_SPEC_TYPE))
+                   << HIR_TYPE_SPEC_SHIFT);
+            r.pytype = type;
+            return r;
+        }
+    }
+
+    /* Fallback — should not happen (object is always in MRO). */
     HirType r = HIR_TYPE_BOTTOM;
     return r;
 }
