@@ -1477,7 +1477,15 @@ HirInstr hir_c_create_yield_from_handle_stop_async_reg(HirRegister dst, HirRegis
   return YieldFromHandleStopAsyncIteration::create(as_reg(dst), as_reg(send), as_reg(awaitable), *static_cast<const FrameState*>(fs));
 }
 HirInstr hir_c_create_call_ex_reg(HirRegister dst, HirRegister func, HirRegister pargs, HirRegister kwargs, uint32_t flags, void *fs) {
-  return CallEx::create(as_reg(dst), as_reg(func), as_reg(pargs), as_reg(kwargs), static_cast<CallFlags>(flags), *static_cast<const FrameState*>(fs));
+  HirCallEx *c = (HirCallEx *)hir_c_alloc_instr(sizeof(HirCallEx), 3);
+  hir_c_init_deopt(c, HIR_OP_CallEx);
+  c->flags = flags;
+  hir_c_set_output(c, dst);
+  hir_c_set_operand(c, 0, func);
+  hir_c_set_operand(c, 1, pargs);
+  hir_c_set_operand(c, 2, kwargs);
+  as_instr(c)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return c;
 }
 HirInstr hir_c_create_import_name_reg(HirRegister dst, int32_t name_idx, HirRegister fromlist, HirRegister level, void *fs) {
   /* ImportName: DeoptBaseWithNameIdx, HasOutput, Operands<2> */
@@ -1522,8 +1530,14 @@ HirInstr hir_c_create_load_function_indirect_reg(void *indirect_ptr, void *descr
   return l;
 }
 HirInstr hir_c_create_store_array_item_reg(HirRegister arr, HirRegister idx, HirRegister value, HirRegister container, HirType elem_type) {
-  Type cpp_type = Type::fromHirType(elem_type);
-  return StoreArrayItem::create(as_reg(arr), as_reg(idx), as_reg(value), as_reg(container), cpp_type);
+  HirStoreArrayItem *s = (HirStoreArrayItem *)hir_c_alloc_instr(sizeof(HirStoreArrayItem), 4);
+  hir_c_init_instr(s, HIR_OP_StoreArrayItem);
+  s->type = elem_type;
+  hir_c_set_operand(s, 0, arr);
+  hir_c_set_operand(s, 1, idx);
+  hir_c_set_operand(s, 2, value);
+  hir_c_set_operand(s, 3, container);
+  return s;
 }
 
 HirInstr hir_c_create_cast_reg(HirRegister dst, HirRegister receiver, void *pytype, int optional, int exact, void *fs) {
@@ -1585,7 +1599,14 @@ HirInstr hir_c_create_load_attr_super_reg(HirRegister dst, HirRegister global_su
 }
 
 HirInstr hir_c_create_match_class_reg2(HirRegister dst, HirRegister subject, HirRegister type, HirRegister nargs, HirRegister names) {
-  return MatchClass::create(as_reg(dst), as_reg(subject), as_reg(type), as_reg(nargs), as_reg(names));
+  HirMatchClass *m = (HirMatchClass *)hir_c_alloc_instr(sizeof(HirMatchClass), 4);
+  hir_c_init_instr(m, HIR_OP_MatchClass);
+  hir_c_set_output(m, dst);
+  hir_c_set_operand(m, 0, subject);
+  hir_c_set_operand(m, 1, type);
+  hir_c_set_operand(m, 2, nargs);
+  hir_c_set_operand(m, 3, names);
+  return m;
 }
 
 HirInstr hir_c_create_load_attr_special_reg(HirRegister dst, HirRegister receiver, void *id, const char *fmt, void *fs) {
