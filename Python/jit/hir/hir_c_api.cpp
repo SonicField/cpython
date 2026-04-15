@@ -708,23 +708,28 @@ HirInstr hir_c_create_store_attr_cached(HirFunction func,
 HirInstr hir_c_create_check_field(HirFunction func, HirRegister src,
     void *name, void *frame_state) {
   if (!frame_state) return nullptr;
-  auto* f = static_cast<Function*>(func);
-  auto* dst = f->env.AllocateRegister();
-  return CheckField::create(
-      dst, as_reg(src),
-      BorrowedRef<>(static_cast<PyObject*>(name)),
-      *static_cast<const FrameState*>(frame_state));
+  HirRegister dst = hir_func_alloc_register(func);
+  HirCheckField *c = (HirCheckField *)hir_c_alloc_instr(sizeof(HirCheckField), 1);
+  hir_c_init_deopt(c, HIR_OP_CheckField);
+  c->name = name;
+  hir_c_set_output(c, dst);
+  hir_c_set_operand(c, 0, src);
+  as_instr(c)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return c;
 }
 
 HirInstr hir_c_create_load_attr(HirFunction func, HirRegister receiver,
     int name_idx, void *frame_state, int already_optimized) {
   if (!frame_state) return nullptr;
-  auto* f = static_cast<Function*>(func);
-  auto* dst = f->env.AllocateRegister();
-  return LoadAttr::create(
-      dst, as_reg(receiver), name_idx,
-      *static_cast<const FrameState*>(frame_state),
-      already_optimized != 0);
+  HirRegister dst = hir_func_alloc_register(func);
+  HirLoadAttr *la = (HirLoadAttr *)hir_c_alloc_instr(sizeof(HirLoadAttr), 1);
+  hir_c_init_deopt(la, HIR_OP_LoadAttr);
+  la->name_idx = name_idx;
+  la->already_optimized = (uint8_t)(already_optimized != 0);
+  hir_c_set_output(la, dst);
+  hir_c_set_operand(la, 0, receiver);
+  as_instr(la)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return la;
 }
 
 HirInstr hir_c_create_load_array_item(HirFunction func,
@@ -747,7 +752,10 @@ void hir_c_set_descr(HirInstr instr, const char *descr) {
 }
 
 HirInstr hir_c_create_guard(HirRegister src) {
-  return Guard::create(as_reg(src));
+  HirDeoptLayout *g = (HirDeoptLayout *)hir_c_alloc_instr(sizeof(HirDeoptLayout), 1);
+  hir_c_init_deopt(g, HIR_OP_Guard);
+  hir_c_set_operand(g, 0, src);
+  return g;
 }
 
 /* ---- Tier 5: Variable-arity + infrastructure factories ---- */
@@ -910,20 +918,26 @@ HirInstr hir_c_create_branch_cpp(void *target_block) {
 
 HirInstr hir_c_create_check_seq_bounds_reg(HirRegister dst, HirRegister seq,
                                             HirRegister idx, void *frame_state) {
+  HirDeoptLayout *c = (HirDeoptLayout *)hir_c_alloc_instr(sizeof(HirDeoptLayout), 2);
+  hir_c_init_deopt(c, HIR_OP_CheckSequenceBounds);
+  hir_c_set_output(c, dst);
+  hir_c_set_operand(c, 0, seq);
+  hir_c_set_operand(c, 1, idx);
   if (frame_state)
-    return CheckSequenceBounds::create(
-        as_reg(dst), as_reg(seq), as_reg(idx),
-        *static_cast<const FrameState*>(frame_state));
-  return CheckSequenceBounds::create(as_reg(dst), as_reg(seq), as_reg(idx));
+    as_instr(c)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return c;
 }
 
 HirInstr hir_c_create_check_field_reg(HirRegister dst, HirRegister src,
                                        void *name, void *frame_state) {
+  HirCheckField *c = (HirCheckField *)hir_c_alloc_instr(sizeof(HirCheckField), 1);
+  hir_c_init_deopt(c, HIR_OP_CheckField);
+  c->name = name;
+  hir_c_set_output(c, dst);
+  hir_c_set_operand(c, 0, src);
   if (frame_state)
-    return CheckField::create(
-        as_reg(dst), as_reg(src), static_cast<PyObject*>(name),
-        *static_cast<const FrameState*>(frame_state));
-  return CheckField::create(as_reg(dst), as_reg(src), static_cast<PyObject*>(name));
+    as_instr(c)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return c;
 }
 
 HirInstr hir_c_create_binary_op_reg(HirRegister dst, int32_t op_kind,
