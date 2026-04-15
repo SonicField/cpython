@@ -488,6 +488,26 @@ struct HIRBuilder::TranslationContext {
         hir_c_create_guard_is_reg(dst, target, src))));
   }
 
+  // SetDictItem via C++ bridge (DeoptBase, 3 operands + FrameState).
+  void emitSetDictItem(Register* dst, Register* dict, Register* key,
+                        Register* value, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_set_dict_item_reg(
+        dst, dict, key, value,
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
+  // LoadTupleItem via C factory (HasOutput, 1 operand + index).
+  void emitLoadTupleItem(Register* dst, Register* tuple, Py_ssize_t idx) {
+    emitC(static_cast<Instr*>(
+        hir_c_create_load_tuple_item_reg(dst, tuple, static_cast<int32_t>(idx))));
+  }
+
+  // IsTruthy via C++ bridge (DeoptBase + FrameState).
+  void emitIsTruthy(Register* dst, Register* src, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_is_truthy_reg(
+        dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
   // GetSecondOutput via C factory.
   void emitGetSecondOutput(Register* dst, Type type, Register* src) {
     emitC(static_cast<Instr*>(
@@ -3490,7 +3510,7 @@ void HIRBuilder::emitCompareOp(
 void HIRBuilder::emitToBool(TranslationContext& tc) {
   Register* operand = tc.frame.stack.pop();
   Register* truthy_result = temps_.AllocateStack();
-  tc.emit<IsTruthy>(truthy_result, operand, tc.frame);
+  tc.emitIsTruthy(truthy_result, operand, tc.frame);
 
   Register* coerced_result = temps_.AllocateStack();
   tc.emitPrimitiveBoxBool(coerced_result, truthy_result);
@@ -3557,7 +3577,7 @@ void HIRBuilder::emitJumpIf(
     // Registers that hold the result of `IsTruthy` are guaranteed to never be
     // the home of a value left on the stack at the end of a basic block, so we
     // don't need to worry about potentially storing a PyObject in them.
-    tc.emit<IsTruthy>(tval, var, tc.frame);
+    tc.emitIsTruthy(tval, var, tc.frame);
     tc.emitCondBranch(tval, true_block, false_block);
   } else {
     tc.emitCondBranch(var, true_block, false_block);
@@ -3984,7 +4004,7 @@ void HIRBuilder::emitCopyFreeVars(TranslationContext& tc, int nfreevars) {
   for (int i = 0; i < nfreevars; ++i) {
     Register* dst = tc.frame.localsplus[offset + i];
     JIT_CHECK(dst != nullptr, "No register for free var {}", i);
-    tc.emit<LoadTupleItem>(dst, func_closure, i);
+    tc.emitLoadTupleItem(dst, func_closure, i);
   }
   if constexpr (PY_VERSION_HEX >= 0x030C0000) {
     tc.emit<InitFrameCellVars>(func_, nfreevars);
@@ -4782,7 +4802,7 @@ void HIRBuilder::emitBuildCheckedMap(
     auto key = stack.at(i);
     auto value = stack.at(i + 1);
     auto result = temps_.AllocateStack();
-    tc.emit<SetDictItem>(result, dict, key, value, tc.frame);
+    tc.emitSetDictItem(result, dict, key, value, tc.frame);
   }
   stack.discard(dict_size * 2);
   stack.push(dict);
@@ -4801,7 +4821,7 @@ void HIRBuilder::emitBuildMap(
     auto key = stack.at(i);
     auto value = stack.at(i + 1);
     auto result = temps_.AllocateStack();
-    tc.emit<SetDictItem>(result, dict, key, value, tc.frame);
+    tc.emitSetDictItem(result, dict, key, value, tc.frame);
   }
   stack.discard(dict_size * 2);
   stack.push(dict);
@@ -4839,10 +4859,10 @@ void HIRBuilder::emitBuildConstKeyMap(
   // intentionally skip that here.
   for (auto i = 0; i < dict_size; ++i) {
     Register* key = temps_.AllocateStack();
-    tc.emit<LoadTupleItem>(key, keys, i);
+    tc.emitLoadTupleItem(key, keys, i);
     Register* value = stack.at(stack.size() - dict_size + i);
     Register* result = temps_.AllocateStack();
-    tc.emit<SetDictItem>(result, dict, key, value, tc.frame);
+    tc.emitSetDictItem(result, dict, key, value, tc.frame);
   }
   stack.discard(dict_size);
   stack.push(dict);
@@ -4890,7 +4910,7 @@ void HIRBuilder::emitPopJumpIf(
       tc.emitPrimitiveCompare(
           is_true, PrimitiveCompareOp::kEqual, var, const_true);
     } else {
-      tc.emit<IsTruthy>(is_true, var, tc.frame);
+      tc.emitIsTruthy(is_true, var, tc.frame);
     }
     tc.emitCondBranch(is_true, true_block, false_block);
   } else {
@@ -5182,7 +5202,7 @@ void HIRBuilder::emitUnpackEx(
   int total_args = arg_before + arg_after + 1;
   for (int i = total_args - 1; i >= 0; i--) {
     Register* item = temps_.AllocateStack();
-    tc.emit<LoadTupleItem>(item, tuple, i);
+    tc.emitLoadTupleItem(item, tuple, i);
     stack.push(item);
   }
 }
@@ -5767,7 +5787,7 @@ void HIRBuilder::emitMapAdd(
   auto map = stack.peek(oparg);
 
   auto result = temps_.AllocateStack();
-  tc.emit<SetDictItem>(result, map, key, value, tc.frame);
+  tc.emitSetDictItem(result, map, key, value, tc.frame);
 }
 
 void HIRBuilder::emitSetAdd(
@@ -6170,7 +6190,7 @@ void HIRBuilder::emitStoreGlobal(
       Type::fromObject(PyTuple_GET_ITEM(code_->co_names, bc_instr.oparg())));
   Register* value = tc.frame.stack.pop();
   Register* result = temps_.AllocateNonStack();
-  tc.emit<SetDictItem>(result, globals_dict, key, value, tc.frame);
+  tc.emitSetDictItem(result, globals_dict, key, value, tc.frame);
 }
 
 void HIRBuilder::insertRunPeriodicActivites(

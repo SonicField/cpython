@@ -346,6 +346,13 @@ HirInstr hir_c_create_guard_is_reg(HirRegister dst, void *target,
                                     HirRegister src);
 HirInstr hir_c_create_get_second_output_reg(HirRegister dst, HirType type,
                                              HirRegister src);
+HirInstr hir_c_create_set_dict_item_reg(HirRegister dst, HirRegister dict,
+                                         HirRegister key, HirRegister value,
+                                         void *frame_state);
+HirInstr hir_c_create_load_tuple_item_reg(HirRegister dst, HirRegister tuple,
+                                           int32_t idx);
+HirInstr hir_c_create_is_truthy_reg(HirRegister dst, HirRegister src,
+                                     void *frame_state);
 HirInstr hir_c_create_set_function_attr_reg(HirRegister value, HirRegister base,
                                              int32_t field);
 HirInstr hir_c_create_check_neg_reg(HirRegister dst, HirRegister src,

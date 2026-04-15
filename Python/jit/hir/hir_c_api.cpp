@@ -927,6 +927,25 @@ HirInstr hir_c_create_guard_is_reg(HirRegister dst, void *target,
       as_reg(dst), static_cast<PyObject*>(target), as_reg(src));
 }
 
+HirInstr hir_c_create_set_dict_item_reg(HirRegister dst, HirRegister dict,
+                                         HirRegister key, HirRegister value,
+                                         void *frame_state) {
+  return SetDictItem::create(as_reg(dst), as_reg(dict), as_reg(key),
+                              as_reg(value),
+                              *static_cast<const FrameState*>(frame_state));
+}
+
+HirInstr hir_c_create_load_tuple_item_reg(HirRegister dst, HirRegister tuple,
+                                           int32_t idx) {
+  return LoadTupleItem::create(as_reg(dst), as_reg(tuple), idx);
+}
+
+HirInstr hir_c_create_is_truthy_reg(HirRegister dst, HirRegister src,
+                                     void *frame_state) {
+  return IsTruthy::create(as_reg(dst), as_reg(src),
+                           *static_cast<const FrameState*>(frame_state));
+}
+
 HirInstr hir_c_create_get_second_output_reg(HirRegister dst, HirType type,
                                              HirRegister src) {
   Type cpp_type = Type::fromHirType(type);
