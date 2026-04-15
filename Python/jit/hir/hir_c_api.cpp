@@ -582,15 +582,15 @@ HirInstr hir_c_create_binary_op(HirFunction func, int32_t op_kind,
 
 HirInstr hir_c_create_guard_type(HirFunction func, HirType target,
                                  HirRegister src, void *frame_state) {
-  auto* f = static_cast<Function*>(func);
-  auto* dst = f->env.AllocateRegister();
-  Type cpp_target = Type::fromHirType(target);
-  if (frame_state) {
-    return GuardType::create(
-        dst, cpp_target, as_reg(src),
-        *static_cast<const FrameState*>(frame_state));
-  }
-  return GuardType::create(dst, cpp_target, as_reg(src));
+  HirRegister dst = hir_func_alloc_register(func);
+  HirGuardType *g = (HirGuardType *)hir_c_alloc_instr(sizeof(HirGuardType), 1);
+  hir_c_init_deopt(g, HIR_OP_GuardType);
+  g->target = target;
+  hir_c_set_output(g, dst);
+  hir_c_set_operand(g, 0, src);
+  if (frame_state)
+    as_instr(g)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return g;
 }
 
 HirInstr hir_c_create_check_exc(HirFunction func, HirRegister src,
@@ -610,13 +610,16 @@ HirInstr hir_c_create_check_exc(HirFunction func, HirRegister src,
 HirInstr hir_c_create_load_field(HirFunction func, HirRegister receiver,
                                   const char *name, intptr_t offset,
                                   HirType type, int borrowed) {
-  auto* f = static_cast<Function*>(func);
-  auto* dst = f->env.AllocateRegister();
-  Type cpp_type = Type::fromHirType(type);
-  return LoadField::create(
-      dst, as_reg(receiver), std::string(name),
-      static_cast<std::size_t>(offset), cpp_type,
-      borrowed != 0);
+  HirRegister dst = hir_func_alloc_register(func);
+  HirLoadField *l = (HirLoadField *)hir_c_alloc_instr(sizeof(HirLoadField), 1);
+  hir_c_init_instr(l, HIR_OP_LoadField);
+  new (&l->name_storage) std::string(name);
+  l->offset = (size_t)offset;
+  l->type = type;
+  l->borrowed = (uint8_t)(borrowed != 0);
+  hir_c_set_output(l, dst);
+  hir_c_set_operand(l, 0, receiver);
+  return l;
 }
 
 HirInstr hir_c_create_guard_is(HirFunction func, void *target,
@@ -735,12 +738,16 @@ HirInstr hir_c_create_load_attr(HirFunction func, HirRegister receiver,
 HirInstr hir_c_create_load_array_item(HirFunction func,
     HirRegister arr, HirRegister idx, HirRegister container,
     intptr_t offset, HirType type) {
-  auto* f = static_cast<Function*>(func);
-  auto* dst = f->env.AllocateRegister();
-  Type cpp_type = Type::fromHirType(type);
-  return LoadArrayItem::create(
-      dst, as_reg(arr), as_reg(idx), as_reg(container),
-      static_cast<ssize_t>(offset), cpp_type);
+  HirRegister dst = hir_func_alloc_register(func);
+  HirLoadArrayItem *l = (HirLoadArrayItem *)hir_c_alloc_instr(sizeof(HirLoadArrayItem), 3);
+  hir_c_init_instr(l, HIR_OP_LoadArrayItem);
+  l->offset = (intptr_t)offset;
+  l->type = type;
+  hir_c_set_output(l, dst);
+  hir_c_set_operand(l, 0, arr);
+  hir_c_set_operand(l, 1, idx);
+  hir_c_set_operand(l, 2, container);
+  return l;
 }
 
 void hir_c_set_guilty_reg(HirInstr instr, HirRegister reg) {
@@ -762,29 +769,35 @@ HirInstr hir_c_create_guard(HirRegister src) {
 
 HirInstr hir_c_create_vectorcall(HirFunction func, size_t n_operands,
                                   uint32_t flags, void *frame_state) {
-  auto* f = static_cast<Function*>(func);
-  auto* dst = f->env.AllocateRegister();
-  if (frame_state) {
-    return VectorCall::create(
-        n_operands, dst, static_cast<CallFlags>(flags),
-        *static_cast<const FrameState*>(frame_state));
-  }
-  return VectorCall::create(
-      n_operands, dst, static_cast<CallFlags>(flags));
+  HirRegister dst = hir_func_alloc_register(func);
+  HirVectorCall *v = (HirVectorCall *)hir_c_alloc_instr(sizeof(HirVectorCall), n_operands);
+  hir_c_init_deopt(v, HIR_OP_VectorCall);
+  v->flags = flags;
+  hir_c_set_output(v, dst);
+  if (frame_state)
+    as_instr(v)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return v;
 }
 
 HirInstr hir_c_create_call_static(HirFunction func, size_t n_operands,
                                    void *addr, HirType ret_type) {
-  auto* f = static_cast<Function*>(func);
-  auto* dst = f->env.AllocateRegister();
-  Type cpp_type = Type::fromHirType(ret_type);
-  return CallStatic::create(n_operands, dst, addr, cpp_type);
+  HirRegister dst = hir_func_alloc_register(func);
+  HirCallStatic *c = (HirCallStatic *)hir_c_alloc_instr(sizeof(HirCallStatic), n_operands);
+  hir_c_init_instr(c, HIR_OP_CallStatic);
+  c->addr = addr;
+  c->ret_type = ret_type;
+  hir_c_set_output(c, dst);
+  return c;
 }
 
 HirInstr hir_c_create_call_static_reg(size_t n_operands, HirRegister dst,
                                        void *addr, HirType ret_type) {
-  Type cpp_type = Type::fromHirType(ret_type);
-  return CallStatic::create(n_operands, as_reg(dst), addr, cpp_type);
+  HirCallStatic *c = (HirCallStatic *)hir_c_alloc_instr(sizeof(HirCallStatic), n_operands);
+  hir_c_init_instr(c, HIR_OP_CallStatic);
+  c->addr = addr;
+  c->ret_type = ret_type;
+  hir_c_set_output(c, dst);
+  return c;
 }
 
 HirInstr hir_c_create_deopt_patchpoint(void *patcher) {
@@ -901,24 +914,30 @@ HirInstr hir_c_create_float_binary_op(HirFunction func, int32_t op_kind,
                                        HirRegister left, HirRegister right,
                                        void *frame_state) {
   if (!frame_state) return nullptr;
-  auto* f = static_cast<Function*>(func);
-  auto* dst = f->env.AllocateRegister();
-  return FloatBinaryOp::create(
-      dst, static_cast<BinaryOpKind>(op_kind),
-      as_reg(left), as_reg(right),
-      *static_cast<const FrameState*>(frame_state));
+  HirRegister dst = hir_func_alloc_register(func);
+  HirFloatBinaryOp *b = (HirFloatBinaryOp *)hir_c_alloc_instr(sizeof(HirFloatBinaryOp), 2);
+  hir_c_init_deopt(b, HIR_OP_FloatBinaryOp);
+  b->op = op_kind;
+  hir_c_set_output(b, dst);
+  hir_c_set_operand(b, 0, left);
+  hir_c_set_operand(b, 1, right);
+  as_instr(b)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return b;
 }
 
 HirInstr hir_c_create_long_binary_op(HirFunction func, int32_t op_kind,
                                       HirRegister left, HirRegister right,
                                       void *frame_state) {
   if (!frame_state) return nullptr;
-  auto* f = static_cast<Function*>(func);
-  auto* dst = f->env.AllocateRegister();
-  return LongBinaryOp::create(
-      dst, static_cast<BinaryOpKind>(op_kind),
-      as_reg(left), as_reg(right),
-      *static_cast<const FrameState*>(frame_state));
+  HirRegister dst = hir_func_alloc_register(func);
+  HirLongBinaryOp *b = (HirLongBinaryOp *)hir_c_alloc_instr(sizeof(HirLongBinaryOp), 2);
+  hir_c_init_deopt(b, HIR_OP_LongBinaryOp);
+  b->op = op_kind;
+  hir_c_set_output(b, dst);
+  hir_c_set_operand(b, 0, left);
+  hir_c_set_operand(b, 1, right);
+  as_instr(b)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return b;
 }
 
 HirInstr hir_c_create_is_neg_and_err(HirFunction func, HirRegister src,
@@ -968,16 +987,24 @@ HirInstr hir_c_create_check_field_reg(HirRegister dst, HirRegister src,
 HirInstr hir_c_create_binary_op_reg(HirRegister dst, int32_t op_kind,
                                      HirRegister left, HirRegister right,
                                      void *frame_state) {
-  return BinaryOp::create(
-      as_reg(dst), static_cast<BinaryOpKind>(op_kind),
-      as_reg(left), as_reg(right),
-      *static_cast<const FrameState*>(frame_state));
+  HirBinaryOp *b = (HirBinaryOp *)hir_c_alloc_instr(sizeof(HirBinaryOp), 2);
+  hir_c_init_deopt(b, HIR_OP_BinaryOp);
+  b->op = op_kind;
+  hir_c_set_output(b, dst);
+  hir_c_set_operand(b, 0, left);
+  hir_c_set_operand(b, 1, right);
+  as_instr(b)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return b;
 }
 
 HirInstr hir_c_create_guard_is_reg(HirRegister dst, void *target,
                                     HirRegister src) {
-  return GuardIs::create(
-      as_reg(dst), static_cast<PyObject*>(target), as_reg(src));
+  HirGuardIs *g = (HirGuardIs *)hir_c_alloc_instr(sizeof(HirGuardIs), 1);
+  hir_c_init_deopt(g, HIR_OP_GuardIs);
+  g->target = target;
+  hir_c_set_output(g, dst);
+  hir_c_set_operand(g, 0, src);
+  return g;
 }
 
 HirInstr hir_c_create_set_current_awaiter_reg(HirRegister src) {
@@ -1674,11 +1701,13 @@ HirInstr hir_c_create_raise_static_reg(int32_t reraise, void *exc_type, const ch
 }
 
 HirInstr hir_c_create_call_cfunc_reg(size_t n_operands, HirRegister dst, int32_t func_enum, HirRegister *operands) {
-  std::vector<Register*> args;
-  for (size_t i = 0; i < n_operands; i++) {
-    args.push_back(as_reg(operands[i]));
-  }
-  return CallCFunc::create(n_operands, as_reg(dst), static_cast<CallCFunc::Func>(func_enum), args);
+  HirCallCFunc *c = (HirCallCFunc *)hir_c_alloc_instr(sizeof(HirCallCFunc), n_operands);
+  hir_c_init_instr(c, HIR_OP_CallCFunc);
+  c->func = func_enum;
+  hir_c_set_output(c, dst);
+  for (size_t i = 0; i < n_operands; i++)
+    hir_c_set_operand(c, i, operands[i]);
+  return c;
 }
 
 HirInstr hir_c_create_call_ind_reg2(size_t n_operands, HirRegister dst, const char *name, HirType ret_type) {
@@ -1738,11 +1767,13 @@ HirInstr hir_c_create_load_attr_special_reg(HirRegister dst, HirRegister receive
 }
 
 HirInstr hir_c_create_call_intrinsic_reg2(size_t n_operands, HirRegister dst, int32_t index, HirRegister *operands) {
-  std::vector<Register*> args;
-  for (size_t i = 0; i < n_operands; i++) {
-    args.push_back(as_reg(operands[i]));
-  }
-  return CallIntrinsic::create(n_operands, as_reg(dst), index, args);
+  HirCallIntrinsic *c = (HirCallIntrinsic *)hir_c_alloc_instr(sizeof(HirCallIntrinsic), n_operands);
+  hir_c_init_instr(c, HIR_OP_CallIntrinsic);
+  c->index = (size_t)index;
+  hir_c_set_output(c, dst);
+  for (size_t i = 0; i < n_operands; i++)
+    hir_c_set_operand(c, i, operands[i]);
+  return c;
 }
 
 HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
@@ -1754,8 +1785,12 @@ HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
 
 HirInstr hir_c_create_int_convert_reg(HirRegister dst, HirRegister src,
                                        HirType type) {
-  Type cpp_type = Type::fromHirType(type);
-  return IntConvert::create(as_reg(dst), as_reg(src), cpp_type);
+  HirIntConvert *i = (HirIntConvert *)hir_c_alloc_instr(sizeof(HirIntConvert), 1);
+  hir_c_init_instr(i, HIR_OP_IntConvert);
+  i->type = type;
+  hir_c_set_output(i, dst);
+  hir_c_set_operand(i, 0, src);
+  return i;
 }
 
 HirInstr hir_c_create_get_iter_reg(HirRegister dst, HirRegister src,
@@ -1845,8 +1880,12 @@ HirInstr hir_c_create_is_truthy_reg(HirRegister dst, HirRegister src,
 
 HirInstr hir_c_create_get_second_output_reg(HirRegister dst, HirType type,
                                              HirRegister src) {
-  Type cpp_type = Type::fromHirType(type);
-  return GetSecondOutput::create(as_reg(dst), cpp_type, as_reg(src));
+  HirGetSecondOutput *g = (HirGetSecondOutput *)hir_c_alloc_instr(sizeof(HirGetSecondOutput), 1);
+  hir_c_init_instr(g, HIR_OP_GetSecondOutput);
+  g->type = type;
+  hir_c_set_output(g, dst);
+  hir_c_set_operand(g, 0, src);
+  return g;
 }
 
 HirInstr hir_c_create_set_function_attr_reg(HirRegister value, HirRegister base,
@@ -1883,23 +1922,36 @@ HirInstr hir_c_create_get_length_reg(HirRegister dst, HirRegister src,
 
 HirInstr hir_c_create_primitive_box_reg(HirRegister dst, HirRegister src,
                                          HirType type, void *frame_state) {
-  Type cpp_type = Type::fromHirType(type);
-  return PrimitiveBox::create(as_reg(dst), as_reg(src), cpp_type,
-                               *static_cast<const FrameState*>(frame_state));
+  HirPrimitiveBox *p = (HirPrimitiveBox *)hir_c_alloc_instr(sizeof(HirPrimitiveBox), 1);
+  hir_c_init_deopt(p, HIR_OP_PrimitiveBox);
+  p->type = type;
+  hir_c_set_output(p, dst);
+  hir_c_set_operand(p, 0, src);
+  as_instr(p)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return p;
 }
 
 HirInstr hir_c_create_load_array_item_reg(HirRegister dst, HirRegister arr,
                                            HirRegister idx, HirRegister container,
                                            intptr_t offset, HirType type) {
-  Type cpp_type = Type::fromHirType(type);
-  return LoadArrayItem::create(as_reg(dst), as_reg(arr), as_reg(idx),
-                                as_reg(container), offset, cpp_type);
+  HirLoadArrayItem *l = (HirLoadArrayItem *)hir_c_alloc_instr(sizeof(HirLoadArrayItem), 3);
+  hir_c_init_instr(l, HIR_OP_LoadArrayItem);
+  l->offset = (intptr_t)offset;
+  l->type = type;
+  hir_c_set_output(l, dst);
+  hir_c_set_operand(l, 0, arr);
+  hir_c_set_operand(l, 1, idx);
+  hir_c_set_operand(l, 2, container);
+  return l;
 }
 
 HirInstr hir_c_create_vectorcall_reg(size_t n_operands, HirRegister dst,
                                       uint32_t flags) {
-  return VectorCall::create(
-      n_operands, as_reg(dst), static_cast<CallFlags>(flags));
+  HirVectorCall *v = (HirVectorCall *)hir_c_alloc_instr(sizeof(HirVectorCall), n_operands);
+  hir_c_init_deopt(v, HIR_OP_VectorCall);
+  v->flags = flags;
+  hir_c_set_output(v, dst);
+  return v;
 }
 
 HirInstr hir_c_create_cond_branch_check_type_cpp(
@@ -1924,21 +1976,35 @@ HirInstr hir_c_create_cond_branch_cpp(void *cond_reg,
 HirInstr hir_c_create_load_field_reg(HirRegister dst, HirRegister receiver,
                                       const char *name, intptr_t offset,
                                       HirType type, int borrowed) {
-  Type cpp_type = Type::fromHirType(type);
-  return LoadField::create(
-      as_reg(dst), as_reg(receiver), name, offset, cpp_type, borrowed != 0);
+  HirLoadField *l = (HirLoadField *)hir_c_alloc_instr(sizeof(HirLoadField), 1);
+  hir_c_init_instr(l, HIR_OP_LoadField);
+  new (&l->name_storage) std::string(name);
+  l->offset = (size_t)offset;
+  l->type = type;
+  l->borrowed = (uint8_t)(borrowed != 0);
+  hir_c_set_output(l, dst);
+  hir_c_set_operand(l, 0, receiver);
+  return l;
 }
 
 HirInstr hir_c_create_guard_type_reg(HirRegister dst, HirType target,
                                       HirRegister src) {
-  Type cpp_target = Type::fromHirType(target);
-  return GuardType::create(as_reg(dst), cpp_target, as_reg(src));
+  HirGuardType *g = (HirGuardType *)hir_c_alloc_instr(sizeof(HirGuardType), 1);
+  hir_c_init_deopt(g, HIR_OP_GuardType);
+  g->target = target;
+  hir_c_set_output(g, dst);
+  hir_c_set_operand(g, 0, src);
+  return g;
 }
 
 HirInstr hir_c_create_refine_type_reg(HirRegister dst, HirType type,
                                        HirRegister src) {
-  Type cpp_type = Type::fromHirType(type);
-  return RefineType::create(as_reg(dst), cpp_type, as_reg(src));
+  HirRefineType *r = (HirRefineType *)hir_c_alloc_instr(sizeof(HirRefineType), 1);
+  hir_c_init_instr(r, HIR_OP_RefineType);
+  r->type = type;
+  hir_c_set_output(r, dst);
+  hir_c_set_operand(r, 0, src);
+  return r;
 }
 
 HirInstr hir_c_create_check_exc_reg(HirRegister dst, HirRegister src) {
