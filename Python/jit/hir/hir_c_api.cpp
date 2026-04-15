@@ -1130,6 +1130,33 @@ HirInstr hir_c_create_format_value_reg(HirRegister dst, HirRegister fmt, HirRegi
   return FormatValue::create(as_reg(dst), as_reg(fmt), as_reg(val), conv, *static_cast<const FrameState*>(fs));
 }
 
+HirInstr hir_c_create_eager_import_name_reg(HirRegister dst, int32_t name_idx, HirRegister fromlist, HirRegister level, void *fs) {
+  return EagerImportName::create(as_reg(dst), name_idx, as_reg(fromlist), as_reg(level), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_make_checked_dict_reg(HirRegister dst, int32_t size, HirType type, void *fs) {
+  Type cpp_type = Type::fromHirType(type);
+  return MakeCheckedDict::create(as_reg(dst), size, cpp_type, *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_make_checked_list_reg(int32_t size, HirRegister dst, HirType type, void *fs) {
+  Type cpp_type = Type::fromHirType(type);
+  return MakeCheckedList::create(size, as_reg(dst), cpp_type, *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_make_function_reg(HirRegister dst, HirRegister code, HirRegister qualname, void *fs) {
+  return MakeFunction::create(as_reg(dst), as_reg(code), as_reg(qualname), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_build_template_reg(HirRegister strings, HirRegister interps, HirRegister dst, void *fs) {
+  return BuildTemplate::create(as_reg(strings), as_reg(interps), as_reg(dst), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_build_interpolation_reg(HirRegister dst, HirRegister val, HirRegister str, HirRegister fmt, int32_t conv, void *fs) {
+  return BuildInterpolation::create(as_reg(dst), as_reg(val), as_reg(str), as_reg(fmt), conv, *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_load_attr_reg2(HirRegister dst, HirRegister receiver, int32_t name_idx, void *fs) {
+  return LoadAttr::create(as_reg(dst), as_reg(receiver), name_idx, *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_init_frame_cell_vars_reg(HirRegister func, int32_t nfree) {
+  return InitFrameCellVars::create(as_reg(func), nfree);
+}
+
 HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
     HirRegister src, void *body_block, void *done_block) {
   return CondBranchIterNotDone::create(

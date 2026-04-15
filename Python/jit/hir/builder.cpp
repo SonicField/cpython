@@ -721,6 +721,32 @@ struct HIRBuilder::TranslationContext {
     emitC(static_cast<Instr*>(hir_c_create_primitive_unbox_reg(dst, src, to_hir(type))));
   }
 
+  // Batch 5 wrappers
+  void emitEagerImportName(Register* dst, int name_idx, Register* fromlist, Register* level, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_eager_import_name_reg(dst, name_idx, fromlist, level, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitMakeCheckedDict(Register* dst, int size, Type type, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_make_checked_dict_reg(dst, size, to_hir(type), const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  Instr* emitMakeCheckedList(int size, Register* dst, Type type, const FrameState& fs) {
+    return emitC(static_cast<Instr*>(hir_c_create_make_checked_list_reg(size, dst, to_hir(type), const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitMakeFunction(Register* dst, Register* code, Register* qualname, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_make_function_reg(dst, code, qualname, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitBuildTemplate(Register* strings, Register* interps, Register* dst, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_build_template_reg(strings, interps, dst, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitBuildInterpolation(Register* dst, Register* val, Register* str, Register* fmt, int conv, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_build_interpolation_reg(dst, val, str, fmt, conv, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitLoadAttr2(Register* dst, Register* receiver, int name_idx, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_load_attr_reg2(dst, receiver, name_idx, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitInitFrameCellVars(Register* func, int nfree) {
+    emitC(static_cast<Instr*>(hir_c_create_init_frame_cell_vars_reg(func, nfree)));
+  }
+
   // Batch: 1-op HasOutput DeoptBase (dst, src, frame)
   void emitGetAIter(Register* dst, Register* src, const FrameState& fs) {
     emitC(static_cast<Instr*>(hir_c_create_get_a_iter_reg(
@@ -4185,7 +4211,7 @@ void HIRBuilder::emitLoadAttr(
   }
 
   Register* result = temps_.AllocateStack();
-  tc.emit<LoadAttr>(result, receiver, name_idx, tc.frame);
+  tc.emitLoadAttr2(result, receiver, name_idx, tc.frame);
   tc.frame.stack.push(result);
 }
 
@@ -4293,7 +4319,7 @@ void HIRBuilder::emitCopyFreeVars(TranslationContext& tc, int nfreevars) {
     tc.emitLoadTupleItem(dst, func_closure, i);
   }
   if constexpr (PY_VERSION_HEX >= 0x030C0000) {
-    tc.emit<InitFrameCellVars>(func_, nfreevars);
+    tc.emitInitFrameCellVars(func_, nfreevars);
   }
 }
 
@@ -4989,7 +5015,7 @@ void HIRBuilder::emitMakeFunction(
   Register* codeobj = tc.frame.stack.pop();
 
   // make a function
-  tc.emit<MakeFunction>(func, codeobj, qualname, tc.frame);
+  tc.emitMakeFunction(func, codeobj, qualname, tc.frame);
 
   if (oparg & MAKE_FUNCTION_CLOSURE) {
     Register* closure = tc.frame.stack.pop();
@@ -5058,7 +5084,7 @@ void HIRBuilder::emitBuildCheckedList(
       "expected CheckedList type");
 
   Register* list = temps_.AllocateStack();
-  auto instr = tc.emit<MakeCheckedList>(list_size, list, type, tc.frame);
+  auto instr = tc.emitMakeCheckedList(list_size, list, type, tc.frame);
   // Fill list
   for (size_t i = list_size; i > 0; i--) {
     auto operand = tc.frame.stack.pop();
@@ -5080,7 +5106,7 @@ void HIRBuilder::emitBuildCheckedMap(
       "expected CheckedDict type");
 
   Register* dict = temps_.AllocateStack();
-  tc.emit<MakeCheckedDict>(dict, dict_size, type, tc.frame);
+  tc.emitMakeCheckedDict(dict, dict_size, type, tc.frame);
   // Fill dict
   auto& stack = tc.frame.stack;
   for (auto i = stack.size() - dict_size * 2, end = stack.size(); i < end;
@@ -5858,7 +5884,7 @@ void HIRBuilder::emitImportName(
   Register* level = stack.pop();
   Register* res = temps_.AllocateStack();
   if (bc_instr.opcode() == EAGER_IMPORT_NAME) {
-    tc.emit<EagerImportName>(res, bc_instr.oparg(), fromlist, level, tc.frame);
+    tc.emitEagerImportName(res, bc_instr.oparg(), fromlist, level, tc.frame);
   } else {
     tc.emit<ImportName>(
         res, importNameIdx(bc_instr.oparg()), fromlist, level, tc.frame);
@@ -6338,7 +6364,7 @@ void HIRBuilder::emitBuildInterpolation(
   Register* str = stack.pop();
   Register* value = stack.pop();
   Register* out = temps_.AllocateStack();
-  tc.emit<BuildInterpolation>(out, value, str, format, conversion, tc.frame);
+  tc.emitBuildInterpolation(out, value, str, format, conversion, tc.frame);
   stack.push(out);
 #endif
 }
@@ -6348,7 +6374,7 @@ void HIRBuilder::emitBuildTemplate(TranslationContext& tc) {
   Register* interpolations = stack.pop();
   Register* strings = stack.pop();
   Register* out = temps_.AllocateStack();
-  tc.emit<BuildTemplate>(strings, interpolations, out, tc.frame);
+  tc.emitBuildTemplate(strings, interpolations, out, tc.frame);
   stack.push(out);
 }
 

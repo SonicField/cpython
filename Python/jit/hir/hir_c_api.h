@@ -424,6 +424,15 @@ HirInstr hir_c_create_load_special_reg(HirRegister dst, HirRegister self, int32_
 HirInstr hir_c_create_match_keys_reg(HirRegister dst, HirRegister subj, HirRegister keys, void *fs);
 HirInstr hir_c_create_raise_awaitable_error_reg(HirRegister type, int32_t is_aenter, void *fs);
 HirInstr hir_c_create_format_value_reg(HirRegister dst, HirRegister fmt, HirRegister val, int32_t conv, void *fs);
+/* Batch 5 */
+HirInstr hir_c_create_eager_import_name_reg(HirRegister dst, int32_t name_idx, HirRegister fromlist, HirRegister level, void *fs);
+HirInstr hir_c_create_make_checked_dict_reg(HirRegister dst, int32_t size, HirType type, void *fs);
+HirInstr hir_c_create_make_checked_list_reg(int32_t size, HirRegister dst, HirType type, void *fs);
+HirInstr hir_c_create_make_function_reg(HirRegister dst, HirRegister code, HirRegister qualname, void *fs);
+HirInstr hir_c_create_build_template_reg(HirRegister strings, HirRegister interps, HirRegister dst, void *fs);
+HirInstr hir_c_create_build_interpolation_reg(HirRegister dst, HirRegister val, HirRegister str, HirRegister fmt, int32_t conv, void *fs);
+HirInstr hir_c_create_load_attr_reg2(HirRegister dst, HirRegister receiver, int32_t name_idx, void *fs);
+HirInstr hir_c_create_init_frame_cell_vars_reg(HirRegister func, int32_t nfree);
 
 HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
     HirRegister src, void *body_block, void *done_block);
