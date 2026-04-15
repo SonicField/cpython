@@ -197,6 +197,60 @@ struct Env {
         hir_c_create_use_type(val, to_hir(type))));
   }
 
+  // Batch of pure C factory helpers for non-DeoptBase, non-terminator instructions.
+  Register* emitPrimitiveCompare(PrimitiveCompareOp op, Register* left, Register* right) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_primitive_compare(
+        func.env.AllocateRegister(), static_cast<int32_t>(op), left, right)));
+  }
+  Register* emitIntBinaryOp(BinaryOpKind op, Register* left, Register* right) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_int_binary_op(
+        func.env.AllocateRegister(), static_cast<int32_t>(op), left, right)));
+  }
+  Register* emitDoubleBinaryOp(BinaryOpKind op, Register* left, Register* right) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_double_binary_op(
+        func.env.AllocateRegister(), static_cast<int32_t>(op), left, right)));
+  }
+  Register* emitPrimitiveUnaryOp(PrimitiveUnaryOpKind op, Register* src) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_primitive_unary_op(
+        func.env.AllocateRegister(), static_cast<int32_t>(op), src)));
+  }
+  Register* emitFloatCompare(CompareOp op, Register* left, Register* right) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_float_compare(
+        func.env.AllocateRegister(), static_cast<int32_t>(op), left, right)));
+  }
+  Register* emitLongCompare(CompareOp op, Register* left, Register* right) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_long_compare(
+        func.env.AllocateRegister(), static_cast<int32_t>(op), left, right)));
+  }
+  Register* emitUnicodeCompare(CompareOp op, Register* left, Register* right) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_unicode_compare(
+        func.env.AllocateRegister(), static_cast<int32_t>(op), left, right)));
+  }
+  Register* emitPrimitiveBoxBool(Register* src) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_primitive_box_bool(
+        func.env.AllocateRegister(), src)));
+  }
+  Register* emitCIntToCBool(Register* src) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_cint_to_cbool(
+        func.env.AllocateRegister(), src)));
+  }
+  Register* emitBitCast(Register* src, Type type) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_bit_cast(
+        func.env.AllocateRegister(), src, to_hir(type))));
+  }
+  Register* emitRefineType(Type type, Register* src) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_refine_type(
+        func.env.AllocateRegister(), to_hir(type), src)));
+  }
+  Register* emitPrimitiveUnbox(Register* src, Type type) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_primitive_unbox(
+        func.env.AllocateRegister(), src, to_hir(type))));
+  }
+  Register* emitIndexUnbox(Register* src, PyObject* exc = PyExc_IndexError) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_index_unbox(
+        func.env.AllocateRegister(), src, exc)));
+  }
+
   // Insert a pre-created instruction from a C factory into the current block.
   // Sets bytecode offset, inserts at cursor, computes output type.
   // Returns the output register (or nullptr if no output).
@@ -480,8 +534,8 @@ Register* simplifyCompare(Env& env, const Compare* instr) {
     if (auto prim_op = toPrimitiveCompareOp(op)) {
       env.emitUseType(left, TBool);
       env.emitUseType(right, TBool);
-      Register* result = env.emit<PrimitiveCompare>(*prim_op, left, right);
-      return env.emit<PrimitiveBoxBool>(result);
+      Register* result = env.emitPrimitiveCompare(*prim_op, left, right);
+      return env.emitPrimitiveBoxBool(result);
     }
   }
 
@@ -490,7 +544,7 @@ Register* simplifyCompare(Env& env, const Compare* instr) {
   if (left->isA(TFloatExact) && right->isA(TFloatExact) &&
       !(op == CompareOp::kIn || op == CompareOp::kNotIn ||
         op == CompareOp::kExcMatch)) {
-    return env.emit<FloatCompare>(instr->op(), left, right);
+    return env.emitFloatCompare(instr->op(), left, right);
   }
 
   // Emit LongCompare if both args are LongExact and the op is supported between
@@ -498,7 +552,7 @@ Register* simplifyCompare(Env& env, const Compare* instr) {
   if (left->isA(TLongExact) && right->isA(TLongExact) &&
       !(op == CompareOp::kIn || op == CompareOp::kNotIn ||
         op == CompareOp::kExcMatch)) {
-    return env.emit<LongCompare>(instr->op(), left, right);
+    return env.emitLongCompare(instr->op(), left, right);
   }
 
   // Emit UnicodeCompare if both args are UnicodeExact and the op is supported
@@ -506,7 +560,7 @@ Register* simplifyCompare(Env& env, const Compare* instr) {
   if (left->isA(TUnicodeExact) && right->isA(TUnicodeExact) &&
       !(op == CompareOp::kIn || op == CompareOp::kNotIn ||
         op == CompareOp::kExcMatch)) {
-    return env.emit<UnicodeCompare>(instr->op(), left, right);
+    return env.emitUnicodeCompare(instr->op(), left, right);
   }
 
   return nullptr;
@@ -584,18 +638,18 @@ Register* simplifyIsTruthy(Env& env, const IsTruthy* instr) {
     env.emitUseType(left, TBool);
     Register* right = env.emitLoadConst(Type::fromObject(Py_True));
     Register* result =
-        env.emit<PrimitiveCompare>(PrimitiveCompareOp::kEqual, left, right);
+        env.emitPrimitiveCompare(PrimitiveCompareOp::kEqual, left, right);
     return result;
   }
   if (Register* size = emitGetLengthInt64(env, instr->GetOperand(0))) {
-    return env.emit<CIntToCBool>(size);
+    return env.emitCIntToCBool(size);
   }
   if (ty <= TLongExact) {
     Register* left = instr->GetOperand(0);
     env.emitUseType(left, ty);
     Register* right = env.emitLoadConst(Type::fromObject(_PyLong_GetZero()));
     Register* result =
-        env.emit<PrimitiveCompare>(PrimitiveCompareOp::kNotEqual, left, right);
+        env.emitPrimitiveCompare(PrimitiveCompareOp::kNotEqual, left, right);
     return result;
   }
   return nullptr;
@@ -685,7 +739,7 @@ Register* simplifyLoadTypeMethodCached(Env& env, const LoadMethod* load_meth) {
   env.emitUseType(receiver, TType);
   Register* guard = env.emit<LoadTypeMethodCacheEntryType>(cache_id);
   Register* type_matches =
-      env.emit<PrimitiveCompare>(PrimitiveCompareOp::kEqual, guard, receiver);
+      env.emitPrimitiveCompare(PrimitiveCompareOp::kEqual, guard, receiver);
   return env.emitCond(
       [&](BasicBlock* fast_path, BasicBlock* slow_path) {
         env.emitCondBranch(type_matches, fast_path, slow_path);
@@ -762,7 +816,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
       // representation of the type, which should be analagous to Py_ssize_t.
       env.emitUseType(lhs, lhs->isA(TListExact) ? TListExact : TTupleExact);
       env.emitUseType(rhs, TLongExact);
-      Register* right_index = env.emit<IndexUnbox>(rhs);
+      Register* right_index = env.emitIndexUnbox(rhs);
       env.emit<IsNegativeAndErrOccurred>(right_index, *instr->frameState());
       Register* adjusted_idx =
           env.emit<CheckSequenceBounds>(lhs, right_index, *instr->frameState());
@@ -820,7 +874,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
       } else {
         env.emitUseType(lhs, TUnicodeExact);
         env.emitUseType(rhs, TLongExact);
-        Register* unboxed_idx = env.emit<IndexUnbox>(rhs);
+        Register* unboxed_idx = env.emitIndexUnbox(rhs);
         env.emit<IsNegativeAndErrOccurred>(unboxed_idx, *instr->frameState());
         Register* adjusted_idx = env.emit<CheckSequenceBounds>(
             lhs, unboxed_idx, *instr->frameState());
@@ -943,7 +997,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
 
   if ((lhs->isA(TUnicodeExact) && rhs->isA(TLongExact)) &&
       (op == BinaryOpKind::kMultiply)) {
-    Register* unboxed_rhs = env.emit<IndexUnbox>(rhs, PyExc_OverflowError);
+    Register* unboxed_rhs = env.emitIndexUnbox(rhs, PyExc_OverflowError);
     env.emit<IsNegativeAndErrOccurred>(unboxed_rhs, *instr->frameState());
     return env.emit<UnicodeRepeat>(lhs, unboxed_rhs, *instr->frameState());
   }
@@ -1099,9 +1153,9 @@ Register* simplifyFloatBinaryOp(Env& env, const FloatBinaryOp* instr) {
   // This avoids the C slot method call and heap allocation per operation.
   if (instr->op() != BinaryOpKind::kPower &&
       FloatBinaryOp::slotMethod(instr->op())) {
-    Register* left_unboxed = env.emit<PrimitiveUnbox>(instr->left(), TCDouble);
-    Register* right_unboxed = env.emit<PrimitiveUnbox>(instr->right(), TCDouble);
-    Register* result = env.emit<DoubleBinaryOp>(instr->op(), left_unboxed, right_unboxed);
+    Register* left_unboxed = env.emitPrimitiveUnbox(instr->left(), TCDouble);
+    Register* right_unboxed = env.emitPrimitiveUnbox(instr->right(), TCDouble);
+    Register* result = env.emitDoubleBinaryOp(instr->op(), left_unboxed, right_unboxed);
     return env.emit<PrimitiveBox>(result, TFloatExact, *instr->frameState());
   }
 
@@ -1148,10 +1202,10 @@ Register* simplifyUnaryOp(Env& env, const UnaryOp* instr) {
 
   if (instr->op() == UnaryOpKind::kNot && operand->isA(TBool)) {
     env.emitUseType(operand, TBool);
-    Register* unboxed = env.emit<PrimitiveUnbox>(operand, TCBool);
+    Register* unboxed = env.emitPrimitiveUnbox(operand, TCBool);
     Register* negated =
-        env.emit<PrimitiveUnaryOp>(PrimitiveUnaryOpKind::kNotInt, unboxed);
-    return env.emit<PrimitiveBoxBool>(negated);
+        env.emitPrimitiveUnaryOp(PrimitiveUnaryOpKind::kNotInt, unboxed);
+    return env.emitPrimitiveBoxBool(negated);
   }
 
   return nullptr;
@@ -1378,21 +1432,21 @@ Register* simplifyLoadAttrSplitDict(
 
 #if PY_VERSION_HEX >= 0x030C0000
   Register* one = env.emitLoadConst(Type::fromCUInt(1, TCUInt64));
-  Register* dict_ptr = env.emit<BitCast>(checked_dict, TCUInt64);
+  Register* dict_ptr = env.emitBitCast(checked_dict, TCUInt64);
   Register* is_values =
-      env.emit<IntBinaryOp>(BinaryOpKind::kAnd, dict_ptr, one);
+      env.emitIntBinaryOp(BinaryOpKind::kAnd, dict_ptr, one);
   auto guard = env.emitInstr<Guard>(is_values);
   guard->setGuiltyReg(receiver);
   guard->setDescr("dict values check");
-  Register* values = env.emit<IntBinaryOp>(BinaryOpKind::kAdd, dict_ptr, one);
-  Register* values_obj = env.emit<BitCast>(values, TOptObject);
+  Register* values = env.emitIntBinaryOp(BinaryOpKind::kAdd, dict_ptr, one);
+  Register* values_obj = env.emitBitCast(values, TOptObject);
   Register* attr = env.emit<LoadField>(
       values_obj, "attr", attr_idx * sizeof(PyObject*), TOptObject);
 #else
   Register* dict_keys = env.emit<LoadField>(
       checked_dict, "ma_keys", offsetof(PyDictObject, ma_keys), TCPtr);
   Register* expected_keys = env.emitLoadConst(Type::fromCPtr(keys));
-  Register* equal = env.emit<PrimitiveCompare>(
+  Register* equal = env.emitPrimitiveCompare(
       PrimitiveCompareOp::kEqual, dict_keys, expected_keys);
   auto guard = env.emitInstr<Guard>(equal);
   guard->setGuiltyReg(receiver);
@@ -1474,7 +1528,7 @@ Register* simplifyLoadAttrMemberDescr(Env& env, const DescrInfo& info) {
           env.emitCondBranch(field, bb1, bb2);
         },
         [&] { // Field is set
-          return env.emit<RefineType>(TObject, field);
+          return env.emitRefineType(TObject, field);
         },
         [&] { // Field is nullptr
           return env.emitLoadConst(TNoneType);
@@ -1595,7 +1649,7 @@ Register* simplifyLoadAttrTypeReceiver(Env& env, const LoadAttr* load_attr) {
   env.emitUseType(receiver, TType);
   Register* guard = env.emit<LoadTypeAttrCacheEntryType>(cache_id);
   Register* type_matches =
-      env.emit<PrimitiveCompare>(PrimitiveCompareOp::kEqual, guard, receiver);
+      env.emitPrimitiveCompare(PrimitiveCompareOp::kEqual, guard, receiver);
   return env.emitCond(
       [&](BasicBlock* fast_path, BasicBlock* slow_path) {
         env.emitCondBranch(type_matches, fast_path, slow_path);
@@ -2326,7 +2380,7 @@ Register* simplifyVectorCall(Env& env, const VectorCall* instr) {
     auto obj_type = env.emit<LoadField>(
         obj_op, "ob_type", offsetof(PyObject, ob_type), TType);
 
-    auto compare_type = env.emit<PrimitiveCompare>(
+    auto compare_type = env.emitPrimitiveCompare(
         PrimitiveCompareOp::kEqual, obj_type, type_op);
 
     // If this is a VectorCall to isinstance and it's being used as the
@@ -2386,7 +2440,7 @@ Register* simplifyVectorCall(Env& env, const VectorCall* instr) {
         [&] { // Slow path
           return env.emit<IsInstance>(obj_op, type_op, *instr->frameState());
         });
-    return env.emit<PrimitiveBoxBool>(cbool_res);
+    return env.emitPrimitiveBoxBool(cbool_res);
   }
   HirType target_hir = to_hir(target_type);
   if (hir_type_has_value_spec(&target_hir, to_hir(TFunc))) {

@@ -559,6 +559,197 @@ static inline void *hir_c_create_use_type(void *val_reg, HirType type) {
     return ut;
 }
 
+/* ==== Instruction factory: PrimitiveCompare ====
+ * Pure C factory — 2 operands + int32_t op. Has output. */
+
+static inline void *hir_c_create_primitive_compare(void *dst_reg, int32_t op,
+                                                    void *left, void *right) {
+    HirPrimitiveCompare *pc = (HirPrimitiveCompare *)hir_c_alloc_instr(
+        sizeof(HirPrimitiveCompare), 2);
+    if (!pc) return NULL;
+    pc->opcode = HIR_OP_PrimitiveCompare;
+    pc->op = op;
+    hir_c_set_output(pc, dst_reg);
+    hir_c_set_operand(pc, 0, left);
+    hir_c_set_operand(pc, 1, right);
+    return pc;
+}
+
+/* ==== Instruction factory: IntBinaryOp ====
+ * Pure C factory — 2 operands + int32_t op. Has output. */
+
+static inline void *hir_c_create_int_binary_op(void *dst_reg, int32_t op,
+                                                void *left, void *right) {
+    HirIntBinaryOp *ib = (HirIntBinaryOp *)hir_c_alloc_instr(
+        sizeof(HirIntBinaryOp), 2);
+    if (!ib) return NULL;
+    ib->opcode = HIR_OP_IntBinaryOp;
+    ib->op = op;
+    hir_c_set_output(ib, dst_reg);
+    hir_c_set_operand(ib, 0, left);
+    hir_c_set_operand(ib, 1, right);
+    return ib;
+}
+
+/* ==== Instruction factory: DoubleBinaryOp ====
+ * Pure C factory — 2 operands + int32_t op. Has output. */
+
+static inline void *hir_c_create_double_binary_op(void *dst_reg, int32_t op,
+                                                   void *left, void *right) {
+    HirDoubleBinaryOp *db = (HirDoubleBinaryOp *)hir_c_alloc_instr(
+        sizeof(HirDoubleBinaryOp), 2);
+    if (!db) return NULL;
+    db->opcode = HIR_OP_DoubleBinaryOp;
+    db->op = op;
+    hir_c_set_output(db, dst_reg);
+    hir_c_set_operand(db, 0, left);
+    hir_c_set_operand(db, 1, right);
+    return db;
+}
+
+/* ==== Instruction factory: PrimitiveUnaryOp ====
+ * Pure C factory — 1 operand + int32_t op. Has output. */
+
+static inline void *hir_c_create_primitive_unary_op(void *dst_reg, int32_t op,
+                                                     void *operand) {
+    HirPrimitiveUnaryOp *pu = (HirPrimitiveUnaryOp *)hir_c_alloc_instr(
+        sizeof(HirPrimitiveUnaryOp), 1);
+    if (!pu) return NULL;
+    pu->opcode = HIR_OP_PrimitiveUnaryOp;
+    pu->op = op;
+    hir_c_set_output(pu, dst_reg);
+    hir_c_set_operand(pu, 0, operand);
+    return pu;
+}
+
+/* ==== Instruction factory: FloatCompare ====
+ * Pure C factory — 2 operands + int32_t op. Has output. */
+
+static inline void *hir_c_create_float_compare(void *dst_reg, int32_t op,
+                                                void *left, void *right) {
+    HirFloatCompare *fc = (HirFloatCompare *)hir_c_alloc_instr(
+        sizeof(HirFloatCompare), 2);
+    if (!fc) return NULL;
+    fc->opcode = HIR_OP_FloatCompare;
+    fc->op = op;
+    hir_c_set_output(fc, dst_reg);
+    hir_c_set_operand(fc, 0, left);
+    hir_c_set_operand(fc, 1, right);
+    return fc;
+}
+
+/* ==== Instruction factory: LongCompare ====
+ * Pure C factory — 2 operands + int32_t op. Has output. */
+
+static inline void *hir_c_create_long_compare(void *dst_reg, int32_t op,
+                                               void *left, void *right) {
+    HirLongCompare *lc = (HirLongCompare *)hir_c_alloc_instr(
+        sizeof(HirLongCompare), 2);
+    if (!lc) return NULL;
+    lc->opcode = HIR_OP_LongCompare;
+    lc->op = op;
+    hir_c_set_output(lc, dst_reg);
+    hir_c_set_operand(lc, 0, left);
+    hir_c_set_operand(lc, 1, right);
+    return lc;
+}
+
+/* ==== Instruction factory: UnicodeCompare ====
+ * Pure C factory — 2 operands + int32_t op. Has output. */
+
+static inline void *hir_c_create_unicode_compare(void *dst_reg, int32_t op,
+                                                  void *left, void *right) {
+    HirUnicodeCompare *uc = (HirUnicodeCompare *)hir_c_alloc_instr(
+        sizeof(HirUnicodeCompare), 2);
+    if (!uc) return NULL;
+    uc->opcode = HIR_OP_UnicodeCompare;
+    uc->op = op;
+    hir_c_set_output(uc, dst_reg);
+    hir_c_set_operand(uc, 0, left);
+    hir_c_set_operand(uc, 1, right);
+    return uc;
+}
+
+/* ==== Instruction factory: PrimitiveBoxBool ====
+ * Pure C factory — 1 operand, no fields. Has output. */
+
+static inline void *hir_c_create_primitive_box_bool(void *dst_reg, void *src) {
+    HirInstrLayout *pb = (HirInstrLayout *)hir_c_alloc_instr(
+        sizeof(HirInstrLayout), 1);
+    if (!pb) return NULL;
+    pb->opcode = HIR_OP_PrimitiveBoxBool;
+    hir_c_set_output(pb, dst_reg);
+    hir_c_set_operand(pb, 0, src);
+    return pb;
+}
+
+/* ==== Instruction factory: CIntToCBool ====
+ * Pure C factory — 1 operand, no fields. Has output. */
+
+static inline void *hir_c_create_cint_to_cbool(void *dst_reg, void *src) {
+    HirInstrLayout *ct = (HirInstrLayout *)hir_c_alloc_instr(
+        sizeof(HirInstrLayout), 1);
+    if (!ct) return NULL;
+    ct->opcode = HIR_OP_CIntToCBool;
+    hir_c_set_output(ct, dst_reg);
+    hir_c_set_operand(ct, 0, src);
+    return ct;
+}
+
+/* ==== Instruction factory: BitCast ====
+ * Pure C factory — 1 operand + HirType field. Has output. */
+
+static inline void *hir_c_create_bit_cast(void *dst_reg, void *src, HirType type) {
+    HirBitCast *bc = (HirBitCast *)hir_c_alloc_instr(sizeof(HirBitCast), 1);
+    if (!bc) return NULL;
+    bc->opcode = HIR_OP_BitCast;
+    bc->type = type;
+    hir_c_set_output(bc, dst_reg);
+    hir_c_set_operand(bc, 0, src);
+    return bc;
+}
+
+/* ==== Instruction factory: RefineType ====
+ * Pure C factory — 1 operand + HirType field. Has output. */
+
+static inline void *hir_c_create_refine_type(void *dst_reg, HirType type, void *src) {
+    HirRefineType *rt = (HirRefineType *)hir_c_alloc_instr(sizeof(HirRefineType), 1);
+    if (!rt) return NULL;
+    rt->opcode = HIR_OP_RefineType;
+    rt->type = type;
+    hir_c_set_output(rt, dst_reg);
+    hir_c_set_operand(rt, 0, src);
+    return rt;
+}
+
+/* ==== Instruction factory: PrimitiveUnbox ====
+ * Pure C factory — 1 operand + HirType field. Has output. */
+
+static inline void *hir_c_create_primitive_unbox(void *dst_reg, void *src, HirType type) {
+    HirPrimitiveUnbox *pu = (HirPrimitiveUnbox *)hir_c_alloc_instr(
+        sizeof(HirPrimitiveUnbox), 1);
+    if (!pu) return NULL;
+    pu->opcode = HIR_OP_PrimitiveUnbox;
+    pu->type = type;
+    hir_c_set_output(pu, dst_reg);
+    hir_c_set_operand(pu, 0, src);
+    return pu;
+}
+
+/* ==== Instruction factory: IndexUnbox ====
+ * Pure C factory — 1 operand + void* exc field. Has output. */
+
+static inline void *hir_c_create_index_unbox(void *dst_reg, void *src, void *exc) {
+    HirIndexUnbox *iu = (HirIndexUnbox *)hir_c_alloc_instr(
+        sizeof(HirIndexUnbox), 1);
+    if (!iu) return NULL;
+    iu->opcode = HIR_OP_IndexUnbox;
+    iu->exc = exc;
+    hir_c_set_output(iu, dst_reg);
+    hir_c_set_operand(iu, 0, src);
+    return iu;
+}
+
 /* ==== Opcode predicates ====
  * Direct opcode field read — no C++ bridge. These replace the
  * hir_instr_is_* functions in hir_c_api.h for C consumers that
