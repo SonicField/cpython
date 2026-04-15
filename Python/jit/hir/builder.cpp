@@ -801,6 +801,11 @@ struct HIRBuilder::TranslationContext {
     emitC(static_cast<Instr*>(hir_c_create_raise_static_reg(reraise, exc_type, fmt, const_cast<void*>(static_cast<const void*>(&fs)))));
   }
 
+  // LoadAttrSpecial via C factory
+  void emitLoadAttrSpecial(Register* dst, Register* receiver, PyObject* id, const char* fmt, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_load_attr_special_reg(dst, receiver, id, fmt, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
   // CallIntrinsic via C factory
   void emitCallIntrinsic(size_t n, Register* dst, int oparg, const std::vector<Register*>& args) {
     emitC(static_cast<Instr*>(hir_c_create_call_intrinsic_reg2(
@@ -5769,7 +5774,7 @@ Register* HIRBuilder::emitSetupWithCommon(
   Register* manager = stack.pop();
   Register* enter = temps_.AllocateStack();
   Register* exit = temps_.AllocateStack();
-  tc.emit<LoadAttrSpecial>(
+  tc.emitLoadAttrSpecial(
       enter,
       manager,
       enter_id,
@@ -5778,7 +5783,7 @@ Register* HIRBuilder::emitSetupWithCommon(
             "protocol"
           : "'%.200s' object does not support the context manager protocol",
       tc.frame);
-  tc.emit<LoadAttrSpecial>(
+  tc.emitLoadAttrSpecial(
       exit,
       manager,
       exit_id,
