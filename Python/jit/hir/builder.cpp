@@ -310,9 +310,7 @@ void HIRBuilder::allocateLocalsplus(Environment* env, FrameState& state) {
 }
 
 static inline HirType to_hir(Type t) {
-  HirType h;
-  memcpy(&h, &t, sizeof(h));
-  return h;
+  return Type::toHirType(t);
 }
 
 // Holds the current state of translation for a given basic block

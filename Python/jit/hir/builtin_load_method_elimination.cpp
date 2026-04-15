@@ -15,11 +15,9 @@ namespace jit::hir {
 
 namespace {
 
-/* Convert C++ Type to C HirType (layout-compatible, 16-byte copy). */
+/* Convert C++ Type to C HirType via field-by-field conversion. */
 inline HirType to_hir(Type t) {
-  HirType h;
-  memcpy(&h, &t, sizeof(h));
-  return h;
+  return Type::toHirType(t);
 }
 
 struct MethodInvoke {

@@ -36,11 +36,9 @@ std::ostream& operator<<(std::ostream& os, const RegisterSet& regs) {
   return os << "}";
 }
 
-/* Convert C++ Type to C HirType (layout-compatible, 16-byte copy). */
+/* Convert C++ Type to C HirType via field-by-field conversion. */
 static inline HirType to_hir(Type t) {
-  HirType h;
-  memcpy(&h, &t, sizeof(h));
-  return h;
+  return Type::toHirType(t);
 }
 
 static bool isSingleCInt(Type t) {

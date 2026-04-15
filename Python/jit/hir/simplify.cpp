@@ -34,9 +34,7 @@ namespace jit::hir {
 
 /* Convert C++ Type to C HirType (layout-compatible, 16-byte copy). */
 static inline HirType to_hir(Type t) {
-  HirType h;
-  memcpy(&h, &t, sizeof(h));
-  return h;
+  return Type::toHirType(t);
 }
 
 // This file contains the Simplify pass, which is a collection of

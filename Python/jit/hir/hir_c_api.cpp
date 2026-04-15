@@ -39,55 +39,48 @@ static_assert(offsetof(HirType, pytype) == 8,
 /* Runs during JIT init to catch C/C++ bit-packing divergence. */
 
 static void verify_hir_type_layout() {
-    /* Create a known C++ Type, reinterpret as HirType, verify accessors agree */
-    Type cpp_type = TLong;  /* known: kLong bits, kLifetimeTop, kSpecTop */
-    const HirType *c_type = reinterpret_cast<const HirType*>(&cpp_type);
-
-    assert(hir_type_bits(c_type) == Type::kLong &&
+    /* Verify Type::toHirType conversion produces correct C HirType values */
+    HirType c_type = Type::toHirType(TLong);
+    assert(hir_type_bits(&c_type) == Type::kLong &&
            "C/C++ HirType bits_ divergence");
-    assert(hir_type_lifetime(c_type) == Type::kLifetimeTop &&
+    assert(hir_type_lifetime(&c_type) == Type::kLifetimeTop &&
            "C/C++ HirType lifetime_ divergence");
-    assert(hir_type_spec_kind(c_type) == 0 /* kSpecTop */ &&
+    assert(hir_type_spec_kind(&c_type) == 0 /* kSpecTop */ &&
            "C/C++ HirType spec_kind_ divergence");
 
-    /* Verify a specialized type (kSpecObject) */
-    Type cpp_obj = Type::fromObject(Py_None);
-    const HirType *c_obj = reinterpret_cast<const HirType*>(&cpp_obj);
-    assert(hir_type_has_object_spec(c_obj) &&
+    /* Verify kSpecObject */
+    HirType c_obj = Type::toHirType(Type::fromObject(Py_None));
+    assert(hir_type_has_object_spec(&c_obj) &&
            "C/C++ HirType object spec divergence");
-    assert(c_obj->pyobject == Py_None &&
+    assert(c_obj.pyobject == Py_None &&
            "C/C++ HirType object spec value divergence");
 
     /* Verify kSpecDouble */
-    Type cpp_dbl = Type::fromCDouble(3.14);
-    const HirType *c_dbl = reinterpret_cast<const HirType*>(&cpp_dbl);
-    assert(hir_type_has_double_spec(c_dbl) &&
+    HirType c_dbl = Type::toHirType(Type::fromCDouble(3.14));
+    assert(hir_type_has_double_spec(&c_dbl) &&
            "C/C++ HirType kSpecDouble divergence");
-    assert(c_dbl->double_val == 3.14 &&
+    assert(c_dbl.double_val == 3.14 &&
            "C/C++ HirType double value divergence");
 
     /* Verify kSpecInt */
-    Type cpp_int = Type::fromCInt(42, TCInt64);
-    const HirType *c_int = reinterpret_cast<const HirType*>(&cpp_int);
-    assert(hir_type_has_int_spec(c_int) &&
+    HirType c_int = Type::toHirType(Type::fromCInt(42, TCInt64));
+    assert(hir_type_has_int_spec(&c_int) &&
            "C/C++ HirType kSpecInt divergence");
-    assert(c_int->int_val == 42 &&
+    assert(c_int.int_val == 42 &&
            "C/C++ HirType int value divergence");
 
-    /* Verify kSpecType (Long is the most common type-specialized kind) */
-    Type cpp_tyspec = Type::fromType(&PyLong_Type);
-    const HirType *c_tyspec = reinterpret_cast<const HirType*>(&cpp_tyspec);
-    assert(hir_type_has_type_spec(c_tyspec) &&
+    /* Verify kSpecType */
+    HirType c_tyspec = Type::toHirType(Type::fromType(&PyLong_Type));
+    assert(hir_type_has_type_spec(&c_tyspec) &&
            "C/C++ HirType kSpecType divergence");
-    assert(c_tyspec->pytype == &PyLong_Type &&
+    assert(c_tyspec.pytype == &PyLong_Type &&
            "C/C++ HirType kSpecType value divergence");
 
     /* Verify kSpecTypeExact */
-    Type cpp_tyexact = Type::fromTypeExact(&PyLong_Type);
-    const HirType *c_tyexact = reinterpret_cast<const HirType*>(&cpp_tyexact);
-    assert(hir_type_has_type_exact_spec(c_tyexact) &&
+    HirType c_tyexact = Type::toHirType(Type::fromTypeExact(&PyLong_Type));
+    assert(hir_type_has_type_exact_spec(&c_tyexact) &&
            "C/C++ HirType kSpecTypeExact divergence");
-    assert(c_tyexact->pytype == &PyLong_Type &&
+    assert(c_tyexact.pytype == &PyLong_Type &&
            "C/C++ HirType kSpecTypeExact value divergence");
 }
 
