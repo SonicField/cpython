@@ -285,6 +285,27 @@ void hir_c_set_output_type(HirInstr instr, HirType type);
  * Uses C++ Edge::set_to for proper in_edges management. */
 HirInstr hir_c_create_branch_cpp(void *target_block);
 
+/* ---- Builder-style factories (caller provides dst register) ---- */
+
+/* Create a GuardType instruction with caller-provided register.
+ * No FrameState — builder sets it separately if needed. */
+HirInstr hir_c_create_guard_type_reg(HirRegister dst, HirType target,
+                                      HirRegister src);
+
+/* Create a RefineType instruction with caller-provided register. */
+HirInstr hir_c_create_refine_type_reg(HirRegister dst, HirType type,
+                                       HirRegister src);
+
+/* Create a CheckExc instruction with caller-provided registers.
+ * No FrameState — builder sets it separately. */
+HirInstr hir_c_create_check_exc_reg(HirRegister dst, HirRegister src);
+
+/* Create a Deopt instruction (0 operands, no output, DeoptBase). */
+HirInstr hir_c_create_deopt(void);
+
+/* Create a Return instruction (1 operand, no output). */
+HirInstr hir_c_create_return(HirRegister src, HirType type);
+
 /* Create a CondBranch instruction (1 operand, 2 edges).
  * Uses C++ Edge::set_to for proper in_edges management. */
 HirInstr hir_c_create_cond_branch_cpp(void *cond_reg,

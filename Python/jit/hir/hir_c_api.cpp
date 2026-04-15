@@ -874,6 +874,33 @@ HirInstr hir_c_create_cond_branch_cpp(void *cond_reg,
   return CondBranch::create(as_reg(cond_reg), true_bb, false_bb);
 }
 
+/* ---- Builder-style factories (caller provides dst register) ---- */
+
+HirInstr hir_c_create_guard_type_reg(HirRegister dst, HirType target,
+                                      HirRegister src) {
+  const Type& cpp_target = *reinterpret_cast<const Type*>(&target);
+  return GuardType::create(as_reg(dst), cpp_target, as_reg(src));
+}
+
+HirInstr hir_c_create_refine_type_reg(HirRegister dst, HirType type,
+                                       HirRegister src) {
+  const Type& cpp_type = *reinterpret_cast<const Type*>(&type);
+  return RefineType::create(as_reg(dst), cpp_type, as_reg(src));
+}
+
+HirInstr hir_c_create_check_exc_reg(HirRegister dst, HirRegister src) {
+  return CheckExc::create(as_reg(dst), as_reg(src));
+}
+
+HirInstr hir_c_create_deopt(void) {
+  return Deopt::create();
+}
+
+HirInstr hir_c_create_return(HirRegister src, HirType type) {
+  const Type& cpp_type = *reinterpret_cast<const Type*>(&type);
+  return Return::create(as_reg(src), cpp_type);
+}
+
 /* ---- Frame state ---- */
 
 void *hir_get_frame_state(HirInstr instr) {
