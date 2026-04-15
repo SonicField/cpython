@@ -330,6 +330,33 @@ struct Env {
         const_cast<void*>(static_cast<const void*>(&fs)))));
   }
 
+  // Cache entry + scalar-field pure C factories.
+  Register* emitLoadTypeAttrCacheEntryType(int cache_id) {
+    return emitCInstr(static_cast<Instr*>(
+        hir_c_create_load_type_attr_cache_entry_type(
+            func.env.AllocateRegister(), cache_id)));
+  }
+  Register* emitLoadTypeAttrCacheEntryValue(int cache_id) {
+    return emitCInstr(static_cast<Instr*>(
+        hir_c_create_load_type_attr_cache_entry_value(
+            func.env.AllocateRegister(), cache_id)));
+  }
+  Register* emitLoadTypeMethodCacheEntryType(int cache_id) {
+    return emitCInstr(static_cast<Instr*>(
+        hir_c_create_load_type_method_cache_entry_type(
+            func.env.AllocateRegister(), cache_id)));
+  }
+  Register* emitLoadTypeMethodCacheEntryValue(int cache_id, Register* receiver) {
+    return emitCInstr(static_cast<Instr*>(
+        hir_c_create_load_type_method_cache_entry_value(
+            func.env.AllocateRegister(), cache_id, receiver)));
+  }
+  Register* emitLoadSplitDictItem(Register* src, Py_ssize_t item_idx) {
+    return emitCInstr(static_cast<Instr*>(
+        hir_c_create_load_split_dict_item(
+            func.env.AllocateRegister(), src, item_idx)));
+  }
+
   // Insert a pre-created instruction from a C factory into the current block.
   // Sets bytecode offset, inserts at cursor, computes output type.
   // Returns the output register (or nullptr if no output).
@@ -816,7 +843,7 @@ Register* simplifyLoadTypeMethodCached(Env& env, const LoadMethod* load_meth) {
   Register* receiver = load_meth->GetOperand(0);
   const int cache_id = env.func.env.allocateLoadTypeMethodCache();
   env.emitUseType(receiver, TType);
-  Register* guard = env.emit<LoadTypeMethodCacheEntryType>(cache_id);
+  Register* guard = env.emitLoadTypeMethodCacheEntryType(cache_id);
   Register* type_matches =
       env.emitPrimitiveCompare(PrimitiveCompareOp::kEqual, guard, receiver);
   return env.emitCond(
@@ -824,7 +851,7 @@ Register* simplifyLoadTypeMethodCached(Env& env, const LoadMethod* load_meth) {
         env.emitCondBranch(type_matches, fast_path, slow_path);
       },
       [&] { // Fast path
-        return env.emit<LoadTypeMethodCacheEntryValue>(cache_id, receiver);
+        return env.emitLoadTypeMethodCacheEntryValue(cache_id, receiver);
       },
       [&] { // Slow path
         int name_idx = load_meth->name_idx();
@@ -1530,7 +1557,7 @@ Register* simplifyLoadAttrSplitDict(
   auto guard = env.emitInstr<Guard>(equal);
   guard->setGuiltyReg(receiver);
   guard->setDescr("ht_cached_keys comparison");
-  Register* attr = env.emit<LoadSplitDictItem>(checked_dict, attr_idx);
+  Register* attr = env.emitLoadSplitDictItem(checked_dict, attr_idx);
 #endif
 
   Register* checked_attr =
@@ -1726,7 +1753,7 @@ Register* simplifyLoadAttrTypeReceiver(Env& env, const LoadAttr* load_attr) {
 
   const int cache_id = env.func.env.allocateLoadTypeAttrCache();
   env.emitUseType(receiver, TType);
-  Register* guard = env.emit<LoadTypeAttrCacheEntryType>(cache_id);
+  Register* guard = env.emitLoadTypeAttrCacheEntryType(cache_id);
   Register* type_matches =
       env.emitPrimitiveCompare(PrimitiveCompareOp::kEqual, guard, receiver);
   return env.emitCond(
@@ -1734,7 +1761,7 @@ Register* simplifyLoadAttrTypeReceiver(Env& env, const LoadAttr* load_attr) {
         env.emitCondBranch(type_matches, fast_path, slow_path);
       },
       [&] { // Fast path
-        return env.emit<LoadTypeAttrCacheEntryValue>(cache_id);
+        return env.emitLoadTypeAttrCacheEntryValue(cache_id);
       },
       [&] { // Slow path
         int name_idx = load_attr->name_idx();

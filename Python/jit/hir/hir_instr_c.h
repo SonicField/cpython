@@ -750,6 +750,65 @@ static inline void *hir_c_create_index_unbox(void *dst_reg, void *src, void *exc
     return iu;
 }
 
+/* ==== Cache entry factories (pure C, scalar cache_id field) ==== */
+
+static inline void *hir_c_create_load_type_attr_cache_entry_type(
+        void *dst_reg, int32_t cache_id) {
+    HirLoadTypeAttrCacheEntryType *lc = (HirLoadTypeAttrCacheEntryType *)
+        hir_c_alloc_instr(sizeof(HirLoadTypeAttrCacheEntryType), 0);
+    if (!lc) return NULL;
+    lc->opcode = HIR_OP_LoadTypeAttrCacheEntryType;
+    lc->cache_id = cache_id;
+    hir_c_set_output(lc, dst_reg);
+    return lc;
+}
+
+static inline void *hir_c_create_load_type_attr_cache_entry_value(
+        void *dst_reg, int32_t cache_id) {
+    HirLoadTypeAttrCacheEntryValue *lc = (HirLoadTypeAttrCacheEntryValue *)
+        hir_c_alloc_instr(sizeof(HirLoadTypeAttrCacheEntryValue), 0);
+    if (!lc) return NULL;
+    lc->opcode = HIR_OP_LoadTypeAttrCacheEntryValue;
+    lc->cache_id = cache_id;
+    hir_c_set_output(lc, dst_reg);
+    return lc;
+}
+
+static inline void *hir_c_create_load_type_method_cache_entry_type(
+        void *dst_reg, int32_t cache_id) {
+    HirLoadTypeMethodCacheEntryType *lc = (HirLoadTypeMethodCacheEntryType *)
+        hir_c_alloc_instr(sizeof(HirLoadTypeMethodCacheEntryType), 0);
+    if (!lc) return NULL;
+    lc->opcode = HIR_OP_LoadTypeMethodCacheEntryType;
+    lc->cache_id = cache_id;
+    hir_c_set_output(lc, dst_reg);
+    return lc;
+}
+
+static inline void *hir_c_create_load_type_method_cache_entry_value(
+        void *dst_reg, int32_t cache_id, void *receiver) {
+    HirLoadTypeMethodCacheEntryValue *lc = (HirLoadTypeMethodCacheEntryValue *)
+        hir_c_alloc_instr(sizeof(HirLoadTypeMethodCacheEntryValue), 1);
+    if (!lc) return NULL;
+    lc->opcode = HIR_OP_LoadTypeMethodCacheEntryValue;
+    lc->cache_id = cache_id;
+    hir_c_set_output(lc, dst_reg);
+    hir_c_set_operand(lc, 0, receiver);
+    return lc;
+}
+
+static inline void *hir_c_create_load_split_dict_item(
+        void *dst_reg, void *src, intptr_t item_idx) {
+    HirLoadSplitDictItem *ls = (HirLoadSplitDictItem *)
+        hir_c_alloc_instr(sizeof(HirLoadSplitDictItem), 1);
+    if (!ls) return NULL;
+    ls->opcode = HIR_OP_LoadSplitDictItem;
+    ls->item_idx = item_idx;
+    hir_c_set_output(ls, dst_reg);
+    hir_c_set_operand(ls, 0, src);
+    return ls;
+}
+
 /* ==== Opcode predicates ====
  * Direct opcode field read — no C++ bridge. These replace the
  * hir_instr_is_* functions in hir_c_api.h for C consumers that
