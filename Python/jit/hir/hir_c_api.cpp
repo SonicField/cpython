@@ -2035,11 +2035,24 @@ void *hir_get_frame_state(HirInstr instr) {
   return const_cast<FrameState*>(get_frame_state(*as_instr(instr)));
 }
 
-/* ==== FrameState destruction helper ====
- * FrameState has std::vector and jit::Stack members that need C++ destructors.
- * This thin wrapper lets the pure C hir_c_destroy_instr_impl() clean them up. */
+/* ==== C++ destruction helpers for hir_c_destroy_instr_impl() ====
+ * These handle C++ members that can't be cleaned up from pure C. */
+
 void hir_c_destroy_frame_state(void *frame_state) {
   delete static_cast<FrameState*>(frame_state);
+}
+
+void hir_c_destroy_edge(void *edge_ptr) {
+  /* Edge::~Edge() calls set_from(nullptr) and set_to(nullptr),
+   * which removes the edge from BasicBlock's in_edges_/out_edges_ sets. */
+  static_cast<Edge*>(edge_ptr)->~Edge();
+}
+
+void hir_c_destroy_profiled_types(void *types_ptr) {
+  /* ProfiledTypes = std::vector<std::vector<Type>>.
+   * The 24-byte storage in HirHintType is a placement-constructed vector. */
+  using ProfiledTypes = std::vector<std::vector<Type>>;
+  static_cast<ProfiledTypes*>(types_ptr)->~ProfiledTypes();
 }
 
 /* ==== H2-C: Instr lifecycle and list manipulation ==== */

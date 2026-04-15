@@ -664,11 +664,20 @@ static inline void *hir_c_instr_base(void *instr) {
     return (char *)instr - n * sizeof(void *) - sizeof(size_t);
 }
 
-/* ==== FrameState destruction (C++ helper) ====
- * FrameState still contains std::vector and jit::Stack — destruction
- * requires C++ destructors. This thin wrapper is implemented in
- * hir_c_api.cpp as: delete (FrameState*)ptr. */
+/* ==== C++ destruction helpers ====
+ * These thin wrappers are implemented in hir_c_api.cpp. They handle
+ * C++ members that can't be cleaned up from pure C. */
+
+/* FrameState: has std::vector and jit::Stack members. */
 void hir_c_destroy_frame_state(void *frame_state);
+
+/* Edge: ~Edge() calls set_from/set_to(nullptr) which modifies std::set
+ * on BasicBlock (in_edges_/out_edges_). Must be called for Branch (1 edge)
+ * and CondBranchBase subtypes (2 edges). */
+void hir_c_destroy_edge(void *edge_ptr);
+
+/* HintType: ProfiledTypes = std::vector<std::vector<Type>>. */
+void hir_c_destroy_profiled_types(void *types_ptr);
 
 /* ==== Instruction destruction (pure C dispatch) ====
  * Replaces the C++ Instr::Destroy() FOREACH_OPCODE dispatch.
@@ -705,6 +714,21 @@ static inline void hir_c_destroy_instr_impl(void *instr) {
     } else if (op == HIR_OP_StoreField) {
         HirStoreField *sf = (HirStoreField *)instr;
         free(sf->name);
+    } else if (op == HIR_OP_Branch) {
+        /* Branch has 1 Edge — ~Edge() unlinks from BasicBlock edge sets. */
+        HirBranch *br = (HirBranch *)instr;
+        hir_c_destroy_edge(&br->edge);
+    } else if (op == HIR_OP_CondBranch ||
+               op == HIR_OP_CondBranchIterNotDone ||
+               op == HIR_OP_CondBranchCheckType) {
+        /* CondBranchBase subtypes have 2 Edges. */
+        HirCondBranchInstr *cb = (HirCondBranchInstr *)instr;
+        hir_c_destroy_edge(&cb->true_edge);
+        hir_c_destroy_edge(&cb->false_edge);
+    } else if (op == HIR_OP_HintType) {
+        /* HintType has ProfiledTypes (std::vector<std::vector<Type>>). */
+        HirHintType *ht = (HirHintType *)instr;
+        hir_c_destroy_profiled_types(ht->types_storage);
     }
     /* All other types: no owned resources beyond the slab. */
 
