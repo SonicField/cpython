@@ -788,14 +788,20 @@ HirInstr hir_c_create_call_static_reg(size_t n_operands, HirRegister dst,
 }
 
 HirInstr hir_c_create_deopt_patchpoint(void *patcher) {
-  return DeoptPatchpoint::create(
-      static_cast<jit::JumpPatcher*>(patcher));
+  HirDeoptPatchpoint *d = (HirDeoptPatchpoint *)hir_c_alloc_instr(sizeof(HirDeoptPatchpoint), 0);
+  hir_c_init_deopt(d, HIR_OP_DeoptPatchpoint);
+  d->patcher = patcher;
+  return d;
 }
 
 HirInstr hir_c_create_snapshot(void *frame_state) {
   if (!frame_state) return nullptr;
-  return Snapshot::create(
-      *static_cast<const FrameState*>(frame_state));
+  HirSnapshot *s = (HirSnapshot *)hir_c_alloc_instr(sizeof(HirSnapshot), 0);
+  hir_c_init_instr(s, HIR_OP_Snapshot);
+  /* Snapshot stores FrameState as a unique_ptr — use C++ bridge */
+  auto fs_copy = std::make_unique<FrameState>(*static_cast<const FrameState*>(frame_state));
+  s->frame_state_ptr = fs_copy.release();
+  return s;
 }
 
 void hir_c_set_suppress_exc_deopt(HirInstr instr, int val) {
@@ -813,64 +819,80 @@ void hir_c_set_output_type(HirInstr instr, HirType type) {
 HirInstr hir_c_create_fill_type_attr_cache(HirFunction func,
     HirRegister receiver, int name_idx, int cache_id, void *frame_state) {
   if (!frame_state) return nullptr;
-  auto* f = static_cast<Function*>(func);
-  auto* dst = f->env.AllocateRegister();
-  return FillTypeAttrCache::create(
-      dst, as_reg(receiver), name_idx, cache_id,
-      *static_cast<const FrameState*>(frame_state));
+  HirRegister dst = hir_func_alloc_register(func);
+  HirFillTypeAttrCache *f = (HirFillTypeAttrCache *)hir_c_alloc_instr(sizeof(HirFillTypeAttrCache), 1);
+  hir_c_init_deopt(f, HIR_OP_FillTypeAttrCache);
+  f->name_idx = name_idx;
+  f->cache_id = cache_id;
+  hir_c_set_output(f, dst);
+  hir_c_set_operand(f, 0, receiver);
+  as_instr(f)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return f;
 }
 
 HirInstr hir_c_create_fill_type_method_cache(HirFunction func,
     HirRegister receiver, int name_idx, int cache_id, void *frame_state) {
   if (!frame_state) return nullptr;
-  auto* f = static_cast<Function*>(func);
-  auto* dst = f->env.AllocateRegister();
-  return FillTypeMethodCache::create(
-      dst, as_reg(receiver), name_idx, cache_id,
-      *static_cast<const FrameState*>(frame_state));
+  HirRegister dst = hir_func_alloc_register(func);
+  HirFillTypeMethodCache *f = (HirFillTypeMethodCache *)hir_c_alloc_instr(sizeof(HirFillTypeMethodCache), 1);
+  hir_c_init_deopt(f, HIR_OP_FillTypeMethodCache);
+  f->name_idx = name_idx;
+  f->cache_id = cache_id;
+  hir_c_set_output(f, dst);
+  hir_c_set_operand(f, 0, receiver);
+  as_instr(f)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return f;
 }
 
 /* ---- Simple DeoptBase factories (2-operand + FrameState, no custom fields) ---- */
 
-#define DEOPT2_FACTORY(name, CppType) \
+#define DEOPT2_FACTORY(name, opcode) \
 HirInstr hir_c_create_##name(HirFunction func, HirRegister lhs, \
                               HirRegister rhs, void *frame_state) { \
   if (!frame_state) return nullptr; \
-  auto* f = static_cast<Function*>(func); \
-  auto* dst = f->env.AllocateRegister(); \
-  return CppType::create( \
-      dst, as_reg(lhs), as_reg(rhs), \
-      *static_cast<const FrameState*>(frame_state)); \
+  HirRegister dst = hir_func_alloc_register(func); \
+  HirDeoptLayout *i = (HirDeoptLayout *)hir_c_alloc_instr(sizeof(HirDeoptLayout), 2); \
+  hir_c_init_deopt(i, opcode); \
+  hir_c_set_output(i, dst); \
+  hir_c_set_operand(i, 0, lhs); \
+  hir_c_set_operand(i, 1, rhs); \
+  as_instr(i)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state)); \
+  return i; \
 }
 
-DEOPT2_FACTORY(dict_subscr, DictSubscr)
-DEOPT2_FACTORY(unicode_subscr, UnicodeSubscr)
-DEOPT2_FACTORY(unicode_repeat, UnicodeRepeat)
-DEOPT2_FACTORY(unicode_concat, UnicodeConcat)
-DEOPT2_FACTORY(list_append, ListAppend)
-DEOPT2_FACTORY(is_instance, IsInstance)
+DEOPT2_FACTORY(dict_subscr, HIR_OP_DictSubscr)
+DEOPT2_FACTORY(unicode_subscr, HIR_OP_UnicodeSubscr)
+DEOPT2_FACTORY(unicode_repeat, HIR_OP_UnicodeRepeat)
+DEOPT2_FACTORY(unicode_concat, HIR_OP_UnicodeConcat)
+DEOPT2_FACTORY(list_append, HIR_OP_ListAppend)
+DEOPT2_FACTORY(is_instance, HIR_OP_IsInstance)
 #undef DEOPT2_FACTORY
 
 HirInstr hir_c_create_get_length(HirFunction func, HirRegister src,
                                   void *frame_state) {
   if (!frame_state) return nullptr;
-  auto* f = static_cast<Function*>(func);
-  auto* dst = f->env.AllocateRegister();
-  return GetLength::create(
-      dst, as_reg(src),
-      *static_cast<const FrameState*>(frame_state));
+  HirRegister dst = hir_func_alloc_register(func);
+  HirGetLength *g = (HirGetLength *)hir_c_alloc_instr(sizeof(HirGetLength), 1);
+  hir_c_init_deopt(g, HIR_OP_GetLength);
+  hir_c_set_output(g, dst);
+  hir_c_set_operand(g, 0, src);
+  as_instr(g)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return g;
 }
 
 HirInstr hir_c_create_long_in_place_op(HirFunction func, int32_t op_kind,
                                         HirRegister left, HirRegister right,
                                         void *frame_state) {
   if (!frame_state) return nullptr;
-  auto* f = static_cast<Function*>(func);
-  auto* dst = f->env.AllocateRegister();
-  return LongInPlaceOp::create(
-      dst, static_cast<InPlaceOpKind>(op_kind),
-      as_reg(left), as_reg(right),
-      *static_cast<const FrameState*>(frame_state));
+  HirRegister dst = hir_func_alloc_register(func);
+  HirLongInPlaceOp *l = (HirLongInPlaceOp *)hir_c_alloc_instr(sizeof(HirLongInPlaceOp), 2);
+  hir_c_init_deopt(l, HIR_OP_LongInPlaceOp);
+  l->op = op_kind;
+  hir_c_set_output(l, dst);
+  hir_c_set_operand(l, 0, left);
+  hir_c_set_operand(l, 1, right);
+  as_instr(l)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return l;
 }
 
 /* ---- FloatBinaryOp / LongBinaryOp / IsNegativeAndErrOccurred factories ---- */
