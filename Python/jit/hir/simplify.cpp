@@ -401,6 +401,30 @@ struct Env {
         const_cast<void*>(static_cast<const void*>(&fs)))));
   }
 
+  // Tier 3: CheckField (with guilty_reg), LoadAttr, LoadArrayItem.
+  Register* emitCheckField(Register* src, PyObject* name, const FrameState& fs,
+                            Register* guilty_reg = nullptr) {
+    Register* out = emitCInstr(static_cast<Instr*>(hir_c_create_check_field(
+        &func, src, name,
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+    if (guilty_reg) {
+      hir_c_set_guilty_reg(out->instr(), guilty_reg);
+    }
+    return out;
+  }
+  Register* emitLoadAttr(Register* receiver, int name_idx,
+                          const FrameState& fs, bool already_optimized = false) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_load_attr(
+        &func, receiver, name_idx,
+        const_cast<void*>(static_cast<const void*>(&fs)),
+        already_optimized ? 1 : 0)));
+  }
+  Register* emitLoadArrayItem(Register* arr, Register* idx, Register* container,
+                               ssize_t offset, Type type) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_load_array_item(
+        &func, arr, idx, container, offset, to_hir(type))));
+  }
+
   // Insert a pre-created instruction from a C factory into the current block.
   // Sets bytecode offset, inserts at cursor, computes output type.
   // Returns the output register (or nullptr if no output).
@@ -979,7 +1003,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
             lhs, "ob_item", offsetof(PyListObject, ob_item), TCPtr);
         offset = 0;
       }
-      return env.emit<LoadArrayItem>(array, adjusted_idx, lhs, offset, TObject);
+      return env.emitLoadArrayItem(array, adjusted_idx, lhs, offset, TObject);
     }
 #endif
     if (hir_type_is_subtype(lhs_hir, to_hir(TUnicodeExact)) &&
@@ -1512,12 +1536,11 @@ Register* simplifyLoadAttrSplitDict(
                 offsetof(PyDictValues, values),
             TOptObject);
         Register* attr =
-            env.emit<CheckField>(maybe_attr, name, *load_attr->frameState());
-        static_cast<CheckField*>(attr->instr())->setGuiltyReg(receiver);
+            env.emitCheckField(maybe_attr, name, *load_attr->frameState(), receiver);
         return attr;
       },
       [&] { // Not valid - slow-path, call getattr.
-        return env.emit<LoadAttr>(
+        return env.emitLoadAttr(
             receiver,
             load_attr->name_idx(),
             *load_attr->frameState(),
@@ -1577,8 +1600,7 @@ Register* simplifyLoadAttrSplitDict(
   // ultimately it means that the attribute we're trying to load is missing,
   // and the AttributeError to be raised should contain the attribute's name.
   Register* checked_dict =
-      env.emit<CheckField>(obj_dict, name, *load_attr->frameState());
-  static_cast<CheckField*>(checked_dict->instr())->setGuiltyReg(receiver);
+      env.emitCheckField(obj_dict, name, *load_attr->frameState(), receiver);
 
 #if PY_VERSION_HEX >= 0x030C0000
   Register* one = env.emitLoadConst(Type::fromCUInt(1, TCUInt64));
@@ -1605,8 +1627,7 @@ Register* simplifyLoadAttrSplitDict(
 #endif
 
   Register* checked_attr =
-      env.emit<CheckField>(attr, name, *load_attr->frameState());
-  static_cast<CheckField*>(checked_attr->instr())->setGuiltyReg(receiver);
+      env.emitCheckField(attr, name, *load_attr->frameState(), receiver);
 
   return checked_attr;
 }
@@ -1667,10 +1688,8 @@ Register* simplifyLoadAttrMemberDescr(Env& env, const DescrInfo& info) {
     Register* field =
         env.emitLoadField(info.receiver, name_cstr, def->offset, TOptObject);
     if (def->type == T_OBJECT_EX) {
-      auto check_field =
-          env.emitInstr<CheckField>(field, info.attr_name, *info.frame_state);
-      check_field->setGuiltyReg(info.receiver);
-      return check_field->output();
+      return env.emitCheckField(field, info.attr_name, *info.frame_state,
+                                info.receiver);
     }
 
     return env.emitCond(

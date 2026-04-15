@@ -667,6 +667,45 @@ HirInstr hir_c_create_store_attr_cached(HirFunction func,
       *static_cast<const FrameState*>(frame_state));
 }
 
+/* ---- Tier 3: CheckField + LoadAttr + LoadArrayItem + setGuiltyReg ---- */
+
+HirInstr hir_c_create_check_field(HirFunction func, HirRegister src,
+    void *name, void *frame_state) {
+  if (!frame_state) return nullptr;
+  auto* f = static_cast<Function*>(func);
+  auto* dst = f->env.AllocateRegister();
+  return CheckField::create(
+      dst, as_reg(src),
+      BorrowedRef<>(static_cast<PyObject*>(name)),
+      *static_cast<const FrameState*>(frame_state));
+}
+
+HirInstr hir_c_create_load_attr(HirFunction func, HirRegister receiver,
+    int name_idx, void *frame_state, int already_optimized) {
+  if (!frame_state) return nullptr;
+  auto* f = static_cast<Function*>(func);
+  auto* dst = f->env.AllocateRegister();
+  return LoadAttr::create(
+      dst, as_reg(receiver), name_idx,
+      *static_cast<const FrameState*>(frame_state),
+      already_optimized != 0);
+}
+
+HirInstr hir_c_create_load_array_item(HirFunction func,
+    HirRegister arr, HirRegister idx, HirRegister container,
+    intptr_t offset, HirType type) {
+  auto* f = static_cast<Function*>(func);
+  auto* dst = f->env.AllocateRegister();
+  const Type& cpp_type = *reinterpret_cast<const Type*>(&type);
+  return LoadArrayItem::create(
+      dst, as_reg(arr), as_reg(idx), as_reg(container),
+      static_cast<ssize_t>(offset), cpp_type);
+}
+
+void hir_c_set_guilty_reg(HirInstr instr, HirRegister reg) {
+  static_cast<DeoptBase*>(as_instr(instr))->setGuiltyReg(as_reg(reg));
+}
+
 /* ---- FillTypeAttrCache / FillTypeMethodCache ---- */
 
 HirInstr hir_c_create_fill_type_attr_cache(HirFunction func,

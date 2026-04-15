@@ -214,6 +214,18 @@ HirInstr hir_c_create_load_attr_cached(HirFunction func,
 HirInstr hir_c_create_store_attr_cached(HirFunction func,
     HirRegister obj, HirRegister value, int name_idx, void *frame_state);
 
+/* Tier 3: CheckField + LoadAttr + LoadArrayItem */
+HirInstr hir_c_create_check_field(HirFunction func, HirRegister src,
+    void *name, void *frame_state);
+HirInstr hir_c_create_load_attr(HirFunction func, HirRegister receiver,
+    int name_idx, void *frame_state, int already_optimized);
+HirInstr hir_c_create_load_array_item(HirFunction func,
+    HirRegister arr, HirRegister idx, HirRegister container,
+    intptr_t offset, HirType type);
+
+/* Set the guilty register on a DeoptBase instruction. */
+void hir_c_set_guilty_reg(HirInstr instr, HirRegister reg);
+
 /* DeoptBaseWithNameIdx + cache_id factories */
 HirInstr hir_c_create_fill_type_attr_cache(HirFunction func,
     HirRegister receiver, int name_idx, int cache_id, void *frame_state);
