@@ -60,6 +60,13 @@ using namespace jit::hir;
 
 namespace jit::lir {
 
+using jit::hir::Type;
+static inline HirType to_hir(Type t) { return Type::toHirType(t); }
+// Pre-computed HirType constants for common types
+static const HirType _h_mortal = Type::toHirType(jit::hir::TMortalObject);
+static const HirType _h_immortal = Type::toHirType(jit::hir::TImmortalObject);
+static const HirType _h_nullptr = Type::toHirType(jit::hir::TNullptr);
+
 namespace {
 
 #ifndef Py_GIL_DISABLED
@@ -380,8 +387,8 @@ bool LIRGenerator::TranslateSpecializedCall(
 
   hir::Register* callable = hir_instr.func();
   auto callable_ty = callable->type();
-  HirType callable_hir = *reinterpret_cast<const HirType*>(&callable_ty);
-  HirType tobject_hir = *reinterpret_cast<const HirType*>(&TObject);
+  HirType callable_hir = to_hir(callable_ty);
+  HirType tobject_hir = to_hir(TObject);
   if (!hir_type_has_value_spec(&callable_hir, tobject_hir)) {
     return false;
   }
@@ -564,11 +571,11 @@ void LIRGenerator::MakeIncref(
     bool xincref) {
   Register* obj = instr.GetOperand(0);
   auto obj_ty = obj->type();
-  HirType obj_hir = *reinterpret_cast<const HirType*>(&obj_ty);
+  HirType obj_hir = to_hir(obj_ty);
 
   // Don't generate anything for immortal objects.
   if (kImmortalInstances && !hir_type_could_be(&obj_hir,
-      reinterpret_cast<const HirType*>(&TMortalObject))) {
+      &_h_mortal)) {
     return;
   }
 
@@ -577,7 +584,7 @@ void LIRGenerator::MakeIncref(
       bbb.getDefInstr(obj),
       xincref,
       kImmortalInstances && hir_type_could_be(&obj_hir,
-          reinterpret_cast<const HirType*>(&TImmortalObject)));
+          &_h_immortal));
 }
 
 void LIRGenerator::MakeDecref(
@@ -638,11 +645,11 @@ void LIRGenerator::MakeDecref(
     bool xdecref) {
   Register* obj = instr.GetOperand(0);
   auto obj_ty_d = obj->type();
-  HirType obj_hir_d = *reinterpret_cast<const HirType*>(&obj_ty_d);
+  HirType obj_hir_d = to_hir(obj_ty_d);
 
   // Don't generate anything for immortal objects.
   if (kImmortalInstances && !hir_type_could_be(&obj_hir_d,
-      reinterpret_cast<const HirType*>(&TMortalObject))) {
+      &_h_mortal)) {
     return;
   }
 
@@ -652,7 +659,7 @@ void LIRGenerator::MakeDecref(
       obj_ty_d.runtimePyTypeDestructor(),  // stays C++ (returns std::optional)
       xdecref,
       kImmortalInstances && hir_type_could_be(&obj_hir_d,
-          reinterpret_cast<const HirType*>(&TImmortalObject)));
+          &_h_immortal));
 }
 
 LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
@@ -764,18 +771,18 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         Instruction* loaded =
             bbb.appendInstr(dest, Instruction::kMove, Ind{src_base, kOffset});
         auto dest_ty = dest->type();
-        HirType dest_hir = *reinterpret_cast<const HirType*>(&dest_ty);
+        HirType dest_hir = to_hir(dest_ty);
         if (hir_type_could_be(&dest_hir,
-            reinterpret_cast<const HirType*>(&TMortalObject))) {
+            &_h_mortal)) {
           bool xincref = hir_type_could_be(&dest_hir,
-              reinterpret_cast<const HirType*>(&TNullptr));
+              &_h_nullptr);
           MakeIncref(
               bbb,
               loaded,
               xincref,
               kImmortalInstances &&
                   hir_type_could_be(&dest_hir,
-                      reinterpret_cast<const HirType*>(&TImmortalObject)));
+                      &_h_immortal));
         }
 #endif
         break;
@@ -819,7 +826,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
           break;
         }
 
-        HirType ty_hir = *reinterpret_cast<const HirType*>(&ty);
+        HirType ty_hir = to_hir(ty);
         intptr_t spec_value = hir_type_has_int_spec(&ty_hir)
             ? hir_type_int_spec(&ty_hir)
             : reinterpret_cast<intptr_t>(hir_type_as_object(&ty_hir));
@@ -1383,7 +1390,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         auto& instr = static_cast<const CondBranchCheckType&>(i);
         auto type = instr.type();
         Instruction* eq_res_var = nullptr;
-        HirType type_hir_cb = *reinterpret_cast<const HirType*>(&type);
+        HirType type_hir_cb = to_hir(type);
         if (hir_type_is_exact(&type_hir_cb)) {
           Instruction* reg = bbb.getDefInstr(instr.reg());
           constexpr int32_t kOffset = offsetof(PyObject, ob_type);
@@ -2354,18 +2361,18 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         // Use xincref for nullable types — the refcount pass already uses
         // XDecref for these, so NULL values get 0 INCREF + 0 DECREF.
         auto dest_ty_lf = dest->type();
-        HirType dest_hir_lf = *reinterpret_cast<const HirType*>(&dest_ty_lf);
+        HirType dest_hir_lf = to_hir(dest_ty_lf);
         if (!instr->borrowed() && hir_type_could_be(&dest_hir_lf,
-            reinterpret_cast<const HirType*>(&TMortalObject))) {
+            &_h_mortal)) {
           bool xincref = hir_type_could_be(&dest_hir_lf,
-              reinterpret_cast<const HirType*>(&TNullptr));
+              &_h_nullptr);
           MakeIncref(
               bbb,
               loaded,
               xincref,
               kImmortalInstances &&
                   hir_type_could_be(&dest_hir_lf,
-                      reinterpret_cast<const HirType*>(&TImmortalObject)));
+                      &_h_immortal));
         }
         break;
       }
@@ -2522,7 +2529,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         // Might know the index at compile-time.
         auto ind = Ind{ob_item, idx, instr->type().sizeInBytes(), offset};
         auto idx_ty_la = instr->idx()->type();
-        HirType idx_hir_la = *reinterpret_cast<const HirType*>(&idx_ty_la);
+        HirType idx_hir_la = to_hir(idx_ty_la);
         if (hir_type_has_int_spec(&idx_hir_la)) {
           auto scaled_offset = static_cast<int32_t>(
               hir_type_int_spec(&idx_hir_la) * instr->type().sizeInBytes() +

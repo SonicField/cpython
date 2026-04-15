@@ -58,18 +58,17 @@ hir::ValueKind deoptValueKind(hir::Type type) {
   // works fine at runtime and a proper fix likely involves reworking HIR's
   // support for constant values, so we paper over the issue here for the
   // moment.
-  HirType type_hir = *reinterpret_cast<const HirType*>(&type);
-  auto tcunsigned_signed = jit::hir::TCUnsigned | jit::hir::TCSigned;
-  if (hir_type_could_be(&type_hir,
-      reinterpret_cast<const HirType*>(&tcunsigned_signed))) {
+  HirType type_hir = jit::hir::Type::toHirType(type);
+  HirType h_cusigned = jit::hir::Type::toHirType(jit::hir::TCUnsigned | jit::hir::TCSigned);
+  HirType h_cdouble = jit::hir::Type::toHirType(jit::hir::TCDouble);
+  if (hir_type_could_be(&type_hir, &h_cusigned)) {
     if (type <= (jit::hir::TCUnsigned | jit::hir::TNullptr)) {
       return jit::hir::ValueKind::kUnsigned;
     }
     if (type <= (jit::hir::TCSigned | jit::hir::TNullptr)) {
       return jit::hir::ValueKind::kSigned;
     }
-  } else if (hir_type_could_be(&type_hir,
-      reinterpret_cast<const HirType*>(&jit::hir::TCDouble))) {
+  } else if (hir_type_could_be(&type_hir, &h_cdouble)) {
     return jit::hir::ValueKind::kDouble;
   }
 
