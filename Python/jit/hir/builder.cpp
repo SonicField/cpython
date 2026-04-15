@@ -458,6 +458,36 @@ struct HIRBuilder::TranslationContext {
         dst, static_cast<int32_t>(op), left, right)));
   }
 
+  // CheckSequenceBounds via C++ bridge (DeoptBase + FrameState).
+  void emitCheckSequenceBounds(Register* dst, Register* seq, Register* idx,
+                                const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_check_seq_bounds_reg(
+        dst, seq, idx, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
+  // CheckField via C++ bridge (DeoptBase + FrameState). Returns DeoptBase* for mutation.
+  DeoptBase* emitCheckField(Register* dst, Register* src, PyObject* name,
+                             const FrameState& fs) {
+    return static_cast<DeoptBase*>(emitC(static_cast<Instr*>(
+        hir_c_create_check_field_reg(
+            dst, src, name,
+            const_cast<void*>(static_cast<const void*>(&fs))))));
+  }
+
+  // BinaryOp via C++ bridge (DeoptBase + FrameState).
+  void emitBinaryOp(Register* dst, BinaryOpKind op, Register* left,
+                     Register* right, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_binary_op_reg(
+        dst, static_cast<int32_t>(op), left, right,
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
+  // GuardIs via C++ bridge (caller-provided register). Returns DeoptBase*.
+  DeoptBase* emitGuardIs(Register* dst, PyObject* target, Register* src) {
+    return static_cast<DeoptBase*>(emitC(static_cast<Instr*>(
+        hir_c_create_guard_is_reg(dst, target, src))));
+  }
+
   // Guard via C factory (with FrameState). Returns instruction for mutation.
   Instr* emitGuard(Register* src, const FrameState& fs) {
     auto* instr = emitC(static_cast<Instr*>(hir_c_create_guard(src)));
@@ -2844,7 +2874,7 @@ void HIRBuilder::emitBinaryOp(
     }
   }
 
-  tc.emit<BinaryOp>(result, op_kind, left, right, tc.frame);
+  tc.emitBinaryOp(result, op_kind, left, right, tc.frame);
   stack.push(result);
 }
 
@@ -2993,7 +3023,7 @@ void HIRBuilder::emitLoadIterableArg(
   auto element = temps_.AllocateStack();
   tc.emitLoadConst(tmp, Type::fromCInt(bc_instr.oparg(), TCInt64));
   tc.emit<PrimitiveBox>(tup_idx, tmp, TCInt64, tc.frame);
-  tc.emit<BinaryOp>(
+  tc.emitBinaryOp(
       element, BinaryOpKind::kSubscript, tuple, tup_idx, tc.frame);
   tc.frame.stack.push(element);
   tc.frame.stack.push(tuple);
@@ -3649,7 +3679,7 @@ void HIRBuilder::emitLoadAttr(
           // Deopt if value is NULL (attribute deleted)
           BorrowedRef<> attr_name =
               PyTuple_GET_ITEM(code_->co_names, name_idx);
-          auto cf = tc.emit<CheckField>(
+          auto cf = tc.emitCheckField(
               result, result, attr_name, tc.frame);
           cf->setGuiltyReg(receiver);
 
@@ -3696,7 +3726,7 @@ void HIRBuilder::emitLoadAttr(
 
           // Check attribute is not NULL (uninitialised slot).
           Register* result = temps_.AllocateStack();
-          auto cf = tc.emit<CheckField>(
+          auto cf = tc.emitCheckField(
               result, attr, attr_name, tc.frame);
           cf->setGuiltyReg(receiver);
 
@@ -3751,7 +3781,7 @@ void HIRBuilder::emitLoadAttr(
 
             // Check dorv is not NULL (object has dict/values allocated).
             Register* checked_dorv = temps_.AllocateStack();
-            auto cf = tc.emit<CheckField>(
+            auto cf = tc.emitCheckField(
                 checked_dorv, dorv, attr_name, tc.frame);
             cf->setGuiltyReg(receiver);
 
@@ -3785,7 +3815,7 @@ void HIRBuilder::emitLoadAttr(
 
             // Check attribute is not NULL (not deleted).
             Register* result = temps_.AllocateStack();
-            auto cf2 = tc.emit<CheckField>(
+            auto cf2 = tc.emitCheckField(
                 result, attr, attr_name, tc.frame);
             cf2->setGuiltyReg(receiver);
 
@@ -4481,7 +4511,7 @@ void HIRBuilder::emitSequenceGet(
     auto type = temps_.AllocateStack();
     tc.emitLoadField(
         type, sequence, "ob_type", offsetof(PyObject, ob_type), TType);
-    tc.emit<GuardIs>(type, (PyObject*)&PyList_Type, type);
+    tc.emitGuardIs(type, (PyObject*)&PyList_Type, type);
     tc.emitRefineType(sequence, TListExact, sequence);
   }
 
@@ -4489,7 +4519,7 @@ void HIRBuilder::emitSequenceGet(
   int unchecked = oparg & SEQ_SUBSCR_UNCHECKED;
   if (!unchecked) {
     adjusted_idx = temps_.AllocateStack();
-    tc.emit<CheckSequenceBounds>(adjusted_idx, sequence, idx, tc.frame);
+    tc.emitCheckSequenceBounds(adjusted_idx, sequence, idx, tc.frame);
   } else {
     adjusted_idx = idx;
     oparg &= ~SEQ_SUBSCR_UNCHECKED;
@@ -4529,10 +4559,10 @@ void HIRBuilder::emitSequenceSet(
     auto type = temps_.AllocateStack();
     tc.emitLoadField(
         type, sequence, "ob_type", offsetof(PyObject, ob_type), TType);
-    tc.emit<GuardIs>(type, (PyObject*)&PyList_Type, type);
+    tc.emitGuardIs(type, (PyObject*)&PyList_Type, type);
     tc.emitRefineType(sequence, TListExact, sequence);
   }
-  tc.emit<CheckSequenceBounds>(adjusted_idx, sequence, idx, tc.frame);
+  tc.emitCheckSequenceBounds(adjusted_idx, sequence, idx, tc.frame);
   auto ob_item = temps_.AllocateStack();
   if (oparg == SEQ_ARRAY_INT64) {
     Register* offset_reg = temps_.AllocateStack();
@@ -4576,7 +4606,7 @@ void HIRBuilder::emitLoadGlobal(
     }
     tc.emit<LoadGlobalCached>(
         result, code_, preloader_.builtins(), preloader_.globals(), name_idx);
-    auto guard_is = tc.emit<GuardIs>(result, value, result);
+    auto guard_is = tc.emitGuardIs(result, value, result);
     BorrowedRef<> name = PyTuple_GET_ITEM(code_->co_names, name_idx);
     guard_is->setDescr(fmt::format("LOAD_GLOBAL: {}", PyUnicode_AsUTF8(name)));
     return true;
@@ -4937,7 +4967,7 @@ void HIRBuilder::emitBinarySlice(TranslationContext& tc) {
   Register* slice = stack.pop();
   Register* container = stack.pop();
   Register* result = temps_.AllocateStack();
-  tc.emit<BinaryOp>(
+  tc.emitBinaryOp(
       result, BinaryOpKind::kSubscript, container, slice, tc.frame);
   tc.frame.stack.push(result);
 }
@@ -5400,7 +5430,7 @@ void HIRBuilder::emitLoadField(
   tc.emitLoadField(result, receiver, field_name, offset, type);
   if (hir_type_could_be(reinterpret_cast<const HirType*>(&type),
                         reinterpret_cast<const HirType*>(&TNullptr))) {
-    CheckField* cf = tc.emit<CheckField>(result, result, name, tc.frame);
+    auto* cf = tc.emitCheckField(result, result, name, tc.frame);
     cf->setGuiltyReg(receiver);
   }
   tc.frame.stack.push(result);

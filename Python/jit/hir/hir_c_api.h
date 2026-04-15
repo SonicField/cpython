@@ -333,6 +333,18 @@ HirInstr hir_c_create_cond_branch_check_type_cpp(
     HirRegister target, HirType type,
     void *true_block, void *false_block);
 
+/* ---- Builder-style DeoptBase factories (reg + FrameState) ---- */
+
+HirInstr hir_c_create_check_seq_bounds_reg(HirRegister dst, HirRegister seq,
+                                            HirRegister idx, void *frame_state);
+HirInstr hir_c_create_check_field_reg(HirRegister dst, HirRegister src,
+                                       void *name, void *frame_state);
+HirInstr hir_c_create_binary_op_reg(HirRegister dst, int32_t op_kind,
+                                     HirRegister left, HirRegister right,
+                                     void *frame_state);
+HirInstr hir_c_create_guard_is_reg(HirRegister dst, void *target,
+                                    HirRegister src);
+
 /* ---- Instruction query/mutation (T2-D) ---- */
 
 /* Get the Compare operation kind (CompareOp enum as int).

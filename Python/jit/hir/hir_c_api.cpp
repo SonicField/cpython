@@ -894,6 +894,39 @@ HirInstr hir_c_create_branch_cpp(void *target_block) {
   return Branch::create(bb);
 }
 
+HirInstr hir_c_create_check_seq_bounds_reg(HirRegister dst, HirRegister seq,
+                                            HirRegister idx, void *frame_state) {
+  if (frame_state)
+    return CheckSequenceBounds::create(
+        as_reg(dst), as_reg(seq), as_reg(idx),
+        *static_cast<const FrameState*>(frame_state));
+  return CheckSequenceBounds::create(as_reg(dst), as_reg(seq), as_reg(idx));
+}
+
+HirInstr hir_c_create_check_field_reg(HirRegister dst, HirRegister src,
+                                       void *name, void *frame_state) {
+  if (frame_state)
+    return CheckField::create(
+        as_reg(dst), as_reg(src), static_cast<PyObject*>(name),
+        *static_cast<const FrameState*>(frame_state));
+  return CheckField::create(as_reg(dst), as_reg(src), static_cast<PyObject*>(name));
+}
+
+HirInstr hir_c_create_binary_op_reg(HirRegister dst, int32_t op_kind,
+                                     HirRegister left, HirRegister right,
+                                     void *frame_state) {
+  return BinaryOp::create(
+      as_reg(dst), static_cast<BinaryOpKind>(op_kind),
+      as_reg(left), as_reg(right),
+      *static_cast<const FrameState*>(frame_state));
+}
+
+HirInstr hir_c_create_guard_is_reg(HirRegister dst, void *target,
+                                    HirRegister src) {
+  return GuardIs::create(
+      as_reg(dst), static_cast<PyObject*>(target), as_reg(src));
+}
+
 HirInstr hir_c_create_vectorcall_reg(size_t n_operands, HirRegister dst,
                                       uint32_t flags) {
   return VectorCall::create(
