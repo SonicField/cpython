@@ -951,6 +951,25 @@ HirInstr hir_c_create_load_arg_reg(HirRegister dst, int32_t idx, HirType type) {
   return LoadArg::create(as_reg(dst), idx, cpp_type);
 }
 
+HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
+    HirRegister src, void *body_block, void *done_block) {
+  return CondBranchIterNotDone::create(
+      as_reg(src), static_cast<BasicBlock*>(body_block),
+      static_cast<BasicBlock*>(done_block));
+}
+
+HirInstr hir_c_create_int_convert_reg(HirRegister dst, HirRegister src,
+                                       HirType type) {
+  Type cpp_type = Type::fromHirType(type);
+  return IntConvert::create(as_reg(dst), as_reg(src), cpp_type);
+}
+
+HirInstr hir_c_create_get_iter_reg(HirRegister dst, HirRegister src,
+                                    void *frame_state) {
+  return GetIter::create(as_reg(dst), as_reg(src),
+                          *static_cast<const FrameState*>(frame_state));
+}
+
 HirInstr hir_c_create_load_field_address_reg(HirRegister dst, HirRegister object,
                                               HirRegister offset) {
   return LoadFieldAddress::create(as_reg(dst), as_reg(object), as_reg(offset));

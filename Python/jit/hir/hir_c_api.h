@@ -367,6 +367,12 @@ HirInstr hir_c_create_make_cell_reg(HirRegister dst, HirRegister src,
                                      void *frame_state);
 HirInstr hir_c_create_initial_yield_reg(HirRegister dst, void *frame_state);
 HirInstr hir_c_create_load_arg_reg(HirRegister dst, int32_t idx, HirType type);
+HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
+    HirRegister src, void *body_block, void *done_block);
+HirInstr hir_c_create_int_convert_reg(HirRegister dst, HirRegister src,
+                                       HirType type);
+HirInstr hir_c_create_get_iter_reg(HirRegister dst, HirRegister src,
+                                    void *frame_state);
 HirInstr hir_c_create_set_function_attr_reg(HirRegister value, HirRegister base,
                                              int32_t field);
 HirInstr hir_c_create_check_neg_reg(HirRegister dst, HirRegister src,

@@ -558,6 +558,24 @@ struct HIRBuilder::TranslationContext {
         const_cast<void*>(static_cast<const void*>(&fs)))));
   }
 
+  // CondBranchIterNotDone via C++ bridge (Edge::set_to).
+  void emitCondBranchIterNotDone(Register* src, BasicBlock* body, BasicBlock* done) {
+    emitC(static_cast<Instr*>(
+        hir_c_create_cond_branch_iter_not_done_cpp(src, body, done)));
+  }
+
+  // IntConvert via C factory (HasOutput, type field).
+  void emitIntConvert(Register* dst, Register* src, Type type) {
+    emitC(static_cast<Instr*>(
+        hir_c_create_int_convert_reg(dst, src, to_hir(type))));
+  }
+
+  // GetIter via C++ bridge (DeoptBase + FrameState).
+  void emitGetIter(Register* dst, Register* src, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_get_iter_reg(
+        dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
   // IsTruthy via C++ bridge (DeoptBase + FrameState).
   void emitIsTruthy(Register* dst, Register* src, const FrameState& fs) {
     emitC(static_cast<Instr*>(hir_c_create_is_truthy_reg(
@@ -4251,7 +4269,7 @@ void HIRBuilder::emitConvertPrimitive(
   Register* val = tc.frame.stack.pop();
   Register* out = temps_.AllocateStack();
   Type to_type = prim_type_to_type(bc_instr.oparg() >> 4);
-  tc.emit<IntConvert>(out, val, to_type);
+  tc.emitIntConvert(out, val, to_type);
   tc.frame.stack.push(out);
 }
 
@@ -5130,7 +5148,7 @@ void HIRBuilder::emitGetIter(
     const jit::BytecodeInstruction& bc_instr) {
   Register* iterable = tc.frame.stack.pop();
   Register* result = temps_.AllocateStack();
-  tc.emit<GetIter>(result, iterable, tc.frame);
+  tc.emitGetIter(result, iterable, tc.frame);
   // FOR_ITER specialisation: if the next instruction is a specialised FOR_ITER,
   // guard the iterator type here (once, before the loop) rather than inside
   // the loop body. This enables the Simplify pass to replace generic
@@ -5190,7 +5208,7 @@ void HIRBuilder::emitForIter(
   tc.frame.stack.push(next_val);
   BasicBlock* footer = getBlockAtOff(bc_instr.getJumpTarget());
   BasicBlock* body = getBlockAtOff(bc_instr.nextInstrOffset());
-  tc.emit<CondBranchIterNotDone>(next_val, body, footer);
+  tc.emitCondBranchIterNotDone(next_val, body, footer);
 }
 
 void HIRBuilder::emitGetYieldFromIter(CFG& cfg, TranslationContext& tc) {
@@ -5231,7 +5249,7 @@ void HIRBuilder::emitGetYieldFromIter(CFG& cfg, TranslationContext& tc) {
   tc.emitCondBranchCheckType(iter_in, TGen, nop_block, slow_path);
 
   tc.block = slow_path;
-  tc.emit<GetIter>(iter_out, iter_in, tc.frame);
+  tc.emitGetIter(iter_out, iter_in, tc.frame);
   tc.emitBranch(done_block);
 
   tc.block = nop_block;
@@ -5413,7 +5431,7 @@ void HIRBuilder::emitAsyncForHeaderYieldFrom(
   BasicBlock* yf_cont_block = getBlockAtOff(bc_instr.nextInstrOffset());
   BCOffset handler_off{tc.frame.block_stack.top().handler_off};
   BasicBlock* yf_done_block = getBlockAtOff(handler_off);
-  tc.emit<CondBranchIterNotDone>(out, yf_cont_block, yf_done_block);
+  tc.emitCondBranchIterNotDone(out, yf_cont_block, yf_done_block);
 }
 
 void HIRBuilder::emitEndAsyncFor(TranslationContext& tc) {
@@ -5567,7 +5585,7 @@ void HIRBuilder::emitStoreField(
   if (type <= TPrimitive) {
     Register* converted = temps_.AllocateStack();
     tc.emitLoadConst(previous, TNullptr);
-    tc.emit<IntConvert>(converted, value, type);
+    tc.emitIntConvert(converted, value, type);
     value = converted;
   } else {
     tc.emitLoadField(previous, receiver, field_name, offset, type, false);
