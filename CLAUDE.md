@@ -97,3 +97,17 @@ nbs-local-run 'scp <local-file> devgpu004.kcm2.facebook.com:<remote-path>'
 ```
 
 Do NOT attempt `git push` or `ssh` directly — they will fail with proxy 403 or hang on 2FA.
+
+## HirType/Type Conversion (MANDATORY)
+
+Never use `reinterpret_cast` between `HirType` and `Type`. These types have different binary layouts (C++ bitfields vs manual shift packing). Use:
+- `Type::toHirType(t)` — C++ Type → C HirType
+- `Type::fromHirType(h)` — C HirType → C++ Type
+
+Gatekeeper MUST grep for `reinterpret_cast.*HirType` and `reinterpret_cast.*const Type.*&` in every review. Any match is an automatic BLOCK.
+
+## Pydebug Gate Protocol
+
+ARM64 gate runs with `--with-pydebug` + `CMAKE_BUILD_TYPE=Debug` to catch JIT assertion bugs invisible in optimized builds. Use `scripts/build_phoenix.sh --pydebug --clean`.
+
+Pydebug gate checks auto-compilation path assertions (funcTypeChecks, JIT_DCHECK). force_compile tests may not work under pydebug (cinderjit module may not load).
