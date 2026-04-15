@@ -503,6 +503,26 @@ static inline void *hir_c_alloc_instr(size_t struct_size, size_t num_operands) {
     return ptr;
 }
 
+/* Initialize base Instr fields after allocation.
+ * Sets opcode. IntrusiveListNode already initialized by hir_c_alloc_instr. */
+static inline void hir_c_init_instr(void *instr, int32_t opcode) {
+    ((HirInstrLayout *)instr)->opcode = opcode;
+}
+
+/* Initialize DeoptBase fields after hir_c_init_instr.
+ * Sets up the DeoptBase-specific fields (all zeroed by calloc is fine
+ * for most, but suppress_exception_deopt defaults to false = 0). */
+static inline void hir_c_init_deopt(void *instr, int32_t opcode) {
+    hir_c_init_instr(instr, opcode);
+    /* DeoptBase fields are zeroed by calloc:
+     * - live_regs_storage: zero = empty vector (constructed by C++ later)
+     * - frame_state: NULL = no frame state
+     * - guilty_reg: NULL
+     * - nonce: 0 (will be set to -1 by C++ constructor, but 0 is safe)
+     * - descr_storage: zero = empty string
+     * - suppress_exception_deopt: 0 = false */
+}
+
 /* Free an instruction allocated by hir_c_alloc_instr */
 static inline void hir_c_free_instr(void *instr) {
     size_t n = hir_c_num_operands(instr);
@@ -517,7 +537,7 @@ static inline void hir_c_free_instr(void *instr) {
 static inline void *hir_c_create_load_const(void *dst_reg, HirType type) {
     HirLoadConst *lc = (HirLoadConst *)hir_c_alloc_instr(sizeof(HirLoadConst), 0);
     if (!lc) return NULL;
-    lc->opcode = HIR_OP_LoadConst;
+    hir_c_init_instr(lc, HIR_OP_LoadConst);
     lc->type = type;
     hir_c_set_output(lc, dst_reg);
     return lc;
@@ -532,7 +552,7 @@ static inline void *hir_c_create_load_const(void *dst_reg, HirType type) {
 static inline void *hir_c_create_branch(void *target_block) {
     HirBranch *br = (HirBranch *)hir_c_alloc_instr(sizeof(HirBranch), 0);
     if (!br) return NULL;
-    br->opcode = HIR_OP_Branch;
+    hir_c_init_instr(br, HIR_OP_Branch);
     br->edge.to = target_block;
     return br;
 }
@@ -547,7 +567,7 @@ static inline void *hir_c_create_cond_branch(void *cond_reg,
     HirCondBranchInstr *cb = (HirCondBranchInstr *)hir_c_alloc_instr(
         sizeof(HirCondBranchInstr), 1);
     if (!cb) return NULL;
-    cb->opcode = HIR_OP_CondBranch;
+    hir_c_init_instr(cb, HIR_OP_CondBranch);
     cb->true_edge.to = true_block;
     cb->false_edge.to = false_block;
     hir_c_set_operand(cb, 0, cond_reg);
@@ -560,7 +580,7 @@ static inline void *hir_c_create_cond_branch(void *cond_reg,
 static inline void *hir_c_create_use_type(void *val_reg, HirType type) {
     HirUseType *ut = (HirUseType *)hir_c_alloc_instr(sizeof(HirUseType), 1);
     if (!ut) return NULL;
-    ut->opcode = HIR_OP_UseType;
+    hir_c_init_instr(ut, HIR_OP_UseType);
     ut->type = type;
     hir_c_set_operand(ut, 0, val_reg);
     return ut;
@@ -574,7 +594,7 @@ static inline void *hir_c_create_primitive_compare(void *dst_reg, int32_t op,
     HirPrimitiveCompare *pc = (HirPrimitiveCompare *)hir_c_alloc_instr(
         sizeof(HirPrimitiveCompare), 2);
     if (!pc) return NULL;
-    pc->opcode = HIR_OP_PrimitiveCompare;
+    hir_c_init_instr(pc, HIR_OP_PrimitiveCompare);
     pc->op = op;
     hir_c_set_output(pc, dst_reg);
     hir_c_set_operand(pc, 0, left);
@@ -590,7 +610,7 @@ static inline void *hir_c_create_int_binary_op(void *dst_reg, int32_t op,
     HirIntBinaryOp *ib = (HirIntBinaryOp *)hir_c_alloc_instr(
         sizeof(HirIntBinaryOp), 2);
     if (!ib) return NULL;
-    ib->opcode = HIR_OP_IntBinaryOp;
+    hir_c_init_instr(ib, HIR_OP_IntBinaryOp);
     ib->op = op;
     hir_c_set_output(ib, dst_reg);
     hir_c_set_operand(ib, 0, left);
@@ -606,7 +626,7 @@ static inline void *hir_c_create_double_binary_op(void *dst_reg, int32_t op,
     HirDoubleBinaryOp *db = (HirDoubleBinaryOp *)hir_c_alloc_instr(
         sizeof(HirDoubleBinaryOp), 2);
     if (!db) return NULL;
-    db->opcode = HIR_OP_DoubleBinaryOp;
+    hir_c_init_instr(db, HIR_OP_DoubleBinaryOp);
     db->op = op;
     hir_c_set_output(db, dst_reg);
     hir_c_set_operand(db, 0, left);
@@ -622,7 +642,7 @@ static inline void *hir_c_create_primitive_unary_op(void *dst_reg, int32_t op,
     HirPrimitiveUnaryOp *pu = (HirPrimitiveUnaryOp *)hir_c_alloc_instr(
         sizeof(HirPrimitiveUnaryOp), 1);
     if (!pu) return NULL;
-    pu->opcode = HIR_OP_PrimitiveUnaryOp;
+    hir_c_init_instr(pu, HIR_OP_PrimitiveUnaryOp);
     pu->op = op;
     hir_c_set_output(pu, dst_reg);
     hir_c_set_operand(pu, 0, operand);
@@ -637,7 +657,7 @@ static inline void *hir_c_create_float_compare(void *dst_reg, int32_t op,
     HirFloatCompare *fc = (HirFloatCompare *)hir_c_alloc_instr(
         sizeof(HirFloatCompare), 2);
     if (!fc) return NULL;
-    fc->opcode = HIR_OP_FloatCompare;
+    hir_c_init_instr(fc, HIR_OP_FloatCompare);
     fc->op = op;
     hir_c_set_output(fc, dst_reg);
     hir_c_set_operand(fc, 0, left);
@@ -653,7 +673,7 @@ static inline void *hir_c_create_long_compare(void *dst_reg, int32_t op,
     HirLongCompare *lc = (HirLongCompare *)hir_c_alloc_instr(
         sizeof(HirLongCompare), 2);
     if (!lc) return NULL;
-    lc->opcode = HIR_OP_LongCompare;
+    hir_c_init_instr(lc, HIR_OP_LongCompare);
     lc->op = op;
     hir_c_set_output(lc, dst_reg);
     hir_c_set_operand(lc, 0, left);
@@ -669,7 +689,7 @@ static inline void *hir_c_create_unicode_compare(void *dst_reg, int32_t op,
     HirUnicodeCompare *uc = (HirUnicodeCompare *)hir_c_alloc_instr(
         sizeof(HirUnicodeCompare), 2);
     if (!uc) return NULL;
-    uc->opcode = HIR_OP_UnicodeCompare;
+    hir_c_init_instr(uc, HIR_OP_UnicodeCompare);
     uc->op = op;
     hir_c_set_output(uc, dst_reg);
     hir_c_set_operand(uc, 0, left);
@@ -684,7 +704,7 @@ static inline void *hir_c_create_primitive_box_bool(void *dst_reg, void *src) {
     HirInstrLayout *pb = (HirInstrLayout *)hir_c_alloc_instr(
         sizeof(HirInstrLayout), 1);
     if (!pb) return NULL;
-    pb->opcode = HIR_OP_PrimitiveBoxBool;
+    hir_c_init_instr(pb, HIR_OP_PrimitiveBoxBool);
     hir_c_set_output(pb, dst_reg);
     hir_c_set_operand(pb, 0, src);
     return pb;
@@ -697,7 +717,7 @@ static inline void *hir_c_create_cint_to_cbool(void *dst_reg, void *src) {
     HirInstrLayout *ct = (HirInstrLayout *)hir_c_alloc_instr(
         sizeof(HirInstrLayout), 1);
     if (!ct) return NULL;
-    ct->opcode = HIR_OP_CIntToCBool;
+    hir_c_init_instr(ct, HIR_OP_CIntToCBool);
     hir_c_set_output(ct, dst_reg);
     hir_c_set_operand(ct, 0, src);
     return ct;
@@ -709,7 +729,7 @@ static inline void *hir_c_create_cint_to_cbool(void *dst_reg, void *src) {
 static inline void *hir_c_create_bit_cast(void *dst_reg, void *src, HirType type) {
     HirBitCast *bc = (HirBitCast *)hir_c_alloc_instr(sizeof(HirBitCast), 1);
     if (!bc) return NULL;
-    bc->opcode = HIR_OP_BitCast;
+    hir_c_init_instr(bc, HIR_OP_BitCast);
     bc->type = type;
     hir_c_set_output(bc, dst_reg);
     hir_c_set_operand(bc, 0, src);
@@ -722,7 +742,7 @@ static inline void *hir_c_create_bit_cast(void *dst_reg, void *src, HirType type
 static inline void *hir_c_create_refine_type(void *dst_reg, HirType type, void *src) {
     HirRefineType *rt = (HirRefineType *)hir_c_alloc_instr(sizeof(HirRefineType), 1);
     if (!rt) return NULL;
-    rt->opcode = HIR_OP_RefineType;
+    hir_c_init_instr(rt, HIR_OP_RefineType);
     rt->type = type;
     hir_c_set_output(rt, dst_reg);
     hir_c_set_operand(rt, 0, src);
@@ -736,7 +756,7 @@ static inline void *hir_c_create_primitive_unbox(void *dst_reg, void *src, HirTy
     HirPrimitiveUnbox *pu = (HirPrimitiveUnbox *)hir_c_alloc_instr(
         sizeof(HirPrimitiveUnbox), 1);
     if (!pu) return NULL;
-    pu->opcode = HIR_OP_PrimitiveUnbox;
+    hir_c_init_instr(pu, HIR_OP_PrimitiveUnbox);
     pu->type = type;
     hir_c_set_output(pu, dst_reg);
     hir_c_set_operand(pu, 0, src);
@@ -750,7 +770,7 @@ static inline void *hir_c_create_index_unbox(void *dst_reg, void *src, void *exc
     HirIndexUnbox *iu = (HirIndexUnbox *)hir_c_alloc_instr(
         sizeof(HirIndexUnbox), 1);
     if (!iu) return NULL;
-    iu->opcode = HIR_OP_IndexUnbox;
+    hir_c_init_instr(iu, HIR_OP_IndexUnbox);
     iu->exc = exc;
     hir_c_set_output(iu, dst_reg);
     hir_c_set_operand(iu, 0, src);
@@ -764,7 +784,7 @@ static inline void *hir_c_create_load_type_attr_cache_entry_type(
     HirLoadTypeAttrCacheEntryType *lc = (HirLoadTypeAttrCacheEntryType *)
         hir_c_alloc_instr(sizeof(HirLoadTypeAttrCacheEntryType), 0);
     if (!lc) return NULL;
-    lc->opcode = HIR_OP_LoadTypeAttrCacheEntryType;
+    hir_c_init_instr(lc, HIR_OP_LoadTypeAttrCacheEntryType);
     lc->cache_id = cache_id;
     hir_c_set_output(lc, dst_reg);
     return lc;
@@ -775,7 +795,7 @@ static inline void *hir_c_create_load_type_attr_cache_entry_value(
     HirLoadTypeAttrCacheEntryValue *lc = (HirLoadTypeAttrCacheEntryValue *)
         hir_c_alloc_instr(sizeof(HirLoadTypeAttrCacheEntryValue), 0);
     if (!lc) return NULL;
-    lc->opcode = HIR_OP_LoadTypeAttrCacheEntryValue;
+    hir_c_init_instr(lc, HIR_OP_LoadTypeAttrCacheEntryValue);
     lc->cache_id = cache_id;
     hir_c_set_output(lc, dst_reg);
     return lc;
@@ -786,7 +806,7 @@ static inline void *hir_c_create_load_type_method_cache_entry_type(
     HirLoadTypeMethodCacheEntryType *lc = (HirLoadTypeMethodCacheEntryType *)
         hir_c_alloc_instr(sizeof(HirLoadTypeMethodCacheEntryType), 0);
     if (!lc) return NULL;
-    lc->opcode = HIR_OP_LoadTypeMethodCacheEntryType;
+    hir_c_init_instr(lc, HIR_OP_LoadTypeMethodCacheEntryType);
     lc->cache_id = cache_id;
     hir_c_set_output(lc, dst_reg);
     return lc;
@@ -797,7 +817,7 @@ static inline void *hir_c_create_load_type_method_cache_entry_value(
     HirLoadTypeMethodCacheEntryValue *lc = (HirLoadTypeMethodCacheEntryValue *)
         hir_c_alloc_instr(sizeof(HirLoadTypeMethodCacheEntryValue), 1);
     if (!lc) return NULL;
-    lc->opcode = HIR_OP_LoadTypeMethodCacheEntryValue;
+    hir_c_init_instr(lc, HIR_OP_LoadTypeMethodCacheEntryValue);
     lc->cache_id = cache_id;
     hir_c_set_output(lc, dst_reg);
     hir_c_set_operand(lc, 0, receiver);
@@ -809,7 +829,7 @@ static inline void *hir_c_create_load_split_dict_item(
     HirLoadSplitDictItem *ls = (HirLoadSplitDictItem *)
         hir_c_alloc_instr(sizeof(HirLoadSplitDictItem), 1);
     if (!ls) return NULL;
-    ls->opcode = HIR_OP_LoadSplitDictItem;
+    hir_c_init_instr(ls, HIR_OP_LoadSplitDictItem);
     ls->item_idx = item_idx;
     hir_c_set_output(ls, dst_reg);
     hir_c_set_operand(ls, 0, src);
