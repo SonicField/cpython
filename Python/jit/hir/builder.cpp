@@ -801,6 +801,11 @@ struct HIRBuilder::TranslationContext {
     emitC(static_cast<Instr*>(hir_c_create_raise_static_reg(reraise, exc_type, fmt, const_cast<void*>(static_cast<const void*>(&fs)))));
   }
 
+  // MatchClass via C factory (4 operands + output)
+  void emitMatchClass(Register* dst, Register* subject, Register* type, Register* nargs, Register* names) {
+    emitC(static_cast<Instr*>(hir_c_create_match_class_reg2(dst, subject, type, nargs, names)));
+  }
+
   // LoadMethodSuper/LoadAttrSuper via C factory
   void emitLoadMethodSuper(Register* dst, Register* global_super, Register* type, Register* receiver, int name_idx, bool no_args, const FrameState& fs) {
     emitC(static_cast<Instr*>(hir_c_create_load_method_super_reg(dst, global_super, type, receiver, name_idx, no_args, const_cast<void*>(static_cast<const void*>(&fs)))));
@@ -6292,7 +6297,7 @@ void HIRBuilder::emitMatchClass(
   tc.emitLoadConst(nargs, Type::fromCUInt(oparg, TCUInt64));
 
   auto attrs_tuple = temps_.AllocateStack();
-  tc.emit<MatchClass>(attrs_tuple, subject, type, nargs, names);
+  tc.emitMatchClass(attrs_tuple, subject, type, nargs, names);
   tc.emitRefineType(attrs_tuple, TOptTupleExact, attrs_tuple);
 
   Register* tuple_or_none = temps_.AllocateStack();

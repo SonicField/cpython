@@ -1225,6 +1225,10 @@ HirInstr hir_c_create_load_attr_super_reg(HirRegister dst, HirRegister global_su
   return LoadAttrSuper::create(as_reg(dst), as_reg(global_super), as_reg(type), as_reg(receiver), name_idx, no_args != 0, *static_cast<const FrameState*>(fs));
 }
 
+HirInstr hir_c_create_match_class_reg2(HirRegister dst, HirRegister subject, HirRegister type, HirRegister nargs, HirRegister names) {
+  return MatchClass::create(as_reg(dst), as_reg(subject), as_reg(type), as_reg(nargs), as_reg(names));
+}
+
 HirInstr hir_c_create_load_attr_special_reg(HirRegister dst, HirRegister receiver, void *id, const char *fmt, void *fs) {
   return LoadAttrSpecial::create(as_reg(dst), as_reg(receiver), static_cast<PyObject*>(id), fmt, *static_cast<const FrameState*>(fs));
 }

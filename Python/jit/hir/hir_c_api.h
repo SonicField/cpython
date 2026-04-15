@@ -455,6 +455,7 @@ HirInstr hir_c_create_call_cfunc_reg(size_t n_operands, HirRegister dst, int32_t
 HirInstr hir_c_create_call_ind_reg2(size_t n_operands, HirRegister dst, const char *name, HirType ret_type);
 HirInstr hir_c_create_load_method_super_reg(HirRegister dst, HirRegister global_super, HirRegister type, HirRegister receiver, int32_t name_idx, int no_args, void *fs);
 HirInstr hir_c_create_load_attr_super_reg(HirRegister dst, HirRegister global_super, HirRegister type, HirRegister receiver, int32_t name_idx, int no_args, void *fs);
+HirInstr hir_c_create_match_class_reg2(HirRegister dst, HirRegister subject, HirRegister type, HirRegister nargs, HirRegister names);
 
 HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
     HirRegister src, void *body_block, void *done_block);
