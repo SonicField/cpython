@@ -322,6 +322,11 @@ HirInstr hir_c_create_cond_branch_cpp(void *cond_reg,
                                        void *true_block,
                                        void *false_block);
 
+/* Create a VectorCall instruction with caller-provided register.
+ * No FrameState — builder sets it separately. */
+HirInstr hir_c_create_vectorcall_reg(size_t n_operands, HirRegister dst,
+                                      uint32_t flags);
+
 /* Create a CondBranchCheckType instruction (1 operand, 2 edges, Type field).
  * Uses C++ Edge::set_to for proper in_edges management. */
 HirInstr hir_c_create_cond_branch_check_type_cpp(

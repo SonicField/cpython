@@ -894,6 +894,12 @@ HirInstr hir_c_create_branch_cpp(void *target_block) {
   return Branch::create(bb);
 }
 
+HirInstr hir_c_create_vectorcall_reg(size_t n_operands, HirRegister dst,
+                                      uint32_t flags) {
+  return VectorCall::create(
+      n_operands, as_reg(dst), static_cast<CallFlags>(flags));
+}
+
 HirInstr hir_c_create_cond_branch_check_type_cpp(
     HirRegister target, HirType type,
     void *true_block, void *false_block) {

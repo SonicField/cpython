@@ -413,6 +413,13 @@ struct HIRBuilder::TranslationContext {
     emitC(static_cast<Instr*>(hir_c_create_return(src, to_hir(type))));
   }
 
+  // VectorCall via C++ bridge (returns VectorCall* for operand wiring).
+  VectorCall* emitVectorCall(size_t n_operands, Register* dst, CallFlags flags) {
+    return static_cast<VectorCall*>(emitC(static_cast<Instr*>(
+        hir_c_create_vectorcall_reg(n_operands, dst,
+                                     static_cast<uint32_t>(flags)))));
+  }
+
   // CondBranchCheckType via C++ bridge (Edge::set_to). Returns instruction.
   Instr* emitCondBranchCheckType(Register* target, Type type,
                                   BasicBlock* true_bb, BasicBlock* false_bb) {
@@ -3157,7 +3164,7 @@ bool HIRBuilder::emitInvokeFunction(
   }
 
   // Add one for the function argument.
-  auto call = tc.emit<VectorCall>(nargs + 1, out, flags);
+  auto call = tc.emitVectorCall(nargs + 1, out, flags);
   for (auto i = 0; i < nargs; i++) {
     call->SetOperand(i + 1, arg_regs.at(i));
   }
@@ -3202,7 +3209,7 @@ void HIRBuilder::emitInvokeMethodVectorCall(
     const InvokeTarget& target) {
   Register* out = temps_.AllocateStack();
 
-  auto vectorCall = tc.emit<VectorCall>(
+  auto vectorCall = tc.emitVectorCall(
       arg_regs.size(), out, is_awaited ? CallFlags::Awaited : CallFlags::None);
   for (auto i = 0; i < arg_regs.size(); i++) {
     vectorCall->SetOperand(i, arg_regs.at(i));
@@ -5303,7 +5310,7 @@ Register* HIRBuilder::emitSetupWithCommon(
   stack.push(exit);
 
   Register* enter_result = temps_.AllocateStack();
-  auto call = tc.emit<VectorCall>(1, enter_result, CallFlags::None);
+  auto call = tc.emitVectorCall(1, enter_result, CallFlags::None);
   call->setFrameState(tc.frame);
   call->SetOperand(0, enter);
   return enter_result;
