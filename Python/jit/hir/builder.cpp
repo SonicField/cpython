@@ -801,6 +801,14 @@ struct HIRBuilder::TranslationContext {
     emitC(static_cast<Instr*>(hir_c_create_raise_static_reg(reraise, exc_type, fmt, const_cast<void*>(static_cast<const void*>(&fs)))));
   }
 
+  // LoadMethodSuper/LoadAttrSuper via C factory
+  void emitLoadMethodSuper(Register* dst, Register* global_super, Register* type, Register* receiver, int name_idx, bool no_args, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_load_method_super_reg(dst, global_super, type, receiver, name_idx, no_args, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitLoadAttrSuper(Register* dst, Register* global_super, Register* type, Register* receiver, int name_idx, bool no_args, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_load_attr_super_reg(dst, global_super, type, receiver, name_idx, no_args, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
   // CallCFunc via C factory (variadic, function enum)
   Instr* emitCallCFunc(size_t n, Register* dst, CallCFunc::Func func_enum, const std::vector<Register*>& args) {
     return emitC(static_cast<Instr*>(hir_c_create_call_cfunc_reg(
@@ -4333,7 +4341,7 @@ void HIRBuilder::emitLoadMethodOrAttrSuper(
   tc.emitRefineType(type, TType, type);
 
   if (!load_method) {
-    tc.emit<LoadAttrSuper>(
+    tc.emitLoadAttrSuper(
         result,
         global_super,
         type,
@@ -4346,7 +4354,7 @@ void HIRBuilder::emitLoadMethodOrAttrSuper(
   }
 
   Register* method_instance = temps_.AllocateStack();
-  tc.emit<LoadMethodSuper>(
+  tc.emitLoadMethodSuper(
       result,
       global_super,
       type,
