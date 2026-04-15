@@ -447,6 +447,47 @@ struct Env {
     return pp;
   }
 
+  // Emit VectorCall via C factory, returns instruction for operand wiring.
+  // Output type is set to TObject (placeholder — depends on operands).
+  VectorCall* emitVectorCallInstr(size_t n_operands, CallFlags flags,
+                                   const FrameState& fs) {
+    auto* instr = static_cast<VectorCall*>(static_cast<Instr*>(
+        hir_c_create_vectorcall(
+            &func, n_operands, static_cast<uint32_t>(flags),
+            const_cast<void*>(static_cast<const void*>(&fs)))));
+    optimized = true;
+    instr->setBytecodeOffset(bc_off);
+    block->insert(instr, cursor);
+    // VectorCall output type depends on operands; use TObject placeholder.
+    instr->output()->set_type(TObject);
+    return instr;
+  }
+
+  // Emit CallStatic via C factory, returns instruction for operand wiring.
+  CallStatic* emitCallStaticInstr(size_t n_operands, void* addr, Type ret_type) {
+    auto* instr = static_cast<CallStatic*>(static_cast<Instr*>(
+        hir_c_create_call_static(&func, n_operands, addr, to_hir(ret_type))));
+    optimized = true;
+    instr->setBytecodeOffset(bc_off);
+    block->insert(instr, cursor);
+    if (instr->output()) {
+      instr->output()->set_type(outputType(*instr));
+    }
+    return instr;
+  }
+
+  // Emit CondBranch via C++ bridge, returns instruction (not register).
+  // Needed for emitCondSlowPath which patches true_bb after creation.
+  CondBranch* emitCondBranchInstr(Register* cond, BasicBlock* true_bb,
+                                   BasicBlock* false_bb) {
+    auto* instr = static_cast<CondBranch*>(static_cast<Instr*>(
+        hir_c_create_cond_branch_cpp(cond, true_bb, false_bb)));
+    optimized = true;
+    instr->setBytecodeOffset(bc_off);
+    block->insert(instr, cursor);
+    return instr;
+  }
+
   // Insert a pre-created instruction from a C factory into the current block.
   // Sets bytecode offset, inserts at cursor, computes output type.
   // Returns the output register (or nullptr if no output).
@@ -1741,8 +1782,7 @@ Register* simplifyLoadAttrProperty(Env& env, const DescrInfo& info) {
   emitTypeAttrDeoptPatcher(env, info, "property attribute");
   env.emitUseType(info.receiver, info.type);
   Register* getter_obj = env.emitLoadConst(Type::fromObject(getter));
-  auto call = env.emitRawInstr<VectorCall>(
-      2, env.func.env.AllocateRegister(), CallFlags::None, *info.frame_state);
+  auto call = env.emitVectorCallInstr(2, CallFlags::None, *info.frame_state);
   call->SetOperand(0, getter_obj);
   call->SetOperand(1, info.receiver);
   return call->output();
@@ -1769,11 +1809,8 @@ Register* simplifyLoadAttrGenericDescriptor(Env& env, const DescrInfo& info) {
   env.emitUseType(info.receiver, info.type);
   Register* descr_reg = env.emitLoadConst(Type::fromObject(info.descr));
   Register* type_reg = env.emitLoadConst(Type::fromObject(info.py_type));
-  auto call = env.emitRawInstr<CallStatic>(
-      3,
-      env.func.env.AllocateRegister(),
-      reinterpret_cast<void*>(descr_get),
-      TOptObject);
+  auto call = env.emitCallStaticInstr(3, reinterpret_cast<void*>(descr_get),
+                                      TOptObject);
   call->SetOperand(0, descr_reg);
   call->SetOperand(1, info.receiver);
   call->SetOperand(2, type_reg);
@@ -2020,17 +2057,10 @@ static Register* resolveArgs(
       offsetof(PyFunctionObject, func_defaults),
       TTuple);
   env.emitGuardIs(defaults, defaults_obj);
-  // creates an instruction VectorCall(arg_size, dest_reg, frame_state)
-  // and inserts it to the current block. Returns the output of vectorcall
-  auto new_instr = env.emitRawInstr<VectorCall>(
-      resolved_args.size() + 1,
-      env.func.env.AllocateRegister(), // output register
-      CallFlags::None,
-      *instr->frameState());
+  auto new_instr = env.emitVectorCallInstr(
+      resolved_args.size() + 1, CallFlags::None, *instr->frameState());
   Register* result = new_instr->output();
 
-  // populate the call arguments of the newly created VectorCall
-  // the first arg is the function to call
   new_instr->SetOperand(0, instr->func());
   for (size_t i = 0; i < resolved_args.size(); i++) {
     new_instr->SetOperand(i + 1, resolved_args.at(i));
@@ -2044,11 +2074,8 @@ Register* simplifyCallMethod(Env& env, const CallMethod* instr) {
   // using a VectorCall directly.
   if constexpr (PY_VERSION_HEX >= 0x030E0000) {
     if (instr->self()->type() <= TNullptr) {
-      auto call = env.emitRawInstr<VectorCall>(
-          instr->NumOperands() - 1,
-          env.func.env.AllocateRegister(),
-          instr->flags(),
-          *instr->frameState());
+      auto call = env.emitVectorCallInstr(
+          instr->NumOperands() - 1, instr->flags(), *instr->frameState());
       call->setSuppressExceptionDeopt(instr->suppressExceptionDeopt());
       call->SetOperand(0, instr->GetOperand(0));
       for (size_t i = 2; i < instr->NumOperands(); ++i) {
@@ -2059,11 +2086,8 @@ Register* simplifyCallMethod(Env& env, const CallMethod* instr) {
     }
   } else {
     if (instr->func()->type() <= TNullptr) {
-      auto call = env.emitRawInstr<VectorCall>(
-          instr->NumOperands() - 1,
-          env.func.env.AllocateRegister(),
-          instr->flags(),
-          *instr->frameState());
+      auto call = env.emitVectorCallInstr(
+          instr->NumOperands() - 1, instr->flags(), *instr->frameState());
       call->setSuppressExceptionDeopt(instr->suppressExceptionDeopt());
       for (size_t i = 1; i < instr->NumOperands(); ++i) {
         call->SetOperand(i - 1, instr->GetOperand(i));
@@ -2158,11 +2182,8 @@ Register* simplifyCallMethod(Env& env, const CallMethod* instr) {
               // CallMethod operands 1..N are the args passed to the bound
               // method — prepend the receiver as self for the static call.
               size_t cm_noperands = instr->NumOperands();
-              auto new_call = env.emitRawInstr<VectorCall>(
-                  cm_noperands + 1,
-                  env.func.env.AllocateRegister(),
-                  CallFlags::Static,
-                  *instr->frameState());
+              auto new_call = env.emitVectorCallInstr(
+                  cm_noperands + 1, CallFlags::Static, *instr->frameState());
               new_call->setSuppressExceptionDeopt(instr->suppressExceptionDeopt());
               new_call->SetOperand(0, func_const);
               new_call->SetOperand(1, receiver);
@@ -2204,21 +2225,19 @@ static Register* trySpecializeCCall(Env& env, const VectorCall* instr) {
     auto meth = reinterpret_cast<PyMethodDescrObject*>(callable_obj);
     PyMethodDef* def = meth->d_method;
     if (def->ml_flags & METH_NOARGS && instr->numArgs() == 1) {
-      Register* result = env.emitVariadic<CallStatic>(
-          1,
-          reinterpret_cast<void*>(def->ml_meth),
-          instr->output()->type() | TNullptr,
-          /* self */ instr->arg(0));
-      return env.emitCheckExc(result, *instr->frameState());
+      auto call = env.emitCallStaticInstr(
+          1, reinterpret_cast<void*>(def->ml_meth),
+          instr->output()->type() | TNullptr);
+      call->SetOperand(0, instr->arg(0));
+      return env.emitCheckExc(call->output(), *instr->frameState());
     }
     if (def->ml_flags & METH_O && instr->numArgs() == 2) {
-      Register* result = env.emitVariadic<CallStatic>(
-          2,
-          reinterpret_cast<void*>(def->ml_meth),
-          instr->output()->type() | TNullptr,
-          /* self */ instr->arg(0),
-          /* arg */ instr->arg(1));
-      return env.emitCheckExc(result, *instr->frameState());
+      auto call = env.emitCallStaticInstr(
+          2, reinterpret_cast<void*>(def->ml_meth),
+          instr->output()->type() | TNullptr);
+      call->SetOperand(0, instr->arg(0));
+      call->SetOperand(1, instr->arg(1));
+      return env.emitCheckExc(call->output(), *instr->frameState());
     }
   }
   return nullptr;
@@ -2437,11 +2456,8 @@ Register* simplifyVectorCallBoundMethod(Env& env, const VectorCall* instr) {
   // Build a new VectorCall with the function, self (receiver), and
   // original arguments. Mark as Static since we're calling directly.
   size_t orig_nargs = instr->numArgs();
-  auto new_call = env.emitRawInstr<VectorCall>(
-      2 + orig_nargs,
-      env.func.env.AllocateRegister(),
-      instr->flags() | CallFlags::Static,
-      *instr->frameState());
+  auto new_call = env.emitVectorCallInstr(
+      2 + orig_nargs, instr->flags() | CallFlags::Static, *instr->frameState());
   new_call->SetOperand(0, func_const);
   new_call->SetOperand(1, receiver);
   for (size_t i = 0; i < orig_nargs; ++i) {
@@ -2524,11 +2540,8 @@ Register* simplifyVectorCallGlobal(Env& env, const VectorCall* instr) {
 
   // Build a new VectorCall with the constant function and original arguments.
   size_t orig_nargs = instr->numArgs();
-  auto new_call = env.emitRawInstr<VectorCall>(
-      1 + orig_nargs,
-      env.func.env.AllocateRegister(),
-      instr->flags() | CallFlags::Static,
-      *instr->frameState());
+  auto new_call = env.emitVectorCallInstr(
+      1 + orig_nargs, instr->flags() | CallFlags::Static, *instr->frameState());
   new_call->SetOperand(0, func_const);
   for (size_t i = 0; i < orig_nargs; ++i) {
     new_call->SetOperand(1 + i, instr->arg(i));
@@ -2605,7 +2618,7 @@ Register* simplifyVectorCall(Env& env, const VectorCall* instr) {
           result,
           compare_type,
           [&](auto slow_path) {
-            return env.emitInstr<CondBranch>(compare_type, nullptr, slow_path);
+            return env.emitCondBranchInstr(compare_type, nullptr, slow_path);
           },
           [&] {
             return env.emitIsInstance(obj_op, type_op, *instr->frameState());
@@ -2655,17 +2668,15 @@ Register* simplifyVectorCall(Env& env, const VectorCall* instr) {
 
 Register* simplifyStoreSubscr(Env& env, const StoreSubscr* instr) {
   if (instr->GetOperand(0)->isA(TDictExact)) {
-    auto output = env.func.env.AllocateRegister();
-    env.emitRawInstr<CallStatic>(
+    auto call = env.emitCallStaticInstr(
         3,
-        output,
         reinterpret_cast<void*>(PyDict_Type.tp_as_mapping->mp_ass_subscript),
-        TCInt32,
-        instr->GetOperand(0),
-        instr->GetOperand(1),
-        instr->GetOperand(2));
+        TCInt32);
+    call->SetOperand(0, instr->GetOperand(0));
+    call->SetOperand(1, instr->GetOperand(1));
+    call->SetOperand(2, instr->GetOperand(2));
 
-    env.emitCheckNeg(output, *instr->frameState());
+    env.emitCheckNeg(call->output(), *instr->frameState());
     return nullptr;
   }
 
@@ -2804,12 +2815,8 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
             iter_type == jit::g_tuple_iterator_type))) {
         // Known non-generator iterator: use direct JITRT_InvokeIterNext
         // which still handles sentinel conversion but skips the JitGen check
-        auto* iter_next = static_cast<const InvokeIterNext*>(instr);
-        auto call = env.emitRawInstr<CallStatic>(
-            1,
-            env.func.env.AllocateRegister(),
-            reinterpret_cast<void*>(JITRT_InvokeIterNext),
-            TObject);
+        auto call = env.emitCallStaticInstr(
+            1, reinterpret_cast<void*>(JITRT_InvokeIterNext), TObject);
         call->SetOperand(0, iterator);
         return call->output();
       }
