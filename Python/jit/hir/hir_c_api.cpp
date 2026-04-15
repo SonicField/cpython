@@ -926,9 +926,12 @@ HirInstr hir_c_create_is_neg_and_err(HirFunction func, HirRegister src,
   if (!frame_state) return nullptr;
   auto* f = static_cast<Function*>(func);
   auto* dst = f->env.AllocateRegister();
-  return IsNegativeAndErrOccurred::create(
-      dst, as_reg(src),
-      *static_cast<const FrameState*>(frame_state));
+  HirIsNegativeAndErrOccurred *i = (HirIsNegativeAndErrOccurred *)hir_c_alloc_instr(sizeof(HirIsNegativeAndErrOccurred), 1);
+  hir_c_init_deopt(i, HIR_OP_IsNegativeAndErrOccurred);
+  hir_c_set_output(i, dst);
+  hir_c_set_operand(i, 0, src);
+  as_instr(i)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return i;
 }
 
 /* ---- Branch/CondBranch factories (C++ bridge for Edge management) ---- */
@@ -993,8 +996,12 @@ HirInstr hir_c_create_decref_reg(HirRegister src) {
 
 HirInstr hir_c_create_make_cell_reg(HirRegister dst, HirRegister src,
                                      void *frame_state) {
-  return MakeCell::create(as_reg(dst), as_reg(src),
-                           *static_cast<const FrameState*>(frame_state));
+  HirMakeCell *c = (HirMakeCell *)hir_c_alloc_instr(sizeof(HirMakeCell), 1);
+  hir_c_init_deopt(c, HIR_OP_MakeCell);
+  hir_c_set_output(c, dst);
+  hir_c_set_operand(c, 0, src);
+  as_instr(c)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return c;
 }
 
 HirInstr hir_c_create_initial_yield_reg(HirRegister dst, void *frame_state) {
@@ -1753,45 +1760,77 @@ HirInstr hir_c_create_int_convert_reg(HirRegister dst, HirRegister src,
 
 HirInstr hir_c_create_get_iter_reg(HirRegister dst, HirRegister src,
                                     void *frame_state) {
-  return GetIter::create(as_reg(dst), as_reg(src),
-                          *static_cast<const FrameState*>(frame_state));
+  HirDeoptLayout *g = (HirDeoptLayout *)hir_c_alloc_instr(sizeof(HirDeoptLayout), 1);
+  hir_c_init_deopt(g, HIR_OP_GetIter);
+  hir_c_set_output(g, dst);
+  hir_c_set_operand(g, 0, src);
+  as_instr(g)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return g;
 }
 
 HirInstr hir_c_create_load_field_address_reg(HirRegister dst, HirRegister object,
                                               HirRegister offset) {
-  return LoadFieldAddress::create(as_reg(dst), as_reg(object), as_reg(offset));
+  HirInstrLayout *l = (HirInstrLayout *)hir_c_alloc_instr(sizeof(HirInstrLayout), 2);
+  hir_c_init_instr(l, HIR_OP_LoadFieldAddress);
+  hir_c_set_output(l, dst);
+  hir_c_set_operand(l, 0, object);
+  hir_c_set_operand(l, 1, offset);
+  return l;
 }
 
 HirInstr hir_c_create_yield_value_reg(HirRegister dst, HirRegister src,
                                        void *frame_state) {
-  return YieldValue::create(as_reg(dst), as_reg(src),
-                             *static_cast<const FrameState*>(frame_state));
+  HirYieldValue *y = (HirYieldValue *)hir_c_alloc_instr(sizeof(HirYieldValue), 1);
+  hir_c_init_deopt(y, HIR_OP_YieldValue);
+  hir_c_set_output(y, dst);
+  hir_c_set_operand(y, 0, src);
+  as_instr(y)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return y;
 }
 
 HirInstr hir_c_create_yield_from_reg(HirRegister dst, HirRegister send_value,
                                       HirRegister iter, void *frame_state) {
-  return YieldFrom::create(as_reg(dst), as_reg(send_value), as_reg(iter),
-                            *static_cast<const FrameState*>(frame_state));
+  HirDeoptLayout *y = (HirDeoptLayout *)hir_c_alloc_instr(sizeof(HirDeoptLayout), 2);
+  hir_c_init_deopt(y, HIR_OP_YieldFrom);
+  hir_c_set_output(y, dst);
+  hir_c_set_operand(y, 0, send_value);
+  hir_c_set_operand(y, 1, iter);
+  as_instr(y)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return y;
 }
 
 HirInstr hir_c_create_check_var_reg(HirRegister dst, HirRegister src,
                                      void *name, void *frame_state) {
-  return CheckVar::create(as_reg(dst), as_reg(src),
-                           static_cast<PyObject*>(name),
-                           *static_cast<const FrameState*>(frame_state));
+  HirCheckVar *c = (HirCheckVar *)hir_c_alloc_instr(sizeof(HirCheckVar), 1);
+  hir_c_init_deopt(c, HIR_OP_CheckVar);
+  c->name = name;
+  hir_c_set_output(c, dst);
+  hir_c_set_operand(c, 0, src);
+  as_instr(c)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return c;
 }
 
 HirInstr hir_c_create_set_dict_item_reg(HirRegister dst, HirRegister dict,
                                          HirRegister key, HirRegister value,
                                          void *frame_state) {
-  return SetDictItem::create(as_reg(dst), as_reg(dict), as_reg(key),
-                              as_reg(value),
-                              *static_cast<const FrameState*>(frame_state));
+  HirDeoptLayout *s = (HirDeoptLayout *)hir_c_alloc_instr(sizeof(HirDeoptLayout), 3);
+  hir_c_init_deopt(s, HIR_OP_SetDictItem);
+  hir_c_set_output(s, dst);
+  hir_c_set_operand(s, 0, dict);
+  hir_c_set_operand(s, 1, key);
+  hir_c_set_operand(s, 2, value);
+  as_instr(s)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return s;
 }
 
 HirInstr hir_c_create_load_tuple_item_reg(HirRegister dst, HirRegister tuple,
                                            int32_t idx) {
-  return LoadTupleItem::create(as_reg(dst), as_reg(tuple), idx);
+  HirLoadTupleItem *l = (HirLoadTupleItem *)hir_c_alloc_instr(sizeof(HirLoadTupleItem), 1);
+  hir_c_init_instr(l, HIR_OP_LoadTupleItem);
+  l->idx = (size_t)idx;
+  hir_c_set_output(l, dst);
+  hir_c_set_operand(l, 0, tuple);
+  return l;
 }
 
 HirInstr hir_c_create_is_truthy_reg(HirRegister dst, HirRegister src,
@@ -1812,8 +1851,12 @@ HirInstr hir_c_create_get_second_output_reg(HirRegister dst, HirType type,
 
 HirInstr hir_c_create_set_function_attr_reg(HirRegister value, HirRegister base,
                                              int32_t field) {
-  return SetFunctionAttr::create(as_reg(value), as_reg(base),
-                                  static_cast<FunctionAttr>(field));
+  HirSetFunctionAttr *s = (HirSetFunctionAttr *)hir_c_alloc_instr(sizeof(HirSetFunctionAttr), 2);
+  hir_c_init_instr(s, HIR_OP_SetFunctionAttr);
+  s->field = field;
+  hir_c_set_operand(s, 0, value);
+  hir_c_set_operand(s, 1, base);
+  return s;
 }
 
 HirInstr hir_c_create_check_neg_reg(HirRegister dst, HirRegister src,
