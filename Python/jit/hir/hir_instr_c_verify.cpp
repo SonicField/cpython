@@ -65,6 +65,10 @@ struct HirInstrLayoutVerifier {
     static_assert(sizeof(HirBitCast) == sizeof(BitCast));
     static_assert(sizeof(HirReturn) == sizeof(Return));
     static_assert(sizeof(HirUseType) == sizeof(UseType));
+    static_assert(offsetof(HirUseType, type) == offsetof(UseType, type_),
+                  "HirUseType::type offset mismatch with UseType::type_");
+    static_assert(offsetof(HirLoadConst, type) == offsetof(LoadConst, type_),
+                  "HirLoadConst::type offset mismatch with LoadConst::type_");
     static_assert(sizeof(HirIntConvert) == sizeof(IntConvert));
     static_assert(sizeof(HirPrimitiveUnbox) == sizeof(PrimitiveUnbox));
     static_assert(sizeof(HirGetSecondOutput) == sizeof(GetSecondOutput));
