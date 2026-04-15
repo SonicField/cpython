@@ -134,6 +134,7 @@ if(NOT PHOENIX_ASM)
   target_link_libraries(jit PRIVATE asmjit::asmjit interpreter fmt::fmt)
 else()
   target_link_libraries(jit PRIVATE interpreter fmt::fmt)
+  target_compile_definitions(jit PRIVATE PHOENIX_ASM)
 endif()
 
 ##############################################################################

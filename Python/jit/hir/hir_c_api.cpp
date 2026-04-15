@@ -1102,6 +1102,34 @@ HirInstr hir_c_create_primitive_unbox_reg(HirRegister dst, HirRegister src, HirT
   return PrimitiveUnbox::create(as_reg(dst), as_reg(src), cpp_type);
 }
 
+HirInstr hir_c_create_make_tuple_reg(size_t n, HirRegister dst, void *fs) {
+  return MakeTuple::create(n, as_reg(dst), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_make_list_reg(size_t n, HirRegister dst, void *fs) {
+  return MakeList::create(n, as_reg(dst), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_tp_alloc_reg(HirRegister dst, void *pytype, void *fs) {
+  return TpAlloc::create(as_reg(dst), static_cast<PyTypeObject*>(pytype), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_unpack_ex_to_tuple_reg(HirRegister dst, HirRegister seq, int32_t before, int32_t after, void *fs) {
+  return UnpackExToTuple::create(as_reg(dst), as_reg(seq), before, after, *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_load_method_reg(HirRegister dst, HirRegister receiver, int32_t name_idx, void *fs) {
+  return LoadMethod::create(as_reg(dst), as_reg(receiver), name_idx, *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_load_special_reg(HirRegister dst, HirRegister self, int32_t oparg, void *fs) {
+  return LoadSpecial::create(as_reg(dst), as_reg(self), oparg, *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_match_keys_reg(HirRegister dst, HirRegister subj, HirRegister keys, void *fs) {
+  return MatchKeys::create(as_reg(dst), as_reg(subj), as_reg(keys), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_raise_awaitable_error_reg(HirRegister type, int32_t is_aenter, void *fs) {
+  return RaiseAwaitableError::create(as_reg(type), is_aenter, *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_format_value_reg(HirRegister dst, HirRegister fmt, HirRegister val, int32_t conv, void *fs) {
+  return FormatValue::create(as_reg(dst), as_reg(fmt), as_reg(val), conv, *static_cast<const FrameState*>(fs));
+}
+
 HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
     HirRegister src, void *body_block, void *done_block) {
   return CondBranchIterNotDone::create(

@@ -726,6 +726,35 @@ struct HIRBuilder::TranslationContext {
     emitC(static_cast<Instr*>(hir_c_create_get_a_iter_reg(
         dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
   }
+  // Batch 4 wrappers
+  Instr* emitMakeTuple(size_t n, Register* dst, const FrameState& fs) {
+    return emitC(static_cast<Instr*>(hir_c_create_make_tuple_reg(n, dst, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  Instr* emitMakeList(size_t n, Register* dst, const FrameState& fs) {
+    return emitC(static_cast<Instr*>(hir_c_create_make_list_reg(n, dst, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitTpAlloc(Register* dst, PyTypeObject* pytype, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_tp_alloc_reg(dst, pytype, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitUnpackExToTuple(Register* dst, Register* seq, int before, int after, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_unpack_ex_to_tuple_reg(dst, seq, before, after, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitLoadMethod(Register* dst, Register* receiver, int name_idx, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_load_method_reg(dst, receiver, name_idx, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitLoadSpecial(Register* dst, Register* self, int oparg, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_load_special_reg(dst, self, oparg, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitMatchKeys(Register* dst, Register* subj, Register* keys, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_match_keys_reg(dst, subj, keys, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitRaiseAwaitableError(Register* type, int is_aenter, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_raise_awaitable_error_reg(type, is_aenter, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitFormatValue(Register* dst, Register* fmt, Register* val, int conv, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_format_value_reg(dst, fmt, val, conv, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
   void emitGetANext(Register* dst, Register* src, const FrameState& fs) {
     emitC(static_cast<Instr*>(hir_c_create_get_a_next_reg(
         dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
@@ -4164,7 +4193,7 @@ void HIRBuilder::emitLoadMethod(TranslationContext& tc, int name_idx) {
   Register* receiver = tc.frame.stack.pop();
   Register* result = temps_.AllocateStack();
   Register* method_instance = temps_.AllocateStack();
-  tc.emit<LoadMethod>(result, receiver, name_idx, tc.frame);
+  tc.emitLoadMethod(result, receiver, name_idx, tc.frame);
   tc.emitGetSecondOutput(method_instance, TOptObject, result);
   tc.frame.stack.push(result);
   tc.frame.stack.push(method_instance);
@@ -4989,9 +5018,9 @@ void HIRBuilder::emitMakeListTuple(
   auto dst = temps_.AllocateStack();
   Instr* instr;
   if (bc_instr.opcode() == BUILD_TUPLE) {
-    instr = tc.emit<MakeTuple>(num_elems, dst, tc.frame);
+    instr = tc.emitMakeTuple(num_elems, dst, tc.frame);
   } else {
-    instr = tc.emit<MakeList>(num_elems, dst, tc.frame);
+    instr = tc.emitMakeList(num_elems, dst, tc.frame);
   }
   for (size_t i = num_elems; i > 0; i--) {
     auto opnd = tc.frame.stack.pop();
@@ -5454,7 +5483,7 @@ void HIRBuilder::emitUnpackEx(
   Register* seq = stack.pop();
 
   Register* tuple = temps_.AllocateStack();
-  tc.emit<UnpackExToTuple>(tuple, seq, arg_before, arg_after, tc.frame);
+  tc.emitUnpackExToTuple(tuple, seq, arg_before, arg_after, tc.frame);
 
   int total_args = arg_before + arg_after + 1;
   for (int i = total_args - 1; i >= 0; i--) {
@@ -5798,7 +5827,7 @@ void HIRBuilder::emitTpAlloc(
   auto pytype = preloader_.pyType(constArg(bc_instr));
 
   Register* result = temps_.AllocateStack();
-  tc.emit<TpAlloc>(result, pytype, tc.frame);
+  tc.emitTpAlloc(result, pytype, tc.frame);
   tc.frame.stack.push(result);
 }
 
@@ -5947,7 +5976,7 @@ void HIRBuilder::emitGetAwaitable(
     Register* type = temps_.AllocateStack();
     tc.emitLoadField(
         type, iterable, "ob_type", offsetof(PyObject, ob_type), TType);
-    tc.emit<RaiseAwaitableError>(type, error_aenter, tc.frame);
+    tc.emitRaiseAwaitableError(type, error_aenter, tc.frame);
 
     tc.block = ok_block;
     // TASK(T105038867): Remove once we have RefineTypeInsertion
@@ -6020,7 +6049,7 @@ void HIRBuilder::emitFormatValue(
   Register* dst = temps_.AllocateStack();
   int which_conversion = oparg & FVC_MASK;
 
-  tc.emit<FormatValue>(dst, fmt_spec, value, which_conversion, tc.frame);
+  tc.emitFormatValue(dst, fmt_spec, value, which_conversion, tc.frame);
   tc.frame.stack.push(dst);
 }
 
@@ -6198,7 +6227,7 @@ void HIRBuilder::emitMatchKeys(CFG& cfg, TranslationContext& tc) {
   Register* subject = stack.top(1);
 
   auto values_or_none = temps_.AllocateStack();
-  tc.emit<MatchKeys>(values_or_none, subject, keys, tc.frame);
+  tc.emitMatchKeys(values_or_none, subject, keys, tc.frame);
   stack.push(values_or_none);
 
   auto none = temps_.AllocateStack();
@@ -6375,7 +6404,7 @@ void HIRBuilder::emitLoadSpecial(
   Register* self = stack.pop();
   Register* method = temps_.AllocateStack();
   Register* null_or_self = temps_.AllocateStack();
-  tc.emit<LoadSpecial>(method, self, bc_instr.oparg(), tc.frame);
+  tc.emitLoadSpecial(method, self, bc_instr.oparg(), tc.frame);
   tc.emitGetSecondOutput(null_or_self, TOptObject, method);
   stack.push(method);
   stack.push(null_or_self);

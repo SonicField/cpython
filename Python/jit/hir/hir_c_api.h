@@ -414,6 +414,16 @@ HirInstr hir_c_create_unary_op_reg(HirRegister dst, int32_t op_kind, HirRegister
 HirInstr hir_c_create_import_from_reg(HirRegister dst, HirRegister name, int32_t name_idx, void *fs);
 HirInstr hir_c_create_invoke_iter_next_reg(HirRegister dst, HirRegister iter, void *fs);
 HirInstr hir_c_create_primitive_unbox_reg(HirRegister dst, HirRegister src, HirType type);
+/* Batch 4 */
+HirInstr hir_c_create_make_tuple_reg(size_t n, HirRegister dst, void *fs);
+HirInstr hir_c_create_make_list_reg(size_t n, HirRegister dst, void *fs);
+HirInstr hir_c_create_tp_alloc_reg(HirRegister dst, void *pytype, void *fs);
+HirInstr hir_c_create_unpack_ex_to_tuple_reg(HirRegister dst, HirRegister seq, int32_t before, int32_t after, void *fs);
+HirInstr hir_c_create_load_method_reg(HirRegister dst, HirRegister receiver, int32_t name_idx, void *fs);
+HirInstr hir_c_create_load_special_reg(HirRegister dst, HirRegister self, int32_t oparg, void *fs);
+HirInstr hir_c_create_match_keys_reg(HirRegister dst, HirRegister subj, HirRegister keys, void *fs);
+HirInstr hir_c_create_raise_awaitable_error_reg(HirRegister type, int32_t is_aenter, void *fs);
+HirInstr hir_c_create_format_value_reg(HirRegister dst, HirRegister fmt, HirRegister val, int32_t conv, void *fs);
 
 HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
     HirRegister src, void *body_block, void *done_block);
