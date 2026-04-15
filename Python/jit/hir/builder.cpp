@@ -801,6 +801,19 @@ struct HIRBuilder::TranslationContext {
     emitC(static_cast<Instr*>(hir_c_create_raise_static_reg(reraise, exc_type, fmt, const_cast<void*>(static_cast<const void*>(&fs)))));
   }
 
+  // CallCFunc via C factory (variadic, function enum)
+  Instr* emitCallCFunc(size_t n, Register* dst, CallCFunc::Func func_enum, const std::vector<Register*>& args) {
+    return emitC(static_cast<Instr*>(hir_c_create_call_cfunc_reg(
+        n, dst, static_cast<int32_t>(func_enum),
+        reinterpret_cast<HirRegister*>(const_cast<Register**>(args.data())))));
+  }
+
+  // CallInd via C factory (variadic, string name)
+  CallInd* emitCallInd(size_t n, Register* dst, const char* name, Type ret_type) {
+    return static_cast<CallInd*>(emitC(static_cast<Instr*>(
+        hir_c_create_call_ind_reg2(n, dst, name, to_hir(ret_type)))));
+  }
+
   // LoadAttrSpecial via C factory
   void emitLoadAttrSpecial(Register* dst, Register* receiver, PyObject* id, const char* fmt, const FrameState& fs) {
     emitC(static_cast<Instr*>(hir_c_create_load_attr_special_reg(dst, receiver, id, fmt, const_cast<void*>(static_cast<const void*>(&fs)))));
@@ -3751,8 +3764,10 @@ void HIRBuilder::emitLoadMethodStatic(
       entry_offset + offsetof(_PyType_VTableEntry, vte_load),
       TCPtr);
 
-  auto call = tc.emit<CallInd>(
-      3, func_obj, "vte_load", TOptObject, vtable_load, func_obj, self);
+  auto call = tc.emitCallInd(3, func_obj, "vte_load", TOptObject);
+  call->SetOperand(0, vtable_load);
+  call->SetOperand(1, func_obj);
+  call->SetOperand(2, self);
   call->setFrameState(tc.frame);
 
   if (target.is_statically_typed) {
@@ -3792,7 +3807,7 @@ bool HIRBuilder::emitInvokeMethod(
     Register* out = temps_.AllocateNonStack();
     auto entry = static_method_stack_.pop();
     auto invoke =
-        tc.emit<CallInd>(nargs + 1, out, "vtable invoke", target.return_type);
+        tc.emitCallInd(nargs + 1, out, "vtable invoke", target.return_type);
     invoke->SetOperand(0, entry);
     for (size_t i = 0; i < arg_regs.size(); i++) {
       invoke->SetOperand(i + 1, arg_regs[i]);
@@ -6043,7 +6058,7 @@ void HIRBuilder::emitGetAwaitable(
   Register* iter = temps_.AllocateStack();
 
   // Most work is done by existing JitPyCoro_GetAwaitableIter() utility.
-  tc.emit<CallCFunc>(
+  tc.emitCallCFunc(
       1,
       iter,
 #if PY_VERSION_HEX >= 0x030C0000
@@ -6091,7 +6106,7 @@ void HIRBuilder::emitGetAwaitable(
       block_done);
   Register* yf = temps_.AllocateStack();
   tc.block = block_assert_not_awaited_coro;
-  tc.emit<CallCFunc>(
+  tc.emitCallCFunc(
       1,
       yf,
 #if PY_VERSION_HEX >= 0x030C0000

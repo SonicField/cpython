@@ -1205,6 +1205,19 @@ HirInstr hir_c_create_raise_static_reg(int32_t reraise, void *exc_type, const ch
   return RaiseStatic::create(reraise, static_cast<PyObject*>(exc_type), fmt, *static_cast<const FrameState*>(fs));
 }
 
+HirInstr hir_c_create_call_cfunc_reg(size_t n_operands, HirRegister dst, int32_t func_enum, HirRegister *operands) {
+  std::vector<Register*> args;
+  for (size_t i = 0; i < n_operands; i++) {
+    args.push_back(as_reg(operands[i]));
+  }
+  return CallCFunc::create(n_operands, as_reg(dst), static_cast<CallCFunc::Func>(func_enum), args);
+}
+
+HirInstr hir_c_create_call_ind_reg2(size_t n_operands, HirRegister dst, const char *name, HirType ret_type) {
+  Type cpp_type = Type::fromHirType(ret_type);
+  return CallInd::create(n_operands, as_reg(dst), name, cpp_type);
+}
+
 HirInstr hir_c_create_load_attr_special_reg(HirRegister dst, HirRegister receiver, void *id, const char *fmt, void *fs) {
   return LoadAttrSpecial::create(as_reg(dst), as_reg(receiver), static_cast<PyObject*>(id), fmt, *static_cast<const FrameState*>(fs));
 }

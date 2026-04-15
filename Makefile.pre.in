@@ -794,7 +794,7 @@ JIT_LIBS= \
 
 $(JIT_BUILD_DIR)/libjit.a: $(wildcard Python/jit/*.cpp Python/jit/**/*.cpp Python/jit_common/*.cpp)
 	@mkdir -p $(JIT_BUILD_DIR)
-	cd $(JIT_BUILD_DIR) && CC=clang CXX=clang++ cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ > /dev/null 2>&1
+	cd $(JIT_BUILD_DIR) && CC=clang CXX=clang++ cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DPHOENIX_ASM=ON > /dev/null 2>&1
 	cmake --build $(JIT_BUILD_DIR) --parallel $$(nproc)
 	@echo "Phoenix JIT built successfully"
 
