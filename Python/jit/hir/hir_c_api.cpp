@@ -1411,12 +1411,21 @@ HirInstr hir_c_create_eager_import_name_reg(HirRegister dst, int32_t name_idx, H
   return e;
 }
 HirInstr hir_c_create_make_checked_dict_reg(HirRegister dst, int32_t size, HirType type, void *fs) {
-  Type cpp_type = Type::fromHirType(type);
-  return MakeCheckedDict::create(as_reg(dst), size, cpp_type, *static_cast<const FrameState*>(fs));
+  HirMakeCheckedDict *d = (HirMakeCheckedDict *)hir_c_alloc_instr(sizeof(HirMakeCheckedDict), 0);
+  hir_c_init_deopt(d, HIR_OP_MakeCheckedDict);
+  d->capacity = (size_t)size;
+  d->type = type;
+  hir_c_set_output(d, dst);
+  as_instr(d)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return d;
 }
 HirInstr hir_c_create_make_checked_list_reg(int32_t size, HirRegister dst, HirType type, void *fs) {
-  Type cpp_type = Type::fromHirType(type);
-  return MakeCheckedList::create(size, as_reg(dst), cpp_type, *static_cast<const FrameState*>(fs));
+  HirMakeCheckedList *l = (HirMakeCheckedList *)hir_c_alloc_instr(sizeof(HirMakeCheckedList), 0);
+  hir_c_init_deopt(l, HIR_OP_MakeCheckedList);
+  l->type = type;
+  hir_c_set_output(l, dst);
+  as_instr(l)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return l;
 }
 HirInstr hir_c_create_make_function_reg(HirRegister dst, HirRegister code, HirRegister qualname, void *fs) {
   HirMakeFunction *m = (HirMakeFunction *)hir_c_alloc_instr(sizeof(HirMakeFunction), 2);
