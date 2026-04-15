@@ -425,6 +425,13 @@ struct Env {
         &func, arr, idx, container, offset, to_hir(type))));
   }
 
+  // Emit Guard via C bridge, returns instruction for post-creation mutation.
+  Instr* emitGuard(Register* src) {
+    Instr* guard = static_cast<Instr*>(hir_c_create_guard(src));
+    emitCInstr(guard);
+    return guard;
+  }
+
   // Insert a pre-created instruction from a C factory into the current block.
   // Sets bytecode offset, inserts at cursor, computes output type.
   // Returns the output register (or nullptr if no output).
@@ -1607,9 +1614,9 @@ Register* simplifyLoadAttrSplitDict(
   Register* dict_ptr = env.emitBitCast(checked_dict, TCUInt64);
   Register* is_values =
       env.emitIntBinaryOp(BinaryOpKind::kAnd, dict_ptr, one);
-  auto guard = env.emitInstr<Guard>(is_values);
-  guard->setGuiltyReg(receiver);
-  guard->setDescr("dict values check");
+  auto guard = env.emitGuard(is_values);
+  hir_c_set_guilty_reg(guard, receiver);
+  hir_c_set_descr(guard, "dict values check");
   Register* values = env.emitIntBinaryOp(BinaryOpKind::kAdd, dict_ptr, one);
   Register* values_obj = env.emitBitCast(values, TOptObject);
   Register* attr = env.emitLoadField(
@@ -1620,9 +1627,9 @@ Register* simplifyLoadAttrSplitDict(
   Register* expected_keys = env.emitLoadConst(Type::fromCPtr(keys));
   Register* equal = env.emitPrimitiveCompare(
       PrimitiveCompareOp::kEqual, dict_keys, expected_keys);
-  auto guard = env.emitInstr<Guard>(equal);
-  guard->setGuiltyReg(receiver);
-  guard->setDescr("ht_cached_keys comparison");
+  auto guard = env.emitGuard(equal);
+  hir_c_set_guilty_reg(guard, receiver);
+  hir_c_set_descr(guard, "ht_cached_keys comparison");
   Register* attr = env.emitLoadSplitDictItem(checked_dict, attr_idx);
 #endif
 
@@ -2845,7 +2852,8 @@ void Simplify::Run(Function& irfunc) {
               "New output type {} isn't compatible with old output type {}",
               new_output->type(),
               instr.output()->type());
-          env.emitRawInstr<Assign>(instr.output(), new_output);
+          emitCInstr(static_cast<Instr*>(
+              hir_assign_create(instr.output(), new_output)));
         }
 
         if (instr.IsCondBranch() || instr.IsCondBranchIterNotDone() ||

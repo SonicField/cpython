@@ -706,6 +706,14 @@ void hir_c_set_guilty_reg(HirInstr instr, HirRegister reg) {
   static_cast<DeoptBase*>(as_instr(instr))->setGuiltyReg(as_reg(reg));
 }
 
+void hir_c_set_descr(HirInstr instr, const char *descr) {
+  static_cast<DeoptBase*>(as_instr(instr))->setDescr(std::string(descr));
+}
+
+HirInstr hir_c_create_guard(HirRegister src) {
+  return Guard::create(as_reg(src));
+}
+
 /* ---- FillTypeAttrCache / FillTypeMethodCache ---- */
 
 HirInstr hir_c_create_fill_type_attr_cache(HirFunction func,
