@@ -1513,8 +1513,12 @@ HirInstr hir_c_create_call_static_ret_void_reg(size_t n_operands, void *addr) {
   return c;
 }
 HirInstr hir_c_create_invoke_static_function_reg(size_t n_operands, HirRegister dst, void *func, HirType ret_type) {
-  Type cpp_type = Type::fromHirType(ret_type);
-  return InvokeStaticFunction::create(n_operands, as_reg(dst), static_cast<PyFunctionObject*>(func), cpp_type);
+  HirInvokeStaticFunction *i = (HirInvokeStaticFunction *)hir_c_alloc_instr(sizeof(HirInvokeStaticFunction), n_operands);
+  hir_c_init_deopt(i, HIR_OP_InvokeStaticFunction);
+  i->func = func;
+  i->ret_type = ret_type;
+  hir_c_set_output(i, dst);
+  return i;
 }
 
 HirInstr hir_c_create_load_global_cached_reg(HirRegister dst, void *code, void *builtins, void *globals, int32_t name_idx) {
@@ -1576,8 +1580,12 @@ HirInstr hir_c_create_call_cfunc_reg(size_t n_operands, HirRegister dst, int32_t
 }
 
 HirInstr hir_c_create_call_ind_reg2(size_t n_operands, HirRegister dst, const char *name, HirType ret_type) {
-  Type cpp_type = Type::fromHirType(ret_type);
-  return CallInd::create(n_operands, as_reg(dst), name, cpp_type);
+  HirCallInd *c = (HirCallInd *)hir_c_alloc_instr(sizeof(HirCallInd), n_operands);
+  hir_c_init_deopt(c, HIR_OP_CallInd);
+  c->name = name;
+  c->ret_type = ret_type;
+  hir_c_set_output(c, dst);
+  return c;
 }
 
 HirInstr hir_c_create_load_method_super_reg(HirRegister dst, HirRegister global_super, HirRegister type, HirRegister receiver, int32_t name_idx, int no_args, void *fs) {
