@@ -2852,7 +2852,7 @@ void Simplify::Run(Function& irfunc) {
               "New output type {} isn't compatible with old output type {}",
               new_output->type(),
               instr.output()->type());
-          emitCInstr(static_cast<Instr*>(
+          env.emitCInstr(static_cast<Instr*>(
               hir_assign_create(instr.output(), new_output)));
         }
 
