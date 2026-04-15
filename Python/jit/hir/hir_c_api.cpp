@@ -927,6 +927,37 @@ HirInstr hir_c_create_guard_is_reg(HirRegister dst, void *target,
       as_reg(dst), static_cast<PyObject*>(target), as_reg(src));
 }
 
+HirInstr hir_c_create_check_neg_reg(HirRegister dst, HirRegister src,
+                                     void *frame_state) {
+  if (frame_state)
+    return CheckNeg::create(as_reg(dst), as_reg(src),
+                             *static_cast<const FrameState*>(frame_state));
+  return CheckNeg::create(as_reg(dst), as_reg(src));
+}
+
+HirInstr hir_c_create_get_length_reg(HirRegister dst, HirRegister src,
+                                      void *frame_state) {
+  if (frame_state)
+    return GetLength::create(as_reg(dst), as_reg(src),
+                              *static_cast<const FrameState*>(frame_state));
+  return GetLength::create(as_reg(dst), as_reg(src));
+}
+
+HirInstr hir_c_create_primitive_box_reg(HirRegister dst, HirRegister src,
+                                         HirType type, void *frame_state) {
+  Type cpp_type = Type::fromHirType(type);
+  return PrimitiveBox::create(as_reg(dst), as_reg(src), cpp_type,
+                               *static_cast<const FrameState*>(frame_state));
+}
+
+HirInstr hir_c_create_load_array_item_reg(HirRegister dst, HirRegister arr,
+                                           HirRegister idx, HirRegister container,
+                                           intptr_t offset, HirType type) {
+  Type cpp_type = Type::fromHirType(type);
+  return LoadArrayItem::create(as_reg(dst), as_reg(arr), as_reg(idx),
+                                as_reg(container), offset, cpp_type);
+}
+
 HirInstr hir_c_create_vectorcall_reg(size_t n_operands, HirRegister dst,
                                       uint32_t flags) {
   return VectorCall::create(

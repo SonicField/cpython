@@ -488,6 +488,33 @@ struct HIRBuilder::TranslationContext {
         hir_c_create_guard_is_reg(dst, target, src))));
   }
 
+  // CheckNeg via C++ bridge (DeoptBase + FrameState).
+  void emitCheckNeg(Register* dst, Register* src, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_check_neg_reg(
+        dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
+  // GetLength via C++ bridge (DeoptBase + FrameState).
+  void emitGetLength(Register* dst, Register* src, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_get_length_reg(
+        dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
+  // PrimitiveBox via C++ bridge (DeoptBase + FrameState).
+  void emitPrimitiveBox(Register* dst, Register* src, Type type,
+                         const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_primitive_box_reg(
+        dst, src, to_hir(type),
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
+  // LoadArrayItem via C++ bridge (caller-provided register).
+  void emitLoadArrayItem(Register* dst, Register* arr, Register* idx,
+                          Register* container, intptr_t offset, Type type) {
+    emitC(static_cast<Instr*>(hir_c_create_load_array_item_reg(
+        dst, arr, idx, container, offset, to_hir(type))));
+  }
+
   // Guard via C factory (with FrameState). Returns instruction for mutation.
   Instr* emitGuard(Register* src, const FrameState& fs) {
     auto* instr = emitC(static_cast<Instr*>(hir_c_create_guard(src)));
@@ -3022,7 +3049,7 @@ void HIRBuilder::emitLoadIterableArg(
   auto tup_idx = temps_.AllocateStack();
   auto element = temps_.AllocateStack();
   tc.emitLoadConst(tmp, Type::fromCInt(bc_instr.oparg(), TCInt64));
-  tc.emit<PrimitiveBox>(tup_idx, tmp, TCInt64, tc.frame);
+  tc.emitPrimitiveBox(tup_idx, tmp, TCInt64, tc.frame);
   tc.emitBinaryOp(
       element, BinaryOpKind::kSubscript, tuple, tup_idx, tc.frame);
   tc.frame.stack.push(element);
@@ -3053,7 +3080,7 @@ bool HIRBuilder::tryEmitDirectMethodCall(
     }
 
     if (target.builtin_returns_error_code) {
-      tc.emit<CheckNeg>(out, out, tc.frame);
+      tc.emitCheckNeg(out, out, tc.frame);
     } else if (out != nullptr) {
       auto ret_ty = target.return_type;
       if (!hir_type_could_be(reinterpret_cast<const HirType*>(&ret_ty),
@@ -3472,7 +3499,7 @@ void HIRBuilder::emitGetLen(TranslationContext& tc) {
   auto& stack = tc.frame.stack;
   Register* obj = stack.top();
   Register* result = temps_.AllocateStack();
-  tc.emit<GetLength>(result, obj, state);
+  tc.emitGetLength(result, obj, state);
   stack.push(result);
 }
 
@@ -4197,7 +4224,7 @@ void HIRBuilder::boxPrimitive(
   if (type <= TCBool) {
     tc.emitPrimitiveBoxBool(dst, src);
   } else {
-    tc.emit<PrimitiveBox>(dst, src, type, tc.frame);
+    tc.emitPrimitiveBox(dst, src, type, tc.frame);
   }
 }
 
@@ -4541,7 +4568,7 @@ void HIRBuilder::emitSequenceGet(
   }
 
   auto type = element_type_from_seq_type(oparg);
-  tc.emit<LoadArrayItem>(
+  tc.emitLoadArrayItem(
       result, ob_item, adjusted_idx, sequence, /*offset=*/0, type);
   stack.push(result);
 }
@@ -5266,7 +5293,7 @@ void HIRBuilder::emitUnpackSequence(
   for (int idx = bc_instr.oparg() - 1; idx >= 0; --idx) {
     Register* item = temps_.AllocateStack();
     tc.emitLoadConst(idx_reg, Type::fromCInt(idx, TCInt64));
-    tc.emit<LoadArrayItem>(item, list_mem, idx_reg, seq, 0, TObject);
+    tc.emitLoadArrayItem(item, list_mem, idx_reg, seq, 0, TObject);
     stack.push(item);
   }
 }

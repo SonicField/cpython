@@ -344,6 +344,15 @@ HirInstr hir_c_create_binary_op_reg(HirRegister dst, int32_t op_kind,
                                      void *frame_state);
 HirInstr hir_c_create_guard_is_reg(HirRegister dst, void *target,
                                     HirRegister src);
+HirInstr hir_c_create_check_neg_reg(HirRegister dst, HirRegister src,
+                                     void *frame_state);
+HirInstr hir_c_create_get_length_reg(HirRegister dst, HirRegister src,
+                                      void *frame_state);
+HirInstr hir_c_create_primitive_box_reg(HirRegister dst, HirRegister src,
+                                         HirType type, void *frame_state);
+HirInstr hir_c_create_load_array_item_reg(HirRegister dst, HirRegister arr,
+                                           HirRegister idx, HirRegister container,
+                                           intptr_t offset, HirType type);
 
 /* ---- Instruction query/mutation (T2-D) ---- */
 
