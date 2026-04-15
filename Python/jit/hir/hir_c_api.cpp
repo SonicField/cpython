@@ -951,6 +951,46 @@ HirInstr hir_c_create_load_arg_reg(HirRegister dst, int32_t idx, HirType type) {
   return LoadArg::create(as_reg(dst), idx, cpp_type);
 }
 
+HirInstr hir_c_create_store_subscr_reg(HirRegister container, HirRegister sub,
+                                        HirRegister value, void *frame_state) {
+  return StoreSubscr::create(as_reg(container), as_reg(sub), as_reg(value),
+                              *static_cast<const FrameState*>(frame_state));
+}
+
+HirInstr hir_c_create_set_set_item_reg(HirRegister dst, HirRegister set,
+                                        HirRegister item, void *frame_state) {
+  return SetSetItem::create(as_reg(dst), as_reg(set), as_reg(item),
+                             *static_cast<const FrameState*>(frame_state));
+}
+
+HirInstr hir_c_create_in_place_op_reg(HirRegister dst, int32_t op_kind,
+                                       HirRegister left, HirRegister right,
+                                       void *frame_state) {
+  return InPlaceOp::create(as_reg(dst), static_cast<InPlaceOpKind>(op_kind),
+                            as_reg(left), as_reg(right),
+                            *static_cast<const FrameState*>(frame_state));
+}
+
+HirInstr hir_c_create_compare_reg(HirRegister dst, int32_t op,
+                                   HirRegister left, HirRegister right,
+                                   void *frame_state) {
+  return Compare::create(as_reg(dst), static_cast<CompareOp>(op),
+                          as_reg(left), as_reg(right),
+                          *static_cast<const FrameState*>(frame_state));
+}
+
+HirInstr hir_c_create_format_with_spec_reg(HirRegister dst, HirRegister value,
+                                            HirRegister fmt_spec, void *frame_state) {
+  return FormatWithSpec::create(as_reg(dst), as_reg(value), as_reg(fmt_spec),
+                                 *static_cast<const FrameState*>(frame_state));
+}
+
+HirInstr hir_c_create_make_dict_reg(HirRegister dst, int32_t dict_size,
+                                     void *frame_state) {
+  return MakeDict::create(as_reg(dst), dict_size,
+                           *static_cast<const FrameState*>(frame_state));
+}
+
 HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
     HirRegister src, void *body_block, void *done_block) {
   return CondBranchIterNotDone::create(

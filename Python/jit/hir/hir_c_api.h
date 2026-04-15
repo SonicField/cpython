@@ -373,6 +373,20 @@ HirInstr hir_c_create_int_convert_reg(HirRegister dst, HirRegister src,
                                        HirType type);
 HirInstr hir_c_create_get_iter_reg(HirRegister dst, HirRegister src,
                                     void *frame_state);
+HirInstr hir_c_create_store_subscr_reg(HirRegister container, HirRegister sub,
+                                        HirRegister value, void *frame_state);
+HirInstr hir_c_create_set_set_item_reg(HirRegister dst, HirRegister set,
+                                        HirRegister item, void *frame_state);
+HirInstr hir_c_create_in_place_op_reg(HirRegister dst, int32_t op_kind,
+                                       HirRegister left, HirRegister right,
+                                       void *frame_state);
+HirInstr hir_c_create_compare_reg(HirRegister dst, int32_t op,
+                                   HirRegister left, HirRegister right,
+                                   void *frame_state);
+HirInstr hir_c_create_format_with_spec_reg(HirRegister dst, HirRegister value,
+                                            HirRegister fmt_spec, void *frame_state);
+HirInstr hir_c_create_make_dict_reg(HirRegister dst, int32_t dict_size,
+                                     void *frame_state);
 HirInstr hir_c_create_set_function_attr_reg(HirRegister value, HirRegister base,
                                              int32_t field);
 HirInstr hir_c_create_check_neg_reg(HirRegister dst, HirRegister src,

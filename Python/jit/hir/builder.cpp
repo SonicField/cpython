@@ -576,6 +576,47 @@ struct HIRBuilder::TranslationContext {
         dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
   }
 
+  // StoreSubscr via C++ bridge (DeoptBase, no output).
+  void emitStoreSubscr(Register* container, Register* sub, Register* value,
+                        const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_store_subscr_reg(
+        container, sub, value,
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  // SetSetItem via C++ bridge (DeoptBase, HasOutput).
+  void emitSetSetItem(Register* dst, Register* set, Register* item,
+                       const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_set_set_item_reg(
+        dst, set, item, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  // InPlaceOp via C++ bridge.
+  void emitInPlaceOp(Register* dst, InPlaceOpKind op, Register* left,
+                      Register* right, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_in_place_op_reg(
+        dst, static_cast<int32_t>(op), left, right,
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  // Compare via C++ bridge.
+  void emitCompare(Register* dst, CompareOp op, Register* left,
+                    Register* right, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_compare_reg(
+        dst, static_cast<int32_t>(op), left, right,
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  // FormatWithSpec via C++ bridge.
+  void emitFormatWithSpec(Register* dst, Register* value, Register* fmt_spec,
+                           const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_format_with_spec_reg(
+        dst, value, fmt_spec,
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  // MakeDict via C++ bridge.
+  void emitMakeDict(Register* dst, Py_ssize_t dict_size, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_make_dict_reg(
+        dst, static_cast<int32_t>(dict_size),
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
   // IsTruthy via C++ bridge (DeoptBase + FrameState).
   void emitIsTruthy(Register* dst, Register* src, const FrameState& fs) {
     emitC(static_cast<Instr*>(hir_c_create_is_truthy_reg(
@@ -2976,7 +3017,7 @@ void HIRBuilder::emitBinaryOp(
           "Unrecognized oparg for BINARY_OP: {}",
           oparg);
       InPlaceOpKind inplace_op_kind = *inplace_opt_op_kind;
-      tc.emit<InPlaceOp>(result, inplace_op_kind, left, right, tc.frame);
+      tc.emitInPlaceOp(result, inplace_op_kind, left, right, tc.frame);
       stack.push(result);
       return;
     }
@@ -3026,7 +3067,7 @@ void HIRBuilder::emitInPlaceOp(
       opcode,
       opcodeName(opcode));
   InPlaceOpKind op_kind = *opt_op_kind;
-  tc.emit<InPlaceOp>(result, op_kind, left, right, tc.frame);
+  tc.emitInPlaceOp(result, op_kind, left, right, tc.frame);
   stack.push(result);
 }
 
@@ -3528,7 +3569,7 @@ void HIRBuilder::emitContainsOp(TranslationContext& tc, int oparg) {
   Register* left = stack.pop();
   Register* result = temps_.AllocateStack();
   CompareOp op = oparg == 0 ? CompareOp::kIn : CompareOp::kNotIn;
-  tc.emit<Compare>(result, op, left, right, tc.frame);
+  tc.emitCompare(result, op, left, right, tc.frame);
   stack.push(result);
 }
 
@@ -3574,7 +3615,7 @@ void HIRBuilder::emitCompareOp(
     }
   }
 
-  tc.emit<Compare>(result, op, left, right, tc.frame);
+  tc.emitCompare(result, op, left, right, tc.frame);
   stack.push(result);
   if (PY_VERSION_HEX >= 0x030E0000 && bc_instr.oparg() & 0x10) {
     emitToBool(tc);
@@ -4887,7 +4928,7 @@ void HIRBuilder::emitBuildMap(
     const jit::BytecodeInstruction& bc_instr) {
   auto dict_size = bc_instr.oparg();
   Register* dict = temps_.AllocateStack();
-  tc.emit<MakeDict>(dict, dict_size, tc.frame);
+  tc.emitMakeDict(dict, dict_size, tc.frame);
   // Fill dict
   auto& stack = tc.frame.stack;
   for (auto i = stack.size() - dict_size * 2, end = stack.size(); i < end;
@@ -4912,7 +4953,7 @@ void HIRBuilder::emitBuildSet(
     auto item = tc.frame.stack.peek(i);
 
     auto result = temps_.AllocateStack();
-    tc.emit<SetSetItem>(result, set, item, tc.frame);
+    tc.emitSetSetItem(result, set, item, tc.frame);
   }
 
   tc.frame.stack.discard(oparg);
@@ -4925,7 +4966,7 @@ void HIRBuilder::emitBuildConstKeyMap(
     const jit::BytecodeInstruction& bc_instr) {
   auto dict_size = bc_instr.oparg();
   Register* dict = temps_.AllocateStack();
-  tc.emit<MakeDict>(dict, dict_size, tc.frame);
+  tc.emitMakeDict(dict, dict_size, tc.frame);
   // Fill dict
   auto& stack = tc.frame.stack;
   Register* keys = stack.pop();
@@ -5111,7 +5152,7 @@ void HIRBuilder::emitStoreSlice(TranslationContext& tc) {
   Register* slice = stack.pop();
   Register* container = stack.pop();
   Register* values = stack.pop();
-  tc.emit<StoreSubscr>(container, slice, values, tc.frame);
+  tc.emitStoreSubscr(container, slice, values, tc.frame);
 }
 
 void HIRBuilder::emitStoreSubscr(
@@ -5140,7 +5181,7 @@ void HIRBuilder::emitStoreSubscr(
     }
   }
 
-  tc.emit<StoreSubscr>(container, sub, value, tc.frame);
+  tc.emitStoreSubscr(container, sub, value, tc.frame);
 }
 
 void HIRBuilder::emitGetIter(
@@ -5846,7 +5887,7 @@ void HIRBuilder::emitFormatWithSpec(TranslationContext& tc) {
   Register* fmt_spec = stack.pop();
   Register* value = stack.pop();
   Register* out = temps_.AllocateStack();
-  tc.emit<FormatWithSpec>(out, value, fmt_spec, tc.frame);
+  tc.emitFormatWithSpec(out, value, fmt_spec, tc.frame);
   stack.push(out);
 }
 
@@ -5874,7 +5915,7 @@ void HIRBuilder::emitSetAdd(
   auto* set = stack.peek(oparg);
 
   auto result = temps_.AllocateStack();
-  tc.emit<SetSetItem>(result, set, v, tc.frame);
+  tc.emitSetSetItem(result, set, v, tc.frame);
 }
 
 void HIRBuilder::emitSetUpdate(
@@ -6165,7 +6206,7 @@ void HIRBuilder::emitFormatSimple(CFG& cfg, TranslationContext& tc) {
   tc.block = do_fmt_block;
   Register* fmt_spec = temps_.AllocateStack();
   tc.emitLoadConst(fmt_spec, TNullptr);
-  tc.emit<FormatWithSpec>(out, value, fmt_spec, tc.frame);
+  tc.emitFormatWithSpec(out, value, fmt_spec, tc.frame);
   tc.emitBranch(done_block);
 
   tc.block = pass_through_block;
