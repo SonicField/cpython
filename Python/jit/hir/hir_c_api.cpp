@@ -1034,12 +1034,17 @@ HirInstr hir_c_create_load_var_object_size_reg(HirRegister dst, HirRegister src)
   return i;
 }
 HirInstr hir_c_create_check_err_occurred_reg(void *frame_state) {
-  return CheckErrOccurred::create(
-      *static_cast<const FrameState*>(frame_state));
+  HirCheckErrOccurred *c = (HirCheckErrOccurred *)hir_c_alloc_instr(sizeof(HirCheckErrOccurred), 0);
+  hir_c_init_deopt(c, HIR_OP_CheckErrOccurred);
+  as_instr(c)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return c;
 }
 
 HirInstr hir_c_create_raise_reg(void *fs) {
-  return Raise::create(*static_cast<const FrameState*>(fs));
+  HirRaise *r = (HirRaise *)hir_c_alloc_instr(sizeof(HirRaise), 0);
+  hir_c_init_deopt(r, HIR_OP_Raise);
+  as_instr(r)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return r;
 }
 HirInstr hir_c_create_wait_handle_release_reg(HirRegister src) {
   HirWaitHandleRelease *w = (HirWaitHandleRelease *)hir_c_alloc_instr(sizeof(HirWaitHandleRelease), 1);
@@ -1048,7 +1053,11 @@ HirInstr hir_c_create_wait_handle_release_reg(HirRegister src) {
   return w;
 }
 HirInstr hir_c_create_make_set_reg(HirRegister dst, void *fs) {
-  return MakeSet::create(as_reg(dst), *static_cast<const FrameState*>(fs));
+  HirMakeSet *m = (HirMakeSet *)hir_c_alloc_instr(sizeof(HirMakeSet), 0);
+  hir_c_init_deopt(m, HIR_OP_MakeSet);
+  hir_c_set_output(m, dst);
+  as_instr(m)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return m;
 }
 HirInstr hir_c_create_delete_attr_reg(HirRegister receiver, int32_t idx, void *fs) {
   return DeleteAttr::create(as_reg(receiver), idx, *static_cast<const FrameState*>(fs));
