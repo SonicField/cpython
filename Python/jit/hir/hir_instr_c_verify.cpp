@@ -283,8 +283,46 @@ static void verify_is_replayable_table() {
     assert(hir_instr_info_is_replayable(static_cast<int>(Opcode::kVectorCall)) == 0);
 }
 
+/* Verify bytecode_offset=-1 invariant for C-allocated instructions.
+ * calloc gives 0 for bytecode_offset; hir_c_alloc_instr and hir_c_init_instr
+ * must both set it to -1 (matching C++ Instr::Instr default: BCOffset{-1}).
+ * Regression test for the bug that caused wrong deopt behavior when
+ * _cinderx module was loaded before compilation. */
+static void verify_bytecode_offset_invariant() {
+    /* Test 1: hir_c_alloc_instr alone sets bytecode_offset=-1 */
+    void *raw = hir_c_alloc_instr(sizeof(HirInstrLayout), 0);
+    assert(raw != NULL);
+    assert(hir_c_bytecode_offset(raw) == -1 &&
+           "hir_c_alloc_instr must set bytecode_offset to -1");
+    free((char *)raw - sizeof(size_t));  /* free from preamble start */
+
+    /* Test 2: hir_c_init_instr preserves bytecode_offset=-1 */
+    void *instr = hir_c_alloc_instr(sizeof(HirInstrLayout), 1);
+    assert(instr != NULL);
+    hir_c_init_instr(instr, HIR_OP_Assign);
+    assert(hir_c_bytecode_offset(instr) == -1 &&
+           "hir_c_init_instr must set bytecode_offset to -1");
+    free((char *)instr - 1 * sizeof(void *) - sizeof(size_t));
+
+    /* Test 3: hir_c_init_deopt preserves bytecode_offset=-1 */
+    void *deopt = hir_c_alloc_instr(sizeof(HirDeoptLayout), 2);
+    assert(deopt != NULL);
+    hir_c_init_deopt(deopt, HIR_OP_BinaryOp);
+    assert(hir_c_bytecode_offset(deopt) == -1 &&
+           "hir_c_init_deopt must set bytecode_offset to -1");
+    /* Clean up placement-new'd C++ containers before freeing */
+    {
+        HirDeoptLayout *d = (HirDeoptLayout *)deopt;
+        using RegStateVec = std::vector<jit::hir::RegState>;
+        reinterpret_cast<RegStateVec *>(&d->live_regs_storage)->~RegStateVec();
+        reinterpret_cast<std::string *>(&d->descr_storage)->~basic_string();
+    }
+    free((char *)deopt - 2 * sizeof(void *) - sizeof(size_t));
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
     verify_is_replayable_table();
+    verify_bytecode_offset_invariant();
 }

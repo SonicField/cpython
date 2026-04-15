@@ -624,6 +624,10 @@ static inline void *hir_c_alloc_instr(size_t struct_size, size_t num_operands) {
     void **node = (void **)ptr;
     node[0] = ptr;  /* prev_ = self */
     node[1] = ptr;  /* next_ = self */
+    /* bytecode_offset defaults to -1 in C++ (BCOffset{-1}), but calloc
+     * gives 0. Set here so the invariant is self-enforcing — even if
+     * hir_c_init_instr is accidentally skipped. */
+    ((HirInstrLayout *)ptr)->bytecode_offset = -1;
     return ptr;
 }
 
