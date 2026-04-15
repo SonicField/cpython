@@ -517,8 +517,10 @@ static inline void *hir_c_create_load_const(void *dst_reg, HirType type) {
 }
 
 /* ==== Instruction factory: Branch ====
- * Prototype factory — validates the C construction pattern.
- * Branch has 0 operands and 1 edge (target block). */
+ * WARNING: DO NOT USE for production — this pure C factory writes edge.to
+ * directly, bypassing C++ Edge::set_to() which manages BasicBlock::in_edges_.
+ * Use hir_c_create_branch_cpp() from hir_c_api.h instead.
+ * Kept only for read-path testing (struct layout verification). */
 
 static inline void *hir_c_create_branch(void *target_block) {
     HirBranch *br = (HirBranch *)hir_c_alloc_instr(sizeof(HirBranch), 0);
@@ -529,7 +531,8 @@ static inline void *hir_c_create_branch(void *target_block) {
 }
 
 /* ==== Instruction factory: CondBranch ====
- * Pure C factory — 1 operand (condition reg) + 2 edges. No output. */
+ * WARNING: DO NOT USE for production — same Edge::set_to() bypass issue
+ * as hir_c_create_branch above. Use hir_c_create_cond_branch_cpp() instead. */
 
 static inline void *hir_c_create_cond_branch(void *cond_reg,
                                               void *true_block,
