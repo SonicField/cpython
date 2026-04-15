@@ -1278,8 +1278,8 @@ HirInstr hir_c_create_dict_subscr_reg(HirRegister dst, HirRegister dict, HirRegi
   return d;
 }
 HirInstr hir_c_create_send_reg(HirRegister iter, HirRegister vout, HirRegister vin, void *fs) {
-  /* Keep C++ — pure C version crashes with cinderjit module loaded.
-   * Root cause TBD: possibly Send-specific generator lifecycle interaction. */
+  /* Keep C++ — pure C crashes with _cinderx module loaded (bytecode_offset
+   * fix was necessary but not sufficient, second cause TBD). */
   return Send::create(as_reg(iter), as_reg(vout), as_reg(vin), *static_cast<const FrameState*>(fs));
 }
 HirInstr hir_c_create_convert_value_reg(HirRegister dst, HirRegister value, int32_t conversion, void *fs) {

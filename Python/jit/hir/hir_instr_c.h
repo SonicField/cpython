@@ -622,9 +622,13 @@ static inline void *hir_c_alloc_instr(size_t struct_size, size_t num_operands) {
 }
 
 /* Initialize base Instr fields after allocation.
- * Sets opcode. IntrusiveListNode already initialized by hir_c_alloc_instr. */
+ * Sets opcode and bytecode_offset. IntrusiveListNode already initialized
+ * by hir_c_alloc_instr. bytecode_offset defaults to -1 (matching C++
+ * Instr::Instr default: BCOffset bytecode_offset_{-1}). */
 static inline void hir_c_init_instr(void *instr, int32_t opcode) {
-    ((HirInstrLayout *)instr)->opcode = opcode;
+    HirInstrLayout *i = (HirInstrLayout *)instr;
+    i->opcode = opcode;
+    i->bytecode_offset = -1;
 }
 
 /* Initialize DeoptBase fields after hir_c_init_instr.
