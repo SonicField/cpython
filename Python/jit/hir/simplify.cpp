@@ -32,9 +32,36 @@
 
 namespace jit::hir {
 
-/* Convert C++ Type to C HirType (layout-compatible, 16-byte copy). */
+/* Convert C++ Type to C HirType via field-by-field conversion. */
 static inline HirType to_hir(Type t) {
   return Type::toHirType(t);
+}
+
+/* Wrappers for C query functions that take Type directly (avoids
+ * type which is layout-dependent). */
+static inline int type_could_be(Type a, Type b) {
+  HirType ha = to_hir(a), hb = to_hir(b);
+  return hir_type_could_be(&ha, &hb);
+}
+static inline int type_has_object_spec(Type t) {
+  HirType h = to_hir(t);
+  return hir_type_has_object_spec(&h);
+}
+static inline int type_has_int_spec(Type t) {
+  HirType h = to_hir(t);
+  return hir_type_has_int_spec(&h);
+}
+static inline PyObject* type_object_spec(Type t) {
+  HirType h = to_hir(t);
+  return hir_type_object_spec(&h);
+}
+static inline intptr_t type_int_spec(Type t) {
+  HirType h = to_hir(t);
+  return hir_type_int_spec(&h);
+}
+static inline PyObject* type_as_object(Type t) {
+  HirType h = to_hir(t);
+  return hir_type_as_object(&h);
 }
 
 // This file contains the Simplify pass, which is a collection of
@@ -1135,8 +1162,8 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
   if (op != BinaryOpKind::kSubscript && op != BinaryOpKind::kMatrixMultiply) {
     auto rhs_type_f = rhs->type();
     if (lhs->isA(TFloatExact) && !rhs->isA(TFloatExact) &&
-        hir_type_could_be(reinterpret_cast<const HirType*>(&rhs_type_f),
-                          reinterpret_cast<const HirType*>(&TFloatExact))) {
+        type_could_be(rhs_type_f,
+                          TFloatExact)) {
       if (FloatBinaryOp::slotMethod(op) || op == BinaryOpKind::kPower) {
         env.emitUseType(lhs, TFloatExact);
         Register* guarded = env.emitCInstr(static_cast<Instr*>(
@@ -1147,8 +1174,8 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
     }
     auto lhs_type_f = lhs->type();
     if (rhs->isA(TFloatExact) && !lhs->isA(TFloatExact) &&
-        hir_type_could_be(reinterpret_cast<const HirType*>(&lhs_type_f),
-                          reinterpret_cast<const HirType*>(&TFloatExact))) {
+        type_could_be(lhs_type_f,
+                          TFloatExact)) {
       if (FloatBinaryOp::slotMethod(op) || op == BinaryOpKind::kPower) {
         env.emitUseType(rhs, TFloatExact);
         Register* guarded = env.emitCInstr(static_cast<Instr*>(
@@ -1163,8 +1190,8 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
   if (op != BinaryOpKind::kSubscript && op != BinaryOpKind::kMatrixMultiply) {
     auto rhs_type_l = rhs->type();
     if (lhs->isA(TLongExact) && !rhs->isA(TLongExact) &&
-        hir_type_could_be(reinterpret_cast<const HirType*>(&rhs_type_l),
-                          reinterpret_cast<const HirType*>(&TLongExact))) {
+        type_could_be(rhs_type_l,
+                          TLongExact)) {
       env.emitUseType(lhs, TLongExact);
       Register* guarded = env.emitGuardType(TLongExact, rhs, instr->frameState());
       return env.emitLongBinaryOp(op, lhs, guarded,
@@ -1172,8 +1199,8 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
     }
     auto lhs_type_l = lhs->type();
     if (rhs->isA(TLongExact) && !lhs->isA(TLongExact) &&
-        hir_type_could_be(reinterpret_cast<const HirType*>(&lhs_type_l),
-                          reinterpret_cast<const HirType*>(&TLongExact))) {
+        type_could_be(lhs_type_l,
+                          TLongExact)) {
       env.emitUseType(rhs, TLongExact);
       Register* guarded = env.emitGuardType(TLongExact, lhs, instr->frameState());
       return env.emitLongBinaryOp(op, guarded, rhs,
@@ -1198,11 +1225,11 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
     auto rhs_ty_fc = rhs->type();
     auto lhs_ty_fc = lhs->type();
     if (lhs->isA(TFloatExact) && rhs->isA(TLongExact) &&
-        hir_type_has_object_spec(reinterpret_cast<const HirType*>(&rhs_ty_fc))) {
+        type_has_object_spec(rhs_ty_fc)) {
       float_reg = lhs;
       int_reg = rhs;
     } else if (rhs->isA(TFloatExact) && lhs->isA(TLongExact) &&
-               hir_type_has_object_spec(reinterpret_cast<const HirType*>(&lhs_ty_fc))) {
+               type_has_object_spec(lhs_ty_fc)) {
       float_reg = rhs;
       int_reg = lhs;
     }
@@ -1211,7 +1238,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
       RETURN_MULTITHREADED_COMPILE(nullptr);
       auto int_reg_ty = int_reg->type();
       double dval = PyLong_AsDouble(
-          hir_type_object_spec(reinterpret_cast<const HirType*>(&int_reg_ty)));
+          type_object_spec(int_reg_ty));
       if (dval != -1.0 || !PyErr_Occurred()) {
         ThreadedCompileSerialize guard;
         Ref<> float_obj = Ref<>::steal(PyFloat_FromDouble(dval));
@@ -1322,8 +1349,8 @@ Register* simplifyInPlaceOp(Env& env, const InPlaceOp* instr) {
   // Handles accumulators (total += val) where total is Object through Phi.
   auto rhs_type_ip = rhs->type();
   if (lhs->isA(TFloatExact) && !rhs->isA(TFloatExact) &&
-      hir_type_could_be(reinterpret_cast<const HirType*>(&rhs_type_ip),
-                        reinterpret_cast<const HirType*>(&TFloatExact))) {
+      type_could_be(rhs_type_ip,
+                        TFloatExact)) {
     auto binop = inPlaceOpToBinaryOp(instr->op());
     if (binop && (FloatBinaryOp::slotMethod(*binop) ||
                   *binop == BinaryOpKind::kPower)) {
@@ -1335,8 +1362,8 @@ Register* simplifyInPlaceOp(Env& env, const InPlaceOp* instr) {
   }
   auto lhs_type_ip = lhs->type();
   if (rhs->isA(TFloatExact) && !lhs->isA(TFloatExact) &&
-      hir_type_could_be(reinterpret_cast<const HirType*>(&lhs_type_ip),
-                        reinterpret_cast<const HirType*>(&TFloatExact))) {
+      type_could_be(lhs_type_ip,
+                        TFloatExact)) {
     auto binop = inPlaceOpToBinaryOp(instr->op());
     if (binop && (FloatBinaryOp::slotMethod(*binop) ||
                   *binop == BinaryOpKind::kPower)) {
@@ -1459,26 +1486,26 @@ Register* simplifyPrimitiveCompare(Env& env, const PrimitiveCompare* instr) {
     };
     auto left_type_cmp = left->type();
     auto right_type_cmp = right->type();
-    if (!hir_type_could_be(reinterpret_cast<const HirType*>(&left_type_cmp),
-                           reinterpret_cast<const HirType*>(&right_type_cmp))) {
+    if (!type_could_be(left_type_cmp,
+                           right_type_cmp)) {
       return do_cbool(false);
     }
-    if (hir_type_has_int_spec(reinterpret_cast<const HirType*>(&left_type_cmp)) &&
-        hir_type_has_int_spec(reinterpret_cast<const HirType*>(&right_type_cmp))) {
-      return do_cbool(hir_type_int_spec(reinterpret_cast<const HirType*>(&left_type_cmp)) ==
-                      hir_type_int_spec(reinterpret_cast<const HirType*>(&right_type_cmp)));
+    if (type_has_int_spec(left_type_cmp) &&
+        type_has_int_spec(right_type_cmp)) {
+      return do_cbool(type_int_spec(left_type_cmp) ==
+                      type_int_spec(right_type_cmp));
     }
-    if (hir_type_has_object_spec(reinterpret_cast<const HirType*>(&left_type_cmp)) &&
-        hir_type_has_object_spec(reinterpret_cast<const HirType*>(&right_type_cmp))) {
-      return do_cbool(hir_type_object_spec(reinterpret_cast<const HirType*>(&left_type_cmp)) ==
-                      hir_type_object_spec(reinterpret_cast<const HirType*>(&right_type_cmp)));
+    if (type_has_object_spec(left_type_cmp) &&
+        type_has_object_spec(right_type_cmp)) {
+      return do_cbool(type_object_spec(left_type_cmp) ==
+                      type_object_spec(right_type_cmp));
     }
   }
   // box(b) == True --> b
   auto right_type_box = right->type();
   if (instr->op() == PrimitiveCompareOp::kEqual &&
       left->instr()->IsPrimitiveBoxBool() &&
-      hir_type_as_object(reinterpret_cast<const HirType*>(&right_type_box)) == Py_True) {
+      type_as_object(right_type_box) == Py_True) {
     return left->instr()->GetOperand(0);
   }
   return nullptr;
@@ -2802,8 +2829,8 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
       // C->C inlining: skip JitGen check for known non-generator iterators
       Register* iterator = instr->GetOperand(0);
       auto iter_ty = iterator->type();
-      PyTypeObject* iter_type = hir_type_runtime_py_type(
-          reinterpret_cast<const HirType*>(&iter_ty));
+      HirType iter_hir = to_hir(iter_ty);
+      PyTypeObject* iter_type = hir_type_runtime_py_type(&iter_hir);
       if (iter_type != nullptr &&
           ((jit::g_range_iterator_type != nullptr &&
             iter_type == jit::g_range_iterator_type) ||
