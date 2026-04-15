@@ -4,6 +4,7 @@
 #include "cinderx/Jit/jit_config_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/hir/hir_c_api.h"
+#include "cinderx/Jit/hir/hir_instr_c.h"
 
 #include "pycore_long.h"
 
