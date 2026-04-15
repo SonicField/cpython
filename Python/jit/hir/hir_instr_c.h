@@ -528,6 +528,22 @@ static inline void *hir_c_create_branch(void *target_block) {
     return br;
 }
 
+/* ==== Instruction factory: CondBranch ====
+ * Pure C factory — 1 operand (condition reg) + 2 edges. No output. */
+
+static inline void *hir_c_create_cond_branch(void *cond_reg,
+                                              void *true_block,
+                                              void *false_block) {
+    HirCondBranchInstr *cb = (HirCondBranchInstr *)hir_c_alloc_instr(
+        sizeof(HirCondBranchInstr), 1);
+    if (!cb) return NULL;
+    cb->opcode = HIR_OP_CondBranch;
+    cb->true_edge.to = true_block;
+    cb->false_edge.to = false_block;
+    hir_c_set_operand(cb, 0, cond_reg);
+    return cb;
+}
+
 /* ==== Opcode predicates ====
  * Direct opcode field read — no C++ bridge. These replace the
  * hir_instr_is_* functions in hir_c_api.h for C consumers that

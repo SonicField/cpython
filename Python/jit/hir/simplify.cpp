@@ -181,6 +181,12 @@ struct Env {
     return emitCInstr(static_cast<Instr*>(hir_c_create_branch(target)));
   }
 
+  // Convenience: create + insert a CondBranch via pure C factory.
+  Register* emitCondBranch(Register* cond, BasicBlock* true_bb, BasicBlock* false_bb) {
+    return emitCInstr(static_cast<Instr*>(
+        hir_c_create_cond_branch(cond, true_bb, false_bb)));
+  }
+
   // Insert a pre-created instruction from a C factory into the current block.
   // Sets bytecode offset, inserts at cursor, computes output type.
   // Returns the output register (or nullptr if no output).
@@ -513,7 +519,7 @@ Register* simplifyCondBranch(Env& env, const CondBranch* instr) {
     auto convert = static_cast<IntConvert*>(cond->instr());
     Register* src = convert->src();
     if (convert->type().sizeInBytes() >= src->type().sizeInBytes()) {
-      return env.emit<CondBranch>(src, instr->true_bb(), instr->false_bb());
+      return env.emitCondBranch(src, instr->true_bb(), instr->false_bb());
     }
   }
   return nullptr;
@@ -672,7 +678,7 @@ Register* simplifyLoadTypeMethodCached(Env& env, const LoadMethod* load_meth) {
       env.emit<PrimitiveCompare>(PrimitiveCompareOp::kEqual, guard, receiver);
   return env.emitCond(
       [&](BasicBlock* fast_path, BasicBlock* slow_path) {
-        env.emit<CondBranch>(type_matches, fast_path, slow_path);
+        env.emitCondBranch(type_matches, fast_path, slow_path);
       },
       [&] { // Fast path
         return env.emit<LoadTypeMethodCacheEntryValue>(cache_id, receiver);
@@ -1282,7 +1288,7 @@ Register* simplifyLoadAttrSplitDict(
 
   return env.emitCond(
       [&](BasicBlock* bb1, BasicBlock* bb2) {
-        env.emit<CondBranch>(inline_values_valid, bb1, bb2);
+        env.emitCondBranch(inline_values_valid, bb1, bb2);
       },
       [&] { // Inline values are valid.
         Register* maybe_attr = env.emit<LoadField>(
@@ -1455,7 +1461,7 @@ Register* simplifyLoadAttrMemberDescr(Env& env, const DescrInfo& info) {
 
     return env.emitCond(
         [&](BasicBlock* bb1, BasicBlock* bb2) {
-          env.emit<CondBranch>(field, bb1, bb2);
+          env.emitCondBranch(field, bb1, bb2);
         },
         [&] { // Field is set
           return env.emit<RefineType>(TObject, field);
@@ -1582,7 +1588,7 @@ Register* simplifyLoadAttrTypeReceiver(Env& env, const LoadAttr* load_attr) {
       env.emit<PrimitiveCompare>(PrimitiveCompareOp::kEqual, guard, receiver);
   return env.emitCond(
       [&](BasicBlock* fast_path, BasicBlock* slow_path) {
-        env.emit<CondBranch>(type_matches, fast_path, slow_path);
+        env.emitCondBranch(type_matches, fast_path, slow_path);
       },
       [&] { // Fast path
         return env.emit<LoadTypeAttrCacheEntryValue>(cache_id);
@@ -2362,7 +2368,7 @@ Register* simplifyVectorCall(Env& env, const VectorCall* instr) {
 
     Register* cbool_res = env.emitCond(
         [&](BasicBlock* fast_path, BasicBlock* slow_path) {
-          env.emit<CondBranch>(compare_type, fast_path, slow_path);
+          env.emitCondBranch(compare_type, fast_path, slow_path);
         },
         [&] { // Fast path
           return compare_type;
