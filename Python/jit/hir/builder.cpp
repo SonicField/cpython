@@ -514,6 +514,34 @@ struct HIRBuilder::TranslationContext {
         dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
   }
 
+  // SetCurrentAwaiter via C factory (1 operand, no output).
+  void emitSetCurrentAwaiter(Register* src) {
+    emitC(static_cast<Instr*>(hir_c_create_set_current_awaiter_reg(src)));
+  }
+
+  // Decref via C factory (1 operand, no output).
+  void emitDecref(Register* src) {
+    emitC(static_cast<Instr*>(hir_c_create_decref_reg(src)));
+  }
+
+  // MakeCell via C++ bridge (DeoptBase + FrameState).
+  void emitMakeCell(Register* dst, Register* src, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_make_cell_reg(
+        dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
+  // InitialYield via C++ bridge (DeoptBase + FrameState).
+  void emitInitialYield(Register* dst, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_initial_yield_reg(
+        dst, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
+  // LoadArg via C factory (HasOutput, index + type).
+  void emitLoadArg(Register* dst, int idx, Type type) {
+    emitC(static_cast<Instr*>(
+        hir_c_create_load_arg_reg(dst, static_cast<int32_t>(idx), to_hir(type))));
+  }
+
   // YieldFrom via C++ bridge (DeoptBase + FrameState).
   void emitYieldFrom(Register* dst, Register* send_value, Register* iter,
                       const FrameState& fs) {
@@ -626,7 +654,7 @@ struct HIRBuilder::TranslationContext {
 
 void HIRBuilder::addInitialYield(TranslationContext& tc) {
   auto out = temps_.AllocateNonStack();
-  tc.emit<InitialYield>(out, tc.frame);
+  tc.emitInitialYield(out, tc.frame);
 }
 
 // Add LoadArg instructions for each function argument. This ensures that the
@@ -643,10 +671,10 @@ void HIRBuilder::addLoadArgs(TranslationContext& tc, int num_args) {
     Register* dst = tc.frame.localsplus[i];
     JIT_CHECK(dst != nullptr, "No register for argument {}", i);
     if (i == starargs_idx) {
-      tc.emit<LoadArg>(dst, i, TTupleExact);
+      tc.emitLoadArg(dst, i, TTupleExact);
     } else {
       Type type = preloader_.checkArgType(i);
-      tc.emit<LoadArg>(dst, i, type);
+      tc.emitLoadArg(dst, i, type);
     }
   }
 }
@@ -678,7 +706,7 @@ void HIRBuilder::addInitializeCells([[maybe_unused]] TranslationContext& tc) {
           tc.frame.nlocals);
       cell_contents = tc.frame.localsplus[arg];
     }
-    tc.emit<MakeCell>(dst, cell_contents, tc.frame);
+    tc.emitMakeCell(dst, cell_contents, tc.frame);
     if (arg != CO_CELL_NOT_AN_ARG) {
       // Clear the local once we have it in a cell.
       tc.frame.localsplus[arg] = null_reg;
@@ -964,7 +992,7 @@ void HIRBuilder::emitInlineExceptionMatch(
     // Decref stack items above handler depth.
     while (static_cast<int>(exc_tc.frame.stack.size()) > handler.depth) {
       Register* excess = exc_tc.frame.stack.pop();
-      exc_tc.emit<Decref>(excess);
+      exc_tc.emitDecref(excess);
     }
 
     // Load exception type as a constant (resolved at compile time).
@@ -1146,7 +1174,7 @@ void HIRBuilder::emitCallExceptionHandler(
     // Decref stack items above handler depth.
     while (static_cast<int>(exc_tc.frame.stack.size()) > handler.depth) {
       Register* excess = exc_tc.frame.stack.pop();
-      exc_tc.emit<Decref>(excess);
+      exc_tc.emitDecref(excess);
     }
 
     // Load exception type as a constant (resolved at compile time).
@@ -2262,7 +2290,7 @@ void HIRBuilder::translate(
               PY_VERSION_HEX < 0x030C0000 || PY_VERSION_HEX >= 0x030E0000) {
             advancePastYieldInstr(tc);
           }
-          tc.emit<InitialYield>(out, tc.frame);
+          tc.emitInitialYield(out, tc.frame);
           tc.frame.stack.push(out);
           break;
         }
@@ -4003,7 +4031,7 @@ void HIRBuilder::emitLoadMethodOrAttrSuper(
 void HIRBuilder::emitMakeCell(TranslationContext& tc, int local_idx) {
   Register* local = tc.frame.localsplus[local_idx];
   Register* cell = temps_.AllocateNonStack();
-  tc.emit<MakeCell>(cell, local, tc.frame);
+  tc.emitMakeCell(cell, local, tc.frame);
   moveOverwrittenStackRegisters(tc, local);
   tc.emitAssign(local, cell);
 }
@@ -5375,7 +5403,7 @@ void HIRBuilder::emitAsyncForHeaderYieldFrom(
   Register* awaitable = tc.frame.stack.top();
   Register* out = temps_.AllocateStack();
   if (code_->co_flags & CO_COROUTINE) {
-    tc.emit<SetCurrentAwaiter>(awaitable);
+    tc.emitSetCurrentAwaiter(awaitable);
   }
   tc.emit<YieldFromHandleStopAsyncIteration>(
       out, send_value, awaitable, tc.frame);
@@ -5617,7 +5645,7 @@ void HIRBuilder::emitYieldFrom(TranslationContext& tc, Register* out) {
   auto send_value = stack.pop();
   auto iter = stack.top();
   if (code_->co_flags & CO_COROUTINE) {
-    tc.emit<SetCurrentAwaiter>(iter);
+    tc.emitSetCurrentAwaiter(iter);
   }
   tc.emitYieldFrom(out, send_value, iter, tc.frame);
   stack.pop();
@@ -5866,7 +5894,7 @@ void HIRBuilder::emitDispatchEagerCoroResult(
   has_wh_block.emitCondBranch(wh_waiter, coro_block.block, res_block.block);
 
   if (code_->co_flags & CO_COROUTINE) {
-    coro_block.emit<SetCurrentAwaiter>(wh_coro_or_result);
+    coro_block.emitSetCurrentAwaiter(wh_coro_or_result);
   }
   coro_block.emit<YieldAndYieldFrom>(
       out, wh_waiter, wh_coro_or_result, tc.frame);

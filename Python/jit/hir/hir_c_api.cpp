@@ -927,6 +927,30 @@ HirInstr hir_c_create_guard_is_reg(HirRegister dst, void *target,
       as_reg(dst), static_cast<PyObject*>(target), as_reg(src));
 }
 
+HirInstr hir_c_create_set_current_awaiter_reg(HirRegister src) {
+  return SetCurrentAwaiter::create(as_reg(src));
+}
+
+HirInstr hir_c_create_decref_reg(HirRegister src) {
+  return Decref::create(as_reg(src));
+}
+
+HirInstr hir_c_create_make_cell_reg(HirRegister dst, HirRegister src,
+                                     void *frame_state) {
+  return MakeCell::create(as_reg(dst), as_reg(src),
+                           *static_cast<const FrameState*>(frame_state));
+}
+
+HirInstr hir_c_create_initial_yield_reg(HirRegister dst, void *frame_state) {
+  return InitialYield::create(as_reg(dst),
+                               *static_cast<const FrameState*>(frame_state));
+}
+
+HirInstr hir_c_create_load_arg_reg(HirRegister dst, int32_t idx, HirType type) {
+  Type cpp_type = Type::fromHirType(type);
+  return LoadArg::create(as_reg(dst), idx, cpp_type);
+}
+
 HirInstr hir_c_create_load_field_address_reg(HirRegister dst, HirRegister object,
                                               HirRegister offset) {
   return LoadFieldAddress::create(as_reg(dst), as_reg(object), as_reg(offset));
