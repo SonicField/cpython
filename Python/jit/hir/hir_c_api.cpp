@@ -344,7 +344,11 @@ HirInstr hir_load_const_bottom_create(HirRegister output) {
 }
 
 HirInstr hir_assign_create(HirRegister output, HirRegister value) {
-  return Assign::create(as_reg(output), as_reg(value));
+  HirAssign *a = (HirAssign *)hir_c_alloc_instr(sizeof(HirAssign), 1);
+  hir_c_init_instr(a, HIR_OP_Assign);
+  hir_c_set_output(a, output);
+  hir_c_set_operand(a, 0, value);
+  return a;
 }
 
 /* ---- Type queries (bridge) ---- */
@@ -1450,8 +1454,11 @@ HirInstr hir_c_create_deopt(void) {
 }
 
 HirInstr hir_c_create_return(HirRegister src, HirType type) {
-  Type cpp_type = Type::fromHirType(type);
-  return Return::create(as_reg(src), cpp_type);
+  HirReturn *r = (HirReturn *)hir_c_alloc_instr(sizeof(HirReturn), 1);
+  hir_c_init_instr(r, HIR_OP_Return);
+  r->type = type;
+  hir_c_set_operand(r, 0, src);
+  return r;
 }
 
 /* ---- Frame state ---- */
