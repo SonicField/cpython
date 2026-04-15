@@ -2035,4 +2035,34 @@ void *hir_get_frame_state(HirInstr instr) {
   return const_cast<FrameState*>(get_frame_state(*as_instr(instr)));
 }
 
+/* ==== H2-C: Instr lifecycle and list manipulation ==== */
+
+void hir_c_destroy_instr(HirInstr instr) {
+  Instr::Destroy(as_instr(instr));
+}
+
+void hir_c_insert_before(HirInstr new_instr, HirInstr before) {
+  as_instr(new_instr)->InsertBefore(*as_instr(before));
+}
+
+void hir_c_insert_after(HirInstr new_instr, HirInstr after) {
+  as_instr(new_instr)->InsertAfter(*as_instr(after));
+}
+
+void hir_c_unlink(HirInstr instr) {
+  as_instr(instr)->unlink();
+}
+
+void hir_c_replace_with(HirInstr old_instr, HirInstr new_instr) {
+  as_instr(old_instr)->ReplaceWith(*as_instr(new_instr));
+}
+
+void hir_c_set_successor_cpp(HirInstr instr, size_t i, void *block) {
+  as_instr(instr)->set_successor(i, static_cast<BasicBlock*>(block));
+}
+
+void hir_c_replace_uses_of(HirInstr instr, HirRegister orig, HirRegister replacement) {
+  as_instr(instr)->ReplaceUsesOf(as_reg(orig), as_reg(replacement));
+}
+
 } /* extern "C" */

@@ -630,6 +630,35 @@ void hir_remove_unreachable_instructions(HirFunction func);
 /* Re-derive all register types from instructions. */
 void hir_reflow_types(HirFunction func);
 
+/* ==== H2-C: Instr lifecycle and list manipulation (extern C wrappers) ==== */
+
+/* Destroy an instruction and free its slab-allocated memory.
+ * Dispatches to the correct concrete type destructor via opcode (T2-C6). */
+void hir_c_destroy_instr(HirInstr instr);
+
+/* Insert 'new_instr' before 'before' in the instruction list. */
+void hir_c_insert_before(HirInstr new_instr, HirInstr before);
+
+/* Insert 'new_instr' after 'after' in the instruction list. */
+void hir_c_insert_after(HirInstr new_instr, HirInstr after);
+
+/* Unlink an instruction from its basic block (does not destroy it). */
+void hir_c_unlink(HirInstr instr);
+
+/* Replace 'old_instr' with 'new_instr' in the instruction list.
+ * old_instr is unlinked but NOT destroyed. */
+void hir_c_replace_with(HirInstr old_instr, HirInstr new_instr);
+
+/* Set the i-th successor block of a terminator instruction. */
+void hir_c_set_successor_cpp(HirInstr instr, size_t i, void *block);
+
+/* Replace all uses of 'orig' register with 'replacement' in this instruction. */
+void hir_c_replace_uses_of(HirInstr instr, HirRegister orig, HirRegister replacement);
+
+/* Note: hir_c_num_edges, hir_c_successor, hir_c_is_terminator,
+ * hir_c_set_bytecode_offset, hir_c_copy_bytecode_offset are already
+ * defined as static inline in hir_instr_c.h — no extern C needed. */
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
