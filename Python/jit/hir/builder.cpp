@@ -3268,8 +3268,8 @@ bool HIRBuilder::tryEmitDirectMethodCall(
       tc.emitCheckNeg(out, out, tc.frame);
     } else if (out != nullptr) {
       auto ret_ty = target.return_type;
-      if (!hir_type_could_be(reinterpret_cast<const HirType*>(&ret_ty),
-                             reinterpret_cast<const HirType*>(&TPrimitive))) {
+      HirType h_ret = to_hir(ret_ty), h_prim = to_hir(TPrimitive);
+      if (!hir_type_could_be(&h_ret, &h_prim)) {
         tc.emitCheckExc(out, out, tc.frame);
       }
     }
@@ -5640,8 +5640,8 @@ void HIRBuilder::emitLoadField(
     field_name = "";
   }
   tc.emitLoadField(result, receiver, field_name, offset, type);
-  if (hir_type_could_be(reinterpret_cast<const HirType*>(&type),
-                        reinterpret_cast<const HirType*>(&TNullptr))) {
+  HirType h_type = to_hir(type), h_null = to_hir(TNullptr);
+  if (hir_type_could_be(&h_type, &h_null)) {
     auto* cf = tc.emitCheckField(result, result, name, tc.frame);
     cf->setGuiltyReg(receiver);
   }

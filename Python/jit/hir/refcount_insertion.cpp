@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/hir/refcount_insertion.h"
+#include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/jit_config_c.h"
 
 #include "cinderx/Common/log.h"
@@ -26,6 +27,8 @@
 // first time here, I recommend reading refcount_insertion.md first.
 
 namespace jit::hir {
+
+static inline HirType to_hir(Type t) { return Type::toHirType(t); }
 
 namespace {
 
@@ -479,10 +482,8 @@ std::vector<PredState> collectPredStates(Env& env, BasicBlock* block) {
 // value.
 bool isUncounted(const Register* reg) {
   auto reg_type = reg->type();
-  auto tmortal = TMortalObject;
-  return !hir_type_could_be(
-      reinterpret_cast<const HirType*>(&reg_type),
-      reinterpret_cast<const HirType*>(&tmortal));
+  HirType h_reg = to_hir(reg_type), h_mortal = to_hir(TMortalObject);
+  return !hir_type_could_be(&h_reg, &h_mortal);
 }
 
 // Insert an Incref of `reg` before `cursor`.
@@ -936,11 +937,8 @@ void fillDeoptLiveRegs(const StateMap& live_regs, Instr& instr) {
     auto ref_kind = rstate.kind();
     for (int i = 0, n = rstate.numCopies(); i < n; ++i) {
       Register* reg = rstate.copy(i);
-      auto reg_type_for_cptr = reg->type();
-      auto tcptr = TCPtr;
-      if (hir_type_could_be(
-              reinterpret_cast<const HirType*>(&reg_type_for_cptr),
-              reinterpret_cast<const HirType*>(&tcptr))) {
+      HirType h_regtype = to_hir(reg->type()), h_cptr = to_hir(TCPtr);
+      if (hir_type_could_be(&h_regtype, &h_cptr)) {
         // This value will never be de-opted
         continue;
       }

@@ -9,6 +9,10 @@
 
 namespace jit::hir {
 
+static inline HirType to_hir(Type t) {
+  return Type::toHirType(t);
+}
+
 namespace {
 
 std::optional<Type> builtinFunctionReturnType(std::string_view name) {
@@ -55,7 +59,7 @@ Type returnType(PyMethodDef* meth) {
 }
 
 Type returnType(Type callable) {
-  HirType callable_hir = *reinterpret_cast<const HirType*>(&callable);
+  HirType callable_hir = to_hir(callable);
   if (!hir_type_has_object_spec(&callable_hir)) {
     return TObject;
   }
@@ -290,9 +294,9 @@ Type outputType(
       }
       {
         auto binop_ty = binop.left()->type();
-        HirType binop_hir = *reinterpret_cast<const HirType*>(&binop_ty);
+        HirType binop_hir = to_hir(binop_ty);
         HirType binop_unspec = hir_type_unspecialized(&binop_hir);
-        return *reinterpret_cast<const Type*>(&binop_unspec);
+        return Type::fromHirType(binop_unspec);
       }
     }
     case Opcode::kDoubleBinaryOp: {
@@ -307,9 +311,9 @@ Type outputType(
       }
       {
         Type op0_ty = get_op_type(0);
-        HirType op0_hir = *reinterpret_cast<const HirType*>(&op0_ty);
+        HirType op0_hir = to_hir(op0_ty);
         HirType op0_unspec = hir_type_unspecialized(&op0_hir);
-        return *reinterpret_cast<const Type*>(&op0_unspec);
+        return Type::fromHirType(op0_unspec);
       }
 
     // Some return something slightly more interesting.

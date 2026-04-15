@@ -14,6 +14,8 @@
 
 namespace jit::hir {
 
+static inline HirType to_hir(Type t) { return Type::toHirType(t); }
+
 namespace {
 
 // Try to resolve keyword arguments in a VectorCall to positional order.
@@ -23,8 +25,8 @@ bool resolveVectorCallKwargs(VectorCall* call) {
 
   // Need a known function to get parameter names.
   auto target_ty = target->type();
-  HirType target_hir = *reinterpret_cast<const HirType*>(&target_ty);
-  HirType tfunc_hir = *reinterpret_cast<const HirType*>(&TFunc);
+  HirType target_hir = to_hir(target_ty);
+  HirType tfunc_hir = to_hir(TFunc);
   if (!hir_type_has_value_spec(&target_hir, tfunc_hir)) {
     return false;
   }
@@ -45,7 +47,7 @@ bool resolveVectorCallKwargs(VectorCall* call) {
 
   Register* kwnames_reg = call->GetOperand(total_operands - 1);
   auto kwnames_ty = kwnames_reg->type();
-  HirType kwnames_hir = *reinterpret_cast<const HirType*>(&kwnames_ty);
+  HirType kwnames_hir = to_hir(kwnames_ty);
   if (!hir_type_has_object_spec(&kwnames_hir)) {
     return false;  // kwnames not a known constant
   }
@@ -155,8 +157,8 @@ bool resolveCallMethodKwargs(CallMethod* call) {
   Register* target = call->func();
 
   auto target_ty2 = target->type();
-  HirType target_hir2 = *reinterpret_cast<const HirType*>(&target_ty2);
-  HirType tfunc_hir2 = *reinterpret_cast<const HirType*>(&TFunc);
+  HirType target_hir2 = to_hir(target_ty2);
+  HirType tfunc_hir2 = to_hir(TFunc);
   if (!hir_type_has_value_spec(&target_hir2, tfunc_hir2)) {
     return false;
   }
@@ -176,7 +178,7 @@ bool resolveCallMethodKwargs(CallMethod* call) {
 
   Register* kwnames_reg = call->GetOperand(total_operands - 1);
   auto kwnames_ty2 = kwnames_reg->type();
-  HirType kwnames_hir2 = *reinterpret_cast<const HirType*>(&kwnames_ty2);
+  HirType kwnames_hir2 = to_hir(kwnames_ty2);
   if (!hir_type_has_object_spec(&kwnames_hir2)) {
     return false;
   }
