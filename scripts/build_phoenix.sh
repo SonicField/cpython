@@ -73,11 +73,17 @@ fi
 echo "--- Configuring cmake with PHOENIX_ASM=ON ---"
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
+# CRITICAL: --pydebug requires CMAKE_BUILD_TYPE=Debug so JIT_DCHECK is active.
+# RelWithDebInfo compiles out JIT_DCHECK even with configure --with-pydebug.
+CMAKE_BUILD_TYPE="RelWithDebInfo"
+if [ "$PYDEBUG" -eq 1 ]; then
+    CMAKE_BUILD_TYPE="Debug"
+fi
 if ! cmake .. \
     -DPHOENIX_ASM=ON \
     -DCMAKE_CXX_FLAGS="-DPHOENIX_ASM" \
     -DCMAKE_C_FLAGS="-DPHOENIX_ASM" \
-    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
     -DCMAKE_C_COMPILER=clang \
     -DCMAKE_CXX_COMPILER=clang++; then
     echo "FAIL: cmake configuration failed"
@@ -110,10 +116,18 @@ if [ "$ARCH" = "aarch64" ]; then
         exit 1
     fi
 else
-    echo "x86_64 detected — configuring with LTO"
-    if ! CC=clang CXX=clang++ ./configure $PYDEBUG_FLAG --with-lto; then
-        echo "FAIL: configure failed"
-        exit 1
+    if [ "$PYDEBUG" -eq 1 ]; then
+        echo "x86_64 detected — configuring without LTO (pydebug)"
+        if ! CC=clang CXX=clang++ ./configure $PYDEBUG_FLAG --without-lto; then
+            echo "FAIL: configure failed"
+            exit 1
+        fi
+    else
+        echo "x86_64 detected — configuring with LTO"
+        if ! CC=clang CXX=clang++ ./configure $PYDEBUG_FLAG --with-lto; then
+            echo "FAIL: configure failed"
+            exit 1
+        fi
     fi
 fi
 
