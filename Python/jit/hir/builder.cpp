@@ -392,6 +392,12 @@ struct HIRBuilder::TranslationContext {
     emitC(static_cast<Instr*>(hir_c_create_check_exc_reg(dst, src)));
   }
 
+  // CheckExc via C factory (with FrameState).
+  void emitCheckExc(Register* dst, Register* src, const FrameState& fs) {
+    auto* instr = emitC(static_cast<Instr*>(hir_c_create_check_exc_reg(dst, src)));
+    static_cast<DeoptBase*>(instr)->setFrameState(fs);
+  }
+
   // Branch via C++ bridge (Edge::set_to). Returns instruction.
   Instr* emitBranch(BasicBlock* target) {
     return emitC(static_cast<Instr*>(hir_c_create_branch_cpp(target)));
@@ -3003,7 +3009,7 @@ bool HIRBuilder::tryEmitDirectMethodCall(
       auto ret_ty = target.return_type;
       if (!hir_type_could_be(reinterpret_cast<const HirType*>(&ret_ty),
                              reinterpret_cast<const HirType*>(&TPrimitive))) {
-        tc.emit<CheckExc>(out, out, tc.frame);
+        tc.emitCheckExc(out, out, tc.frame);
       }
     }
     if (target.builtin_returns_void || target.builtin_returns_error_code) {
@@ -5582,7 +5588,7 @@ void HIRBuilder::emitGetAwaitable(
     // TASK(T105038867): Remove once we have RefineTypeInsertion
     tc.emitRefineType(iter, TObject, iter);
   } else {
-    tc.emit<CheckExc>(iter, iter, tc.frame);
+    tc.emitCheckExc(iter, iter, tc.frame);
   }
 
   // For coroutines only, runtime assert it isn't already awaiting by checking
