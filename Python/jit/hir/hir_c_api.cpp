@@ -645,51 +645,62 @@ HirInstr hir_c_create_check_neg(HirFunction func, HirRegister src,
 HirInstr hir_c_create_primitive_box(HirFunction func, HirRegister src,
                                      HirType type, void *frame_state) {
   if (!frame_state) return nullptr;
-  auto* f = static_cast<Function*>(func);
-  auto* dst = f->env.AllocateRegister();
-  Type cpp_type = Type::fromHirType(type);
-  return PrimitiveBox::create(
-      dst, as_reg(src), cpp_type,
-      *static_cast<const FrameState*>(frame_state));
+  HirRegister dst = hir_func_alloc_register(func);
+  HirPrimitiveBox *p = (HirPrimitiveBox *)hir_c_alloc_instr(sizeof(HirPrimitiveBox), 1);
+  hir_c_init_deopt(p, HIR_OP_PrimitiveBox);
+  p->type = type;
+  hir_c_set_output(p, dst);
+  hir_c_set_operand(p, 0, src);
+  as_instr(p)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return p;
 }
 
 HirInstr hir_c_create_check_seq_bounds(HirFunction func,
                                         HirRegister seq, HirRegister idx,
                                         void *frame_state) {
   if (!frame_state) return nullptr;
-  auto* f = static_cast<Function*>(func);
-  auto* dst = f->env.AllocateRegister();
-  return CheckSequenceBounds::create(
-      dst, as_reg(seq), as_reg(idx),
-      *static_cast<const FrameState*>(frame_state));
+  HirRegister dst = hir_func_alloc_register(func);
+  HirDeoptLayout *c = (HirDeoptLayout *)hir_c_alloc_instr(sizeof(HirDeoptLayout), 2);
+  hir_c_init_deopt(c, HIR_OP_CheckSequenceBounds);
+  hir_c_set_output(c, dst);
+  hir_c_set_operand(c, 0, seq);
+  hir_c_set_operand(c, 1, idx);
+  as_instr(c)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return c;
 }
 
 /* ---- DeoptBaseWithNameIdx factories ---- */
 
-#define DEOPT_NAMEIDX1_FACTORY(name, CppType) \
+#define DEOPT_NAMEIDX1_FACTORY(name, CppType, opcode) \
 HirInstr hir_c_create_##name(HirFunction func, \
     HirRegister receiver, int name_idx, void *frame_state) { \
   if (!frame_state) return nullptr; \
-  auto* f = static_cast<Function*>(func); \
-  auto* dst = f->env.AllocateRegister(); \
-  return CppType::create( \
-      dst, as_reg(receiver), name_idx, \
-      *static_cast<const FrameState*>(frame_state)); \
+  HirRegister dst = hir_func_alloc_register(func); \
+  HirLoadAttrCached *i = (HirLoadAttrCached *)hir_c_alloc_instr(sizeof(HirLoadAttrCached), 1); \
+  hir_c_init_deopt(i, opcode); \
+  i->name_idx = name_idx; \
+  hir_c_set_output(i, dst); \
+  hir_c_set_operand(i, 0, receiver); \
+  as_instr(i)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state)); \
+  return i; \
 }
 
-DEOPT_NAMEIDX1_FACTORY(load_module_method_cached, LoadModuleMethodCached)
-DEOPT_NAMEIDX1_FACTORY(load_method_cached, LoadMethodCached)
-DEOPT_NAMEIDX1_FACTORY(load_module_attr_cached, LoadModuleAttrCached)
-DEOPT_NAMEIDX1_FACTORY(load_attr_cached, LoadAttrCached)
+DEOPT_NAMEIDX1_FACTORY(load_module_method_cached, LoadModuleMethodCached, HIR_OP_LoadModuleMethodCached)
+DEOPT_NAMEIDX1_FACTORY(load_method_cached, LoadMethodCached, HIR_OP_LoadMethodCached)
+DEOPT_NAMEIDX1_FACTORY(load_module_attr_cached, LoadModuleAttrCached, HIR_OP_LoadModuleAttrCached)
+DEOPT_NAMEIDX1_FACTORY(load_attr_cached, LoadAttrCached, HIR_OP_LoadAttrCached)
 #undef DEOPT_NAMEIDX1_FACTORY
 
 HirInstr hir_c_create_store_attr_cached(HirFunction func,
     HirRegister obj, HirRegister value, int name_idx, void *frame_state) {
   if (!frame_state) return nullptr;
-  auto* f = static_cast<Function*>(func);
-  return StoreAttrCached::create(
-      as_reg(obj), as_reg(value), name_idx,
-      *static_cast<const FrameState*>(frame_state));
+  HirStoreAttrCached *s = (HirStoreAttrCached *)hir_c_alloc_instr(sizeof(HirStoreAttrCached), 2);
+  hir_c_init_deopt(s, HIR_OP_StoreAttrCached);
+  s->name_idx = name_idx;
+  hir_c_set_operand(s, 0, obj);
+  hir_c_set_operand(s, 1, value);
+  as_instr(s)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return s;
 }
 
 /* ---- Tier 3: CheckField + LoadAttr + LoadArrayItem + setGuiltyReg ---- */
