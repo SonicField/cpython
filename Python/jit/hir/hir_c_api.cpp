@@ -585,6 +585,21 @@ HirInstr hir_c_create_check_exc(HirFunction func, HirRegister src,
       *static_cast<const FrameState*>(frame_state));
 }
 
+/* ---- Branch/CondBranch factories (C++ bridge for Edge management) ---- */
+
+HirInstr hir_c_create_branch_cpp(void *target_block) {
+  auto* bb = static_cast<BasicBlock*>(target_block);
+  return Branch::create(bb);
+}
+
+HirInstr hir_c_create_cond_branch_cpp(void *cond_reg,
+                                       void *true_block,
+                                       void *false_block) {
+  auto* true_bb = static_cast<BasicBlock*>(true_block);
+  auto* false_bb = static_cast<BasicBlock*>(false_block);
+  return CondBranch::create(as_reg(cond_reg), true_bb, false_bb);
+}
+
 /* ---- Frame state ---- */
 
 void *hir_get_frame_state(HirInstr instr) {

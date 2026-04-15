@@ -176,15 +176,19 @@ struct Env {
         &func, src, const_cast<void*>(static_cast<const void*>(&fs)))));
   }
 
-  // Convenience: create + insert a Branch via pure C factory.
+  // Convenience: create + insert a Branch via C++ bridge factory.
+  // Must use C++ bridge (not pure C) because Edge::set_to manages
+  // target block's in_edges_ set.
   Register* emitBranch(BasicBlock* target) {
-    return emitCInstr(static_cast<Instr*>(hir_c_create_branch(target)));
+    return emitCInstr(static_cast<Instr*>(hir_c_create_branch_cpp(target)));
   }
 
-  // Convenience: create + insert a CondBranch via pure C factory.
+  // Convenience: create + insert a CondBranch via C++ bridge factory.
+  // Must use C++ bridge (not pure C) because Edge::set_to manages
+  // target block's in_edges_ set.
   Register* emitCondBranch(Register* cond, BasicBlock* true_bb, BasicBlock* false_bb) {
     return emitCInstr(static_cast<Instr*>(
-        hir_c_create_cond_branch(cond, true_bb, false_bb)));
+        hir_c_create_cond_branch_cpp(cond, true_bb, false_bb)));
   }
 
   // Convenience: create + insert a UseType via pure C factory.

@@ -158,6 +158,16 @@ HirInstr hir_load_const_bottom_create(HirRegister output);
 /* Create an Assign instruction (copy register). */
 HirInstr hir_assign_create(HirRegister output, HirRegister value);
 
+/* Create a Branch instruction (0 operands, 1 edge).
+ * Uses C++ Edge::set_to for proper in_edges management. */
+HirInstr hir_c_create_branch_cpp(void *target_block);
+
+/* Create a CondBranch instruction (1 operand, 2 edges).
+ * Uses C++ Edge::set_to for proper in_edges management. */
+HirInstr hir_c_create_cond_branch_cpp(void *cond_reg,
+                                       void *true_block,
+                                       void *false_block);
+
 /* ---- Instruction query/mutation (T2-D) ---- */
 
 /* Get the Compare operation kind (CompareOp enum as int).
