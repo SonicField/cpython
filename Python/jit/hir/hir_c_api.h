@@ -367,6 +367,19 @@ HirInstr hir_c_create_make_cell_reg(HirRegister dst, HirRegister src,
                                      void *frame_state);
 HirInstr hir_c_create_initial_yield_reg(HirRegister dst, void *frame_state);
 HirInstr hir_c_create_load_arg_reg(HirRegister dst, int32_t idx, HirType type);
+/* 1-op HasOutput DeoptBase factories (dst, src, frame) */
+HirInstr hir_c_create_get_a_iter_reg(HirRegister dst, HirRegister src, void *fs);
+HirInstr hir_c_create_get_a_next_reg(HirRegister dst, HirRegister src, void *fs);
+HirInstr hir_c_create_get_tuple_reg(HirRegister dst, HirRegister src, void *fs);
+HirInstr hir_c_create_is_neg_and_err_reg(HirRegister dst, HirRegister src, void *fs);
+/* 0-op or 1-op no-frame factories */
+HirInstr hir_c_create_load_cell_item_reg(HirRegister dst, HirRegister src);
+HirInstr hir_c_create_load_current_func_reg(HirRegister dst);
+HirInstr hir_c_create_load_eval_breaker_reg(HirRegister dst);
+HirInstr hir_c_create_load_frame_reg(void);
+HirInstr hir_c_create_load_var_object_size_reg(HirRegister dst, HirRegister src);
+HirInstr hir_c_create_check_err_occurred_reg(void *frame_state);
+
 HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
     HirRegister src, void *body_block, void *done_block);
 HirInstr hir_c_create_int_convert_reg(HirRegister dst, HirRegister src,

@@ -617,6 +617,44 @@ struct HIRBuilder::TranslationContext {
         const_cast<void*>(static_cast<const void*>(&fs)))));
   }
 
+  // Batch: 1-op HasOutput DeoptBase (dst, src, frame)
+  void emitGetAIter(Register* dst, Register* src, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_get_a_iter_reg(
+        dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitGetANext(Register* dst, Register* src, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_get_a_next_reg(
+        dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitGetTuple(Register* dst, Register* src, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_get_tuple_reg(
+        dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitIsNegativeAndErrOccurred(Register* dst, Register* src, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_is_neg_and_err_reg(
+        dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  // 0/1-op no-frame
+  void emitLoadCellItem(Register* dst, Register* src) {
+    emitC(static_cast<Instr*>(hir_c_create_load_cell_item_reg(dst, src)));
+  }
+  void emitLoadCurrentFunc(Register* dst) {
+    emitC(static_cast<Instr*>(hir_c_create_load_current_func_reg(dst)));
+  }
+  void emitLoadEvalBreaker(Register* dst) {
+    emitC(static_cast<Instr*>(hir_c_create_load_eval_breaker_reg(dst)));
+  }
+  void emitLoadFrame() {
+    emitC(static_cast<Instr*>(hir_c_create_load_frame_reg()));
+  }
+  void emitLoadVarObjectSize(Register* dst, Register* src) {
+    emitC(static_cast<Instr*>(hir_c_create_load_var_object_size_reg(dst, src)));
+  }
+  void emitCheckErrOccurred(const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_check_err_occurred_reg(
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
   // IsTruthy via C++ bridge (DeoptBase + FrameState).
   void emitIsTruthy(Register* dst, Register* src, const FrameState& fs) {
     emitC(static_cast<Instr*>(hir_c_create_is_truthy_reg(
@@ -1495,12 +1533,12 @@ BasicBlock* HIRBuilder::buildHIRImpl(
   // const instead of using LoadCurrentFunc.
   if (frame_state == nullptr && irfunc->uses_runtime_func) {
     func_ = temps_.AllocateNonStack();
-    entry_tc.emit<LoadCurrentFunc>(func_);
+    entry_tc.emitLoadCurrentFunc(func_);
   }
 
 #if PY_VERSION_HEX >= 0x030C0000
   if (frame_state == nullptr) {
-    entry_tc.emit<LoadFrame>();
+    entry_tc.emitLoadFrame();
   }
 #endif
 
@@ -3186,7 +3224,7 @@ void HIRBuilder::emitLoadIterableArg(
     tuple_path.emitAssign(tuple, iterable);
     tuple_path.emitBranch(tc.block);
 
-    non_tuple_path.emit<GetTuple>(tuple, iterable, tc.frame);
+    non_tuple_path.emitGetTuple(tuple, iterable, tc.frame);
     non_tuple_path.emitBranch(tc.block);
   } else {
     tuple = iterable;
@@ -4148,7 +4186,7 @@ void HIRBuilder::emitLoadDeref(
   Register* src = tc.frame.localsplus[idx];
   Register* dst = temps_.AllocateStack();
 
-  tc.emit<LoadCellItem>(dst, src);
+  tc.emitLoadCellItem(dst, src);
 
   BorrowedRef<> name = getVarname(code_, idx);
 #if PY_VERSION_HEX < 0x030C0000
@@ -4383,7 +4421,7 @@ void HIRBuilder::unboxPrimitive(
   tc.emit<PrimitiveUnbox>(dst, src, type);
   if (!(type <= (TCBool | TCDouble))) {
     Register* did_unbox_work = temps_.AllocateStack();
-    tc.emit<IsNegativeAndErrOccurred>(did_unbox_work, dst, tc.frame);
+    tc.emitIsNegativeAndErrOccurred(did_unbox_work, dst, tc.frame);
   }
 }
 
@@ -5428,7 +5466,7 @@ void HIRBuilder::emitUnpackSequence(
   Register* seq_size = temps_.AllocateStack();
   Register* target_size = temps_.AllocateStack();
   Register* is_equal = temps_.AllocateStack();
-  tc.emit<LoadVarObjectSize>(seq_size, seq);
+  tc.emitLoadVarObjectSize(seq_size, seq);
   tc.emitLoadConst(target_size, Type::fromCInt(bc_instr.oparg(), TCInt64));
   tc.emitPrimitiveCompare(
       is_equal, PrimitiveCompareOp::kEqual, seq_size, target_size);
@@ -5490,14 +5528,14 @@ void HIRBuilder::emitEndAsyncFor(TranslationContext& tc) {
 void HIRBuilder::emitGetAIter(TranslationContext& tc) {
   Register* obj = tc.frame.stack.pop();
   Register* out = temps_.AllocateStack();
-  tc.emit<GetAIter>(out, obj, tc.frame);
+  tc.emitGetAIter(out, obj, tc.frame);
   tc.frame.stack.push(out);
 }
 
 void HIRBuilder::emitGetANext(TranslationContext& tc) {
   Register* obj = tc.frame.stack.top();
   Register* out = temps_.AllocateStack();
-  tc.emit<GetANext>(out, obj, tc.frame);
+  tc.emitGetANext(out, obj, tc.frame);
   tc.frame.stack.push(out);
 }
 
@@ -6036,7 +6074,7 @@ void HIRBuilder::emitMatchClass(
   tc.emitBranch(done);
 
   tc.block = false_block;
-  tc.emit<CheckErrOccurred>(tc.frame);
+  tc.emitCheckErrOccurred(tc.frame);
   if constexpr (PY_VERSION_HEX < 0x030C0000) {
     tc.emitLoadConst(if_success, Type::fromObject(Py_False));
     tc.emitAssign(tuple_or_none, subject);
@@ -6320,7 +6358,7 @@ void HIRBuilder::insertRunPeriodicActivites(
 #endif
   // Check if the eval breaker has been set
   Register* eval_breaker = temps_.AllocateStack();
-  check.emit<LoadEvalBreaker>(eval_breaker);
+  check.emitLoadEvalBreaker(eval_breaker);
   check.emitCondBranch(eval_breaker, body.block, succ);
   // If set, run periodic tasks
   body.emitSnapshot();

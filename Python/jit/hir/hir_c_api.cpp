@@ -991,6 +991,42 @@ HirInstr hir_c_create_make_dict_reg(HirRegister dst, int32_t dict_size,
                            *static_cast<const FrameState*>(frame_state));
 }
 
+HirInstr hir_c_create_get_a_iter_reg(HirRegister dst, HirRegister src, void *fs) {
+  return GetAIter::create(as_reg(dst), as_reg(src),
+                           *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_get_a_next_reg(HirRegister dst, HirRegister src, void *fs) {
+  return GetANext::create(as_reg(dst), as_reg(src),
+                           *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_get_tuple_reg(HirRegister dst, HirRegister src, void *fs) {
+  return GetTuple::create(as_reg(dst), as_reg(src),
+                           *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_is_neg_and_err_reg(HirRegister dst, HirRegister src, void *fs) {
+  return IsNegativeAndErrOccurred::create(as_reg(dst), as_reg(src),
+                                           *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_load_cell_item_reg(HirRegister dst, HirRegister src) {
+  return LoadCellItem::create(as_reg(dst), as_reg(src));
+}
+HirInstr hir_c_create_load_current_func_reg(HirRegister dst) {
+  return LoadCurrentFunc::create(as_reg(dst));
+}
+HirInstr hir_c_create_load_eval_breaker_reg(HirRegister dst) {
+  return LoadEvalBreaker::create(as_reg(dst));
+}
+HirInstr hir_c_create_load_frame_reg(void) {
+  return LoadFrame::create();
+}
+HirInstr hir_c_create_load_var_object_size_reg(HirRegister dst, HirRegister src) {
+  return LoadVarObjectSize::create(as_reg(dst), as_reg(src));
+}
+HirInstr hir_c_create_check_err_occurred_reg(void *frame_state) {
+  return CheckErrOccurred::create(
+      *static_cast<const FrameState*>(frame_state));
+}
+
 HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
     HirRegister src, void *body_block, void *done_block) {
   return CondBranchIterNotDone::create(
