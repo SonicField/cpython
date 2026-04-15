@@ -1011,6 +1011,40 @@ HirInstr hir_c_create_check_err_occurred_reg(void *frame_state) {
       *static_cast<const FrameState*>(frame_state));
 }
 
+HirInstr hir_c_create_raise_reg(void *fs) {
+  return Raise::create(*static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_wait_handle_release_reg(HirRegister src) {
+  return WaitHandleRelease::create(as_reg(src));
+}
+HirInstr hir_c_create_make_set_reg(HirRegister dst, void *fs) {
+  return MakeSet::create(as_reg(dst), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_delete_attr_reg(HirRegister receiver, int32_t idx, void *fs) {
+  return DeleteAttr::create(as_reg(receiver), idx, *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_delete_subscr_reg(HirRegister container, HirRegister sub, void *fs) {
+  return DeleteSubscr::create(as_reg(container), as_reg(sub), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_store_attr_reg(HirRegister receiver, HirRegister value, int32_t idx, void *fs) {
+  return StoreAttr::create(as_reg(receiver), as_reg(value), idx, *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_swap_cell_item_reg(HirRegister dst, HirRegister cell, HirRegister value) {
+  return SwapCellItem::create(as_reg(dst), as_reg(cell), as_reg(value));
+}
+HirInstr hir_c_create_steal_cell_item_reg(HirRegister dst, HirRegister cell) {
+  return StealCellItem::create(as_reg(dst), as_reg(cell));
+}
+HirInstr hir_c_create_set_cell_item_reg(HirRegister cell, HirRegister value, HirRegister old) {
+  return SetCellItem::create(as_reg(cell), as_reg(value), as_reg(old));
+}
+HirInstr hir_c_create_at_quiescent_state_reg(void) {
+  return AtQuiescentState::create();
+}
+HirInstr hir_c_create_run_periodic_tasks_reg(HirRegister dst, void *fs) {
+  return RunPeriodicTasks::create(as_reg(dst), *static_cast<const FrameState*>(fs));
+}
+
 HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
     HirRegister src, void *body_block, void *done_block) {
   return CondBranchIterNotDone::create(

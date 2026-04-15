@@ -581,6 +581,47 @@ struct HIRBuilder::TranslationContext {
         dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
   }
 
+  // Batch: simple DEFINE_SIMPLE_INSTR wrappers
+  void emitRaise(const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_raise_reg(
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitWaitHandleRelease(Register* src) {
+    emitC(static_cast<Instr*>(hir_c_create_wait_handle_release_reg(src)));
+  }
+  void emitMakeSet(Register* dst, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_make_set_reg(
+        dst, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitDeleteAttr(Register* receiver, int name_idx, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_delete_attr_reg(
+        receiver, name_idx, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitDeleteSubscr(Register* container, Register* sub, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_delete_subscr_reg(
+        container, sub, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitStoreAttr(Register* receiver, Register* value, int name_idx, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_store_attr_reg(
+        receiver, value, name_idx, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitSwapCellItem(Register* dst, Register* cell, Register* value) {
+    emitC(static_cast<Instr*>(hir_c_create_swap_cell_item_reg(dst, cell, value)));
+  }
+  void emitStealCellItem(Register* dst, Register* cell) {
+    emitC(static_cast<Instr*>(hir_c_create_steal_cell_item_reg(dst, cell)));
+  }
+  void emitSetCellItem(Register* cell, Register* value, Register* old) {
+    emitC(static_cast<Instr*>(hir_c_create_set_cell_item_reg(cell, value, old)));
+  }
+  void emitAtQuiescentState() {
+    emitC(static_cast<Instr*>(hir_c_create_at_quiescent_state_reg()));
+  }
+  void emitRunPeriodicTasks(Register* dst, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_run_periodic_tasks_reg(
+        dst, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
   // StoreSubscr via C++ bridge (DeoptBase, no output).
   void emitStoreSubscr(Register* container, Register* sub, Register* value,
                         const FrameState& fs) {
@@ -2329,7 +2370,7 @@ void HIRBuilder::translate(
         case DELETE_SUBSCR: {
           Register* sub = tc.frame.stack.pop();
           Register* container = tc.frame.stack.pop();
-          tc.emit<DeleteSubscr>(container, sub, tc.frame);
+          tc.emitDeleteSubscr(container, sub, tc.frame);
           break;
         }
         case DELETE_FAST: {
@@ -3810,7 +3851,7 @@ void HIRBuilder::emitDeleteAttr(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   Register* receiver = tc.frame.stack.pop();
-  tc.emit<DeleteAttr>(receiver, bc_instr.oparg(), tc.frame);
+  tc.emitDeleteAttr(receiver, bc_instr.oparg(), tc.frame);
 }
 
 void HIRBuilder::emitLoadAttr(
@@ -4222,10 +4263,10 @@ void HIRBuilder::emitStoreDeref(
   Register* src = tc.frame.stack.pop();
 #ifdef Py_GIL_DISABLED
   // Use atomic swap for thread-safe cell access in FT-Python.
-  tc.emit<SwapCellItem>(old, dst, src);
+  tc.emitSwapCellItem(old, dst, src);
 #else
-  tc.emit<StealCellItem>(old, dst);
-  tc.emit<SetCellItem>(dst, src, old);
+  tc.emitStealCellItem(old, dst);
+  tc.emitSetCellItem(dst, src, old);
 #endif
 }
 
@@ -4989,7 +5030,7 @@ void HIRBuilder::emitBuildSet(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   Register* set = temps_.AllocateStack();
-  tc.emit<MakeSet>(set, tc.frame);
+  tc.emitMakeSet(set, tc.frame);
 
   int oparg = bc_instr.oparg();
   for (int i = oparg; i > 0; i--) {
@@ -5102,7 +5143,7 @@ void HIRBuilder::emitStoreAttr(
   Register* receiver = tc.frame.stack.pop();
   Register* value = tc.frame.stack.pop();
 
-  tc.emit<StoreAttr>(receiver, value, bc_instr.oparg(), tc.frame);
+  tc.emitStoreAttr(receiver, value, bc_instr.oparg(), tc.frame);
 }
 
 void HIRBuilder::moveOverwrittenStackRegisters(
@@ -5739,7 +5780,7 @@ void HIRBuilder::emitImportName(
 }
 
 void HIRBuilder::emitRaiseVarargs(TranslationContext& tc) {
-  tc.emit<Raise>(tc.frame);
+  tc.emitRaise(tc.frame);
 }
 
 void HIRBuilder::emitYieldFrom(TranslationContext& tc, Register* out) {
@@ -5989,7 +6030,7 @@ void HIRBuilder::emitDispatchEagerCoroResult(
   Register* wh_waiter = temps_.AllocateStack();
   has_wh_block.emit<WaitHandleLoadCoroOrResult>(wh_coro_or_result, wait_handle);
   has_wh_block.emit<WaitHandleLoadWaiter>(wh_waiter, wait_handle);
-  has_wh_block.emit<WaitHandleRelease>(wait_handle);
+  has_wh_block.emitWaitHandleRelease(wait_handle);
 
   TranslationContext coro_block{cfg.AllocateBlock(), tc.frame};
   TranslationContext res_block{cfg.AllocateBlock(), tc.frame};
@@ -6359,7 +6400,7 @@ void HIRBuilder::insertRunPeriodicActivites(
   TranslationContext check(check_block, frame);
   TranslationContext body(cfg.AllocateBlock(), frame);
 #ifdef Py_GIL_DISABLED
-  check.emit<AtQuiescentState>();
+  check.emitAtQuiescentState();
 #endif
   // Check if the eval breaker has been set
   Register* eval_breaker = temps_.AllocateStack();
@@ -6367,7 +6408,7 @@ void HIRBuilder::insertRunPeriodicActivites(
   check.emitCondBranch(eval_breaker, body.block, succ);
   // If set, run periodic tasks
   body.emitSnapshot();
-  body.emit<RunPeriodicTasks>(temps_.AllocateStack(), body.frame);
+  body.emitRunPeriodicTasks(temps_.AllocateStack(), body.frame);
   body.emitBranch(succ);
 }
 

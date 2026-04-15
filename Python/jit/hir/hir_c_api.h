@@ -380,6 +380,19 @@ HirInstr hir_c_create_load_frame_reg(void);
 HirInstr hir_c_create_load_var_object_size_reg(HirRegister dst, HirRegister src);
 HirInstr hir_c_create_check_err_occurred_reg(void *frame_state);
 
+/* Batch: simple DEFINE_SIMPLE_INSTR factories */
+HirInstr hir_c_create_raise_reg(void *frame_state);
+HirInstr hir_c_create_wait_handle_release_reg(HirRegister src);
+HirInstr hir_c_create_make_set_reg(HirRegister dst, void *frame_state);
+HirInstr hir_c_create_delete_attr_reg(HirRegister receiver, int32_t name_idx, void *fs);
+HirInstr hir_c_create_delete_subscr_reg(HirRegister container, HirRegister sub, void *fs);
+HirInstr hir_c_create_store_attr_reg(HirRegister receiver, HirRegister value, int32_t idx, void *fs);
+HirInstr hir_c_create_swap_cell_item_reg(HirRegister dst, HirRegister cell, HirRegister value);
+HirInstr hir_c_create_steal_cell_item_reg(HirRegister dst, HirRegister cell);
+HirInstr hir_c_create_set_cell_item_reg(HirRegister cell, HirRegister value, HirRegister old);
+HirInstr hir_c_create_at_quiescent_state_reg(void);
+HirInstr hir_c_create_run_periodic_tasks_reg(HirRegister dst, void *fs);
+
 HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
     HirRegister src, void *body_block, void *done_block);
 HirInstr hir_c_create_int_convert_reg(HirRegister dst, HirRegister src,
