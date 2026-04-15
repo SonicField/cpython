@@ -17,9 +17,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 #ifdef __cplusplus
-#include <new>       /* placement new */
-#include <vector>
-#include "cinderx/Jit/hir/frame_state.h"  /* RegState */
+/* H2-E1+E2: no more C++ containers in DeoptBase.
+ * Only frame_state.h needed for visitUses C++ bridge. */
+#include "cinderx/Jit/hir/frame_state.h"
 #endif
 
 #ifdef __cplusplus
@@ -51,7 +51,7 @@ typedef struct HirEdge {
 
 #define HIR_DEOPT_FIELDS                                    \
     HIR_INSTR_FIELDS;                                       \
-    char live_regs_storage[24]; /* std::vector<RegState> */ \
+    void *live_regs_data; size_t live_regs_count; size_t live_regs_cap; /* PhxRegStateArray */ \
     void *frame_state;          /* unique_ptr<FrameState> */\
     void *guilty_reg;           /* Register* */             \
     int32_t nonce;                                          \
@@ -641,24 +641,17 @@ static inline void hir_c_init_instr(void *instr, int32_t opcode) {
 }
 
 /* Initialize DeoptBase fields after hir_c_init_instr.
- * In C++ mode: uses placement new for std::vector (only remaining C++
- * container — descr_ converted to char* in H2-E1, frame_state_ is POD ptr).
- * In C mode: just sets opcode (containers not accessible from C). */
+ * H2-E1+E2: All DeoptBase containers are now calloc-safe:
+ * - live_regs_storage: PhxRegStateArray (data=NULL, count=0, capacity=0)
+ * - descr: char* (NULL = no description)
+ * - frame_state: raw pointer (NULL)
+ * Only nonce needs explicit initialization (C++ defaults to -1, calloc to 0). */
 static inline void hir_c_init_deopt(void *instr, int32_t opcode) {
     hir_c_init_instr(instr, opcode);
-#ifdef __cplusplus
-    /* Placement new for C++ container in calloc'd memory.
-     * std::vector<RegState> cannot be zero-initialized —
-     * it needs a proper constructor call.
-     * descr (char*) is calloc-safe (NULL = no description). */
-    HirDeoptLayout *d = (HirDeoptLayout *)instr;
-    new (&d->live_regs_storage) std::vector<jit::hir::RegState>();
-    /* nonce defaults to 0 from calloc; C++ constructor uses -1.
-     * Set to -1 for compatibility. */
-    d->nonce = -1;
-#endif
-    /* POD fields (frame_state, guilty_reg, descr, suppress_exception_deopt)
-     * are correctly zero/NULL from calloc. */
+    /* nonce defaults to 0 from calloc; C++ constructor uses -1. */
+    ((HirDeoptLayout *)instr)->nonce = -1;
+    /* All other POD fields (frame_state, guilty_reg, descr, live_regs,
+     * suppress_exception_deopt) are correctly zero/NULL from calloc. */
 }
 
 /* NOTE: hir_c_free_instr DELETED (theologian directive).

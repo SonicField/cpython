@@ -46,14 +46,15 @@ DeoptBase::DeoptBase(const DeoptBase& other)
 
 DeoptBase::~DeoptBase() {
   free(descr_);
-  // live_regs_ and frame_state_ cleaned up by implicit destructors
+  // live_regs_ cleaned up by ~PhxRegStateArray (free(data_))
+  // frame_state_ cleaned up by ~unique_ptr
 }
 
-const std::vector<RegState>& DeoptBase::live_regs() const {
+const PhxRegStateArray& DeoptBase::live_regs() const {
   return live_regs_;
 }
 
-std::vector<RegState>& DeoptBase::live_regs() {
+PhxRegStateArray& DeoptBase::live_regs() {
   return live_regs_;
 }
 

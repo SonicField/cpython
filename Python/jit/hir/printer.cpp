@@ -106,7 +106,7 @@ void HIRPrinter::Print(std::ostream& os, const BasicBlock& block) {
 
 static void print_reg_states(
     std::ostream& os,
-    const std::vector<RegState>& reg_states) {
+    const PhxRegStateArray& reg_states) {
   auto rss = reg_states;
   std::sort(rss.begin(), rss.end(), [](RegState& a, RegState& b) {
     return a.reg->id() < b.reg->id();

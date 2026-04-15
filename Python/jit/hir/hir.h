@@ -306,6 +306,61 @@ class Instr {
 
 using InstrPredicate = std::function<bool(const Instr&)>;
 
+// H2-E2: malloc/realloc-based array replacing std::vector<RegState>.
+// Same sizeof (24 bytes) as std::vector on 64-bit, calloc-safe (all zeros).
+struct PhxRegStateArray {
+  RegState* data_{nullptr};
+  size_t count_{0};
+  size_t capacity_{0};
+
+  size_t size() const { return count_; }
+  bool empty() const { return count_ == 0; }
+  RegState* begin() { return data_; }
+  RegState* end() { return data_ + count_; }
+  const RegState* begin() const { return data_; }
+  const RegState* end() const { return data_ + count_; }
+  RegState& operator[](size_t i) { return data_[i]; }
+  const RegState& operator[](size_t i) const { return data_[i]; }
+
+  void push_back(const RegState& rs) {
+    if (count_ == capacity_) grow();
+    data_[count_++] = rs;
+  }
+  template <typename... Args>
+  RegState& emplace_back(Args&&... args) {
+    if (count_ == capacity_) grow();
+    return *(new (&data_[count_++]) RegState(std::forward<Args>(args)...));
+  }
+
+  PhxRegStateArray() = default;
+  ~PhxRegStateArray() { free(data_); }
+  PhxRegStateArray(const PhxRegStateArray& o)
+      : count_(o.count_), capacity_(o.count_) {
+    if (count_) {
+      data_ = static_cast<RegState*>(malloc(count_ * sizeof(RegState)));
+      memcpy(data_, o.data_, count_ * sizeof(RegState));
+    }
+  }
+  PhxRegStateArray& operator=(const PhxRegStateArray& o) {
+    if (this != &o) {
+      free(data_);
+      count_ = o.count_;
+      capacity_ = o.count_;
+      data_ = count_ ? static_cast<RegState*>(
+          malloc(count_ * sizeof(RegState))) : nullptr;
+      if (count_) memcpy(data_, o.data_, count_ * sizeof(RegState));
+    }
+    return *this;
+  }
+
+ private:
+  void grow() {
+    capacity_ = capacity_ ? capacity_ * 2 : 4;
+    data_ = static_cast<RegState*>(
+        realloc(data_, capacity_ * sizeof(RegState)));
+  }
+};
+
 // Subclass of Instr that is able to deopt back to the interpreter.
 class DeoptBase : public Instr {
  public:
@@ -318,8 +373,8 @@ class DeoptBase : public Instr {
     live_regs_.emplace_back(std::forward<Args>(args)...);
   }
 
-  const std::vector<RegState>& live_regs() const;
-  std::vector<RegState>& live_regs();
+  const PhxRegStateArray& live_regs() const;
+  PhxRegStateArray& live_regs();
 
   void sortLiveRegs();
 
@@ -362,7 +417,7 @@ class DeoptBase : public Instr {
  friend struct ::HirInstrLayoutVerifier;
 
  private:
-  std::vector<RegState> live_regs_;
+  PhxRegStateArray live_regs_;
   std::unique_ptr<FrameState> frame_state_{nullptr};
   // If set and this instruction deopts at runtime, this value is made
   // conveniently available in the deopt machinery.
