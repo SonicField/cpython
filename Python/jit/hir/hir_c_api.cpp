@@ -1198,6 +1198,13 @@ HirInstr hir_c_create_store_array_item_reg(HirRegister arr, HirRegister idx, Hir
   return StoreArrayItem::create(as_reg(arr), as_reg(idx), as_reg(value), as_reg(container), cpp_type);
 }
 
+HirInstr hir_c_create_cast_reg(HirRegister dst, HirRegister receiver, void *pytype, int optional, int exact, void *fs) {
+  return Cast::create(as_reg(dst), as_reg(receiver), static_cast<PyTypeObject*>(pytype), optional != 0, exact != 0, *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_raise_static_reg(int32_t reraise, void *exc_type, const char *fmt, void *fs) {
+  return RaiseStatic::create(reraise, static_cast<PyObject*>(exc_type), fmt, *static_cast<const FrameState*>(fs));
+}
+
 HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
     HirRegister src, void *body_block, void *done_block) {
   return CondBranchIterNotDone::create(

@@ -793,6 +793,14 @@ struct HIRBuilder::TranslationContext {
     emitC(static_cast<Instr*>(hir_c_create_get_a_iter_reg(
         dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
   }
+  // Batch 8b wrappers
+  void emitCast(Register* dst, Register* value, PyTypeObject* pytype, bool optional, bool exact, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_cast_reg(dst, value, pytype, optional, exact, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitRaiseStatic(int reraise, PyObject* exc_type, const char* fmt, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_raise_static_reg(reraise, exc_type, fmt, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
   // Batch 4 wrappers
   Instr* emitMakeTuple(size_t n, Register* dst, const FrameState& fs) {
     return emitC(static_cast<Instr*>(hir_c_create_make_tuple_reg(n, dst, const_cast<void*>(static_cast<const void*>(&fs)))));
@@ -5514,7 +5522,7 @@ void HIRBuilder::emitGetYieldFromIter(CFG& cfg, TranslationContext& tc) {
 
   if (!in_coro) {
     tc.block = is_coro_block;
-    tc.emit<RaiseStatic>(
+    tc.emitRaiseStatic(
         0,
         PyExc_TypeError,
         "cannot 'yield from' a coroutine object in a non-coroutine generator",
@@ -5878,7 +5886,7 @@ void HIRBuilder::emitCast(
   auto const& preloaded_type = preloader_.preloadedType(constArg(bc_instr));
   Register* value = tc.frame.stack.pop();
   Register* result = temps_.AllocateStack();
-  tc.emit<Cast>(
+  tc.emitCast(
       result,
       value,
       preloaded_type.type,
@@ -6084,7 +6092,7 @@ void HIRBuilder::emitGetAwaitable(
   BasicBlock* block_coro_already_awaited = cfg.AllocateBlock();
   tc.emitCondBranch(yf, block_coro_already_awaited, block_done);
   tc.block = block_coro_already_awaited;
-  tc.emit<RaiseStatic>(
+  tc.emitRaiseStatic(
       0, PyExc_RuntimeError, "coroutine is being awaited already", tc.frame);
 
   stack.push(iter);
