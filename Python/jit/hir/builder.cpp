@@ -445,6 +445,13 @@ struct HIRBuilder::TranslationContext {
         dst, static_cast<int32_t>(op), src)));
   }
 
+  // LoadField via C++ bridge (caller-provided register, no FrameState).
+  void emitLoadField(Register* dst, Register* receiver, const char* name,
+                      intptr_t offset, Type type, bool borrowed = false) {
+    emitC(static_cast<Instr*>(hir_c_create_load_field_reg(
+        dst, receiver, name, offset, to_hir(type), borrowed ? 1 : 0)));
+  }
+
   // UseType via pure C factory.
   void emitUseType(Register* val, Type type) {
     emitC(static_cast<Instr*>(hir_c_create_use_type(val, to_hir(type))));
@@ -3204,7 +3211,7 @@ void HIRBuilder::emitLoadMethodStatic(
   Register* self = tc.frame.stack.pop();
   auto type = temps_.AllocateStack();
   if (!is_classmethod) {
-    tc.emit<LoadField>(
+    tc.emitLoadField(
         type, self, "ob_type", offsetof(PyObject, ob_type), TType);
   } else {
     type = self;
@@ -3213,12 +3220,12 @@ void HIRBuilder::emitLoadMethodStatic(
   Register* vtable = temps_.AllocateNonStack();
   Register* func_obj = temps_.AllocateNonStack();
 
-  tc.emit<LoadField>(
+  tc.emitLoadField(
       vtable, type, "tp_cache", offsetof(PyTypeObject, tp_cache), TObject);
   size_t entry_offset = offsetof(_PyType_VTable, vt_entries) +
       target.slot * sizeof(_PyType_VTableEntry);
 
-  tc.emit<LoadField>(
+  tc.emitLoadField(
       func_obj,
       vtable,
       "vte_state",
@@ -3230,7 +3237,7 @@ void HIRBuilder::emitLoadMethodStatic(
   Register* entry_func = temps_.AllocateNonStack();
   Register* vtable_load = temps_.AllocateNonStack();
 
-  tc.emit<LoadField>(
+  tc.emitLoadField(
       vtable_load,
       vtable,
       "vte_load",
@@ -3554,17 +3561,17 @@ void HIRBuilder::emitLoadAttr(
         if (dict_version != 0) {
           // Inline dict access: module->md_dict->ma_keys->dk_version
           Register* dict = temps_.AllocateStack();
-          tc.emit<LoadField>(
+          tc.emitLoadField(
               dict, receiver, "md_dict",
               offsetof(PyModuleObject, md_dict), TObject);
 
           Register* keys = temps_.AllocateStack();
-          tc.emit<LoadField>(
+          tc.emitLoadField(
               keys, dict, "ma_keys",
               offsetof(PyDictObject, ma_keys), TCPtr);
 
           Register* loaded_version = temps_.AllocateStack();
-          tc.emit<LoadField>(
+          tc.emitLoadField(
               loaded_version, keys, "dk_version",
               offsetof(PyDictKeysObject, dk_version), TCUInt32);
 
@@ -3637,7 +3644,7 @@ void HIRBuilder::emitLoadAttr(
           // Direct load at the slot byte offset.
           // CPython LOAD_ATTR_SLOT does: *(PyObject**)((char*)owner + index)
           Register* attr = temps_.AllocateStack();
-          tc.emit<LoadField>(
+          tc.emitLoadField(
               attr, receiver, "slot",
               static_cast<int>(slot_offset), TOptObject);
 
@@ -3692,7 +3699,7 @@ void HIRBuilder::emitLoadAttr(
             // Must remain borrowed: dorv can be a tagged pointer (low bit
             // set for inline values) which is not a valid PyObject*.
             Register* dorv = temps_.AllocateStack();
-            tc.emit<LoadField>(
+            tc.emitLoadField(
                 dorv, receiver, "__dict__",
                 -3 * static_cast<int>(sizeof(PyObject*)), TOptDict, true);
 
@@ -3725,7 +3732,7 @@ void HIRBuilder::emitLoadAttr(
 
             // Load attribute at cached index.
             Register* attr = temps_.AllocateStack();
-            tc.emit<LoadField>(
+            tc.emitLoadField(
                 attr, values_obj, "attr",
                 static_cast<int>(index) * static_cast<int>(sizeof(PyObject*)),
                 TOptObject);
@@ -3852,7 +3859,7 @@ void HIRBuilder::emitCopyFreeVars(TranslationContext& tc, int nfreevars) {
   JIT_CHECK(func_ != nullptr, "No func_ in function with freevars");
 
   Register* func_closure = temps_.AllocateNonStack();
-  tc.emit<LoadField>(
+  tc.emitLoadField(
       func_closure,
       func_,
       "func_closure",
@@ -4042,7 +4049,7 @@ void HIRBuilder::emitLoadType(
     const jit::BytecodeInstruction&) {
   Register* instance = tc.frame.stack.pop();
   auto type = temps_.AllocateStack();
-  tc.emit<LoadField>(
+  tc.emitLoadField(
       type, instance, "ob_type", offsetof(PyObject, ob_type), TType);
   tc.frame.stack.push(type);
 }
@@ -4405,7 +4412,7 @@ void HIRBuilder::emitFastLen(
     collection = tc.frame.stack.pop();
   }
 
-  tc.emit<LoadField>(result, collection, name, offset, TCInt64);
+  tc.emitLoadField(result, collection, name, offset, TCInt64);
   tc.frame.stack.push(result);
 }
 
@@ -4426,7 +4433,7 @@ void HIRBuilder::emitSequenceGet(
   auto oparg = bc_instr.oparg();
   if (oparg == SEQ_LIST_INEXACT) {
     auto type = temps_.AllocateStack();
-    tc.emit<LoadField>(
+    tc.emitLoadField(
         type, sequence, "ob_type", offsetof(PyObject, ob_type), TType);
     tc.emit<GuardIs>(type, (PyObject*)&PyList_Type, type);
     tc.emitRefineType(sequence, TListExact, sequence);
@@ -4446,7 +4453,7 @@ void HIRBuilder::emitSequenceGet(
   if (oparg == SEQ_LIST || oparg == SEQ_LIST_INEXACT ||
       oparg == SEQ_CHECKED_LIST) {
     int offset = offsetof(PyListObject, ob_item);
-    tc.emit<LoadField>(ob_item, sequence, "ob_item", offset, TCPtr);
+    tc.emitLoadField(ob_item, sequence, "ob_item", offset, TCPtr);
   } else if (oparg == SEQ_ARRAY_INT64) {
     Register* offset_reg = temps_.AllocateStack();
     tc.emitLoadConst(
@@ -4474,7 +4481,7 @@ void HIRBuilder::emitSequenceSet(
   auto oparg = bc_instr.oparg();
   if (oparg == SEQ_LIST_INEXACT) {
     auto type = temps_.AllocateStack();
-    tc.emit<LoadField>(
+    tc.emitLoadField(
         type, sequence, "ob_type", offsetof(PyObject, ob_type), TType);
     tc.emit<GuardIs>(type, (PyObject*)&PyList_Type, type);
     tc.emitRefineType(sequence, TListExact, sequence);
@@ -4489,7 +4496,7 @@ void HIRBuilder::emitSequenceSet(
     tc.emit<LoadFieldAddress>(ob_item, sequence, offset_reg);
   } else if (oparg == SEQ_LIST || oparg == SEQ_LIST_INEXACT) {
     int offset = offsetof(PyListObject, ob_item);
-    tc.emit<LoadField>(ob_item, sequence, "ob_item", offset, TCPtr);
+    tc.emitLoadField(ob_item, sequence, "ob_item", offset, TCPtr);
   } else {
     JIT_ABORT("Unsupported oparg for SEQUENCE_SET: {}", oparg);
   }
@@ -5162,7 +5169,7 @@ void HIRBuilder::emitUnpackSequence(
   tc.emitBranch(fast_path);
 
   tc.block = list_fast_path;
-  tc.emit<LoadField>(
+  tc.emitLoadField(
       list_mem, seq, "ob_item", offsetof(PyListObject, ob_item), TCPtr);
   tc.emitBranch(fast_path);
 
@@ -5344,7 +5351,7 @@ void HIRBuilder::emitLoadField(
     PyErr_Clear();
     field_name = "";
   }
-  tc.emit<LoadField>(result, receiver, field_name, offset, type);
+  tc.emitLoadField(result, receiver, field_name, offset, type);
   if (hir_type_could_be(reinterpret_cast<const HirType*>(&type),
                         reinterpret_cast<const HirType*>(&TNullptr))) {
     CheckField* cf = tc.emit<CheckField>(result, result, name, tc.frame);
@@ -5372,7 +5379,7 @@ void HIRBuilder::emitStoreField(
     tc.emit<IntConvert>(converted, value, type);
     value = converted;
   } else {
-    tc.emit<LoadField>(previous, receiver, field_name, offset, type, false);
+    tc.emitLoadField(previous, receiver, field_name, offset, type, false);
   }
   tc.emit<StoreField>(receiver, field_name, offset, value, type, previous);
 }
@@ -5546,7 +5553,7 @@ void HIRBuilder::emitGetAwaitable(
     tc.emitCondBranch(iter, ok_block, error_block);
     tc.block = error_block;
     Register* type = temps_.AllocateStack();
-    tc.emit<LoadField>(
+    tc.emitLoadField(
         type, iterable, "ob_type", offsetof(PyObject, ob_type), TType);
     tc.emit<RaiseAwaitableError>(type, error_aenter, tc.frame);
 
@@ -5712,9 +5719,9 @@ void HIRBuilder::emitMatchMappingSequence(
     uint64_t tf_flag) {
   Register* top = tc.frame.stack.top();
   auto type = temps_.AllocateStack();
-  tc.emit<LoadField>(type, top, "ob_type", offsetof(PyObject, ob_type), TType);
+  tc.emitLoadField(type, top, "ob_type", offsetof(PyObject, ob_type), TType);
   auto tp_flags = temps_.AllocateStack();
-  tc.emit<LoadField>(
+  tc.emitLoadField(
       tp_flags, type, "tp_flags", offsetof(PyTypeObject, tp_flags), TCUInt64);
   auto flag = temps_.AllocateStack();
   tc.emitLoadConst(flag, Type::fromCUInt(tf_flag, TCUInt64));

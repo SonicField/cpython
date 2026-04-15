@@ -287,6 +287,12 @@ HirInstr hir_c_create_branch_cpp(void *target_block);
 
 /* ---- Builder-style factories (caller provides dst register) ---- */
 
+/* Create a LoadField instruction with caller-provided register.
+ * No FrameState — builder sets it separately if needed. */
+HirInstr hir_c_create_load_field_reg(HirRegister dst, HirRegister receiver,
+                                      const char *name, intptr_t offset,
+                                      HirType type, int borrowed);
+
 /* Create a GuardType instruction with caller-provided register.
  * No FrameState — builder sets it separately if needed. */
 HirInstr hir_c_create_guard_type_reg(HirRegister dst, HirType target,

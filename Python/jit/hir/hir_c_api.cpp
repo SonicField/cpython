@@ -876,6 +876,14 @@ HirInstr hir_c_create_cond_branch_cpp(void *cond_reg,
 
 /* ---- Builder-style factories (caller provides dst register) ---- */
 
+HirInstr hir_c_create_load_field_reg(HirRegister dst, HirRegister receiver,
+                                      const char *name, intptr_t offset,
+                                      HirType type, int borrowed) {
+  const Type& cpp_type = *reinterpret_cast<const Type*>(&type);
+  return LoadField::create(
+      as_reg(dst), as_reg(receiver), name, offset, cpp_type, borrowed != 0);
+}
+
 HirInstr hir_c_create_guard_type_reg(HirRegister dst, HirType target,
                                       HirRegister src) {
   const Type& cpp_target = *reinterpret_cast<const Type*>(&target);
