@@ -737,6 +737,12 @@ HirInstr hir_c_create_call_static(HirFunction func, size_t n_operands,
   return CallStatic::create(n_operands, dst, addr, cpp_type);
 }
 
+HirInstr hir_c_create_call_static_reg(size_t n_operands, HirRegister dst,
+                                       void *addr, HirType ret_type) {
+  const Type& cpp_type = *reinterpret_cast<const Type*>(&ret_type);
+  return CallStatic::create(n_operands, as_reg(dst), addr, cpp_type);
+}
+
 HirInstr hir_c_create_deopt_patchpoint(void *patcher) {
   return DeoptPatchpoint::create(
       static_cast<jit::JumpPatcher*>(patcher));

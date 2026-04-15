@@ -269,6 +269,10 @@ HirInstr hir_c_create_vectorcall(HirFunction func, size_t n_operands,
 HirInstr hir_c_create_call_static(HirFunction func, size_t n_operands,
                                    void *addr, HirType ret_type);
 
+/* Create a CallStatic instruction with caller-provided register. */
+HirInstr hir_c_create_call_static_reg(size_t n_operands, HirRegister dst,
+                                       void *addr, HirType ret_type);
+
 /* Create a DeoptPatchpoint instruction (0 operands, DeoptBase). */
 HirInstr hir_c_create_deopt_patchpoint(void *patcher);
 

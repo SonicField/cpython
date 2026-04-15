@@ -352,7 +352,8 @@ struct HIRBuilder::TranslationContext {
   }
 
   void emitSnapshot() {
-    emit<Snapshot>(frame);
+    emitC(static_cast<Instr*>(hir_c_create_snapshot(
+        const_cast<void*>(static_cast<const void*>(&frame)))));
   }
 
   // Insert a pre-created instruction from a C factory.
@@ -450,6 +451,13 @@ struct HIRBuilder::TranslationContext {
                       intptr_t offset, Type type, bool borrowed = false) {
     emitC(static_cast<Instr*>(hir_c_create_load_field_reg(
         dst, receiver, name, offset, to_hir(type), borrowed ? 1 : 0)));
+  }
+
+  // CallStatic via C++ bridge (returns CallStatic* for operand wiring).
+  CallStatic* emitCallStatic(size_t n_operands, Register* dst, void* addr,
+                              Type ret_type) {
+    return static_cast<CallStatic*>(emitC(static_cast<Instr*>(
+        hir_c_create_call_static_reg(n_operands, dst, addr, to_hir(ret_type)))));
   }
 
   // UseType via pure C factory.
@@ -783,7 +791,7 @@ void HIRBuilder::emitInlineExceptionMatch(
   void* getitem_fn = (bc_instr.opcode() == BINARY_SUBSCR_DICT)
       ? reinterpret_cast<void*>(JITRT_DictGetItem)
       : reinterpret_cast<void*>(PyObject_GetItem);
-  auto call = tc.emit<CallStatic>(2, result, getitem_fn, TOptObject);
+  auto call = tc.emitCallStatic(2, result, getitem_fn, TOptObject);
   call->SetOperand(0, left);
   call->SetOperand(1, right);
 
@@ -811,7 +819,7 @@ void HIRBuilder::emitInlineExceptionMatch(
     // Call JITRT_MatchAndClearException(exc_type) via CallStatic.
     // Returns int (TCInt32): 1 = matched, 0 = no match.
     Register* match_result = temps_.AllocateNonStack();
-    auto match_call = exc_tc.emit<CallStatic>(
+    auto match_call = exc_tc.emitCallStatic(
         1, match_result,
         reinterpret_cast<void*>(JITRT_MatchAndClearException),
         TCInt32);
@@ -993,7 +1001,7 @@ void HIRBuilder::emitCallExceptionHandler(
     // Call JITRT_MatchAndClearException(exc_type) via CallStatic.
     // Returns int (TCInt32): 1 = matched, 0 = no match.
     Register* match_result = temps_.AllocateNonStack();
-    auto match_call = exc_tc.emit<CallStatic>(
+    auto match_call = exc_tc.emitCallStatic(
         1, match_result,
         reinterpret_cast<void*>(JITRT_MatchAndClearException),
         TCInt32);
@@ -1424,7 +1432,7 @@ void HIRBuilder::translate(
           auto snapshot = static_cast<Snapshot*>(prev_hir_instr);
           snapshot->setFrameState(tc.frame);
         } else {
-          tc.emit<Snapshot>(tc.frame);
+          tc.emitSnapshot();
         }
       }
       prev_bc_instr = bc_instr;
@@ -2967,7 +2975,7 @@ bool HIRBuilder::tryEmitDirectMethodCall(
       Type ret_type =
           target.builtin_returns_error_code ? TCInt32 : target.return_type;
       staticCall =
-          tc.emit<CallStatic>(nargs, out, target.builtin_c_func, ret_type);
+          tc.emitCallStatic(nargs, out, target.builtin_c_func, ret_type);
     }
 
     auto& stack = tc.frame.stack;
@@ -3070,7 +3078,7 @@ bool HIRBuilder::tryEmitStaticRandCall(
   Register* out = temps_.AllocateStack();
   Type ret_type = TCInt32;
   // Ci_static_rand() boxes the return value; call rand() directly instead.
-  tc.emit<CallStatic>(nargs, out, (void*)rand, ret_type);
+  tc.emitCallStatic(nargs, out, (void*)rand, ret_type);
   tc.frame.stack.push(out);
   return true;
 }
@@ -3171,7 +3179,7 @@ bool HIRBuilder::emitInvokeNative(
 
   Register* out = temps_.AllocateStack();
   Type typ = target.return_type;
-  auto call = tc.emit<CallStatic>(nargs, out, target.callable, typ);
+  auto call = tc.emitCallStatic(nargs, out, target.callable, typ);
   for (auto i = nargs - 1; i >= 0; i--) {
     Register* operand = tc.frame.stack.pop();
     call->SetOperand(i, operand);
@@ -3593,7 +3601,7 @@ void HIRBuilder::emitLoadAttr(
               Type::fromCInt(static_cast<int64_t>(index), TCInt64));
 
           Register* result = temps_.AllocateStack();
-          auto call = tc.emit<CallStatic>(
+          auto call = tc.emitCallStatic(
               2, result,
               reinterpret_cast<void*>(JITRT_LoadModuleDictEntry),
               TOptObject);
