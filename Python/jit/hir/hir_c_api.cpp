@@ -613,7 +613,7 @@ HirInstr hir_c_create_load_field(HirFunction func, HirRegister receiver,
   HirRegister dst = hir_func_alloc_register(func);
   HirLoadField *l = (HirLoadField *)hir_c_alloc_instr(sizeof(HirLoadField), 1);
   hir_c_init_instr(l, HIR_OP_LoadField);
-  new (&l->name_storage) std::string(name);
+  l->name = name ? strdup(name) : NULL;
   l->offset = (size_t)offset;
   l->type = type;
   l->borrowed = (uint8_t)(borrowed != 0);
@@ -1579,7 +1579,7 @@ HirInstr hir_c_create_store_field_reg(HirRegister receiver, const char *name, in
   HirStoreField *s = (HirStoreField *)hir_c_alloc_instr(sizeof(HirStoreField), 3);
   hir_c_init_instr(s, HIR_OP_StoreField);
   /* Placement new for std::string name_ (stored as opaque bytes) */
-  new (&s->name_storage) std::string(name);
+  s->name = name ? strdup(name) : NULL;
   s->offset = offset;
   s->type = type;
   hir_c_set_operand(s, 0, receiver);
@@ -1978,7 +1978,7 @@ HirInstr hir_c_create_load_field_reg(HirRegister dst, HirRegister receiver,
                                       HirType type, int borrowed) {
   HirLoadField *l = (HirLoadField *)hir_c_alloc_instr(sizeof(HirLoadField), 1);
   hir_c_init_instr(l, HIR_OP_LoadField);
-  new (&l->name_storage) std::string(name);
+  l->name = name ? strdup(name) : NULL;
   l->offset = (size_t)offset;
   l->type = type;
   l->borrowed = (uint8_t)(borrowed != 0);

@@ -16,6 +16,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <cstring>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -1440,23 +1441,24 @@ class INSTR_CLASS(LoadField, (TOptObject), HasOutput, Operands<1>) {
   LoadField(
       Register* dst,
       Register* receiver,
-      const std::string& name,
+      const char* name,
       std::size_t offset,
       Type type,
       bool borrowed = false)
       : InstrT(dst, receiver),
-        name_(name),
+        name_(name ? strdup(name) : nullptr),
         offset_(offset),
         type_(type),
         borrowed_(borrowed) {}
+  ~LoadField() { free(name_); }
 
   // The object we're loading the attribute from
   Register* receiver() const {
     return reg();
   }
 
-  std::string name() const {
-    return name_;
+  const char* name() const {
+    return name_ ? name_ : "";
   }
 
   // Offset where the field is stored
@@ -1474,7 +1476,7 @@ class INSTR_CLASS(LoadField, (TOptObject), HasOutput, Operands<1>) {
 
  private:
   friend struct ::HirInstrLayoutVerifier;
-  std::string name_;
+  char* name_;  // H2-C: was std::string
   std::size_t offset_;
   Type type_;
   bool borrowed_;
@@ -1484,7 +1486,7 @@ class INSTR_CLASS(StoreField, (TObject, TTop, TOptObject), Operands<3>) {
  public:
   StoreField(
       Register* receiver,
-      const std::string& name,
+      const char* name,
       std::size_t offset,
       Register* value,
       Type type,
@@ -1492,9 +1494,10 @@ class INSTR_CLASS(StoreField, (TObject, TTop, TOptObject), Operands<3>) {
                          // (for refcount insertion) until after the store.
       )
       : InstrT(receiver, value, previous),
-        name_(name),
+        name_(name ? strdup(name) : nullptr),
         offset_(offset),
         type_(type) {}
+  ~StoreField() { free(name_); }
 
   // The object we're loading the attribute from
   Register* receiver() const {
@@ -1514,8 +1517,8 @@ class INSTR_CLASS(StoreField, (TObject, TTop, TOptObject), Operands<3>) {
     SetOperand(1, value);
   }
 
-  std::string name() const {
-    return name_;
+  const char* name() const {
+    return name_ ? name_ : "";
   }
 
   // Offset where the field is stored
@@ -1529,7 +1532,7 @@ class INSTR_CLASS(StoreField, (TObject, TTop, TOptObject), Operands<3>) {
 
  private:
   friend struct ::HirInstrLayoutVerifier;
-  std::string name_;
+  char* name_;  // H2-C: was std::string
   std::size_t offset_;
   Type type_;
 };

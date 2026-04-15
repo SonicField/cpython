@@ -300,8 +300,8 @@ typedef struct { HIR_DEOPT_NAMEIDX_FIELDS; int32_t cache_id; } HirFillTypeAttrCa
 typedef struct { HIR_DEOPT_NAMEIDX_FIELDS; int32_t cache_id; } HirFillTypeMethodCache;
 
 /* ---- std::string types (opaque blob) ---- */
-typedef struct { HIR_INSTR_FIELDS; char name_storage[32]; size_t offset; HirType type; uint8_t borrowed; } HirLoadField;
-typedef struct { HIR_INSTR_FIELDS; char name_storage[32]; size_t offset; HirType type; } HirStoreField;
+typedef struct { HIR_INSTR_FIELDS; char *name; size_t offset; HirType type; uint8_t borrowed; } HirLoadField;
+typedef struct { HIR_INSTR_FIELDS; char *name; size_t offset; HirType type; } HirStoreField;
 
 /* ---- std::vector type ---- */
 typedef struct { HIR_INSTR_FIELDS; char basic_blocks_storage[24]; } HirPhi;
@@ -380,8 +380,8 @@ typedef union HirOpcodeData {
     struct { void *code; void *builtins; void *globals; int32_t name_idx; } load_global_cached;
 
     /* ---- Container types (opaque storage) ---- */
-    struct { char name_storage[32]; size_t offset; HirType type; uint8_t borrowed; } load_field;
-    struct { char name_storage[32]; size_t offset; HirType type; } store_field;
+    struct { char *name; size_t offset; HirType type; uint8_t borrowed; } load_field;
+    struct { char *name; size_t offset; HirType type; } store_field;
     struct { char basic_blocks_storage[24]; } phi;              /* Phi: vector<BasicBlock*> */
     struct { char types_storage[24]; } hint_type;               /* HintType: ProfiledTypes */
     struct { void *func; void *reifier; void *caller_state_ptr; char fullname_storage[32]; } begin_inlined;
