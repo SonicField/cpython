@@ -98,6 +98,19 @@ static void verify_hir_type_layout() {
     memcpy(&c_memcpy, &t_flt, sizeof(c_memcpy));
     assert(c_memcpy.bits_and_flags == c_flt.bits_and_flags &&
            "memcpy vs toHirType bits_and_flags DIFFER — layout mismatch!");
+
+    /* Critical test: toHirType → fromHirType round-trip.
+     * If this fails, C factory types will be corrupted when read by C++. */
+    HirType written = Type::toHirType(TFloatExact);
+    Type via_from = Type::fromHirType(written);
+    assert(via_from == TFloatExact &&
+           "fromHirType round-trip fails for TFloatExact!");
+
+    /* Also test TCDouble (non-specialized, just bits + lifetime) */
+    HirType c_cdbl = Type::toHirType(TCDouble);
+    Type cdbl_rt = Type::fromHirType(c_cdbl);
+    assert(cdbl_rt == TCDouble &&
+           "fromHirType round-trip fails for TCDouble!");
 }
 
 /* Run layout verification at program startup (before main) */
