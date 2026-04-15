@@ -1480,7 +1480,15 @@ HirInstr hir_c_create_call_ex_reg(HirRegister dst, HirRegister func, HirRegister
   return CallEx::create(as_reg(dst), as_reg(func), as_reg(pargs), as_reg(kwargs), static_cast<CallFlags>(flags), *static_cast<const FrameState*>(fs));
 }
 HirInstr hir_c_create_import_name_reg(HirRegister dst, int32_t name_idx, HirRegister fromlist, HirRegister level, void *fs) {
-  return ImportName::create(as_reg(dst), name_idx, as_reg(fromlist), as_reg(level), *static_cast<const FrameState*>(fs));
+  /* ImportName: DeoptBaseWithNameIdx, HasOutput, Operands<2> */
+  HirImportFrom *i = (HirImportFrom *)hir_c_alloc_instr(sizeof(HirImportFrom), 2);
+  hir_c_init_deopt(i, HIR_OP_ImportName);
+  i->name_idx = name_idx;
+  hir_c_set_output(i, dst);
+  hir_c_set_operand(i, 0, fromlist);
+  hir_c_set_operand(i, 1, level);
+  as_instr(i)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return i;
 }
 
 HirInstr hir_c_create_call_method_reg(size_t n_operands, HirRegister dst, uint32_t flags) {
@@ -1495,12 +1503,23 @@ HirInstr hir_c_create_invoke_static_function_reg(size_t n_operands, HirRegister 
 }
 
 HirInstr hir_c_create_load_global_cached_reg(HirRegister dst, void *code, void *builtins, void *globals, int32_t name_idx) {
-  return LoadGlobalCached::create(as_reg(dst), static_cast<PyCodeObject*>(code),
-      static_cast<PyDictObject*>(builtins), static_cast<PyDictObject*>(globals), name_idx);
+  HirLoadGlobalCached *lg = (HirLoadGlobalCached *)hir_c_alloc_instr(sizeof(HirLoadGlobalCached), 0);
+  hir_c_init_instr(lg, HIR_OP_LoadGlobalCached);
+  lg->code = code;
+  lg->builtins = builtins;
+  lg->globals = globals;
+  lg->name_idx = name_idx;
+  hir_c_set_output(lg, dst);
+  return lg;
 }
 HirInstr hir_c_create_load_function_indirect_reg(void *indirect_ptr, void *descr, HirRegister dst, void *fs) {
-  return LoadFunctionIndirect::create(static_cast<PyObject**>(indirect_ptr),
-      static_cast<PyObject*>(descr), as_reg(dst), *static_cast<const FrameState*>(fs));
+  HirLoadFunctionIndirect *l = (HirLoadFunctionIndirect *)hir_c_alloc_instr(sizeof(HirLoadFunctionIndirect), 0);
+  hir_c_init_deopt(l, HIR_OP_LoadFunctionIndirect);
+  l->funcptr = indirect_ptr;
+  l->descr = descr;
+  hir_c_set_output(l, dst);
+  as_instr(l)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return l;
 }
 HirInstr hir_c_create_store_array_item_reg(HirRegister arr, HirRegister idx, HirRegister value, HirRegister container, HirType elem_type) {
   Type cpp_type = Type::fromHirType(elem_type);
@@ -1508,10 +1527,23 @@ HirInstr hir_c_create_store_array_item_reg(HirRegister arr, HirRegister idx, Hir
 }
 
 HirInstr hir_c_create_cast_reg(HirRegister dst, HirRegister receiver, void *pytype, int optional, int exact, void *fs) {
-  return Cast::create(as_reg(dst), as_reg(receiver), static_cast<PyTypeObject*>(pytype), optional != 0, exact != 0, *static_cast<const FrameState*>(fs));
+  HirCast *c = (HirCast *)hir_c_alloc_instr(sizeof(HirCast), 1);
+  hir_c_init_deopt(c, HIR_OP_Cast);
+  c->pytype = pytype;
+  c->optional = (uint8_t)(optional != 0);
+  c->exact = (uint8_t)(exact != 0);
+  hir_c_set_output(c, dst);
+  hir_c_set_operand(c, 0, receiver);
+  as_instr(c)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return c;
 }
 HirInstr hir_c_create_raise_static_reg(int32_t reraise, void *exc_type, const char *fmt, void *fs) {
-  return RaiseStatic::create(reraise, static_cast<PyObject*>(exc_type), fmt, *static_cast<const FrameState*>(fs));
+  HirRaiseStatic *r = (HirRaiseStatic *)hir_c_alloc_instr(sizeof(HirRaiseStatic), 0);
+  hir_c_init_deopt(r, HIR_OP_RaiseStatic);
+  r->fmt = fmt;
+  r->exc_type = exc_type;
+  as_instr(r)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return r;
 }
 
 HirInstr hir_c_create_call_cfunc_reg(size_t n_operands, HirRegister dst, int32_t func_enum, HirRegister *operands) {
@@ -1528,10 +1560,28 @@ HirInstr hir_c_create_call_ind_reg2(size_t n_operands, HirRegister dst, const ch
 }
 
 HirInstr hir_c_create_load_method_super_reg(HirRegister dst, HirRegister global_super, HirRegister type, HirRegister receiver, int32_t name_idx, int no_args, void *fs) {
-  return LoadMethodSuper::create(as_reg(dst), as_reg(global_super), as_reg(type), as_reg(receiver), name_idx, no_args != 0, *static_cast<const FrameState*>(fs));
+  HirLoadMethodSuper *m = (HirLoadMethodSuper *)hir_c_alloc_instr(sizeof(HirLoadMethodSuper), 3);
+  hir_c_init_deopt(m, HIR_OP_LoadMethodSuper);
+  m->name_idx = name_idx;
+  m->no_args_in_super_call = (uint8_t)(no_args != 0);
+  hir_c_set_output(m, dst);
+  hir_c_set_operand(m, 0, global_super);
+  hir_c_set_operand(m, 1, type);
+  hir_c_set_operand(m, 2, receiver);
+  as_instr(m)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return m;
 }
 HirInstr hir_c_create_load_attr_super_reg(HirRegister dst, HirRegister global_super, HirRegister type, HirRegister receiver, int32_t name_idx, int no_args, void *fs) {
-  return LoadAttrSuper::create(as_reg(dst), as_reg(global_super), as_reg(type), as_reg(receiver), name_idx, no_args != 0, *static_cast<const FrameState*>(fs));
+  HirLoadAttrSuper *a = (HirLoadAttrSuper *)hir_c_alloc_instr(sizeof(HirLoadAttrSuper), 3);
+  hir_c_init_deopt(a, HIR_OP_LoadAttrSuper);
+  a->name_idx = name_idx;
+  a->no_args_in_super_call = (uint8_t)(no_args != 0);
+  hir_c_set_output(a, dst);
+  hir_c_set_operand(a, 0, global_super);
+  hir_c_set_operand(a, 1, type);
+  hir_c_set_operand(a, 2, receiver);
+  as_instr(a)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return a;
 }
 
 HirInstr hir_c_create_match_class_reg2(HirRegister dst, HirRegister subject, HirRegister type, HirRegister nargs, HirRegister names) {
@@ -1711,7 +1761,11 @@ HirInstr hir_c_create_refine_type_reg(HirRegister dst, HirType type,
 }
 
 HirInstr hir_c_create_check_exc_reg(HirRegister dst, HirRegister src) {
-  return CheckExc::create(as_reg(dst), as_reg(src));
+  HirCheckExc *c = (HirCheckExc *)hir_c_alloc_instr(sizeof(HirCheckExc), 1);
+  hir_c_init_deopt(c, HIR_OP_CheckExc);
+  hir_c_set_output(c, dst);
+  hir_c_set_operand(c, 0, src);
+  return c;
 }
 
 HirInstr hir_c_create_deopt(void) {
