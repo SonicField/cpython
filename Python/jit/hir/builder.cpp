@@ -519,9 +519,14 @@ struct HIRBuilder::TranslationContext {
     emitC(static_cast<Instr*>(hir_c_create_set_current_awaiter_reg(src)));
   }
 
-  // Decref via C factory (1 operand, no output).
+  // Decref or XDecref depending on nullability.
+  // Uses Decref for non-nullable (TObject), XDecref for nullable (TOptObject).
   void emitDecref(Register* src) {
-    emitC(static_cast<Instr*>(hir_c_create_decref_reg(src)));
+    if (src->type() <= TObject) {
+      emitC(static_cast<Instr*>(hir_c_create_decref_reg(src)));
+    } else {
+      emit<XDecref>(src);
+    }
   }
 
   // MakeCell via C++ bridge (DeoptBase + FrameState).
@@ -1086,10 +1091,10 @@ void HIRBuilder::emitInlineExceptionMatch(
   {
     TranslationContext exc_tc{exc_match_block, tc.frame};
 
-    // Decref stack items above handler depth.
+    // Pop excess stack items above handler depth.
+    // Refcount insertion will handle decrement automatically.
     while (static_cast<int>(exc_tc.frame.stack.size()) > handler.depth) {
-      Register* excess = exc_tc.frame.stack.pop();
-      exc_tc.emitDecref(excess);
+      exc_tc.frame.stack.pop();
     }
 
     // Load exception type as a constant (resolved at compile time).
@@ -1268,10 +1273,10 @@ void HIRBuilder::emitCallExceptionHandler(
   {
     TranslationContext exc_tc{exc_match_block, tc.frame};
 
-    // Decref stack items above handler depth.
+    // Pop excess stack items above handler depth.
+    // Refcount insertion will handle decrement automatically.
     while (static_cast<int>(exc_tc.frame.stack.size()) > handler.depth) {
-      Register* excess = exc_tc.frame.stack.pop();
-      exc_tc.emitDecref(excess);
+      exc_tc.frame.stack.pop();
     }
 
     // Load exception type as a constant (resolved at compile time).
