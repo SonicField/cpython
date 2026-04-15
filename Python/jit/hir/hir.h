@@ -379,11 +379,18 @@ class DeoptBase : public Instr {
   void sortLiveRegs();
 
   // Set/get the metadata needed to reconstruct the state of the interpreter
-  // after this instruction executes.
-  void setFrameState(std::unique_ptr<FrameState> state);
+  // after this instruction executes.  H2-E3: raw FrameState* (was unique_ptr).
+  void setFrameState(std::unique_ptr<FrameState> state) {
+    delete frame_state_;
+    frame_state_ = state.release();
+  }
   void setFrameState(const FrameState& state);
-  FrameState* frameState() const;
-  std::unique_ptr<FrameState> takeFrameState();
+  FrameState* frameState() const { return frame_state_; }
+  FrameState* takeFrameState() {
+    FrameState* tmp = frame_state_;
+    frame_state_ = nullptr;
+    return tmp;
+  }
 
   // visitUses devirtualized in T2-C4. Called from Instr::visitUses
   // after operand iteration, to visit DeoptBase-specific registers.
@@ -418,7 +425,7 @@ class DeoptBase : public Instr {
 
  private:
   PhxRegStateArray live_regs_;
-  std::unique_ptr<FrameState> frame_state_{nullptr};
+  FrameState* frame_state_{nullptr};  // H2-E3: was unique_ptr
   // If set and this instruction deopts at runtime, this value is made
   // conveniently available in the deopt machinery.
   Register* guilty_reg_{nullptr};
@@ -3420,22 +3427,25 @@ class INSTR_CLASS(Snapshot, (), Operands<0>) {
   // constructor
   Snapshot(const Snapshot& other) : InstrT(static_cast<const InstrT&>(other)) {
     if (FrameState* copy_fs = other.frameState()) {
-      setFrameState(std::make_unique<FrameState>(*copy_fs));
+      setFrameState(*copy_fs);
     }
   }
+  ~Snapshot() { delete frame_state_; }
 
   // Set/get the metadata needed to reconstruct the state of the interpreter
-  // after this instruction executes.
+  // after this instruction executes.  H2-E3: raw FrameState* (was unique_ptr).
   void setFrameState(std::unique_ptr<FrameState> state) {
-    frame_state_ = std::move(state);
+    delete frame_state_;
+    frame_state_ = state.release();
   }
 
   void setFrameState(const FrameState& state) {
-    frame_state_ = std::make_unique<FrameState>(state);
+    delete frame_state_;
+    frame_state_ = new FrameState(state);
   }
 
   FrameState* frameState() const {
-    return frame_state_.get();
+    return frame_state_;
   }
 
   // visitUses devirtualized in T2-C4 — Snapshot only visits frame_state.
@@ -3448,7 +3458,7 @@ class INSTR_CLASS(Snapshot, (), Operands<0>) {
   }
 
  private:
-  std::unique_ptr<FrameState> frame_state_{nullptr};
+  FrameState* frame_state_{nullptr};  // H2-E3: was unique_ptr
 };
 
 // Used to indicate a control flow path that is statically known to be

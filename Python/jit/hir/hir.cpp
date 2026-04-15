@@ -40,14 +40,14 @@ DeoptBase::DeoptBase(const DeoptBase& other)
       nonce_{other.nonce()},
       descr_(other.descr_ ? strdup(other.descr_) : nullptr) {
   if (FrameState* copy_fs = other.frameState()) {
-    setFrameState(std::make_unique<FrameState>(*copy_fs));
+    frame_state_ = new FrameState(*copy_fs);
   }
 }
 
 DeoptBase::~DeoptBase() {
   free(descr_);
   // live_regs_ cleaned up by ~PhxRegStateArray (free(data_))
-  // frame_state_ cleaned up by ~unique_ptr
+  delete frame_state_;  // H2-E3: was ~unique_ptr
 }
 
 const PhxRegStateArray& DeoptBase::live_regs() const {
@@ -100,20 +100,9 @@ void DeoptBase::sortLiveRegs() {
   }
 }
 
-void DeoptBase::setFrameState(std::unique_ptr<FrameState> state) {
-  frame_state_ = std::move(state);
-}
-
 void DeoptBase::setFrameState(const FrameState& state) {
-  frame_state_ = std::make_unique<FrameState>(state);
-}
-
-FrameState* DeoptBase::frameState() const {
-  return frame_state_.get();
-}
-
-std::unique_ptr<FrameState> DeoptBase::takeFrameState() {
-  return std::move(frame_state_);
+  delete frame_state_;
+  frame_state_ = new FrameState(state);
 }
 
 int DeoptBase::nonce() const {
