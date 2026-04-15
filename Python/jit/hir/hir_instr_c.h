@@ -493,6 +493,13 @@ static inline void *hir_c_alloc_instr(size_t struct_size, size_t num_operands) {
     ptr += num_operands * sizeof(void *);
     *(size_t *)ptr = num_operands;
     ptr += sizeof(size_t);
+    /* Initialize IntrusiveListNode (block_node_) at offset 0 in Instr.
+     * The node's unlinked state requires prev_=this, next_=this (self-pointers).
+     * calloc zeros these to NULL, which makes isLinked() return true and
+     * triggers an assertion on first insert.  Fix: set both pointers to self. */
+    void **node = (void **)ptr;
+    node[0] = ptr;  /* prev_ = self */
+    node[1] = ptr;  /* next_ = self */
     return ptr;
 }
 
