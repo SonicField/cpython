@@ -1,0 +1,7 @@
+source: pythia
+type: assessment-posted
+priority: normal
+timestamp: 2026-04-14T14:39:10Z
+dedup-key: pythia:assessment-posted
+payload: |
+  Pythia checkpoint posted to /data/users/alexturner/phoenix/.nbs/chat/phoenix.chat

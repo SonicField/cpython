@@ -188,11 +188,7 @@ class Type {
     h.bits_and_flags = (static_cast<uint64_t>(t.bits_)
         | (static_cast<uint64_t>(t.lifetime_) << HIR_TYPE_LIFETIME_SHIFT)
         | (static_cast<uint64_t>(t.spec_kind_) << HIR_TYPE_SPEC_SHIFT));
-    // Copy the 8-byte specialization union via memcpy to avoid strict
-    // aliasing issues (active union member may be pytype_, pyobject_,
-    // int_, or double_ — memcpy is safe for all).
-    static_assert(sizeof(h.int_val) == sizeof(t.int_), "union size mismatch");
-    memcpy(&h.int_val, &t.int_, sizeof(h.int_val));
+    h.int_val = t.int_;
     return h;
   }
   static Type fromHirType(HirType h) {
