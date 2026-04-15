@@ -432,6 +432,21 @@ struct Env {
     return guard;
   }
 
+  // Emit Snapshot via C bridge.
+  Instr* emitSnapshot(const FrameState& fs) {
+    Instr* snap = static_cast<Instr*>(hir_c_create_snapshot(
+        const_cast<void*>(static_cast<const void*>(&fs))));
+    emitCInstr(snap);
+    return snap;
+  }
+
+  // Emit DeoptPatchpoint via C bridge, returns for post-creation mutation.
+  Instr* emitDeoptPatchpoint(void* patcher) {
+    Instr* pp = static_cast<Instr*>(hir_c_create_deopt_patchpoint(patcher));
+    emitCInstr(pp);
+    return pp;
+  }
+
   // Insert a pre-created instruction from a C factory into the current block.
   // Sets bytecode offset, inserts at cursor, computes output type.
   // Returns the output register (or nullptr if no output).
@@ -1519,10 +1534,10 @@ Register* simplifyLoadAttrSplitDict(
   // de-opt the whole function. Ideally we'd just skip to the slow-path in this
   // case.
   Register* receiver = load_attr->GetOperand(0);
-  auto patchpoint = env.emitInstr<DeoptPatchpoint>(
+  auto patchpoint = env.emitDeoptPatchpoint(
       env.func.allocateCodePatcher<SplitDictDeoptPatcher>(type, name, keys));
-  patchpoint->setGuiltyReg(receiver);
-  patchpoint->setDescr("SplitDictDeoptPatcher");
+  hir_c_set_guilty_reg(patchpoint,receiver);
+  hir_c_set_descr(patchpoint,"SplitDictDeoptPatcher");
   env.emitUseType(receiver, receiver->type());
 
   Register* inline_values_valid = env.emitLoadField(
@@ -1589,10 +1604,10 @@ Register* simplifyLoadAttrSplitDict(
   }
 
   Register* receiver = load_attr->GetOperand(0);
-  auto patchpoint = env.emitInstr<DeoptPatchpoint>(
+  auto patchpoint = env.emitDeoptPatchpoint(
       env.func.allocateCodePatcher<SplitDictDeoptPatcher>(type, name, keys));
-  patchpoint->setGuiltyReg(receiver);
-  patchpoint->setDescr("SplitDictDeoptPatcher");
+  hir_c_set_guilty_reg(patchpoint,receiver);
+  hir_c_set_descr(patchpoint,"SplitDictDeoptPatcher");
   env.emitUseType(receiver, receiver->type());
 
 #if PY_VERSION_HEX >= 0x030C0000
@@ -1662,11 +1677,11 @@ void emitTypeAttrDeoptPatcher(
   // The descriptor could be from a base type, but PyType_Modified() also
   // notifies subtypes of the modified type, so we only have to watch the
   // object's type.
-  auto patchpoint = env.emitInstr<DeoptPatchpoint>(
+  auto patchpoint = env.emitDeoptPatchpoint(
       env.func.allocateCodePatcher<TypeAttrDeoptPatcher>(
           info.py_type, info.attr_name, info.descr));
-  patchpoint->setGuiltyReg(info.receiver);
-  patchpoint->setDescr(description);
+  hir_c_set_guilty_reg(patchpoint,info.receiver);
+  hir_c_set_descr(patchpoint,description);
 }
 
 Register* simplifyLoadAttrMemberDescr(Env& env, const DescrInfo& info) {
@@ -1746,10 +1761,10 @@ Register* simplifyLoadAttrGenericDescriptor(Env& env, const DescrInfo& info) {
     // We unfortunately have to use a generic TypeDeoptPatcher here that
     // patches on any changes to the type, since type_setattro() calls
     // PyType_Modified() before updating tp_descr_{get,set}.
-    auto patchpoint = env.emitInstr<DeoptPatchpoint>(
+    auto patchpoint = env.emitDeoptPatchpoint(
         env.func.allocateCodePatcher<TypeDeoptPatcher>(descr_type));
-    patchpoint->setGuiltyReg(info.receiver);
-    patchpoint->setDescr("tp_descr_get/tp_descr_set");
+    hir_c_set_guilty_reg(patchpoint,info.receiver);
+    hir_c_set_descr(patchpoint,"tp_descr_get/tp_descr_set");
   }
   env.emitUseType(info.receiver, info.type);
   Register* descr_reg = env.emitLoadConst(Type::fromObject(info.descr));
@@ -2120,16 +2135,16 @@ Register* simplifyCallMethod(Env& env, const CallMethod* instr) {
                 }
               }
 
-              env.emitInstr<Snapshot>(*instr->frameState());
+              env.emitSnapshot(*instr->frameState());
 
               if (!_PyClassLoader_IsImmutable(py_type)) {
-                auto patchpoint = env.emitInstr<DeoptPatchpoint>(
+                auto patchpoint = env.emitDeoptPatchpoint(
                     env.func.allocateCodePatcher<TypeAttrDeoptPatcher>(
                         py_type,
                         BorrowedRef<PyUnicodeObject>{attr_id},
                         method));
-                patchpoint->setGuiltyReg(receiver);
-                patchpoint->setDescr("CallMethod __exit__ method resolution");
+                hir_c_set_guilty_reg(patchpoint,receiver);
+                hir_c_set_descr(patchpoint,"CallMethod __exit__ method resolution");
               }
               HirType recv_unspec = hir_type_unspecialized(&recv_hir);
               env.emitUseType(receiver, *reinterpret_cast<const Type*>(&recv_unspec));
@@ -2403,14 +2418,14 @@ Register* simplifyVectorCallBoundMethod(Env& env, const VectorCall* instr) {
   // Emit a Snapshot to provide a FrameState for the DeoptPatchpoint.
   // bindGuards resets fs to nullptr on non-replayable instructions
   // (LoadAttrSpecial), so our DeoptPatchpoint needs its own Snapshot.
-  env.emitInstr<Snapshot>(*instr->frameState());
+  env.emitSnapshot(*instr->frameState());
 
   if (!_PyClassLoader_IsImmutable(py_type)) {
-    auto patchpoint = env.emitInstr<DeoptPatchpoint>(
+    auto patchpoint = env.emitDeoptPatchpoint(
         env.func.allocateCodePatcher<TypeAttrDeoptPatcher>(
             py_type, BorrowedRef<PyUnicodeObject>{attr_id}, method));
-    patchpoint->setGuiltyReg(receiver);
-    patchpoint->setDescr("LoadAttrSpecial method resolution");
+    hir_c_set_guilty_reg(patchpoint,receiver);
+    hir_c_set_descr(patchpoint,"LoadAttrSpecial method resolution");
   }
   HirType recv_unspec2 = hir_type_unspecialized(&recv_hir2);
   env.emitUseType(receiver, *reinterpret_cast<const Type*>(&recv_unspec2));
@@ -2493,14 +2508,14 @@ Register* simplifyVectorCallGlobal(Env& env, const VectorCall* instr) {
   }
 
   // Emit a Snapshot to provide a FrameState for the DeoptPatchpoint.
-  env.emitInstr<Snapshot>(*instr->frameState());
+  env.emitSnapshot(*instr->frameState());
 
   // Install a GlobalDeoptPatcher that fires if this global is rebound.
   auto* patcher = env.func.allocateCodePatcher<GlobalDeoptPatcher>(
       globals, key_name, BorrowedRef<>{expected});
-  auto patchpoint = env.emitInstr<DeoptPatchpoint>(patcher);
-  patchpoint->setGuiltyReg(func_reg);
-  patchpoint->setDescr("Global callee guard elimination");
+  auto patchpoint = env.emitDeoptPatchpoint(patcher);
+  hir_c_set_guilty_reg(patchpoint,func_reg);
+  hir_c_set_descr(patchpoint,"Global callee guard elimination");
 
   // Load the resolved function as a constant.  This gives the register
   // TFunc[expected] type so the inliner can determine the inline target.
