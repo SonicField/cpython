@@ -214,6 +214,12 @@ HirInstr hir_c_create_load_attr_cached(HirFunction func,
 HirInstr hir_c_create_store_attr_cached(HirFunction func,
     HirRegister obj, HirRegister value, int name_idx, void *frame_state);
 
+/* DeoptBaseWithNameIdx + cache_id factories */
+HirInstr hir_c_create_fill_type_attr_cache(HirFunction func,
+    HirRegister receiver, int name_idx, int cache_id, void *frame_state);
+HirInstr hir_c_create_fill_type_method_cache(HirFunction func,
+    HirRegister receiver, int name_idx, int cache_id, void *frame_state);
+
 /* Simple DeoptBase factories (no custom fields beyond operands + FrameState) */
 HirInstr hir_c_create_dict_subscr(HirFunction func, HirRegister lhs,
                                    HirRegister rhs, void *frame_state);

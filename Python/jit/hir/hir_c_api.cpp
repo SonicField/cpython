@@ -667,6 +667,28 @@ HirInstr hir_c_create_store_attr_cached(HirFunction func,
       *static_cast<const FrameState*>(frame_state));
 }
 
+/* ---- FillTypeAttrCache / FillTypeMethodCache ---- */
+
+HirInstr hir_c_create_fill_type_attr_cache(HirFunction func,
+    HirRegister receiver, int name_idx, int cache_id, void *frame_state) {
+  if (!frame_state) return nullptr;
+  auto* f = static_cast<Function*>(func);
+  auto* dst = f->env.AllocateRegister();
+  return FillTypeAttrCache::create(
+      dst, as_reg(receiver), name_idx, cache_id,
+      *static_cast<const FrameState*>(frame_state));
+}
+
+HirInstr hir_c_create_fill_type_method_cache(HirFunction func,
+    HirRegister receiver, int name_idx, int cache_id, void *frame_state) {
+  if (!frame_state) return nullptr;
+  auto* f = static_cast<Function*>(func);
+  auto* dst = f->env.AllocateRegister();
+  return FillTypeMethodCache::create(
+      dst, as_reg(receiver), name_idx, cache_id,
+      *static_cast<const FrameState*>(frame_state));
+}
+
 /* ---- Simple DeoptBase factories (2-operand + FrameState, no custom fields) ---- */
 
 #define DEOPT2_FACTORY(name, CppType) \

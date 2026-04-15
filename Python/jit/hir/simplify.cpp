@@ -388,6 +388,18 @@ struct Env {
         &func, obj, value, name_idx,
         const_cast<void*>(static_cast<const void*>(&fs)))));
   }
+  Register* emitFillTypeAttrCache(Register* receiver, int name_idx,
+                                   int cache_id, const FrameState& fs) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_fill_type_attr_cache(
+        &func, receiver, name_idx, cache_id,
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  Register* emitFillTypeMethodCache(Register* receiver, int name_idx,
+                                     int cache_id, const FrameState& fs) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_fill_type_method_cache(
+        &func, receiver, name_idx, cache_id,
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
 
   // Insert a pre-created instruction from a C factory into the current block.
   // Sets bytecode offset, inserts at cursor, computes output type.
@@ -887,7 +899,7 @@ Register* simplifyLoadTypeMethodCached(Env& env, const LoadMethod* load_meth) {
       },
       [&] { // Slow path
         int name_idx = load_meth->name_idx();
-        return env.emit<FillTypeMethodCache>(
+        return env.emitFillTypeMethodCache(
             receiver, name_idx, cache_id, *load_meth->frameState());
       });
 }
@@ -1797,7 +1809,7 @@ Register* simplifyLoadAttrTypeReceiver(Env& env, const LoadAttr* load_attr) {
       },
       [&] { // Slow path
         int name_idx = load_attr->name_idx();
-        return env.emit<FillTypeAttrCache>(
+        return env.emitFillTypeAttrCache(
             receiver, name_idx, cache_id, *load_attr->frameState());
       });
 }
