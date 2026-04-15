@@ -1481,8 +1481,16 @@ HirInstr hir_c_create_init_frame_cell_vars_reg(HirRegister func, int32_t nfree) 
 }
 
 HirInstr hir_c_create_store_field_reg(HirRegister receiver, const char *name, intptr_t offset, HirRegister value, HirType type, HirRegister previous) {
-  Type cpp_type = Type::fromHirType(type);
-  return StoreField::create(as_reg(receiver), name, offset, as_reg(value), cpp_type, as_reg(previous));
+  HirStoreField *s = (HirStoreField *)hir_c_alloc_instr(sizeof(HirStoreField), 3);
+  hir_c_init_instr(s, HIR_OP_StoreField);
+  /* Placement new for std::string name_ (stored as opaque bytes) */
+  new (&s->name_storage) std::string(name);
+  s->offset = offset;
+  s->type = type;
+  hir_c_set_operand(s, 0, receiver);
+  hir_c_set_operand(s, 1, value);
+  hir_c_set_operand(s, 2, previous);
+  return s;
 }
 HirInstr hir_c_create_yield_and_yield_from_reg(HirRegister dst, HirRegister waiter, HirRegister coro, void *fs) {
   HirYieldAndYieldFrom *y = (HirYieldAndYieldFrom *)hir_c_alloc_instr(sizeof(HirYieldAndYieldFrom), 2);
@@ -1651,7 +1659,14 @@ HirInstr hir_c_create_match_class_reg2(HirRegister dst, HirRegister subject, Hir
 }
 
 HirInstr hir_c_create_load_attr_special_reg(HirRegister dst, HirRegister receiver, void *id, const char *fmt, void *fs) {
-  return LoadAttrSpecial::create(as_reg(dst), as_reg(receiver), static_cast<PyObject*>(id), fmt, *static_cast<const FrameState*>(fs));
+  HirLoadAttrSpecial *l = (HirLoadAttrSpecial *)hir_c_alloc_instr(sizeof(HirLoadAttrSpecial), 1);
+  hir_c_init_deopt(l, HIR_OP_LoadAttrSpecial);
+  l->id = id;
+  l->failure_fmt = fmt;
+  hir_c_set_output(l, dst);
+  hir_c_set_operand(l, 0, receiver);
+  as_instr(l)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return l;
 }
 
 HirInstr hir_c_create_call_intrinsic_reg2(size_t n_operands, HirRegister dst, int32_t index, HirRegister *operands) {
