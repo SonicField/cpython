@@ -367,17 +367,17 @@ HirInstr hir_assign_create(HirRegister output, HirRegister value) {
 /* hir_type_as_object() — moved to hir_type_c.c (pure C) */
 
 int hir_type_is_exact(const HirType *t) {
-  const auto& type = *reinterpret_cast<const Type*>(t);
+  Type type = Type::fromHirType(*t);
   return type.isExact() ? 1 : 0;
 }
 
 int hir_type_has_known_destructor(const HirType *t) {
-  const auto& type = *reinterpret_cast<const Type*>(t);
+  Type type = Type::fromHirType(*t);
   return type.runtimePyTypeDestructor().has_value() ? 1 : 0;
 }
 
 PyTypeObject *hir_type_runtime_py_type(const HirType *t) {
-  const auto& type = *reinterpret_cast<const Type*>(t);
+  Type type = Type::fromHirType(*t);
   return type.runtimePyType();
 }
 
@@ -401,7 +401,7 @@ int hir_register_type_matches_operand(HirInstr instr, size_t operand_idx, HirReg
 int hir_type_matches_operand(HirInstr instr, size_t operand_idx,
                              const HirType *type) {
   OperandType expected = as_instr(instr)->GetOperandType(operand_idx);
-  const Type& cpp_type = *reinterpret_cast<const Type*>(type);
+  Type cpp_type = Type::fromHirType(*type);
   return registerTypeMatches(cpp_type, expected) ? 1 : 0;
 }
 
@@ -461,7 +461,7 @@ void hir_reg_uses_destroy(HirRegUses uses) {
 HirType hir_output_type_with_override(HirInstr instr,
                                       size_t override_idx,
                                       const HirType *override_type) {
-  const Type& cpp_override = *reinterpret_cast<const Type*>(override_type);
+  Type cpp_override = Type::fromHirType(*override_type);
   Instr* i = as_instr(instr);
   Type result = outputType(*i, [&](std::size_t ind) -> Type {
     if (ind == override_idx) {
@@ -480,7 +480,7 @@ HirType hir_output_type_with_override(HirInstr instr,
 
 size_t hir_type_to_string(const HirType *type, char *buf, size_t bufsz,
                           int safe) {
-  const Type& cpp_type = *reinterpret_cast<const Type*>(type);
+  Type cpp_type = Type::fromHirType(*type);
   std::string s = safe ? cpp_type.toStringSafe() : cpp_type.toString();
   size_t len = s.size();
   if (buf && bufsz > 0) {
@@ -588,7 +588,7 @@ HirInstr hir_c_create_guard_type(HirFunction func, HirType target,
                                  HirRegister src, void *frame_state) {
   auto* f = static_cast<Function*>(func);
   auto* dst = f->env.AllocateRegister();
-  const Type& cpp_target = *reinterpret_cast<const Type*>(&target);
+  Type cpp_target = Type::fromHirType(target);
   if (frame_state) {
     return GuardType::create(
         dst, cpp_target, as_reg(src),
@@ -614,7 +614,7 @@ HirInstr hir_c_create_load_field(HirFunction func, HirRegister receiver,
                                   HirType type, int borrowed) {
   auto* f = static_cast<Function*>(func);
   auto* dst = f->env.AllocateRegister();
-  const Type& cpp_type = *reinterpret_cast<const Type*>(&type);
+  Type cpp_type = Type::fromHirType(type);
   return LoadField::create(
       dst, as_reg(receiver), std::string(name),
       static_cast<std::size_t>(offset), cpp_type,
@@ -644,7 +644,7 @@ HirInstr hir_c_create_primitive_box(HirFunction func, HirRegister src,
   if (!frame_state) return nullptr;
   auto* f = static_cast<Function*>(func);
   auto* dst = f->env.AllocateRegister();
-  const Type& cpp_type = *reinterpret_cast<const Type*>(&type);
+  Type cpp_type = Type::fromHirType(type);
   return PrimitiveBox::create(
       dst, as_reg(src), cpp_type,
       *static_cast<const FrameState*>(frame_state));
@@ -718,7 +718,7 @@ HirInstr hir_c_create_load_array_item(HirFunction func,
     intptr_t offset, HirType type) {
   auto* f = static_cast<Function*>(func);
   auto* dst = f->env.AllocateRegister();
-  const Type& cpp_type = *reinterpret_cast<const Type*>(&type);
+  Type cpp_type = Type::fromHirType(type);
   return LoadArrayItem::create(
       dst, as_reg(arr), as_reg(idx), as_reg(container),
       static_cast<ssize_t>(offset), cpp_type);
@@ -755,13 +755,13 @@ HirInstr hir_c_create_call_static(HirFunction func, size_t n_operands,
                                    void *addr, HirType ret_type) {
   auto* f = static_cast<Function*>(func);
   auto* dst = f->env.AllocateRegister();
-  const Type& cpp_type = *reinterpret_cast<const Type*>(&ret_type);
+  Type cpp_type = Type::fromHirType(ret_type);
   return CallStatic::create(n_operands, dst, addr, cpp_type);
 }
 
 HirInstr hir_c_create_call_static_reg(size_t n_operands, HirRegister dst,
                                        void *addr, HirType ret_type) {
-  const Type& cpp_type = *reinterpret_cast<const Type*>(&ret_type);
+  Type cpp_type = Type::fromHirType(ret_type);
   return CallStatic::create(n_operands, as_reg(dst), addr, cpp_type);
 }
 
@@ -782,7 +782,7 @@ void hir_c_set_suppress_exc_deopt(HirInstr instr, int val) {
 }
 
 void hir_c_set_output_type(HirInstr instr, HirType type) {
-  const Type& cpp_type = *reinterpret_cast<const Type*>(&type);
+  Type cpp_type = Type::fromHirType(type);
   as_instr(instr)->output()->set_type(cpp_type);
 }
 
@@ -907,20 +907,20 @@ HirInstr hir_c_create_cond_branch_cpp(void *cond_reg,
 HirInstr hir_c_create_load_field_reg(HirRegister dst, HirRegister receiver,
                                       const char *name, intptr_t offset,
                                       HirType type, int borrowed) {
-  const Type& cpp_type = *reinterpret_cast<const Type*>(&type);
+  Type cpp_type = Type::fromHirType(type);
   return LoadField::create(
       as_reg(dst), as_reg(receiver), name, offset, cpp_type, borrowed != 0);
 }
 
 HirInstr hir_c_create_guard_type_reg(HirRegister dst, HirType target,
                                       HirRegister src) {
-  const Type& cpp_target = *reinterpret_cast<const Type*>(&target);
+  Type cpp_target = Type::fromHirType(target);
   return GuardType::create(as_reg(dst), cpp_target, as_reg(src));
 }
 
 HirInstr hir_c_create_refine_type_reg(HirRegister dst, HirType type,
                                        HirRegister src) {
-  const Type& cpp_type = *reinterpret_cast<const Type*>(&type);
+  Type cpp_type = Type::fromHirType(type);
   return RefineType::create(as_reg(dst), cpp_type, as_reg(src));
 }
 
@@ -933,7 +933,7 @@ HirInstr hir_c_create_deopt(void) {
 }
 
 HirInstr hir_c_create_return(HirRegister src, HirType type) {
-  const Type& cpp_type = *reinterpret_cast<const Type*>(&type);
+  Type cpp_type = Type::fromHirType(type);
   return Return::create(as_reg(src), cpp_type);
 }
 
