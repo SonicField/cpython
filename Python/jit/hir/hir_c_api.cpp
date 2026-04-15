@@ -927,6 +927,30 @@ HirInstr hir_c_create_guard_is_reg(HirRegister dst, void *target,
       as_reg(dst), static_cast<PyObject*>(target), as_reg(src));
 }
 
+HirInstr hir_c_create_load_field_address_reg(HirRegister dst, HirRegister object,
+                                              HirRegister offset) {
+  return LoadFieldAddress::create(as_reg(dst), as_reg(object), as_reg(offset));
+}
+
+HirInstr hir_c_create_yield_value_reg(HirRegister dst, HirRegister src,
+                                       void *frame_state) {
+  return YieldValue::create(as_reg(dst), as_reg(src),
+                             *static_cast<const FrameState*>(frame_state));
+}
+
+HirInstr hir_c_create_yield_from_reg(HirRegister dst, HirRegister send_value,
+                                      HirRegister iter, void *frame_state) {
+  return YieldFrom::create(as_reg(dst), as_reg(send_value), as_reg(iter),
+                            *static_cast<const FrameState*>(frame_state));
+}
+
+HirInstr hir_c_create_check_var_reg(HirRegister dst, HirRegister src,
+                                     void *name, void *frame_state) {
+  return CheckVar::create(as_reg(dst), as_reg(src),
+                           static_cast<PyObject*>(name),
+                           *static_cast<const FrameState*>(frame_state));
+}
+
 HirInstr hir_c_create_set_dict_item_reg(HirRegister dst, HirRegister dict,
                                          HirRegister key, HirRegister value,
                                          void *frame_state) {

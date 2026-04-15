@@ -502,6 +502,34 @@ struct HIRBuilder::TranslationContext {
         hir_c_create_load_tuple_item_reg(dst, tuple, static_cast<int32_t>(idx))));
   }
 
+  // LoadFieldAddress via C factory.
+  void emitLoadFieldAddress(Register* dst, Register* object, Register* offset) {
+    emitC(static_cast<Instr*>(
+        hir_c_create_load_field_address_reg(dst, object, offset)));
+  }
+
+  // YieldValue via C++ bridge (DeoptBase + FrameState).
+  void emitYieldValue(Register* dst, Register* src, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_yield_value_reg(
+        dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
+  // YieldFrom via C++ bridge (DeoptBase + FrameState).
+  void emitYieldFrom(Register* dst, Register* send_value, Register* iter,
+                      const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_yield_from_reg(
+        dst, send_value, iter,
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
+  // CheckVar via C++ bridge (DeoptBase + FrameState).
+  void emitCheckVar(Register* dst, Register* src, PyObject* name,
+                     const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_check_var_reg(
+        dst, src, name,
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
   // IsTruthy via C++ bridge (DeoptBase + FrameState).
   void emitIsTruthy(Register* dst, Register* src, const FrameState& fs) {
     emitC(static_cast<Instr*>(hir_c_create_is_truthy_reg(
@@ -4037,10 +4065,10 @@ void HIRBuilder::emitLoadDeref(
 
   BorrowedRef<> name = getVarname(code_, idx);
 #if PY_VERSION_HEX < 0x030C0000
-  tc.emit<CheckVar>(dst, dst, name, tc.frame);
+  tc.emitCheckVar(dst, dst, name, tc.frame);
 #else
   if (idx < PyCode_GetFirstFree(code_)) {
-    tc.emit<CheckVar>(dst, dst, name, tc.frame);
+    tc.emitCheckVar(dst, dst, name, tc.frame);
   } else {
     tc.emit<CheckFreevar>(dst, dst, name, tc.frame);
   }
@@ -4110,7 +4138,7 @@ void HIRBuilder::emitLoadFast(
   Register* var = tc.frame.localsplus[var_idx];
   // Pre-3.12, LOAD_FAST behaves like LOAD_FAST_CHECK.
   if (bc_instr.opcode() == LOAD_FAST_CHECK || PY_VERSION_HEX < 0x030C0000) {
-    tc.emit<CheckVar>(var, var, getVarname(code_, var_idx), tc.frame);
+    tc.emitCheckVar(var, var, getVarname(code_, var_idx), tc.frame);
   }
   tc.frame.stack.push(var);
   if (bc_instr.opcode() == LOAD_FAST_AND_CLEAR) {
@@ -4594,7 +4622,7 @@ void HIRBuilder::emitSequenceGet(
     tc.emitLoadConst(
         offset_reg,
         Type::fromCInt(offsetof(PyStaticArrayObject, ob_item), TCInt64));
-    tc.emit<LoadFieldAddress>(ob_item, sequence, offset_reg);
+    tc.emitLoadFieldAddress(ob_item, sequence, offset_reg);
   } else {
     JIT_ABORT("Unsupported oparg for SEQUENCE_GET: {}", oparg);
   }
@@ -4628,7 +4656,7 @@ void HIRBuilder::emitSequenceSet(
     tc.emitLoadConst(
         offset_reg,
         Type::fromCInt(offsetof(PyStaticArrayObject, ob_item), TCInt64));
-    tc.emit<LoadFieldAddress>(ob_item, sequence, offset_reg);
+    tc.emitLoadFieldAddress(ob_item, sequence, offset_reg);
   } else if (oparg == SEQ_LIST || oparg == SEQ_LIST_INEXACT) {
     int offset = offsetof(PyListObject, ob_item);
     tc.emitLoadField(ob_item, sequence, "ob_item", offset, TCPtr);
@@ -5300,7 +5328,7 @@ void HIRBuilder::emitUnpackSequence(
   Register* offset_reg = temps_.AllocateStack();
   tc.emitLoadConst(
       offset_reg, Type::fromCInt(offsetof(PyTupleObject, ob_item), TCInt64));
-  tc.emit<LoadFieldAddress>(list_mem, seq, offset_reg);
+  tc.emitLoadFieldAddress(list_mem, seq, offset_reg);
   tc.emitBranch(fast_path);
 
   tc.block = list_fast_path;
@@ -5591,7 +5619,7 @@ void HIRBuilder::emitYieldFrom(TranslationContext& tc, Register* out) {
   if (code_->co_flags & CO_COROUTINE) {
     tc.emit<SetCurrentAwaiter>(iter);
   }
-  tc.emit<YieldFrom>(out, send_value, iter, tc.frame);
+  tc.emitYieldFrom(out, send_value, iter, tc.frame);
   stack.pop();
   stack.push(out);
 }
@@ -5613,7 +5641,7 @@ void HIRBuilder::emitYieldValue(
   }
   if constexpr (PY_VERSION_HEX < 0x030C0000) {
     advancePastYieldInstr(tc);
-    tc.emit<YieldValue>(out, in, tc.frame);
+    tc.emitYieldValue(out, in, tc.frame);
   } else if constexpr (PY_VERSION_HEX < 0x030E0000) {
     auto next_bc =
         BytecodeInstruction{code_, tc.frame.cur_instr_offs}.nextInstr();
@@ -5622,17 +5650,17 @@ void HIRBuilder::emitYieldValue(
     // primarily for this check - values 2 and 3 indicate a "yield from" and
     // "await" respectively.
     if (next_bc.opcode() == RESUME && next_bc.oparg() >= 2) {
-      tc.emit<YieldFrom>(out, in, stack.top(), tc.frame);
+      tc.emitYieldFrom(out, in, stack.top(), tc.frame);
     } else {
-      tc.emit<YieldValue>(out, in, tc.frame);
+      tc.emitYieldValue(out, in, tc.frame);
     }
   } else {
     advancePastYieldInstr(tc);
     if (bc_instr.oparg() == 1) {
-      tc.emit<YieldFrom>(out, in, stack.top(), tc.frame);
+      tc.emitYieldFrom(out, in, stack.top(), tc.frame);
     } else {
       JIT_CHECK(bc_instr.oparg() == 0, "Invalid oparg {}", bc_instr.oparg());
-      tc.emit<YieldValue>(out, in, tc.frame);
+      tc.emitYieldValue(out, in, tc.frame);
     }
   }
   stack.push(out);

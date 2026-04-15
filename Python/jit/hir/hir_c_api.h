@@ -353,6 +353,14 @@ HirInstr hir_c_create_load_tuple_item_reg(HirRegister dst, HirRegister tuple,
                                            int32_t idx);
 HirInstr hir_c_create_is_truthy_reg(HirRegister dst, HirRegister src,
                                      void *frame_state);
+HirInstr hir_c_create_load_field_address_reg(HirRegister dst, HirRegister object,
+                                              HirRegister offset);
+HirInstr hir_c_create_yield_value_reg(HirRegister dst, HirRegister src,
+                                       void *frame_state);
+HirInstr hir_c_create_yield_from_reg(HirRegister dst, HirRegister send_value,
+                                      HirRegister iter, void *frame_state);
+HirInstr hir_c_create_check_var_reg(HirRegister dst, HirRegister src,
+                                     void *name, void *frame_state);
 HirInstr hir_c_create_set_function_attr_reg(HirRegister value, HirRegister base,
                                              int32_t field);
 HirInstr hir_c_create_check_neg_reg(HirRegister dst, HirRegister src,
