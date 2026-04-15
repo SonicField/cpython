@@ -187,6 +187,12 @@ struct Env {
         hir_c_create_cond_branch(cond, true_bb, false_bb)));
   }
 
+  // Convenience: create + insert a UseType via pure C factory.
+  Register* emitUseType(Register* val, Type type) {
+    return emitCInstr(static_cast<Instr*>(
+        hir_c_create_use_type(val, to_hir(type))));
+  }
+
   // Insert a pre-created instruction from a C factory into the current block.
   // Sets bytecode offset, inserts at cursor, computes output type.
   // Returns the output register (or nullptr if no output).
@@ -333,8 +339,8 @@ Register* simplifyCheckSequenceBounds(
       adjusted = true;
     }
     if (static_cast<size_t>(idx_value) < length) {
-      env.emit<UseType>(sequence, sequence->type());
-      env.emit<UseType>(idx, idx->type());
+      env.emitUseType(sequence, sequence->type());
+      env.emitUseType(idx, idx->type());
       if (adjusted) {
         return env.emitLoadConst(Type::fromCInt(idx_value, TCInt64));
       } else {
@@ -399,7 +405,7 @@ Register* emitGetLengthInt64(Env& env, Register* obj) {
       ty <= TTupleExact) {
     HirType ty_hir_us = to_hir(ty);
     HirType ty_unspec = hir_type_unspecialized(&ty_hir_us);
-    env.emit<UseType>(obj, *reinterpret_cast<const Type*>(&ty_unspec));
+    env.emitUseType(obj, *reinterpret_cast<const Type*>(&ty_unspec));
     return env.emit<LoadField>(
         obj, "ob_size", offsetof(PyVarObject, ob_size), TCInt64);
   }
@@ -427,7 +433,7 @@ Register* emitGetLengthInt64(Env& env, Register* obj) {
     }
     HirType ty_hir_us2 = to_hir(ty);
     HirType ty_unspec2 = hir_type_unspecialized(&ty_hir_us2);
-    env.emit<UseType>(obj, *reinterpret_cast<const Type*>(&ty_unspec2));
+    env.emitUseType(obj, *reinterpret_cast<const Type*>(&ty_unspec2));
     return env.emit<LoadField>(obj, name, offset, TCInt64);
   }
   return nullptr;
@@ -444,7 +450,7 @@ Register* simplifyGetLength(Env& env, const GetLength* instr) {
 Register* simplifyIntConvert(Env& env, const IntConvert* instr) {
   Register* src = instr->GetOperand(0);
   if (src->isA(instr->type())) {
-    env.emit<UseType>(src, instr->type());
+    env.emitUseType(src, instr->type());
     return instr->GetOperand(0);
   }
   return nullptr;
@@ -457,8 +463,8 @@ Register* simplifyCompare(Env& env, const Compare* instr) {
 
   if (left->isA(TNoneType) && right->isA(TNoneType)) {
     if (op == CompareOp::kEqual || op == CompareOp::kNotEqual) {
-      env.emit<UseType>(left, TNoneType);
-      env.emit<UseType>(right, TNoneType);
+      env.emitUseType(left, TNoneType);
+      env.emitUseType(right, TNoneType);
       return env.emitLoadConst(
           Type::fromObject(op == CompareOp::kEqual ? Py_True : Py_False));
     }
@@ -468,8 +474,8 @@ Register* simplifyCompare(Env& env, const Compare* instr) {
   if (left->isA(TBool) && right->isA(TBool) &&
       (op == CompareOp::kEqual || op == CompareOp::kNotEqual)) {
     if (auto prim_op = toPrimitiveCompareOp(op)) {
-      env.emit<UseType>(left, TBool);
-      env.emit<UseType>(right, TBool);
+      env.emitUseType(left, TBool);
+      env.emitUseType(right, TBool);
       Register* result = env.emit<PrimitiveCompare>(*prim_op, left, right);
       return env.emit<PrimitiveBoxBool>(result);
     }
@@ -532,13 +538,13 @@ Register* simplifyCondBranchCheckType(
   Type actual_type = value->type();
   Type expected_type = instr->type();
   if (actual_type <= expected_type) {
-    env.emit<UseType>(value, actual_type);
+    env.emitUseType(value, actual_type);
     return env.emitBranch(instr->true_bb());
   }
   HirType actual_hir = to_hir(actual_type);
   HirType expected_hir = to_hir(expected_type);
   if (!hir_type_could_be(&actual_hir, &expected_hir)) {
-    env.emit<UseType>(value, actual_type);
+    env.emitUseType(value, actual_type);
     return env.emitBranch(instr->false_bb());
   }
   return nullptr;
@@ -565,13 +571,13 @@ Register* simplifyIsTruthy(Env& env, const IsTruthy* instr) {
       JIT_CHECK(res >= 0, "PyObject_IsTrue failed on trusted type");
       // Since we no longer use instr->GetOperand(0), we need to make sure that
       // we don't lose any associated type checks
-      env.emit<UseType>(instr->GetOperand(0), ty);
+      env.emitUseType(instr->GetOperand(0), ty);
       return env.emitLoadConst(Type::fromCBool(res));
     }
   }
   if (ty <= TBool) {
     Register* left = instr->GetOperand(0);
-    env.emit<UseType>(left, TBool);
+    env.emitUseType(left, TBool);
     Register* right = env.emitLoadConst(Type::fromObject(Py_True));
     Register* result =
         env.emit<PrimitiveCompare>(PrimitiveCompareOp::kEqual, left, right);
@@ -582,7 +588,7 @@ Register* simplifyIsTruthy(Env& env, const IsTruthy* instr) {
   }
   if (ty <= TLongExact) {
     Register* left = instr->GetOperand(0);
-    env.emit<UseType>(left, ty);
+    env.emitUseType(left, ty);
     Register* right = env.emitLoadConst(Type::fromObject(_PyLong_GetZero()));
     Register* result =
         env.emit<PrimitiveCompare>(PrimitiveCompareOp::kNotEqual, left, right);
@@ -598,7 +604,7 @@ Register* simplifyLoadTupleItem(Env& env, const LoadTupleItem* instr) {
   if (!hir_type_has_value_spec(&src_hir, to_hir(TTuple))) {
     return nullptr;
   }
-  env.emit<UseType>(src, src_ty);
+  env.emitUseType(src, src_ty);
   BorrowedRef<> item = PyTuple_GET_ITEM(hir_type_object_spec(&src_hir), instr->idx());
   return env.emitLoadConst(Type::fromObject(env.func.env.addReference(item)));
 }
@@ -618,16 +624,16 @@ Register* simplifyLoadArrayItem(Env& env, const LoadArrayItem* instr) {
   if (src->instr()->IsMakeTuple()) {
     size_t length = static_cast<const MakeTuple*>(src->instr())->nvalues();
     if (idx < length) {
-      env.emit<UseType>(src, TTupleExact);
-      env.emit<UseType>(instr->idx(), instr->idx()->type());
+      env.emitUseType(src, TTupleExact);
+      env.emitUseType(instr->idx(), instr->idx()->type());
       return src->instr()->GetOperand(idx);
     }
   }
   HirType src_arr_hir = to_hir(src->type());
   if (hir_type_has_value_spec(&src_arr_hir, to_hir(TTupleExact))) {
     if (idx_signed < PyTuple_GET_SIZE(hir_type_object_spec(&src_arr_hir))) {
-      env.emit<UseType>(src, src->type());
-      env.emit<UseType>(instr->idx(), instr->idx()->type());
+      env.emitUseType(src, src->type());
+      env.emitUseType(instr->idx(), instr->idx()->type());
       BorrowedRef<> item = PyTuple_GET_ITEM(hir_type_object_spec(&src_arr_hir), idx);
       return env.emitLoadConst(
           Type::fromObject(env.func.env.addReference(item)));
@@ -643,7 +649,7 @@ Register* simplifyLoadVarObjectSize(Env& env, const LoadVarObjectSize* instr) {
   // sequence types, are mutable. A more general LoadElimination pass could
   // accomplish that, though.
   if (obj_reg->instr()->IsMakeTuple()) {
-    env.emit<UseType>(obj_reg, type);
+    env.emitUseType(obj_reg, type);
     size_t size = static_cast<const MakeTuple*>(obj_reg->instr())->nvalues();
     Type output_type = instr->output()->type();
     return env.emitLoadConst(Type::fromCInt(size, output_type));
@@ -653,7 +659,7 @@ Register* simplifyLoadVarObjectSize(Env& env, const LoadVarObjectSize* instr) {
       hir_type_has_value_spec(&type_hvs, to_hir(TBytesExact))) {
     PyVarObject* obj = reinterpret_cast<PyVarObject*>(hir_type_as_object(&type_hvs));
     Py_ssize_t size = obj->ob_size;
-    env.emit<UseType>(obj_reg, type);
+    env.emitUseType(obj_reg, type);
     Type output_type = instr->output()->type();
     return env.emitLoadConst(Type::fromCInt(size, output_type));
   }
@@ -672,7 +678,7 @@ Register* simplifyLoadModuleMethodCached(
 Register* simplifyLoadTypeMethodCached(Env& env, const LoadMethod* load_meth) {
   Register* receiver = load_meth->GetOperand(0);
   const int cache_id = env.func.env.allocateLoadTypeMethodCache();
-  env.emit<UseType>(receiver, TType);
+  env.emitUseType(receiver, TType);
   Register* guard = env.emit<LoadTypeMethodCacheEntryType>(cache_id);
   Register* type_matches =
       env.emit<PrimitiveCompare>(PrimitiveCompareOp::kEqual, guard, receiver);
@@ -736,8 +742,8 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
         PyObject* lhs_obj = hir_type_object_spec(&lhs_hir);
         if (index >= 0 && index < PyTuple_GET_SIZE(lhs_obj)) {
           BorrowedRef<> item = PyTuple_GET_ITEM(lhs_obj, index);
-          env.emit<UseType>(lhs, lhs_type);
-          env.emit<UseType>(rhs, rhs_type);
+          env.emitUseType(lhs, lhs_type);
+          env.emitUseType(rhs, rhs_type);
           return env.emitLoadConst(
               Type::fromObject(env.func.env.addReference(item)));
         }
@@ -750,8 +756,8 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
     if (lhs->isA(TListExact) || lhs->isA(TTupleExact)) {
       // TASK(T93509109): Replace TCInt64 with a less platform-specific
       // representation of the type, which should be analagous to Py_ssize_t.
-      env.emit<UseType>(lhs, lhs->isA(TListExact) ? TListExact : TTupleExact);
-      env.emit<UseType>(rhs, TLongExact);
+      env.emitUseType(lhs, lhs->isA(TListExact) ? TListExact : TTupleExact);
+      env.emitUseType(rhs, TLongExact);
       Register* right_index = env.emit<IndexUnbox>(rhs);
       env.emit<IsNegativeAndErrOccurred>(right_index, *instr->frameState());
       Register* adjusted_idx =
@@ -803,13 +809,13 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
         Ref<> result = Ref<>::steal(substr);
 
         // Use exact types since we're relying on the object specializations.
-        env.emit<UseType>(lhs, lhs_type);
-        env.emit<UseType>(rhs, rhs_type);
+        env.emitUseType(lhs, lhs_type);
+        env.emitUseType(rhs, rhs_type);
         return env.emitLoadConst(
             Type::fromObject(env.func.env.addReference(std::move(result))));
       } else {
-        env.emit<UseType>(lhs, TUnicodeExact);
-        env.emit<UseType>(rhs, TLongExact);
+        env.emitUseType(lhs, TUnicodeExact);
+        env.emitUseType(rhs, TLongExact);
         Register* unboxed_idx = env.emit<IndexUnbox>(rhs);
         env.emit<IsNegativeAndErrOccurred>(unboxed_idx, *instr->frameState());
         Register* adjusted_idx = env.emit<CheckSequenceBounds>(
@@ -826,8 +832,8 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
       // These will generate an error at runtime.
       return nullptr;
     }
-    env.emit<UseType>(lhs, TLongExact);
-    env.emit<UseType>(rhs, TLongExact);
+    env.emitUseType(lhs, TLongExact);
+    env.emitUseType(rhs, TLongExact);
     return env.emit<LongBinaryOp>(op, lhs, rhs, *instr->frameState());
   }
 
@@ -839,7 +845,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
         hir_type_could_be(reinterpret_cast<const HirType*>(&rhs_type_f),
                           reinterpret_cast<const HirType*>(&TFloatExact))) {
       if (FloatBinaryOp::slotMethod(op) || op == BinaryOpKind::kPower) {
-        env.emit<UseType>(lhs, TFloatExact);
+        env.emitUseType(lhs, TFloatExact);
         Register* guarded = env.emitCInstr(static_cast<Instr*>(
             hir_c_create_guard_type(&env.func, to_hir(TFloatExact), rhs, instr->frameState())));
         return env.emit<FloatBinaryOp>(op, lhs, guarded,
@@ -851,7 +857,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
         hir_type_could_be(reinterpret_cast<const HirType*>(&lhs_type_f),
                           reinterpret_cast<const HirType*>(&TFloatExact))) {
       if (FloatBinaryOp::slotMethod(op) || op == BinaryOpKind::kPower) {
-        env.emit<UseType>(rhs, TFloatExact);
+        env.emitUseType(rhs, TFloatExact);
         Register* guarded = env.emitCInstr(static_cast<Instr*>(
             hir_c_create_guard_type(&env.func, to_hir(TFloatExact), lhs, instr->frameState())));
         return env.emit<FloatBinaryOp>(op, guarded, rhs,
@@ -866,7 +872,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
     if (lhs->isA(TLongExact) && !rhs->isA(TLongExact) &&
         hir_type_could_be(reinterpret_cast<const HirType*>(&rhs_type_l),
                           reinterpret_cast<const HirType*>(&TLongExact))) {
-      env.emit<UseType>(lhs, TLongExact);
+      env.emitUseType(lhs, TLongExact);
       Register* guarded = env.emitGuardType(TLongExact, rhs, instr->frameState());
       return env.emit<LongBinaryOp>(op, lhs, guarded,
                                       *instr->frameState());
@@ -875,7 +881,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
     if (rhs->isA(TLongExact) && !lhs->isA(TLongExact) &&
         hir_type_could_be(reinterpret_cast<const HirType*>(&lhs_type_l),
                           reinterpret_cast<const HirType*>(&TLongExact))) {
-      env.emit<UseType>(rhs, TLongExact);
+      env.emitUseType(rhs, TLongExact);
       Register* guarded = env.emitGuardType(TLongExact, lhs, instr->frameState());
       return env.emit<LongBinaryOp>(op, guarded, rhs,
                                       *instr->frameState());
@@ -885,8 +891,8 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
   if (lhs->isA(TFloatExact) && rhs->isA(TFloatExact) &&
       ((instr->op() == BinaryOpKind::kPower) ||
        FloatBinaryOp::slotMethod(instr->op()))) {
-    env.emit<UseType>(lhs, TFloatExact);
-    env.emit<UseType>(rhs, TFloatExact);
+    env.emitUseType(lhs, TFloatExact);
+    env.emitUseType(rhs, TFloatExact);
     return env.emit<FloatBinaryOp>(instr->op(), lhs, rhs, *instr->frameState());
   }
 
@@ -917,8 +923,8 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
         ThreadedCompileSerialize guard;
         Ref<> float_obj = Ref<>::steal(PyFloat_FromDouble(dval));
         if (float_obj) {
-          env.emit<UseType>(float_reg, TFloatExact);
-          env.emit<UseType>(int_reg, int_reg->type());
+          env.emitUseType(float_reg, TFloatExact);
+          env.emitUseType(int_reg, int_reg->type());
           Register* float_const = env.emitLoadConst(
               Type::fromObject(env.func.env.addReference(std::move(float_obj))));
           return env.emit<FloatBinaryOp>(op,
@@ -966,8 +972,8 @@ Register* simplifyInPlaceOp(Env& env, const InPlaceOp* instr) {
       case InPlaceOpKind::kXor:
       case InPlaceOpKind::kPower:
       case InPlaceOpKind::kTrueDivide:
-        env.emit<UseType>(lhs, TLongExact);
-        env.emit<UseType>(rhs, TLongExact);
+        env.emitUseType(lhs, TLongExact);
+        env.emitUseType(rhs, TLongExact);
         return env.emit<LongInPlaceOp>(
             instr->op(), lhs, rhs, *instr->frameState());
       case InPlaceOpKind::kMatrixMultiply:
@@ -993,7 +999,7 @@ Register* simplifyInPlaceOp(Env& env, const InPlaceOp* instr) {
     }
     if (binop && (FloatBinaryOp::slotMethod(*binop) || *binop == BinaryOpKind::kPower)) {
       Register* guarded_lhs = env.emitGuardType(TFloatExact, lhs, instr->frameState());
-      env.emit<UseType>(rhs, TFloatExact);
+      env.emitUseType(rhs, TFloatExact);
       return env.emit<FloatBinaryOp>(*binop, guarded_lhs, rhs, *instr->frameState());
     }
   }
@@ -1013,8 +1019,8 @@ Register* simplifyInPlaceOp(Env& env, const InPlaceOp* instr) {
       default: break;
     }
     if (binop && (FloatBinaryOp::slotMethod(*binop) || *binop == BinaryOpKind::kPower)) {
-      env.emit<UseType>(lhs, TFloatExact);
-      env.emit<UseType>(rhs, TFloatExact);
+      env.emitUseType(lhs, TFloatExact);
+      env.emitUseType(rhs, TFloatExact);
       return env.emit<FloatBinaryOp>(*binop, lhs, rhs, *instr->frameState());
     }
   }
@@ -1028,7 +1034,7 @@ Register* simplifyInPlaceOp(Env& env, const InPlaceOp* instr) {
     auto binop = inPlaceOpToBinaryOp(instr->op());
     if (binop && (FloatBinaryOp::slotMethod(*binop) ||
                   *binop == BinaryOpKind::kPower)) {
-      env.emit<UseType>(lhs, TFloatExact);
+      env.emitUseType(lhs, TFloatExact);
       Register* guarded = env.emitGuardType(TFloatExact, rhs, instr->frameState());
       return env.emit<FloatBinaryOp>(*binop, lhs, guarded,
                                       *instr->frameState());
@@ -1041,7 +1047,7 @@ Register* simplifyInPlaceOp(Env& env, const InPlaceOp* instr) {
     auto binop = inPlaceOpToBinaryOp(instr->op());
     if (binop && (FloatBinaryOp::slotMethod(*binop) ||
                   *binop == BinaryOpKind::kPower)) {
-      env.emit<UseType>(rhs, TFloatExact);
+      env.emitUseType(rhs, TFloatExact);
       Register* guarded = env.emitGuardType(TFloatExact, lhs, instr->frameState());
       return env.emit<FloatBinaryOp>(*binop, guarded, rhs,
                                       *instr->frameState());
@@ -1075,8 +1081,8 @@ Register* simplifyLongBinaryOp(Env& env, const LongBinaryOp* instr) {
       PyErr_Clear();
       return nullptr;
     }
-    env.emit<UseType>(instr->left(), left_type);
-    env.emit<UseType>(instr->right(), right_type);
+    env.emitUseType(instr->left(), left_type);
+    env.emitUseType(instr->right(), right_type);
     return env.emitLoadConst(
         Type::fromObject(env.func.env.addReference(std::move(result))));
   }
@@ -1127,8 +1133,8 @@ Register* simplifyFloatBinaryOp(Env& env, const FloatBinaryOp* instr) {
     return nullptr;
   }
 
-  env.emit<UseType>(instr->left(), left_type);
-  env.emit<UseType>(instr->right(), right_type);
+  env.emitUseType(instr->left(), left_type);
+  env.emitUseType(instr->right(), right_type);
   return env.emitLoadConst(
       Type::fromObject(env.func.env.addReference(std::move(result))));
 }
@@ -1137,7 +1143,7 @@ Register* simplifyUnaryOp(Env& env, const UnaryOp* instr) {
   Register* operand = instr->operand();
 
   if (instr->op() == UnaryOpKind::kNot && operand->isA(TBool)) {
-    env.emit<UseType>(operand, TBool);
+    env.emitUseType(operand, TBool);
     Register* unboxed = env.emit<PrimitiveUnbox>(operand, TCBool);
     Register* negated =
         env.emit<PrimitiveUnaryOp>(PrimitiveUnaryOpKind::kNotInt, unboxed);
@@ -1153,8 +1159,8 @@ Register* simplifyPrimitiveCompare(Env& env, const PrimitiveCompare* instr) {
   if (instr->op() == PrimitiveCompareOp::kEqual ||
       instr->op() == PrimitiveCompareOp::kNotEqual) {
     auto do_cbool = [&](bool value) {
-      env.emit<UseType>(left, left->type());
-      env.emit<UseType>(right, right->type());
+      env.emitUseType(left, left->type());
+      env.emitUseType(right, right->type());
       return env.emitLoadConst(Type::fromCBool(
           instr->op() == PrimitiveCompareOp::kNotEqual ? !value : value));
     };
@@ -1189,7 +1195,7 @@ Register* simplifyPrimitiveBoxBool(Env& env, const PrimitiveBoxBool* instr) {
   Register* input = instr->GetOperand(0);
   HirType input_hir_bb = to_hir(input->type());
   if (hir_type_has_int_spec(&input_hir_bb)) {
-    env.emit<UseType>(input, input->type());
+    env.emitUseType(input, input->type());
     auto bool_obj = hir_type_int_spec(&input_hir_bb) ? Py_True : Py_False;
     return env.emitLoadConst(Type::fromObject(bool_obj));
   }
@@ -1278,7 +1284,7 @@ Register* simplifyLoadAttrSplitDict(
       env.func.allocateCodePatcher<SplitDictDeoptPatcher>(type, name, keys));
   patchpoint->setGuiltyReg(receiver);
   patchpoint->setDescr("SplitDictDeoptPatcher");
-  env.emit<UseType>(receiver, receiver->type());
+  env.emitUseType(receiver, receiver->type());
 
   Register* inline_values_valid = env.emit<LoadField>(
       receiver,
@@ -1349,7 +1355,7 @@ Register* simplifyLoadAttrSplitDict(
       env.func.allocateCodePatcher<SplitDictDeoptPatcher>(type, name, keys));
   patchpoint->setGuiltyReg(receiver);
   patchpoint->setDescr("SplitDictDeoptPatcher");
-  env.emit<UseType>(receiver, receiver->type());
+  env.emitUseType(receiver, receiver->type());
 
 #if PY_VERSION_HEX >= 0x030C0000
   // PyDictOrValues is stored at -3 per _PyObject_DictOrValuesPointer
@@ -1449,7 +1455,7 @@ Register* simplifyLoadAttrMemberDescr(Env& env, const DescrInfo& info) {
       name_cstr = "<unknown>";
     }
     emitTypeAttrDeoptPatcher(env, info, "member descriptor attribute");
-    env.emit<UseType>(info.receiver, info.type);
+    env.emitUseType(info.receiver, info.type);
     Register* field =
         env.emit<LoadField>(info.receiver, name_cstr, def->offset, TOptObject);
     if (def->type == T_OBJECT_EX) {
@@ -1484,7 +1490,7 @@ Register* simplifyLoadAttrProperty(Env& env, const DescrInfo& info) {
   }
 
   emitTypeAttrDeoptPatcher(env, info, "property attribute");
-  env.emit<UseType>(info.receiver, info.type);
+  env.emitUseType(info.receiver, info.type);
   Register* getter_obj = env.emitLoadConst(Type::fromObject(getter));
   auto call = env.emitRawInstr<VectorCall>(
       2, env.func.env.AllocateRegister(), CallFlags::None, *info.frame_state);
@@ -1511,7 +1517,7 @@ Register* simplifyLoadAttrGenericDescriptor(Env& env, const DescrInfo& info) {
     patchpoint->setGuiltyReg(info.receiver);
     patchpoint->setDescr("tp_descr_get/tp_descr_set");
   }
-  env.emit<UseType>(info.receiver, info.type);
+  env.emitUseType(info.receiver, info.type);
   Register* descr_reg = env.emitLoadConst(Type::fromObject(info.descr));
   Register* type_reg = env.emitLoadConst(Type::fromObject(info.py_type));
   auto call = env.emitRawInstr<CallStatic>(
@@ -1582,7 +1588,7 @@ Register* simplifyLoadAttrTypeReceiver(Env& env, const LoadAttr* load_attr) {
   }
 
   const int cache_id = env.func.env.allocateLoadTypeAttrCache();
-  env.emit<UseType>(receiver, TType);
+  env.emitUseType(receiver, TType);
   Register* guard = env.emit<LoadTypeAttrCacheEntryType>(cache_id);
   Register* type_matches =
       env.emit<PrimitiveCompare>(PrimitiveCompareOp::kEqual, guard, receiver);
@@ -1647,7 +1653,7 @@ Register* simplifyLoadField(Env& env, const LoadField* instr) {
   if (PyFloat_Check(value) && load_output_type <= TCDouble &&
       instr->offset() == offsetof(PyFloatObject, ob_fval)) {
     double number = PyFloat_AS_DOUBLE(hir_type_object_spec(&loadee_hir));
-    env.emit<UseType>(loadee, loadee_type);
+    env.emitUseType(loadee, loadee_type);
     return env.emitLoadConst(Type::fromCDouble(number));
   }
   return nullptr;
@@ -1892,7 +1898,7 @@ Register* simplifyCallMethod(Env& env, const CallMethod* instr) {
                 patchpoint->setDescr("CallMethod __exit__ method resolution");
               }
               HirType recv_unspec = hir_type_unspecialized(&recv_hir);
-              env.emit<UseType>(receiver, *reinterpret_cast<const Type*>(&recv_unspec));
+              env.emitUseType(receiver, *reinterpret_cast<const Type*>(&recv_unspec));
 
               Register* func_const = env.emitLoadConst(
                   Type::fromObject(
@@ -1975,7 +1981,7 @@ Register* simplifyVectorCallStatic(Env& env, const VectorCall* instr) {
   }
   Register* func = instr->func();
   if (isBuiltin(func, "list.append") && instr->numArgs() == 2) {
-    env.emit<UseType>(func, func->type());
+    env.emitUseType(func, func->type());
     env.emit<ListAppend>(instr->arg(0), instr->arg(1), *instr->frameState());
     return env.emitLoadConst(TNoneType);
   }
@@ -2173,7 +2179,7 @@ Register* simplifyVectorCallBoundMethod(Env& env, const VectorCall* instr) {
     patchpoint->setDescr("LoadAttrSpecial method resolution");
   }
   HirType recv_unspec2 = hir_type_unspecialized(&recv_hir2);
-  env.emit<UseType>(receiver, *reinterpret_cast<const Type*>(&recv_unspec2));
+  env.emitUseType(receiver, *reinterpret_cast<const Type*>(&recv_unspec2));
 
   // Load the resolved function as a constant.
   Register* func_const = env.emitLoadConst(
@@ -2299,12 +2305,12 @@ Register* simplifyVectorCall(Env& env, const VectorCall* instr) {
   Register* target = instr->GetOperand(0);
   Type target_type = target->type();
   if (target_type == env.type_object && instr->NumOperands() == 2) {
-    env.emit<UseType>(target, env.type_object);
+    env.emitUseType(target, env.type_object);
     return env.emit<LoadField>(
         instr->GetOperand(1), "ob_type", offsetof(PyObject, ob_type), TType);
   }
   if (isBuiltin(target, "len") && instr->numArgs() == 1) {
-    env.emit<UseType>(target, target->type());
+    env.emitUseType(target, target->type());
     return env.emit<GetLength>(instr->arg(0), *instr->frameState());
   }
   if (isBuiltin(target, "isinstance") && instr->numArgs() == 2 &&
@@ -2529,7 +2535,7 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
       Register* input = instr->GetOperand(0);
       if (jit::g_range_iterator_type != nullptr &&
           input->type() <= Type::fromTypeExact(&PyRange_Type)) {
-        env.emit<UseType>(instr->output(),
+        env.emitUseType(instr->output(),
                           Type::fromTypeExact(jit::g_range_iterator_type));
       }
       return nullptr;

@@ -544,6 +544,18 @@ static inline void *hir_c_create_cond_branch(void *cond_reg,
     return cb;
 }
 
+/* ==== Instruction factory: UseType ====
+ * Pure C factory — 1 operand (val reg) + HirType field. No output. */
+
+static inline void *hir_c_create_use_type(void *val_reg, HirType type) {
+    HirUseType *ut = (HirUseType *)hir_c_alloc_instr(sizeof(HirUseType), 1);
+    if (!ut) return NULL;
+    ut->opcode = HIR_OP_UseType;
+    ut->type = type;
+    hir_c_set_operand(ut, 0, val_reg);
+    return ut;
+}
+
 /* ==== Opcode predicates ====
  * Direct opcode field read — no C++ bridge. These replace the
  * hir_instr_is_* functions in hir_c_api.h for C consumers that
