@@ -176,6 +176,11 @@ struct Env {
         &func, src, const_cast<void*>(static_cast<const void*>(&fs)))));
   }
 
+  // Convenience: create + insert a Branch via pure C factory.
+  Register* emitBranch(BasicBlock* target) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_branch(target)));
+  }
+
   // Insert a pre-created instruction from a C factory into the current block.
   // Sets bytecode offset, inserts at cursor, computes output type.
   // Returns the output register (or nullptr if no output).
@@ -237,12 +242,12 @@ struct Env {
     block = bb1;
     cursor = bb1->end();
     Register* bb1_reg = do_bb1();
-    emit<Branch>(tail);
+    emitBranch(tail);
 
     block = bb2;
     cursor = bb2->end();
     Register* bb2_reg = do_bb2();
-    emit<Branch>(tail);
+    emitBranch(tail);
 
     block = tail;
     cursor = tail->begin();
@@ -283,7 +288,7 @@ struct Env {
     block = slow_path;
     cursor = slow_path->begin();
     auto slow_path_value = do_slow_path();
-    emit<Branch>(fast_path);
+    emitBranch(fast_path);
 
     block = fast_path;
     cursor = fast_path->begin();
@@ -498,7 +503,7 @@ Register* simplifyCondBranch(Env& env, const CondBranch* instr) {
   // Constant condition folds into an unconditional jump.
   if (hir_type_has_int_spec(&cond_hir)) {
     auto spec = hir_type_int_spec(&cond_hir);
-    return env.emit<Branch>(spec ? instr->true_bb() : instr->false_bb());
+    return env.emitBranch(spec ? instr->true_bb() : instr->false_bb());
   }
   // Common pattern of CondBranch getting its condition from an IntConvert,
   // which had been simplified down from an IsTruthy.  Can forward the value
@@ -522,13 +527,13 @@ Register* simplifyCondBranchCheckType(
   Type expected_type = instr->type();
   if (actual_type <= expected_type) {
     env.emit<UseType>(value, actual_type);
-    return env.emit<Branch>(instr->true_bb());
+    return env.emitBranch(instr->true_bb());
   }
   HirType actual_hir = to_hir(actual_type);
   HirType expected_hir = to_hir(expected_type);
   if (!hir_type_could_be(&actual_hir, &expected_hir)) {
     env.emit<UseType>(value, actual_type);
-    return env.emit<Branch>(instr->false_bb());
+    return env.emitBranch(instr->false_bb());
   }
   return nullptr;
 }
