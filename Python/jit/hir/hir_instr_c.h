@@ -306,7 +306,7 @@ typedef struct { HIR_INSTR_FIELDS; char *name; size_t offset; HirType type; uint
 typedef struct { HIR_INSTR_FIELDS; char *name; size_t offset; HirType type; } HirStoreField;
 
 /* ---- std::vector type ---- */
-typedef struct { HIR_INSTR_FIELDS; char basic_blocks_storage[24]; } HirPhi;
+typedef struct { HIR_INSTR_FIELDS; void **bb_data; size_t bb_count; size_t bb_cap; } HirPhi;
 
 /* ---- Complex multi-inheritance + container types ---- */
 typedef struct { HIR_INSTR_FIELDS; void *func; void *reifier; void *caller_state_ptr; char *fullname; } HirBeginInlinedFunction;
@@ -384,7 +384,7 @@ typedef union HirOpcodeData {
     /* ---- Container types (opaque storage) ---- */
     struct { char *name; size_t offset; HirType type; uint8_t borrowed; } load_field;
     struct { char *name; size_t offset; HirType type; } store_field;
-    struct { char basic_blocks_storage[24]; } phi;              /* Phi: vector<BasicBlock*> */
+    struct { void **bb_data; size_t bb_count; size_t bb_cap; } phi; /* Phi: PhxBlockArray */
     struct { char types_storage[24]; } hint_type;               /* HintType: ProfiledTypes */
     struct { void *func; void *reifier; void *caller_state_ptr; char *fullname; } begin_inlined;
     struct { void *frame_state_ptr; } snapshot;                 /* Snapshot */

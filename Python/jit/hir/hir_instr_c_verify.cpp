@@ -109,7 +109,7 @@ struct HirInstrLayoutVerifier {
     /* T2-B: opaque blob field offsets (container fields modeled as char arrays) */
     static_assert(offsetof(HirLoadField, name) == offsetof(LoadField, name_));
     static_assert(offsetof(HirStoreField, name) == offsetof(StoreField, name_));
-    static_assert(offsetof(HirPhi, basic_blocks_storage) == offsetof(Phi, basic_blocks_));
+    static_assert(offsetof(HirPhi, bb_data) == offsetof(Phi, basic_blocks_));
     static_assert(offsetof(HirBeginInlinedFunction, fullname) == offsetof(BeginInlinedFunction, fullname_));
     static_assert(offsetof(HirHintType, types_storage) == offsetof(HintType, types_));
 

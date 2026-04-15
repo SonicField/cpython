@@ -1145,6 +1145,64 @@ class INSTR_CLASS(
   const size_t index_;
 };
 
+// malloc/realloc-based array of BasicBlock* for Phi nodes.
+// Same sizeof (24 bytes) as std::vector, calloc-safe.
+struct PhxBlockArray {
+  BasicBlock** data_{nullptr};
+  size_t count_{0};
+  size_t capacity_{0};
+
+  size_t size() const { return count_; }
+  bool empty() const { return count_ == 0; }
+  BasicBlock** begin() { return data_; }
+  BasicBlock** end() { return data_ + count_; }
+  BasicBlock* const* begin() const { return data_; }
+  BasicBlock* const* end() const { return data_ + count_; }
+  BasicBlock*& operator[](size_t i) { return data_[i]; }
+  BasicBlock* operator[](size_t i) const { return data_[i]; }
+  BasicBlock* at(size_t i) const { return data_[i]; }
+
+  void push_back(BasicBlock* b) {
+    if (count_ == capacity_) grow();
+    data_[count_++] = b;
+  }
+  void clear() { count_ = 0; }
+  void reserve(size_t n) {
+    if (n > capacity_) {
+      capacity_ = n;
+      data_ = static_cast<BasicBlock**>(realloc(data_, n * sizeof(BasicBlock*)));
+    }
+  }
+
+  PhxBlockArray() = default;
+  ~PhxBlockArray() { free(data_); }
+  PhxBlockArray(const PhxBlockArray& o)
+      : count_(o.count_), capacity_(o.count_) {
+    if (count_) {
+      data_ = static_cast<BasicBlock**>(malloc(count_ * sizeof(BasicBlock*)));
+      memcpy(data_, o.data_, count_ * sizeof(BasicBlock*));
+    }
+  }
+  PhxBlockArray& operator=(const PhxBlockArray& o) {
+    if (this != &o) {
+      free(data_);
+      count_ = o.count_;
+      capacity_ = o.count_;
+      data_ = count_ ? static_cast<BasicBlock**>(
+          malloc(count_ * sizeof(BasicBlock*))) : nullptr;
+      if (count_) memcpy(data_, o.data_, count_ * sizeof(BasicBlock*));
+    }
+    return *this;
+  }
+
+ private:
+  void grow() {
+    capacity_ = capacity_ ? capacity_ * 2 : 4;
+    data_ = static_cast<BasicBlock**>(
+        realloc(data_, capacity_ * sizeof(BasicBlock*)));
+  }
+};
+
 // Phi instruction
 class INSTR_CLASS(Phi, (TTop), HasOutput, Operands<>) {
  public:
@@ -1178,7 +1236,7 @@ class INSTR_CLASS(Phi, (TTop), HasOutput, Operands<>) {
   // Return the index of the given predecessor in basic_blocks.
   std::size_t blockIndex(const BasicBlock* block) const;
 
-  const std::vector<BasicBlock*> basic_blocks() const {
+  const PhxBlockArray& basic_blocks() const {
     return basic_blocks_;
   }
 
@@ -1187,7 +1245,7 @@ class INSTR_CLASS(Phi, (TTop), HasOutput, Operands<>) {
  private:
   friend struct ::HirInstrLayoutVerifier;
   // List of incoming blocks, sorted by ascending block ID.
-  std::vector<BasicBlock*> basic_blocks_;
+  PhxBlockArray basic_blocks_;
 };
 
 // The first operand is the receiver that was used for the corresponding
