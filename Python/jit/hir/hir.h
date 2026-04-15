@@ -2306,7 +2306,7 @@ class INSTR_CLASS(CondBranchCheckType, (TObject), Operands<1>, CondBranchBase) {
 };
 
 // Decrement the reference count of `reg`
-DEFINE_SIMPLE_INSTR(Decref, (TOptObject), Operands<1>);
+DEFINE_SIMPLE_INSTR(Decref, (TObject), Operands<1>);
 
 // Decrement the reference count of `reg`, if `reg` is not NULL
 DEFINE_SIMPLE_INSTR(XDecref, (TOptObject), Operands<1>);
