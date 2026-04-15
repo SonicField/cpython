@@ -419,6 +419,37 @@ struct HIRBuilder::TranslationContext {
     emitC(static_cast<Instr*>(hir_assign_create(dst, src)));
   }
 
+  // PrimitiveCompare via pure C factory (hir_instr_c.h).
+  void emitPrimitiveCompare(Register* dst, PrimitiveCompareOp op,
+                             Register* left, Register* right) {
+    emitC(static_cast<Instr*>(hir_c_create_primitive_compare(
+        dst, static_cast<int32_t>(op), left, right)));
+  }
+
+  // PrimitiveBoxBool via pure C factory.
+  void emitPrimitiveBoxBool(Register* dst, Register* src) {
+    emitC(static_cast<Instr*>(hir_c_create_primitive_box_bool(dst, src)));
+  }
+
+  // IntBinaryOp via pure C factory.
+  void emitIntBinaryOp(Register* dst, BinaryOpKind op,
+                        Register* left, Register* right) {
+    emitC(static_cast<Instr*>(hir_c_create_int_binary_op(
+        dst, static_cast<int32_t>(op), left, right)));
+  }
+
+  // PrimitiveUnaryOp via pure C factory.
+  void emitPrimitiveUnaryOp(Register* dst, PrimitiveUnaryOpKind op,
+                              Register* src) {
+    emitC(static_cast<Instr*>(hir_c_create_primitive_unary_op(
+        dst, static_cast<int32_t>(op), src)));
+  }
+
+  // UseType via pure C factory.
+  void emitUseType(Register* val, Type type) {
+    emitC(static_cast<Instr*>(hir_c_create_use_type(val, to_hir(type))));
+  }
+
   BasicBlock* block{nullptr};
   FrameState frame;
 };
@@ -2811,9 +2842,9 @@ void HIRBuilder::emitUnaryNot(TranslationContext& tc) {
   Register* const_false = temps_.AllocateNonStack();
   Register* result = temps_.AllocateStack();
   tc.emitLoadConst(const_false, Type::fromObject(Py_False));
-  tc.emit<PrimitiveCompare>(
+  tc.emitPrimitiveCompare(
       is_false, PrimitiveCompareOp::kEqual, const_false, operand);
-  tc.emit<PrimitiveBoxBool>(result, is_false);
+  tc.emitPrimitiveBoxBool(result, is_false);
   tc.frame.stack.push(result);
 }
 
@@ -3270,8 +3301,8 @@ void HIRBuilder::emitIsOp(TranslationContext& tc, int oparg) {
   Register* result = temps_.AllocateStack();
   auto op =
       oparg == 0 ? PrimitiveCompareOp::kEqual : PrimitiveCompareOp::kNotEqual;
-  tc.emit<PrimitiveCompare>(unboxed_result, op, left, right);
-  tc.emit<PrimitiveBoxBool>(result, unboxed_result);
+  tc.emitPrimitiveCompare(unboxed_result, op, left, right);
+  tc.emitPrimitiveBoxBool(result, unboxed_result);
   stack.push(result);
 }
 
@@ -3340,7 +3371,7 @@ void HIRBuilder::emitToBool(TranslationContext& tc) {
   tc.emit<IsTruthy>(truthy_result, operand, tc.frame);
 
   Register* coerced_result = temps_.AllocateStack();
-  tc.emit<PrimitiveBoxBool>(coerced_result, truthy_result);
+  tc.emitPrimitiveBoxBool(coerced_result, truthy_result);
   tc.frame.stack.push(coerced_result);
 }
 
@@ -3543,7 +3574,7 @@ void HIRBuilder::emitLoadAttr(
               Type::fromCUInt(dict_version, TCUInt32));
 
           Register* version_match = temps_.AllocateStack();
-          tc.emit<PrimitiveCompare>(
+          tc.emitPrimitiveCompare(
               version_match, PrimitiveCompareOp::kEqual,
               loaded_version, expected_version);
           tc.emit<Guard>(version_match, tc.frame);
@@ -3677,7 +3708,7 @@ void HIRBuilder::emitLoadAttr(
             Register* dorv_int = temps_.AllocateStack();
             tc.emit<BitCast>(dorv_int, checked_dorv, TCUInt64);
             Register* is_values = temps_.AllocateStack();
-            tc.emit<IntBinaryOp>(
+            tc.emitIntBinaryOp(
                 is_values, BinaryOpKind::kAnd, dorv_int, one);
             auto guard = tc.emit<Guard>(is_values, tc.frame);
             guard->setGuiltyReg(receiver);
@@ -3687,7 +3718,7 @@ void HIRBuilder::emitLoadAttr(
             // The tagged pointer layout makes dorv+1 point to the start
             // of the values array for LoadField indexing.
             Register* values_ptr = temps_.AllocateStack();
-            tc.emit<IntBinaryOp>(
+            tc.emitIntBinaryOp(
                 values_ptr, BinaryOpKind::kAdd, dorv_int, one);
             Register* values_obj = temps_.AllocateStack();
             tc.emit<BitCast>(values_obj, values_ptr, TOptObject);
@@ -4081,7 +4112,7 @@ void HIRBuilder::boxPrimitive(
     Register* src,
     Type type) {
   if (type <= TCBool) {
-    tc.emit<PrimitiveBoxBool>(dst, src);
+    tc.emitPrimitiveBoxBool(dst, src);
   } else {
     tc.emit<PrimitiveBox>(dst, src, type, tc.frame);
   }
@@ -4222,7 +4253,7 @@ void HIRBuilder::emitPrimitiveBinaryOp(
   if (is_double_binop(bc_instr.oparg())) {
     tc.emit<DoubleBinaryOp>(result, op_kind, left, right);
   } else {
-    tc.emit<IntBinaryOp>(result, op_kind, left, right);
+    tc.emitIntBinaryOp(result, op_kind, left, right);
   }
 
   stack.push(result);
@@ -4276,7 +4307,7 @@ void HIRBuilder::emitPrimitiveCompare(
     default:
       JIT_ABORT("unsupported comparison");
   }
-  tc.emit<PrimitiveCompare>(result, op, left, right);
+  tc.emitPrimitiveCompare(result, op, left, right);
   stack.push(result);
 }
 
@@ -4289,17 +4320,17 @@ void HIRBuilder::emitPrimitiveUnaryOp(
   switch (bc_instr.oparg()) {
     case PRIM_OP_NEG_INT: {
       op = PrimitiveUnaryOpKind::kNegateInt;
-      tc.emit<PrimitiveUnaryOp>(result, op, value);
+      tc.emitPrimitiveUnaryOp(result, op, value);
       break;
     }
     case PRIM_OP_INV_INT: {
       op = PrimitiveUnaryOpKind::kInvertInt;
-      tc.emit<PrimitiveUnaryOp>(result, op, value);
+      tc.emitPrimitiveUnaryOp(result, op, value);
       break;
     }
     case PRIM_OP_NOT_INT: {
       op = PrimitiveUnaryOpKind::kNotInt;
-      tc.emit<PrimitiveUnaryOp>(result, op, value);
+      tc.emitPrimitiveUnaryOp(result, op, value);
       break;
     }
     case PRIM_OP_NEG_DBL: {
@@ -4734,7 +4765,7 @@ void HIRBuilder::emitPopJumpIf(
     if constexpr (PY_VERSION_HEX >= 0x030E0000) {
       Register* const_true = temps_.AllocateNonStack();
       tc.emitLoadConst(const_true, Type::fromObject(Py_True));
-      tc.emit<PrimitiveCompare>(
+      tc.emitPrimitiveCompare(
           is_true, PrimitiveCompareOp::kEqual, var, const_true);
     } else {
       tc.emit<IsTruthy>(is_true, var, tc.frame);
@@ -4761,7 +4792,7 @@ void HIRBuilder::emitPopJumpIfNone(
   auto op = bc_instr.opcode() == POP_JUMP_IF_NONE
       ? PrimitiveCompareOp::kEqual
       : PrimitiveCompareOp::kNotEqual;
-  tc.emit<PrimitiveCompare>(is_true, op, var, none);
+  tc.emitPrimitiveCompare(is_true, op, var, none);
   tc.emitCondBranch(is_true, true_block, false_block);
 }
 
@@ -5142,7 +5173,7 @@ void HIRBuilder::emitUnpackSequence(
   Register* is_equal = temps_.AllocateStack();
   tc.emit<LoadVarObjectSize>(seq_size, seq);
   tc.emitLoadConst(target_size, Type::fromCInt(bc_instr.oparg(), TCInt64));
-  tc.emit<PrimitiveCompare>(
+  tc.emitPrimitiveCompare(
       is_equal, PrimitiveCompareOp::kEqual, seq_size, target_size);
   fast_path = cfg.AllocateBlock();
   tc.emitCondBranch(is_equal, fast_path, deopt_path.block);
@@ -5689,7 +5720,7 @@ void HIRBuilder::emitMatchMappingSequence(
   tc.emitLoadConst(flag, Type::fromCUInt(tf_flag, TCUInt64));
 
   auto and_result = temps_.AllocateStack();
-  tc.emit<IntBinaryOp>(and_result, BinaryOpKind::kAnd, tp_flags, flag);
+  tc.emitIntBinaryOp(and_result, BinaryOpKind::kAnd, tp_flags, flag);
 
   auto true_block = cfg.AllocateBlock();
   auto false_block = cfg.AllocateBlock();
@@ -5774,7 +5805,7 @@ void HIRBuilder::emitMatchKeys(CFG& cfg, TranslationContext& tc) {
   auto none = temps_.AllocateStack();
   tc.emitLoadConst(none, Type::fromObject(Py_None));
   auto is_none = temps_.AllocateStack();
-  tc.emit<PrimitiveCompare>(
+  tc.emitPrimitiveCompare(
       is_none, PrimitiveCompareOp::kEqual, values_or_none, none);
 
   auto true_block = cfg.AllocateBlock();
