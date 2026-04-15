@@ -2197,10 +2197,6 @@ class INSTR_CLASS(
     return type_;
   }
 
-  OperandType GetOperandTypeImpl(std::size_t /* i */) const {
-    return type_;
-  }
-
  private:
   Type type_;
 };
