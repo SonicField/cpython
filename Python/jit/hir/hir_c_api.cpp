@@ -1485,10 +1485,22 @@ HirInstr hir_c_create_store_field_reg(HirRegister receiver, const char *name, in
   return StoreField::create(as_reg(receiver), name, offset, as_reg(value), cpp_type, as_reg(previous));
 }
 HirInstr hir_c_create_yield_and_yield_from_reg(HirRegister dst, HirRegister waiter, HirRegister coro, void *fs) {
-  return YieldAndYieldFrom::create(as_reg(dst), as_reg(waiter), as_reg(coro), *static_cast<const FrameState*>(fs));
+  HirYieldAndYieldFrom *y = (HirYieldAndYieldFrom *)hir_c_alloc_instr(sizeof(HirYieldAndYieldFrom), 2);
+  hir_c_init_deopt(y, HIR_OP_YieldAndYieldFrom);
+  hir_c_set_output(y, dst);
+  hir_c_set_operand(y, 0, waiter);
+  hir_c_set_operand(y, 1, coro);
+  as_instr(y)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return y;
 }
 HirInstr hir_c_create_yield_from_handle_stop_async_reg(HirRegister dst, HirRegister send, HirRegister awaitable, void *fs) {
-  return YieldFromHandleStopAsyncIteration::create(as_reg(dst), as_reg(send), as_reg(awaitable), *static_cast<const FrameState*>(fs));
+  HirYieldFromHandleStopAsyncIteration *y = (HirYieldFromHandleStopAsyncIteration *)hir_c_alloc_instr(sizeof(HirYieldFromHandleStopAsyncIteration), 2);
+  hir_c_init_deopt(y, HIR_OP_YieldFromHandleStopAsyncIteration);
+  hir_c_set_output(y, dst);
+  hir_c_set_operand(y, 0, send);
+  hir_c_set_operand(y, 1, awaitable);
+  as_instr(y)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return y;
 }
 HirInstr hir_c_create_call_ex_reg(HirRegister dst, HirRegister func, HirRegister pargs, HirRegister kwargs, uint32_t flags, void *fs) {
   HirCallEx *c = (HirCallEx *)hir_c_alloc_instr(sizeof(HirCallEx), 3);
