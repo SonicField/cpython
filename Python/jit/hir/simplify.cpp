@@ -170,6 +170,12 @@ struct Env {
         &func, to_hir(target), src, const_cast<void*>(static_cast<const void*>(fs)))));
   }
 
+  // Convenience: create + insert a CheckExc via C factory bridge.
+  Register* emitCheckExc(Register* src, const FrameState& fs) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_check_exc(
+        &func, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
   // Insert a pre-created instruction from a C factory into the current block.
   // Sets bytecode offset, inserts at cursor, computes output type.
   // Returns the output register (or nullptr if no output).
@@ -1505,7 +1511,7 @@ Register* simplifyLoadAttrGenericDescriptor(Env& env, const DescrInfo& info) {
   call->SetOperand(0, descr_reg);
   call->SetOperand(1, info.receiver);
   call->SetOperand(2, type_reg);
-  return env.emit<CheckExc>(call->output(), *info.frame_state);
+  return env.emitCheckExc(call->output(), *info.frame_state);
 }
 
 // Attempt to handle LOAD_ATTR cases where the load is a common case for object
@@ -1937,7 +1943,7 @@ static Register* trySpecializeCCall(Env& env, const VectorCall* instr) {
           reinterpret_cast<void*>(def->ml_meth),
           instr->output()->type() | TNullptr,
           /* self */ instr->arg(0));
-      return env.emit<CheckExc>(result, *instr->frameState());
+      return env.emitCheckExc(result, *instr->frameState());
     }
     if (def->ml_flags & METH_O && instr->numArgs() == 2) {
       Register* result = env.emitVariadic<CallStatic>(
@@ -1946,7 +1952,7 @@ static Register* trySpecializeCCall(Env& env, const VectorCall* instr) {
           instr->output()->type() | TNullptr,
           /* self */ instr->arg(0),
           /* arg */ instr->arg(1));
-      return env.emit<CheckExc>(result, *instr->frameState());
+      return env.emitCheckExc(result, *instr->frameState());
     }
   }
   return nullptr;
