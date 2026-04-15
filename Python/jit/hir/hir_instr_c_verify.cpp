@@ -35,7 +35,7 @@ struct HirInstrLayoutVerifier {
     static_assert(offsetof(HirDeoptLayout, frame_state) == offsetof(DeoptBase, frame_state_));
     static_assert(offsetof(HirDeoptLayout, guilty_reg) == offsetof(DeoptBase, guilty_reg_));
     static_assert(offsetof(HirDeoptLayout, nonce) == offsetof(DeoptBase, nonce_));
-    static_assert(offsetof(HirDeoptLayout, descr_storage) == offsetof(DeoptBase, descr_));
+    static_assert(offsetof(HirDeoptLayout, descr) == offsetof(DeoptBase, descr_));
     static_assert(offsetof(HirDeoptLayout, suppress_exception_deopt) ==
         offsetof(DeoptBase, suppress_exception_deopt_));
 
@@ -310,12 +310,12 @@ static void verify_bytecode_offset_invariant() {
     hir_c_init_deopt(deopt, HIR_OP_BinaryOp);
     assert(hir_c_bytecode_offset(deopt) == -1 &&
            "hir_c_init_deopt must set bytecode_offset to -1");
-    /* Clean up placement-new'd C++ containers before freeing */
+    /* Clean up placement-new'd C++ containers before freeing.
+     * descr (char*) is NULL from calloc — no cleanup needed (H2-E1). */
     {
         HirDeoptLayout *d = (HirDeoptLayout *)deopt;
         using RegStateVec = std::vector<jit::hir::RegState>;
         reinterpret_cast<RegStateVec *>(&d->live_regs_storage)->~RegStateVec();
-        reinterpret_cast<std::string *>(&d->descr_storage)->~basic_string();
     }
     free((char *)deopt - 2 * sizeof(void *) - sizeof(size_t));
 }

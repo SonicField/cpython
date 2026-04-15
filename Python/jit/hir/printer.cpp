@@ -832,7 +832,7 @@ void HIRPrinter::Print(std::ostream& os, const Instr& instr) {
   if (db != nullptr) {
     os << " {\n";
     Indent();
-    if (!db->descr().empty()) {
+    if (db->descr()[0] != '\0') {
       Indented(os) << fmt::format("Descr '{}'\n", db->descr());
     }
     if (Register* guilty_reg = db->guiltyReg()) {

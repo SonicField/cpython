@@ -19,7 +19,6 @@
 #ifdef __cplusplus
 #include <new>       /* placement new */
 #include <vector>
-#include <string>
 #include "cinderx/Jit/hir/frame_state.h"  /* RegState */
 #endif
 
@@ -57,7 +56,7 @@ typedef struct HirEdge {
     void *guilty_reg;           /* Register* */             \
     int32_t nonce;                                          \
     int32_t _deopt_pad0;                                    \
-    char descr_storage[32];     /* std::string */           \
+    char *descr;                /* H2-E1: was std::string */\
     uint8_t suppress_exception_deopt
 
 /* DeoptBaseWithNameIdx: DeoptBase + int name_idx_ */
@@ -176,7 +175,7 @@ typedef struct { HIR_DEOPT_FIELDS; int32_t special_idx; } HirLoadSpecial;
 
 /* ---- Multi-field (DeoptBase base) ---- */
 typedef struct { HIR_DEOPT_FIELDS; void *pytype; uint8_t optional; uint8_t exact; } HirCast;
-typedef struct { HIR_DEOPT_FIELDS; void *funcptr; void *descr; } HirLoadFunctionIndirect;
+typedef struct { HIR_DEOPT_FIELDS; void *funcptr; void *func_descr; } HirLoadFunctionIndirect;
 typedef struct { HIR_DEOPT_FIELDS; const char *fmt; void *exc_type; } HirRaiseStatic;
 typedef struct { HIR_DEOPT_FIELDS; const char *name; HirType ret_type; } HirCallInd;
 typedef struct { HIR_DEOPT_FIELDS; size_t capacity; HirType type; } HirMakeCheckedDict;
@@ -369,7 +368,7 @@ typedef union HirOpcodeData {
     struct { intptr_t offset; HirType type; } load_array_item;  /* LoadArrayItem */
     struct { HirType type; } store_array_item;                  /* StoreArrayItem */
     struct { void *pytype; uint8_t optional; uint8_t exact; } cast; /* Cast */
-    struct { void *funcptr; void *descr; } load_func_indirect;  /* LoadFunctionIndirect */
+    struct { void *funcptr; void *func_descr; } load_func_indirect;  /* LoadFunctionIndirect */
     struct { const char *fmt; void *exc_type; } raise_static;   /* RaiseStatic */
     struct { const char *name; HirType ret_type; } call_ind;    /* CallInd */
     struct { size_t capacity; HirType type; } make_checked_dict; /* MakeCheckedDict */
@@ -642,24 +641,24 @@ static inline void hir_c_init_instr(void *instr, int32_t opcode) {
 }
 
 /* Initialize DeoptBase fields after hir_c_init_instr.
- * In C++ mode: uses placement new for std::vector and std::string
- * containers that cannot be zero-initialized.
+ * In C++ mode: uses placement new for std::vector (only remaining C++
+ * container — descr_ converted to char* in H2-E1, frame_state_ is POD ptr).
  * In C mode: just sets opcode (containers not accessible from C). */
 static inline void hir_c_init_deopt(void *instr, int32_t opcode) {
     hir_c_init_instr(instr, opcode);
 #ifdef __cplusplus
-    /* Placement new for C++ containers in calloc'd memory.
-     * std::vector<RegState> and std::string cannot be zero-initialized —
-     * they need proper constructor calls. */
+    /* Placement new for C++ container in calloc'd memory.
+     * std::vector<RegState> cannot be zero-initialized —
+     * it needs a proper constructor call.
+     * descr (char*) is calloc-safe (NULL = no description). */
     HirDeoptLayout *d = (HirDeoptLayout *)instr;
     new (&d->live_regs_storage) std::vector<jit::hir::RegState>();
-    new (&d->descr_storage) std::string();
     /* nonce defaults to 0 from calloc; C++ constructor uses -1.
      * Set to -1 for compatibility. */
     d->nonce = -1;
 #endif
-    /* POD fields (frame_state, guilty_reg, suppress_exception_deopt)
-     * are correctly zero from calloc. */
+    /* POD fields (frame_state, guilty_reg, descr, suppress_exception_deopt)
+     * are correctly zero/NULL from calloc. */
 }
 
 /* NOTE: hir_c_free_instr DELETED (theologian directive).

@@ -341,9 +341,12 @@ class DeoptBase : public Instr {
   void set_nonce(int nonce);
 
   // Get or set the human-readable description of why this instruction might
-  // deopt.
-  const std::string& descr() const;
-  void setDescr(std::string r);
+  // deopt.  descr_ is a strdup'd char* (H2-E1: was std::string).
+  const char* descr() const;
+  void setDescr(const char* r);
+  void setDescr(std::string r) { setDescr(r.c_str()); }
+
+  ~DeoptBase();
 
   // Get or set the optional value that is responsible for this deopt
   // event. Its exact meaning depends on the opcode of this instruction.
@@ -366,7 +369,8 @@ class DeoptBase : public Instr {
   Register* guilty_reg_{nullptr};
   int nonce_{-1};
   // A human-readable description of why this instruction might deopt.
-  std::string descr_;
+  // H2-E1: converted from std::string to strdup'd char*.
+  char* descr_{nullptr};
   // When true, LIR generator skips emitExceptionCheck for this instruction.
   bool suppress_exception_deopt_{false};
 };

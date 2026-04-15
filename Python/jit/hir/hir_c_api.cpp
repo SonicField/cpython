@@ -755,7 +755,7 @@ void hir_c_set_guilty_reg(HirInstr instr, HirRegister reg) {
 }
 
 void hir_c_set_descr(HirInstr instr, const char *descr) {
-  static_cast<DeoptBase*>(as_instr(instr))->setDescr(std::string(descr));
+  static_cast<DeoptBase*>(as_instr(instr))->setDescr(descr);
 }
 
 HirInstr hir_c_create_guard(HirRegister src) {
@@ -1664,7 +1664,7 @@ HirInstr hir_c_create_load_function_indirect_reg(void *indirect_ptr, void *descr
   HirLoadFunctionIndirect *l = (HirLoadFunctionIndirect *)hir_c_alloc_instr(sizeof(HirLoadFunctionIndirect), 0);
   hir_c_init_deopt(l, HIR_OP_LoadFunctionIndirect);
   l->funcptr = indirect_ptr;
-  l->descr = descr;
+  l->func_descr = descr;
   hir_c_set_output(l, dst);
   as_instr(l)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
   return l;

@@ -7,6 +7,7 @@
 #include "cinderx/Jit/threaded_compile.h"
 
 #include <algorithm>
+#include <cstring>
 
 namespace jit::hir {
 
@@ -37,10 +38,15 @@ DeoptBase::DeoptBase(const DeoptBase& other)
       live_regs_{other.live_regs()},
       guilty_reg_{other.guiltyReg()},
       nonce_{other.nonce()},
-      descr_{other.descr()} {
+      descr_(other.descr_ ? strdup(other.descr_) : nullptr) {
   if (FrameState* copy_fs = other.frameState()) {
     setFrameState(std::make_unique<FrameState>(*copy_fs));
   }
+}
+
+DeoptBase::~DeoptBase() {
+  free(descr_);
+  // live_regs_ and frame_state_ cleaned up by implicit destructors
 }
 
 const std::vector<RegState>& DeoptBase::live_regs() const {
@@ -117,12 +123,13 @@ void DeoptBase::set_nonce(int nonce) {
   nonce_ = nonce;
 }
 
-const std::string& DeoptBase::descr() const {
-  return descr_;
+const char* DeoptBase::descr() const {
+  return descr_ ? descr_ : "";
 }
 
-void DeoptBase::setDescr(std::string r) {
-  descr_ = std::move(r);
+void DeoptBase::setDescr(const char* r) {
+  free(descr_);
+  descr_ = (r && r[0]) ? strdup(r) : nullptr;
 }
 
 Register* DeoptBase::guiltyReg() const {
