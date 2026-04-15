@@ -942,48 +942,82 @@ HirInstr hir_c_create_initial_yield_reg(HirRegister dst, void *frame_state) {
 }
 
 HirInstr hir_c_create_load_arg_reg(HirRegister dst, int32_t idx, HirType type) {
-  Type cpp_type = Type::fromHirType(type);
-  return LoadArg::create(as_reg(dst), idx, cpp_type);
+  HirLoadArg *la = (HirLoadArg *)hir_c_alloc_instr(sizeof(HirLoadArg), 0);
+  hir_c_init_instr(la, HIR_OP_LoadArg);
+  la->arg_idx = (uint32_t)idx;
+  la->type = type;
+  hir_c_set_output(la, dst);
+  return la;
 }
 
 HirInstr hir_c_create_store_subscr_reg(HirRegister container, HirRegister sub,
                                         HirRegister value, void *frame_state) {
-  return StoreSubscr::create(as_reg(container), as_reg(sub), as_reg(value),
-                              *static_cast<const FrameState*>(frame_state));
+  HirStoreSubscr *s = (HirStoreSubscr *)hir_c_alloc_instr(sizeof(HirStoreSubscr), 3);
+  hir_c_init_deopt(s, HIR_OP_StoreSubscr);
+  hir_c_set_operand(s, 0, container);
+  hir_c_set_operand(s, 1, sub);
+  hir_c_set_operand(s, 2, value);
+  as_instr(s)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return s;
 }
 
 HirInstr hir_c_create_set_set_item_reg(HirRegister dst, HirRegister set,
                                         HirRegister item, void *frame_state) {
-  return SetSetItem::create(as_reg(dst), as_reg(set), as_reg(item),
-                             *static_cast<const FrameState*>(frame_state));
+  HirSetSetItem *s = (HirSetSetItem *)hir_c_alloc_instr(sizeof(HirSetSetItem), 2);
+  hir_c_init_deopt(s, HIR_OP_SetSetItem);
+  hir_c_set_output(s, dst);
+  hir_c_set_operand(s, 0, set);
+  hir_c_set_operand(s, 1, item);
+  as_instr(s)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return s;
 }
 
 HirInstr hir_c_create_in_place_op_reg(HirRegister dst, int32_t op_kind,
                                        HirRegister left, HirRegister right,
                                        void *frame_state) {
-  return InPlaceOp::create(as_reg(dst), static_cast<InPlaceOpKind>(op_kind),
-                            as_reg(left), as_reg(right),
-                            *static_cast<const FrameState*>(frame_state));
+  HirInPlaceOp *ip = (HirInPlaceOp *)hir_c_alloc_instr(sizeof(HirInPlaceOp), 2);
+  hir_c_init_deopt(ip, HIR_OP_InPlaceOp);
+  ip->op = op_kind;
+  hir_c_set_output(ip, dst);
+  hir_c_set_operand(ip, 0, left);
+  hir_c_set_operand(ip, 1, right);
+  as_instr(ip)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return ip;
 }
 
 HirInstr hir_c_create_compare_reg(HirRegister dst, int32_t op,
                                    HirRegister left, HirRegister right,
                                    void *frame_state) {
-  return Compare::create(as_reg(dst), static_cast<CompareOp>(op),
-                          as_reg(left), as_reg(right),
-                          *static_cast<const FrameState*>(frame_state));
+  HirCompare *c = (HirCompare *)hir_c_alloc_instr(sizeof(HirCompare), 2);
+  hir_c_init_deopt(c, HIR_OP_Compare);
+  c->op = op;
+  hir_c_set_output(c, dst);
+  hir_c_set_operand(c, 0, left);
+  hir_c_set_operand(c, 1, right);
+  as_instr(c)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return c;
 }
 
 HirInstr hir_c_create_format_with_spec_reg(HirRegister dst, HirRegister value,
                                             HirRegister fmt_spec, void *frame_state) {
-  return FormatWithSpec::create(as_reg(dst), as_reg(value), as_reg(fmt_spec),
-                                 *static_cast<const FrameState*>(frame_state));
+  /* FormatWithSpec: DeoptBase, HasOutput, Operands<2>, no custom fields */
+  HirDeoptLayout *f = (HirDeoptLayout *)hir_c_alloc_instr(sizeof(HirDeoptLayout), 2);
+  hir_c_init_deopt(f, HIR_OP_FormatWithSpec);
+  hir_c_set_output(f, dst);
+  hir_c_set_operand(f, 0, value);
+  hir_c_set_operand(f, 1, fmt_spec);
+  as_instr(f)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return f;
 }
 
 HirInstr hir_c_create_make_dict_reg(HirRegister dst, int32_t dict_size,
                                      void *frame_state) {
-  return MakeDict::create(as_reg(dst), dict_size,
-                           *static_cast<const FrameState*>(frame_state));
+  HirMakeDict *d = (HirMakeDict *)hir_c_alloc_instr(sizeof(HirMakeDict), 0);
+  hir_c_init_deopt(d, HIR_OP_MakeDict);
+  d->capacity = (size_t)dict_size;
+  hir_c_set_output(d, dst);
+  as_instr(d)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return d;
 }
 
 HirInstr hir_c_create_get_a_iter_reg(HirRegister dst, HirRegister src, void *fs) {
