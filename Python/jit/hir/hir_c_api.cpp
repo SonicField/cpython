@@ -913,7 +913,10 @@ HirInstr hir_c_create_guard_is_reg(HirRegister dst, void *target,
 }
 
 HirInstr hir_c_create_set_current_awaiter_reg(HirRegister src) {
-  return SetCurrentAwaiter::create(as_reg(src));
+  HirSetCurrentAwaiter *i = (HirSetCurrentAwaiter *)hir_c_alloc_instr(sizeof(HirSetCurrentAwaiter), 1);
+  hir_c_init_instr(i, HIR_OP_SetCurrentAwaiter);
+  hir_c_set_operand(i, 0, src);
+  return i;
 }
 
 HirInstr hir_c_create_decref_reg(HirRegister src) {
@@ -996,19 +999,35 @@ HirInstr hir_c_create_is_neg_and_err_reg(HirRegister dst, HirRegister src, void 
                                            *static_cast<const FrameState*>(fs));
 }
 HirInstr hir_c_create_load_cell_item_reg(HirRegister dst, HirRegister src) {
-  return LoadCellItem::create(as_reg(dst), as_reg(src));
+  HirLoadCellItem *i = (HirLoadCellItem *)hir_c_alloc_instr(sizeof(HirLoadCellItem), 1);
+  hir_c_init_instr(i, HIR_OP_LoadCellItem);
+  hir_c_set_output(i, dst);
+  hir_c_set_operand(i, 0, src);
+  return i;
 }
 HirInstr hir_c_create_load_current_func_reg(HirRegister dst) {
-  return LoadCurrentFunc::create(as_reg(dst));
+  HirLoadCurrentFunc *i = (HirLoadCurrentFunc *)hir_c_alloc_instr(sizeof(HirLoadCurrentFunc), 0);
+  hir_c_init_instr(i, HIR_OP_LoadCurrentFunc);
+  hir_c_set_output(i, dst);
+  return i;
 }
 HirInstr hir_c_create_load_eval_breaker_reg(HirRegister dst) {
-  return LoadEvalBreaker::create(as_reg(dst));
+  HirLoadEvalBreaker *i = (HirLoadEvalBreaker *)hir_c_alloc_instr(sizeof(HirLoadEvalBreaker), 0);
+  hir_c_init_instr(i, HIR_OP_LoadEvalBreaker);
+  hir_c_set_output(i, dst);
+  return i;
 }
 HirInstr hir_c_create_load_frame_reg(void) {
-  return LoadFrame::create();
+  HirLoadFrame *i = (HirLoadFrame *)hir_c_alloc_instr(sizeof(HirLoadFrame), 0);
+  hir_c_init_instr(i, HIR_OP_LoadFrame);
+  return i;
 }
 HirInstr hir_c_create_load_var_object_size_reg(HirRegister dst, HirRegister src) {
-  return LoadVarObjectSize::create(as_reg(dst), as_reg(src));
+  HirLoadVarObjectSize *i = (HirLoadVarObjectSize *)hir_c_alloc_instr(sizeof(HirLoadVarObjectSize), 1);
+  hir_c_init_instr(i, HIR_OP_LoadVarObjectSize);
+  hir_c_set_output(i, dst);
+  hir_c_set_operand(i, 0, src);
+  return i;
 }
 HirInstr hir_c_create_check_err_occurred_reg(void *frame_state) {
   return CheckErrOccurred::create(
@@ -1037,10 +1056,19 @@ HirInstr hir_c_create_store_attr_reg(HirRegister receiver, HirRegister value, in
   return StoreAttr::create(as_reg(receiver), as_reg(value), idx, *static_cast<const FrameState*>(fs));
 }
 HirInstr hir_c_create_swap_cell_item_reg(HirRegister dst, HirRegister cell, HirRegister value) {
-  return SwapCellItem::create(as_reg(dst), as_reg(cell), as_reg(value));
+  HirSwapCellItem *i = (HirSwapCellItem *)hir_c_alloc_instr(sizeof(HirSwapCellItem), 2);
+  hir_c_init_instr(i, HIR_OP_SwapCellItem);
+  hir_c_set_output(i, dst);
+  hir_c_set_operand(i, 0, cell);
+  hir_c_set_operand(i, 1, value);
+  return i;
 }
 HirInstr hir_c_create_steal_cell_item_reg(HirRegister dst, HirRegister cell) {
-  return StealCellItem::create(as_reg(dst), as_reg(cell));
+  HirStealCellItem *i = (HirStealCellItem *)hir_c_alloc_instr(sizeof(HirStealCellItem), 1);
+  hir_c_init_instr(i, HIR_OP_StealCellItem);
+  hir_c_set_output(i, dst);
+  hir_c_set_operand(i, 0, cell);
+  return i;
 }
 HirInstr hir_c_create_set_cell_item_reg(HirRegister cell, HirRegister value, HirRegister old) {
   HirSetCellItem *s = (HirSetCellItem *)hir_c_alloc_instr(sizeof(HirSetCellItem), 3);
@@ -1060,10 +1088,18 @@ HirInstr hir_c_create_run_periodic_tasks_reg(HirRegister dst, void *fs) {
 }
 
 HirInstr hir_c_create_wait_handle_load_waiter_reg(HirRegister dst, HirRegister src) {
-  return WaitHandleLoadWaiter::create(as_reg(dst), as_reg(src));
+  HirWaitHandleLoadWaiter *i = (HirWaitHandleLoadWaiter *)hir_c_alloc_instr(sizeof(HirWaitHandleLoadWaiter), 1);
+  hir_c_init_instr(i, HIR_OP_WaitHandleLoadWaiter);
+  hir_c_set_output(i, dst);
+  hir_c_set_operand(i, 0, src);
+  return i;
 }
 HirInstr hir_c_create_wait_handle_load_coro_reg(HirRegister dst, HirRegister src) {
-  return WaitHandleLoadCoroOrResult::create(as_reg(dst), as_reg(src));
+  HirWaitHandleLoadCoroOrResult *i = (HirWaitHandleLoadCoroOrResult *)hir_c_alloc_instr(sizeof(HirWaitHandleLoadCoroOrResult), 1);
+  hir_c_init_instr(i, HIR_OP_WaitHandleLoadCoroOrResult);
+  hir_c_set_output(i, dst);
+  hir_c_set_operand(i, 0, src);
+  return i;
 }
 HirInstr hir_c_create_set_update_reg(HirRegister dst, HirRegister set, HirRegister iter, void *fs) {
   return SetUpdate::create(as_reg(dst), as_reg(set), as_reg(iter), *static_cast<const FrameState*>(fs));
