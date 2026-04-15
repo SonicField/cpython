@@ -987,12 +987,20 @@ HirInstr hir_c_create_make_dict_reg(HirRegister dst, int32_t dict_size,
 }
 
 HirInstr hir_c_create_get_a_iter_reg(HirRegister dst, HirRegister src, void *fs) {
-  return GetAIter::create(as_reg(dst), as_reg(src),
-                           *static_cast<const FrameState*>(fs));
+  HirGetAIter *g = (HirGetAIter *)hir_c_alloc_instr(sizeof(HirGetAIter), 1);
+  hir_c_init_deopt(g, HIR_OP_GetAIter);
+  hir_c_set_output(g, dst);
+  hir_c_set_operand(g, 0, src);
+  as_instr(g)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return g;
 }
 HirInstr hir_c_create_get_a_next_reg(HirRegister dst, HirRegister src, void *fs) {
-  return GetANext::create(as_reg(dst), as_reg(src),
-                           *static_cast<const FrameState*>(fs));
+  HirGetANext *g = (HirGetANext *)hir_c_alloc_instr(sizeof(HirGetANext), 1);
+  hir_c_init_deopt(g, HIR_OP_GetANext);
+  hir_c_set_output(g, dst);
+  hir_c_set_operand(g, 0, src);
+  as_instr(g)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return g;
 }
 HirInstr hir_c_create_get_tuple_reg(HirRegister dst, HirRegister src, void *fs) {
   return GetTuple::create(as_reg(dst), as_reg(src),
@@ -1060,13 +1068,29 @@ HirInstr hir_c_create_make_set_reg(HirRegister dst, void *fs) {
   return m;
 }
 HirInstr hir_c_create_delete_attr_reg(HirRegister receiver, int32_t idx, void *fs) {
-  return DeleteAttr::create(as_reg(receiver), idx, *static_cast<const FrameState*>(fs));
+  HirDeleteAttr *d = (HirDeleteAttr *)hir_c_alloc_instr(sizeof(HirDeleteAttr), 1);
+  hir_c_init_deopt(d, HIR_OP_DeleteAttr);
+  d->name_idx = idx;
+  hir_c_set_operand(d, 0, receiver);
+  as_instr(d)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return d;
 }
 HirInstr hir_c_create_delete_subscr_reg(HirRegister container, HirRegister sub, void *fs) {
-  return DeleteSubscr::create(as_reg(container), as_reg(sub), *static_cast<const FrameState*>(fs));
+  HirDeleteSubscr *d = (HirDeleteSubscr *)hir_c_alloc_instr(sizeof(HirDeleteSubscr), 2);
+  hir_c_init_deopt(d, HIR_OP_DeleteSubscr);
+  hir_c_set_operand(d, 0, container);
+  hir_c_set_operand(d, 1, sub);
+  as_instr(d)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return d;
 }
 HirInstr hir_c_create_store_attr_reg(HirRegister receiver, HirRegister value, int32_t idx, void *fs) {
-  return StoreAttr::create(as_reg(receiver), as_reg(value), idx, *static_cast<const FrameState*>(fs));
+  HirStoreAttr *s = (HirStoreAttr *)hir_c_alloc_instr(sizeof(HirStoreAttr), 2);
+  hir_c_init_deopt(s, HIR_OP_StoreAttr);
+  s->name_idx = idx;
+  hir_c_set_operand(s, 0, receiver);
+  hir_c_set_operand(s, 1, value);
+  as_instr(s)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return s;
 }
 HirInstr hir_c_create_swap_cell_item_reg(HirRegister dst, HirRegister cell, HirRegister value) {
   HirSwapCellItem *i = (HirSwapCellItem *)hir_c_alloc_instr(sizeof(HirSwapCellItem), 2);
@@ -1115,37 +1139,93 @@ HirInstr hir_c_create_wait_handle_load_coro_reg(HirRegister dst, HirRegister src
   return i;
 }
 HirInstr hir_c_create_set_update_reg(HirRegister dst, HirRegister set, HirRegister iter, void *fs) {
-  return SetUpdate::create(as_reg(dst), as_reg(set), as_reg(iter), *static_cast<const FrameState*>(fs));
+  HirSetUpdate *s = (HirSetUpdate *)hir_c_alloc_instr(sizeof(HirSetUpdate), 2);
+  hir_c_init_deopt(s, HIR_OP_SetUpdate);
+  hir_c_set_output(s, dst);
+  hir_c_set_operand(s, 0, set);
+  hir_c_set_operand(s, 1, iter);
+  as_instr(s)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return s;
 }
 HirInstr hir_c_create_dict_update_reg(HirRegister dst, HirRegister dict, HirRegister update, void *fs) {
-  return DictUpdate::create(as_reg(dst), as_reg(dict), as_reg(update), *static_cast<const FrameState*>(fs));
+  HirDictUpdate *d = (HirDictUpdate *)hir_c_alloc_instr(sizeof(HirDictUpdate), 2);
+  hir_c_init_deopt(d, HIR_OP_DictUpdate);
+  hir_c_set_output(d, dst);
+  hir_c_set_operand(d, 0, dict);
+  hir_c_set_operand(d, 1, update);
+  as_instr(d)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return d;
 }
 HirInstr hir_c_create_list_extend_reg(HirRegister dst, HirRegister list, HirRegister iter, void *fs) {
-  return ListExtend::create(as_reg(dst), as_reg(list), as_reg(iter), *static_cast<const FrameState*>(fs));
+  HirListExtend *l = (HirListExtend *)hir_c_alloc_instr(sizeof(HirListExtend), 2);
+  hir_c_init_deopt(l, HIR_OP_ListExtend);
+  hir_c_set_output(l, dst);
+  hir_c_set_operand(l, 0, list);
+  hir_c_set_operand(l, 1, iter);
+  as_instr(l)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return l;
 }
 HirInstr hir_c_create_copy_dict_without_keys_reg(HirRegister dst, HirRegister subj, HirRegister keys, void *fs) {
-  return CopyDictWithoutKeys::create(as_reg(dst), as_reg(subj), as_reg(keys), *static_cast<const FrameState*>(fs));
+  HirCopyDictWithoutKeys *c = (HirCopyDictWithoutKeys *)hir_c_alloc_instr(sizeof(HirCopyDictWithoutKeys), 2);
+  hir_c_init_deopt(c, HIR_OP_CopyDictWithoutKeys);
+  hir_c_set_output(c, dst);
+  hir_c_set_operand(c, 0, subj);
+  hir_c_set_operand(c, 1, keys);
+  as_instr(c)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return c;
 }
 HirInstr hir_c_create_make_tuple_from_list_reg(HirRegister dst, HirRegister list, void *fs) {
-  return MakeTupleFromList::create(as_reg(dst), as_reg(list), *static_cast<const FrameState*>(fs));
+  HirMakeTupleFromList *m = (HirMakeTupleFromList *)hir_c_alloc_instr(sizeof(HirMakeTupleFromList), 1);
+  hir_c_init_deopt(m, HIR_OP_MakeTupleFromList);
+  hir_c_set_output(m, dst);
+  hir_c_set_operand(m, 0, list);
+  as_instr(m)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return m;
 }
 HirInstr hir_c_create_list_append_reg(HirRegister dst, HirRegister list, HirRegister item, void *fs) {
-  return ListAppend::create(as_reg(dst), as_reg(list), as_reg(item), *static_cast<const FrameState*>(fs));
+  HirListAppend *l = (HirListAppend *)hir_c_alloc_instr(sizeof(HirListAppend), 2);
+  hir_c_init_deopt(l, HIR_OP_ListAppend);
+  hir_c_set_output(l, dst);
+  hir_c_set_operand(l, 0, list);
+  hir_c_set_operand(l, 1, item);
+  as_instr(l)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return l;
 }
 HirInstr hir_c_create_check_freevar_reg(HirRegister dst, HirRegister src, void *name, void *fs) {
-  return CheckFreevar::create(as_reg(dst), as_reg(src), static_cast<PyObject*>(name), *static_cast<const FrameState*>(fs));
+  HirCheckFreevar *c = (HirCheckFreevar *)hir_c_alloc_instr(sizeof(HirCheckFreevar), 1);
+  hir_c_init_deopt(c, HIR_OP_CheckFreevar);
+  c->name = name;
+  hir_c_set_output(c, dst);
+  hir_c_set_operand(c, 0, src);
+  as_instr(c)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return c;
 }
 HirInstr hir_c_create_load_global_reg(HirRegister dst, int32_t name_idx, void *fs) {
   return LoadGlobal::create(as_reg(dst), name_idx, *static_cast<const FrameState*>(fs));
 }
 
 HirInstr hir_c_create_dict_merge_reg(HirRegister dst, HirRegister dict, HirRegister update, HirRegister func, void *fs) {
-  return DictMerge::create(as_reg(dst), as_reg(dict), as_reg(update), as_reg(func), *static_cast<const FrameState*>(fs));
+  HirDictMerge *d = (HirDictMerge *)hir_c_alloc_instr(sizeof(HirDictMerge), 3);
+  hir_c_init_deopt(d, HIR_OP_DictMerge);
+  hir_c_set_output(d, dst);
+  hir_c_set_operand(d, 0, dict);
+  hir_c_set_operand(d, 1, update);
+  hir_c_set_operand(d, 2, func);
+  as_instr(d)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return d;
 }
 HirInstr hir_c_create_dict_subscr_reg(HirRegister dst, HirRegister dict, HirRegister key, void *fs) {
-  return DictSubscr::create(as_reg(dst), as_reg(dict), as_reg(key), *static_cast<const FrameState*>(fs));
+  HirDictSubscr *d = (HirDictSubscr *)hir_c_alloc_instr(sizeof(HirDictSubscr), 2);
+  hir_c_init_deopt(d, HIR_OP_DictSubscr);
+  hir_c_set_output(d, dst);
+  hir_c_set_operand(d, 0, dict);
+  hir_c_set_operand(d, 1, key);
+  as_instr(d)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return d;
 }
 HirInstr hir_c_create_send_reg(HirRegister iter, HirRegister vout, HirRegister vin, void *fs) {
+  /* Keep C++ — pure C version crashes with cinderjit module loaded.
+   * Root cause TBD: possibly Send-specific generator lifecycle interaction. */
   return Send::create(as_reg(iter), as_reg(vout), as_reg(vin), *static_cast<const FrameState*>(fs));
 }
 HirInstr hir_c_create_convert_value_reg(HirRegister dst, HirRegister value, int32_t conversion, void *fs) {
@@ -1205,7 +1285,13 @@ HirInstr hir_c_create_make_checked_list_reg(int32_t size, HirRegister dst, HirTy
   return MakeCheckedList::create(size, as_reg(dst), cpp_type, *static_cast<const FrameState*>(fs));
 }
 HirInstr hir_c_create_make_function_reg(HirRegister dst, HirRegister code, HirRegister qualname, void *fs) {
-  return MakeFunction::create(as_reg(dst), as_reg(code), as_reg(qualname), *static_cast<const FrameState*>(fs));
+  HirMakeFunction *m = (HirMakeFunction *)hir_c_alloc_instr(sizeof(HirMakeFunction), 2);
+  hir_c_init_deopt(m, HIR_OP_MakeFunction);
+  hir_c_set_output(m, dst);
+  hir_c_set_operand(m, 0, code);
+  hir_c_set_operand(m, 1, qualname);
+  as_instr(m)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return m;
 }
 HirInstr hir_c_create_build_template_reg(HirRegister strings, HirRegister interps, HirRegister dst, void *fs) {
   return BuildTemplate::create(as_reg(strings), as_reg(interps), as_reg(dst), *static_cast<const FrameState*>(fs));
