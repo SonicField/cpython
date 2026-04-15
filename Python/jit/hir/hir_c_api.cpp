@@ -739,7 +739,7 @@ HirInstr hir_c_create_call_static(HirFunction func, size_t n_operands,
 
 HirInstr hir_c_create_deopt_patchpoint(void *patcher) {
   return DeoptPatchpoint::create(
-      static_cast<JumpPatcher*>(patcher));
+      static_cast<jit::JumpPatcher*>(patcher));
 }
 
 HirInstr hir_c_create_snapshot(void *frame_state) {
