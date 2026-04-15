@@ -164,6 +164,60 @@ typedef struct { HIR_DEOPT_FIELDS; HirType type; } HirMakeCheckedList;
 /* ---- CondBranch derived ---- */
 typedef struct { HIR_INSTR_FIELDS; HirEdge true_edge; HirEdge false_edge; HirType type; } HirCondBranchCheckType;
 
+/* ==== H2-A: Missing DEFINE_SIMPLE_INSTR C structs ====
+ * No custom fields — just base class layout. */
+
+/* ---- Instr-base (no output, no DeoptBase) ---- */
+typedef struct { HIR_INSTR_FIELDS; } HirAssign;
+typedef struct { HIR_INSTR_FIELDS; } HirUnreachable;
+
+/* ---- DeoptBase (no custom fields) ---- */
+typedef struct { HIR_INSTR_FIELDS; } HirDecref;
+typedef struct { HIR_INSTR_FIELDS; } HirXDecref;
+typedef struct { HIR_INSTR_FIELDS; } HirIncref;
+typedef struct { HIR_INSTR_FIELDS; } HirXIncref;
+typedef struct { HIR_DEOPT_FIELDS; } HirDeopt;
+typedef struct { HIR_INSTR_FIELDS; } HirAtQuiescentState;
+typedef struct { HIR_DEOPT_FIELDS; } HirRunPeriodicTasks;
+typedef struct { HIR_DEOPT_FIELDS; } HirIsTruthy;
+typedef struct { HIR_INSTR_FIELDS; } HirLoadCellItem;
+typedef struct { HIR_INSTR_FIELDS; } HirLoadCurrentFunc;
+typedef struct { HIR_INSTR_FIELDS; } HirLoadEvalBreaker;
+typedef struct { HIR_INSTR_FIELDS; } HirLoadFrame;
+typedef struct { HIR_INSTR_FIELDS; } HirLoadVarObjectSize;
+typedef struct { HIR_DEOPT_FIELDS; } HirCheckErrOccurred;
+typedef struct { HIR_DEOPT_FIELDS; } HirDeleteAttr;
+typedef struct { HIR_DEOPT_FIELDS; } HirDeleteSubscr;
+typedef struct { HIR_DEOPT_FIELDS; } HirRaise;
+typedef struct { HIR_DEOPT_FIELDS; } HirMakeSet;
+typedef struct { HIR_INSTR_FIELDS; } HirStealCellItem;
+typedef struct { HIR_INSTR_FIELDS; } HirSwapCellItem;
+typedef struct { HIR_INSTR_FIELDS; } HirSetCellItem;
+typedef struct { HIR_INSTR_FIELDS; } HirSetCurrentAwaiter;
+typedef struct { HIR_INSTR_FIELDS; } HirWaitHandleRelease;
+typedef struct { HIR_INSTR_FIELDS; } HirWaitHandleLoadWaiter;
+typedef struct { HIR_INSTR_FIELDS; } HirWaitHandleLoadCoroOrResult;
+typedef struct { HIR_DEOPT_FIELDS; } HirGetAIter;
+typedef struct { HIR_DEOPT_FIELDS; } HirGetANext;
+typedef struct { HIR_DEOPT_FIELDS; } HirGetIter;
+typedef struct { HIR_DEOPT_FIELDS; } HirGetTuple;
+typedef struct { HIR_DEOPT_FIELDS; } HirGetLength;
+typedef struct { HIR_DEOPT_FIELDS; } HirSetUpdate;
+typedef struct { HIR_DEOPT_FIELDS; } HirDictUpdate;
+typedef struct { HIR_DEOPT_FIELDS; } HirListExtend;
+typedef struct { HIR_DEOPT_FIELDS; } HirCopyDictWithoutKeys;
+typedef struct { HIR_DEOPT_FIELDS; } HirMakeTupleFromList;
+typedef struct { HIR_DEOPT_FIELDS; } HirMatchKeys;
+typedef struct { HIR_INSTR_FIELDS; } HirMatchClass;
+typedef struct { HIR_DEOPT_FIELDS; } HirYieldValue;
+typedef struct { HIR_DEOPT_FIELDS; } HirYieldAndYieldFrom;
+typedef struct { HIR_DEOPT_FIELDS; } HirYieldFromHandleStopAsyncIteration;
+typedef struct { HIR_DEOPT_FIELDS; } HirInitialYield;
+typedef struct { HIR_DEOPT_FIELDS; } HirSend;
+typedef struct { HIR_DEOPT_FIELDS; } HirMakeCell;
+typedef struct { HIR_DEOPT_FIELDS; } HirMakeFunction;
+typedef struct { HIR_INSTR_FIELDS; } HirBatchDecref;
+
 /* ==== T2-B Batch 4b: Container-field instruction structs ====
  * Types with std::string, std::vector, std::unique_ptr, BorrowedRef.
  * C++ containers stored as opaque byte arrays. */
