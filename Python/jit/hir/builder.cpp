@@ -458,6 +458,25 @@ struct HIRBuilder::TranslationContext {
         dst, static_cast<int32_t>(op), left, right)));
   }
 
+  // Guard via C factory (with FrameState). Returns instruction for mutation.
+  Instr* emitGuard(Register* src, const FrameState& fs) {
+    auto* instr = emitC(static_cast<Instr*>(hir_c_create_guard(src)));
+    static_cast<DeoptBase*>(instr)->setFrameState(fs);
+    return instr;
+  }
+
+  // BitCast via pure C factory.
+  void emitBitCast(Register* dst, Register* src, Type type) {
+    emitC(static_cast<Instr*>(hir_c_create_bit_cast(dst, src, to_hir(type))));
+  }
+
+  // DoubleBinaryOp via pure C factory.
+  void emitDoubleBinaryOp(Register* dst, BinaryOpKind op,
+                           Register* left, Register* right) {
+    emitC(static_cast<Instr*>(hir_c_create_double_binary_op(
+        dst, static_cast<int32_t>(op), left, right)));
+  }
+
   // PrimitiveUnaryOp via pure C factory.
   void emitPrimitiveUnaryOp(Register* dst, PrimitiveUnaryOpKind op,
                               Register* src) {
@@ -3611,7 +3630,7 @@ void HIRBuilder::emitLoadAttr(
           tc.emitPrimitiveCompare(
               version_match, PrimitiveCompareOp::kEqual,
               loaded_version, expected_version);
-          tc.emit<Guard>(version_match, tc.frame);
+          tc.emitGuard(version_match, tc.frame);
 
           // Load entry value via helper (computes DK_UNICODE_ENTRIES)
           Register* index_reg = temps_.AllocateStack();
@@ -3740,11 +3759,11 @@ void HIRBuilder::emitLoadAttr(
             Register* one = temps_.AllocateStack();
             tc.emitLoadConst(one, Type::fromCUInt(1, TCUInt64));
             Register* dorv_int = temps_.AllocateStack();
-            tc.emit<BitCast>(dorv_int, checked_dorv, TCUInt64);
+            tc.emitBitCast(dorv_int, checked_dorv, TCUInt64);
             Register* is_values = temps_.AllocateStack();
             tc.emitIntBinaryOp(
                 is_values, BinaryOpKind::kAnd, dorv_int, one);
-            auto guard = tc.emit<Guard>(is_values, tc.frame);
+            auto* guard = static_cast<DeoptBase*>(tc.emitGuard(is_values, tc.frame));
             guard->setGuiltyReg(receiver);
             guard->setDescr("dict values check");
 
@@ -3755,7 +3774,7 @@ void HIRBuilder::emitLoadAttr(
             tc.emitIntBinaryOp(
                 values_ptr, BinaryOpKind::kAdd, dorv_int, one);
             Register* values_obj = temps_.AllocateStack();
-            tc.emit<BitCast>(values_obj, values_ptr, TOptObject);
+            tc.emitBitCast(values_obj, values_ptr, TOptObject);
 
             // Load attribute at cached index.
             Register* attr = temps_.AllocateStack();
@@ -4285,7 +4304,7 @@ void HIRBuilder::emitPrimitiveBinaryOp(
   BinaryOpKind op_kind = get_primitive_bin_op_kind(bc_instr);
 
   if (is_double_binop(bc_instr.oparg())) {
-    tc.emit<DoubleBinaryOp>(result, op_kind, left, right);
+    tc.emitDoubleBinaryOp(result, op_kind, left, right);
   } else {
     tc.emitIntBinaryOp(result, op_kind, left, right);
   }
@@ -4372,7 +4391,7 @@ void HIRBuilder::emitPrimitiveUnaryOp(
       // multiply it by -1
       auto tmp = temps_.AllocateStack();
       tc.emitLoadConst(tmp, Type::fromCDouble(-1.0));
-      tc.emit<DoubleBinaryOp>(result, BinaryOpKind::kMultiply, tmp, value);
+      tc.emitDoubleBinaryOp(result, BinaryOpKind::kMultiply, tmp, value);
       break;
     }
     default: {
