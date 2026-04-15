@@ -645,12 +645,11 @@ static inline void hir_c_init_deopt(void *instr, int32_t opcode) {
      * are correctly zero from calloc. */
 }
 
-/* Free an instruction allocated by hir_c_alloc_instr */
-static inline void hir_c_free_instr(void *instr) {
-    size_t n = hir_c_num_operands(instr);
-    char *base = (char *)instr - sizeof(size_t) - n * sizeof(void *);
-    free(base);
-}
+/* NOTE: hir_c_free_instr DELETED (theologian directive).
+ * DeoptBase instructions have placement-new'd C++ containers that require
+ * destructor calls. Use Instr::Destroy() (C++) for all instruction cleanup.
+ * A proper hir_c_destroy_instr will be introduced in H2-E when Destroy()
+ * converts to C with explicit container cleanup. */
 
 /* ==== Instruction factory: LoadConst ====
  * Pure C factory — Instr base + HirType field, 0 operands.

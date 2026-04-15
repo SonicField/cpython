@@ -1500,10 +1500,17 @@ HirInstr hir_c_create_import_name_reg(HirRegister dst, int32_t name_idx, HirRegi
 }
 
 HirInstr hir_c_create_call_method_reg(size_t n_operands, HirRegister dst, uint32_t flags) {
-  return CallMethod::create(n_operands, as_reg(dst), static_cast<CallFlags>(flags));
+  HirCallMethod *m = (HirCallMethod *)hir_c_alloc_instr(sizeof(HirCallMethod), n_operands);
+  hir_c_init_deopt(m, HIR_OP_CallMethod);
+  m->flags = flags;
+  hir_c_set_output(m, dst);
+  return m;
 }
 HirInstr hir_c_create_call_static_ret_void_reg(size_t n_operands, void *addr) {
-  return CallStaticRetVoid::create(n_operands, addr);
+  HirCallStaticRetVoid *c = (HirCallStaticRetVoid *)hir_c_alloc_instr(sizeof(HirCallStaticRetVoid), n_operands);
+  hir_c_init_instr(c, HIR_OP_CallStaticRetVoid);
+  c->addr = addr;
+  return c;
 }
 HirInstr hir_c_create_invoke_static_function_reg(size_t n_operands, HirRegister dst, void *func, HirType ret_type) {
   Type cpp_type = Type::fromHirType(ret_type);
