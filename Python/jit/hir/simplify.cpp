@@ -294,6 +294,42 @@ struct Env {
         const_cast<void*>(static_cast<const void*>(&fs)))));
   }
 
+  // Simple DeoptBase 2-operand + FrameState helpers.
+  Register* emitDictSubscr(Register* lhs, Register* rhs, const FrameState& fs) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_dict_subscr(
+        &func, lhs, rhs, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  Register* emitUnicodeSubscr(Register* lhs, Register* rhs, const FrameState& fs) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_unicode_subscr(
+        &func, lhs, rhs, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  Register* emitUnicodeRepeat(Register* lhs, Register* rhs, const FrameState& fs) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_unicode_repeat(
+        &func, lhs, rhs, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  Register* emitUnicodeConcat(Register* lhs, Register* rhs, const FrameState& fs) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_unicode_concat(
+        &func, lhs, rhs, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  Register* emitListAppend(Register* list, Register* item, const FrameState& fs) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_list_append(
+        &func, list, item, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  Register* emitIsInstance(Register* obj, Register* type, const FrameState& fs) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_is_instance(
+        &func, obj, type, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  Register* emitGetLength(Register* src, const FrameState& fs) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_get_length(
+        &func, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  Register* emitLongInPlaceOp(InPlaceOpKind op, Register* left, Register* right,
+                               const FrameState& fs) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_long_in_place_op(
+        &func, static_cast<int32_t>(op), left, right,
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
   // Insert a pre-created instruction from a C factory into the current block.
   // Sets bytecode offset, inserts at cursor, computes output type.
   // Returns the output register (or nullptr if no output).
@@ -824,7 +860,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
 
   if (op == BinaryOpKind::kSubscript) {
     if (lhs->isA(TDictExact)) {
-      return env.emit<DictSubscr>(lhs, rhs, *instr->frameState());
+      return env.emitDictSubscr(lhs, rhs, *instr->frameState());
     }
     if (!rhs->isA(TLongExact)) {
       return nullptr;
@@ -921,7 +957,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
         env.emitIsNegativeAndErrOccurred(unboxed_idx, *instr->frameState());
         Register* adjusted_idx = env.emitCheckSequenceBounds(
             lhs, unboxed_idx, *instr->frameState());
-        return env.emit<UnicodeSubscr>(lhs, adjusted_idx, *instr->frameState());
+        return env.emitUnicodeSubscr(lhs, adjusted_idx, *instr->frameState());
       }
     }
   }
@@ -1042,12 +1078,12 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
       (op == BinaryOpKind::kMultiply)) {
     Register* unboxed_rhs = env.emitIndexUnbox(rhs, PyExc_OverflowError);
     env.emitIsNegativeAndErrOccurred(unboxed_rhs, *instr->frameState());
-    return env.emit<UnicodeRepeat>(lhs, unboxed_rhs, *instr->frameState());
+    return env.emitUnicodeRepeat(lhs, unboxed_rhs, *instr->frameState());
   }
 
   if ((lhs->isA(TUnicodeExact) && rhs->isA(TUnicodeExact)) &&
       (op == BinaryOpKind::kAdd)) {
-    return env.emit<UnicodeConcat>(lhs, rhs, *instr->frameState());
+    return env.emitUnicodeConcat(lhs, rhs, *instr->frameState());
   }
 
   // Unsupported case.
@@ -1075,7 +1111,7 @@ Register* simplifyInPlaceOp(Env& env, const InPlaceOp* instr) {
       case InPlaceOpKind::kTrueDivide:
         env.emitUseType(lhs, TLongExact);
         env.emitUseType(rhs, TLongExact);
-        return env.emit<LongInPlaceOp>(
+        return env.emitLongInPlaceOp(
             instr->op(), lhs, rhs, *instr->frameState());
       case InPlaceOpKind::kMatrixMultiply:
         // These will generate an error at runtime.
@@ -2083,7 +2119,7 @@ Register* simplifyVectorCallStatic(Env& env, const VectorCall* instr) {
   Register* func = instr->func();
   if (isBuiltin(func, "list.append") && instr->numArgs() == 2) {
     env.emitUseType(func, func->type());
-    env.emit<ListAppend>(instr->arg(0), instr->arg(1), *instr->frameState());
+    env.emitListAppend(instr->arg(0), instr->arg(1), *instr->frameState());
     return env.emitLoadConst(TNoneType);
   }
 
@@ -2412,7 +2448,7 @@ Register* simplifyVectorCall(Env& env, const VectorCall* instr) {
   }
   if (isBuiltin(target, "len") && instr->numArgs() == 1) {
     env.emitUseType(target, target->type());
-    return env.emit<GetLength>(instr->arg(0), *instr->frameState());
+    return env.emitGetLength(instr->arg(0), *instr->frameState());
   }
   if (isBuiltin(target, "isinstance") && instr->numArgs() == 2 &&
       instr->GetOperand(2)->type() <= TType &&
@@ -2460,7 +2496,7 @@ Register* simplifyVectorCall(Env& env, const VectorCall* instr) {
             return env.emitInstr<CondBranch>(compare_type, nullptr, slow_path);
           },
           [&] {
-            return env.emit<IsInstance>(obj_op, type_op, *instr->frameState());
+            return env.emitIsInstance(obj_op, type_op, *instr->frameState());
           });
 
       // The output of the VectorCall instruction was previously a TBool, but we
@@ -2481,7 +2517,7 @@ Register* simplifyVectorCall(Env& env, const VectorCall* instr) {
           return compare_type;
         },
         [&] { // Slow path
-          return env.emit<IsInstance>(obj_op, type_op, *instr->frameState());
+          return env.emitIsInstance(obj_op, type_op, *instr->frameState());
         });
     return env.emitPrimitiveBoxBool(cbool_res);
   }

@@ -202,6 +202,25 @@ HirInstr hir_c_create_long_binary_op(HirFunction func, int32_t op_kind,
 HirInstr hir_c_create_is_neg_and_err(HirFunction func, HirRegister src,
                                       void *frame_state);
 
+/* Simple DeoptBase factories (no custom fields beyond operands + FrameState) */
+HirInstr hir_c_create_dict_subscr(HirFunction func, HirRegister lhs,
+                                   HirRegister rhs, void *frame_state);
+HirInstr hir_c_create_unicode_subscr(HirFunction func, HirRegister lhs,
+                                      HirRegister rhs, void *frame_state);
+HirInstr hir_c_create_unicode_repeat(HirFunction func, HirRegister lhs,
+                                      HirRegister rhs, void *frame_state);
+HirInstr hir_c_create_unicode_concat(HirFunction func, HirRegister lhs,
+                                      HirRegister rhs, void *frame_state);
+HirInstr hir_c_create_get_length(HirFunction func, HirRegister src,
+                                  void *frame_state);
+HirInstr hir_c_create_list_append(HirFunction func, HirRegister list,
+                                   HirRegister item, void *frame_state);
+HirInstr hir_c_create_is_instance(HirFunction func, HirRegister obj,
+                                   HirRegister type, void *frame_state);
+HirInstr hir_c_create_long_in_place_op(HirFunction func, int32_t op_kind,
+                                        HirRegister left, HirRegister right,
+                                        void *frame_state);
+
 /* Create a Branch instruction (0 operands, 1 edge).
  * Uses C++ Edge::set_to for proper in_edges management. */
 HirInstr hir_c_create_branch_cpp(void *target_block);

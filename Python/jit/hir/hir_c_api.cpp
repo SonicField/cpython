@@ -639,6 +639,49 @@ HirInstr hir_c_create_check_seq_bounds(HirFunction func,
       *static_cast<const FrameState*>(frame_state));
 }
 
+/* ---- Simple DeoptBase factories (2-operand + FrameState, no custom fields) ---- */
+
+#define DEOPT2_FACTORY(name, CppType) \
+HirInstr hir_c_create_##name(HirFunction func, HirRegister lhs, \
+                              HirRegister rhs, void *frame_state) { \
+  if (!frame_state) return nullptr; \
+  auto* f = static_cast<Function*>(func); \
+  auto* dst = f->env.AllocateRegister(); \
+  return CppType::create( \
+      dst, as_reg(lhs), as_reg(rhs), \
+      *static_cast<const FrameState*>(frame_state)); \
+}
+
+DEOPT2_FACTORY(dict_subscr, DictSubscr)
+DEOPT2_FACTORY(unicode_subscr, UnicodeSubscr)
+DEOPT2_FACTORY(unicode_repeat, UnicodeRepeat)
+DEOPT2_FACTORY(unicode_concat, UnicodeConcat)
+DEOPT2_FACTORY(list_append, ListAppend)
+DEOPT2_FACTORY(is_instance, IsInstance)
+#undef DEOPT2_FACTORY
+
+HirInstr hir_c_create_get_length(HirFunction func, HirRegister src,
+                                  void *frame_state) {
+  if (!frame_state) return nullptr;
+  auto* f = static_cast<Function*>(func);
+  auto* dst = f->env.AllocateRegister();
+  return GetLength::create(
+      dst, as_reg(src),
+      *static_cast<const FrameState*>(frame_state));
+}
+
+HirInstr hir_c_create_long_in_place_op(HirFunction func, int32_t op_kind,
+                                        HirRegister left, HirRegister right,
+                                        void *frame_state) {
+  if (!frame_state) return nullptr;
+  auto* f = static_cast<Function*>(func);
+  auto* dst = f->env.AllocateRegister();
+  return LongInPlaceOp::create(
+      dst, static_cast<InPlaceOpKind>(op_kind),
+      as_reg(left), as_reg(right),
+      *static_cast<const FrameState*>(frame_state));
+}
+
 /* ---- FloatBinaryOp / LongBinaryOp / IsNegativeAndErrOccurred factories ---- */
 
 HirInstr hir_c_create_float_binary_op(HirFunction func, int32_t op_kind,
