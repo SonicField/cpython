@@ -340,7 +340,8 @@ HirRegister hir_phi_is_trivial(HirInstr phi) {
 /* ---- Factory functions ---- */
 
 HirInstr hir_load_const_bottom_create(HirRegister output) {
-  return LoadConst::create(as_reg(output), TBottom);
+  HirType bottom = {0, 0};  /* TBottom = zero bits */
+  return hir_c_create_load_const(output, bottom);
 }
 
 HirInstr hir_assign_create(HirRegister output, HirRegister value) {
@@ -554,23 +555,29 @@ HirInstr hir_compare_bool_create(
   auto* fs_instr = as_instr(frame_state_source);
   const FrameState* fs = get_frame_state(*fs_instr);
   if (fs == nullptr) return nullptr;
-  return CompareBool::create(
-      as_reg(output),
-      static_cast<CompareOp>(compare_op),
-      as_reg(left), as_reg(right),
-      *fs);
+  HirCompareBool *c = (HirCompareBool *)hir_c_alloc_instr(sizeof(HirCompareBool), 2);
+  hir_c_init_deopt(c, HIR_OP_CompareBool);
+  c->op = compare_op;
+  hir_c_set_output(c, output);
+  hir_c_set_operand(c, 0, left);
+  hir_c_set_operand(c, 1, right);
+  as_instr(c)->asDeoptBase()->setFrameState(*fs);
+  return c;
 }
 
 HirInstr hir_c_create_binary_op(HirFunction func, int32_t op_kind,
                                 HirRegister left, HirRegister right,
                                 void *frame_state) {
   if (!frame_state) return nullptr;
-  auto* f = static_cast<Function*>(func);
-  auto* dst = f->env.AllocateRegister();
-  return BinaryOp::create(
-      dst, static_cast<BinaryOpKind>(op_kind),
-      as_reg(left), as_reg(right),
-      *static_cast<const FrameState*>(frame_state));
+  HirRegister dst = hir_func_alloc_register(func);
+  HirBinaryOp *b = (HirBinaryOp *)hir_c_alloc_instr(sizeof(HirBinaryOp), 2);
+  hir_c_init_deopt(b, HIR_OP_BinaryOp);
+  b->op = op_kind;
+  hir_c_set_output(b, dst);
+  hir_c_set_operand(b, 0, left);
+  hir_c_set_operand(b, 1, right);
+  as_instr(b)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return b;
 }
 
 HirInstr hir_c_create_guard_type(HirFunction func, HirType target,
@@ -589,11 +596,13 @@ HirInstr hir_c_create_guard_type(HirFunction func, HirType target,
 HirInstr hir_c_create_check_exc(HirFunction func, HirRegister src,
                                 void *frame_state) {
   if (!frame_state) return nullptr;
-  auto* f = static_cast<Function*>(func);
-  auto* dst = f->env.AllocateRegister();
-  return CheckExc::create(
-      dst, as_reg(src),
-      *static_cast<const FrameState*>(frame_state));
+  HirRegister dst = hir_func_alloc_register(func);
+  HirCheckExc *c = (HirCheckExc *)hir_c_alloc_instr(sizeof(HirCheckExc), 1);
+  hir_c_init_deopt(c, HIR_OP_CheckExc);
+  hir_c_set_output(c, dst);
+  hir_c_set_operand(c, 0, src);
+  as_instr(c)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return c;
 }
 
 /* ---- LoadField / GuardIs / CheckNeg / PrimitiveBox / CheckSequenceBounds ---- */
@@ -612,20 +621,25 @@ HirInstr hir_c_create_load_field(HirFunction func, HirRegister receiver,
 
 HirInstr hir_c_create_guard_is(HirFunction func, void *target,
                                 HirRegister src) {
-  auto* f = static_cast<Function*>(func);
-  auto* dst = f->env.AllocateRegister();
-  return GuardIs::create(
-      dst, static_cast<PyObject*>(target), as_reg(src));
+  HirRegister dst = hir_func_alloc_register(func);
+  HirGuardIs *g = (HirGuardIs *)hir_c_alloc_instr(sizeof(HirGuardIs), 1);
+  hir_c_init_deopt(g, HIR_OP_GuardIs);
+  g->target = target;
+  hir_c_set_output(g, dst);
+  hir_c_set_operand(g, 0, src);
+  return g;
 }
 
 HirInstr hir_c_create_check_neg(HirFunction func, HirRegister src,
                                  void *frame_state) {
   if (!frame_state) return nullptr;
-  auto* f = static_cast<Function*>(func);
-  auto* dst = f->env.AllocateRegister();
-  return CheckNeg::create(
-      dst, as_reg(src),
-      *static_cast<const FrameState*>(frame_state));
+  HirRegister dst = hir_func_alloc_register(func);
+  HirCheckNeg *c = (HirCheckNeg *)hir_c_alloc_instr(sizeof(HirCheckNeg), 1);
+  hir_c_init_deopt(c, HIR_OP_CheckNeg);
+  hir_c_set_output(c, dst);
+  hir_c_set_operand(c, 0, src);
+  as_instr(c)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return (HirInstr)c;
 }
 
 HirInstr hir_c_create_primitive_box(HirFunction func, HirRegister src,
