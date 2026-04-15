@@ -1174,6 +1174,17 @@ HirInstr hir_c_create_import_name_reg(HirRegister dst, int32_t name_idx, HirRegi
   return ImportName::create(as_reg(dst), name_idx, as_reg(fromlist), as_reg(level), *static_cast<const FrameState*>(fs));
 }
 
+HirInstr hir_c_create_call_method_reg(size_t n_operands, HirRegister dst, uint32_t flags) {
+  return CallMethod::create(n_operands, as_reg(dst), static_cast<CallFlags>(flags));
+}
+HirInstr hir_c_create_call_static_ret_void_reg(size_t n_operands, void *addr) {
+  return CallStaticRetVoid::create(n_operands, addr);
+}
+HirInstr hir_c_create_invoke_static_function_reg(size_t n_operands, HirRegister dst, void *func, HirType ret_type) {
+  Type cpp_type = Type::fromHirType(ret_type);
+  return InvokeStaticFunction::create(n_operands, as_reg(dst), static_cast<PyFunctionObject*>(func), cpp_type);
+}
+
 HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
     HirRegister src, void *body_block, void *done_block) {
   return CondBranchIterNotDone::create(

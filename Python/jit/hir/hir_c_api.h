@@ -439,6 +439,10 @@ HirInstr hir_c_create_yield_and_yield_from_reg(HirRegister dst, HirRegister wait
 HirInstr hir_c_create_yield_from_handle_stop_async_reg(HirRegister dst, HirRegister send, HirRegister awaitable, void *fs);
 HirInstr hir_c_create_call_ex_reg(HirRegister dst, HirRegister func, HirRegister pargs, HirRegister kwargs, uint32_t flags, void *fs);
 HirInstr hir_c_create_import_name_reg(HirRegister dst, int32_t name_idx, HirRegister fromlist, HirRegister level, void *fs);
+/* Batch 7: variadic call types */
+HirInstr hir_c_create_call_method_reg(size_t n_operands, HirRegister dst, uint32_t flags);
+HirInstr hir_c_create_call_static_ret_void_reg(size_t n_operands, void *addr);
+HirInstr hir_c_create_invoke_static_function_reg(size_t n_operands, HirRegister dst, void *func, HirType ret_type);
 
 HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
     HirRegister src, void *body_block, void *done_block);

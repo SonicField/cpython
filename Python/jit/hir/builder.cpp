@@ -764,6 +764,19 @@ struct HIRBuilder::TranslationContext {
     emitC(static_cast<Instr*>(hir_c_create_import_name_reg(dst, name_idx, fromlist, level, const_cast<void*>(static_cast<const void*>(&fs)))));
   }
 
+  // Batch 7: variadic call wrappers
+  CallMethod* emitCallMethod(size_t n, Register* dst, CallFlags flags) {
+    return static_cast<CallMethod*>(emitC(static_cast<Instr*>(
+        hir_c_create_call_method_reg(n, dst, static_cast<uint32_t>(flags)))));
+  }
+  Instr* emitCallStaticRetVoid(size_t n, void* addr) {
+    return emitC(static_cast<Instr*>(hir_c_create_call_static_ret_void_reg(n, addr)));
+  }
+  DeoptBase* emitInvokeStaticFunction(size_t n, Register* dst, PyFunctionObject* func, Type ret_type) {
+    return static_cast<DeoptBase*>(emitC(static_cast<Instr*>(
+        hir_c_create_invoke_static_function_reg(n, dst, func, to_hir(ret_type)))));
+  }
+
   // Batch: 1-op HasOutput DeoptBase (dst, src, frame)
   void emitGetAIter(Register* dst, Register* src, const FrameState& fs) {
     emitC(static_cast<Instr*>(hir_c_create_get_a_iter_reg(
@@ -3022,7 +3035,7 @@ void HIRBuilder::emitAnyCall(
       // kwnames_ isn't on the stack, but it has to be part of the operand
       // count.
       Register* out = temps_.AllocateStack();
-      auto call = tc.emit<CallMethod>(num_operands, out, flags);
+      auto call = tc.emitCallMethod(num_operands, out, flags);
       for (auto i = num_stack_inputs; i > 0; i--) {
         Register* arg = tc.frame.stack.pop();
         call->SetOperand(i - 1, arg);
@@ -3425,7 +3438,7 @@ bool HIRBuilder::tryEmitDirectMethodCall(
     Instr* staticCall;
     Register* out = nullptr;
     if (target.builtin_returns_void) {
-      staticCall = tc.emit<CallStaticRetVoid>(nargs, target.builtin_c_func);
+      staticCall = tc.emitCallStaticRetVoid(nargs, target.builtin_c_func);
     } else {
       out = temps_.AllocateStack();
       Type ret_type =
@@ -3572,7 +3585,7 @@ bool HIRBuilder::emitInvokeFunction(
       tc.emitLoadConst(funcreg, Type::fromObject(target.callable));
 
       auto call =
-          tc.emit<InvokeStaticFunction>(nargs + 1, out, target.func(), typ);
+          tc.emitInvokeStaticFunction(nargs + 1, out, target.func(), typ);
 
       call->SetOperand(0, funcreg);
 
