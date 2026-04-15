@@ -1157,6 +1157,23 @@ HirInstr hir_c_create_init_frame_cell_vars_reg(HirRegister func, int32_t nfree) 
   return InitFrameCellVars::create(as_reg(func), nfree);
 }
 
+HirInstr hir_c_create_store_field_reg(HirRegister receiver, const char *name, intptr_t offset, HirRegister value, HirType type, HirRegister previous) {
+  Type cpp_type = Type::fromHirType(type);
+  return StoreField::create(as_reg(receiver), name, offset, as_reg(value), cpp_type, as_reg(previous));
+}
+HirInstr hir_c_create_yield_and_yield_from_reg(HirRegister dst, HirRegister waiter, HirRegister coro, void *fs) {
+  return YieldAndYieldFrom::create(as_reg(dst), as_reg(waiter), as_reg(coro), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_yield_from_handle_stop_async_reg(HirRegister dst, HirRegister send, HirRegister awaitable, void *fs) {
+  return YieldFromHandleStopAsyncIteration::create(as_reg(dst), as_reg(send), as_reg(awaitable), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_call_ex_reg(HirRegister dst, HirRegister func, HirRegister pargs, HirRegister kwargs, uint32_t flags, void *fs) {
+  return CallEx::create(as_reg(dst), as_reg(func), as_reg(pargs), as_reg(kwargs), static_cast<CallFlags>(flags), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_import_name_reg(HirRegister dst, int32_t name_idx, HirRegister fromlist, HirRegister level, void *fs) {
+  return ImportName::create(as_reg(dst), name_idx, as_reg(fromlist), as_reg(level), *static_cast<const FrameState*>(fs));
+}
+
 HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
     HirRegister src, void *body_block, void *done_block) {
   return CondBranchIterNotDone::create(

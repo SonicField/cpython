@@ -747,6 +747,23 @@ struct HIRBuilder::TranslationContext {
     emitC(static_cast<Instr*>(hir_c_create_init_frame_cell_vars_reg(func, nfree)));
   }
 
+  // Batch 6 wrappers
+  void emitStoreField(Register* receiver, const char* name, intptr_t offset, Register* value, Type type, Register* previous) {
+    emitC(static_cast<Instr*>(hir_c_create_store_field_reg(receiver, name, offset, value, to_hir(type), previous)));
+  }
+  void emitYieldAndYieldFrom(Register* dst, Register* waiter, Register* coro, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_yield_and_yield_from_reg(dst, waiter, coro, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitYieldFromHandleStopAsyncIteration(Register* dst, Register* send, Register* awaitable, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_yield_from_handle_stop_async_reg(dst, send, awaitable, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitCallEx(Register* dst, Register* func, Register* pargs, Register* kwargs, CallFlags flags, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_call_ex_reg(dst, func, pargs, kwargs, static_cast<uint32_t>(flags), const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitImportName(Register* dst, int name_idx, Register* fromlist, Register* level, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_import_name_reg(dst, name_idx, fromlist, level, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
   // Batch: 1-op HasOutput DeoptBase (dst, src, frame)
   void emitGetAIter(Register* dst, Register* src, const FrameState& fs) {
     emitC(static_cast<Instr*>(hir_c_create_get_a_iter_reg(
@@ -3342,7 +3359,7 @@ void HIRBuilder::emitCallEx(
   } else {
     func = stack.pop();
   }
-  tc.emit<CallEx>(dst, func, pargs, kwargs, flags, tc.frame);
+  tc.emitCallEx(dst, func, pargs, kwargs, flags, tc.frame);
   stack.push(dst);
 }
 
@@ -5661,7 +5678,7 @@ void HIRBuilder::emitAsyncForHeaderYieldFrom(
   if (code_->co_flags & CO_COROUTINE) {
     tc.emitSetCurrentAwaiter(awaitable);
   }
-  tc.emit<YieldFromHandleStopAsyncIteration>(
+  tc.emitYieldFromHandleStopAsyncIteration(
       out, send_value, awaitable, tc.frame);
   tc.frame.stack.pop();
   tc.frame.stack.push(out);
@@ -5828,7 +5845,7 @@ void HIRBuilder::emitStoreField(
   } else {
     tc.emitLoadField(previous, receiver, field_name, offset, type, false);
   }
-  tc.emit<StoreField>(receiver, field_name, offset, value, type, previous);
+  tc.emitStoreField(receiver, field_name, offset, value, type, previous);
 }
 
 void HIRBuilder::emitCast(
@@ -5886,7 +5903,7 @@ void HIRBuilder::emitImportName(
   if (bc_instr.opcode() == EAGER_IMPORT_NAME) {
     tc.emitEagerImportName(res, bc_instr.oparg(), fromlist, level, tc.frame);
   } else {
-    tc.emit<ImportName>(
+    tc.emitImportName(
         res, importNameIdx(bc_instr.oparg()), fromlist, level, tc.frame);
   }
   stack.push(res);
@@ -6152,7 +6169,7 @@ void HIRBuilder::emitDispatchEagerCoroResult(
   if (code_->co_flags & CO_COROUTINE) {
     coro_block.emitSetCurrentAwaiter(wh_coro_or_result);
   }
-  coro_block.emit<YieldAndYieldFrom>(
+  coro_block.emitYieldAndYieldFrom(
       out, wh_waiter, wh_coro_or_result, tc.frame);
   coro_block.emitBranch(post_await_block);
 
