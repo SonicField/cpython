@@ -405,6 +405,16 @@ HirInstr hir_c_create_list_append_reg(HirRegister dst, HirRegister list, HirRegi
 HirInstr hir_c_create_check_freevar_reg(HirRegister dst, HirRegister src, void *name, void *fs);
 HirInstr hir_c_create_load_global_reg(HirRegister dst, int32_t name_idx, void *fs);
 
+/* Batch 3 */
+HirInstr hir_c_create_dict_merge_reg(HirRegister dst, HirRegister dict, HirRegister update, HirRegister func, void *fs);
+HirInstr hir_c_create_dict_subscr_reg(HirRegister dst, HirRegister dict, HirRegister key, void *fs);
+HirInstr hir_c_create_send_reg(HirRegister iter, HirRegister vout, HirRegister vin, void *fs);
+HirInstr hir_c_create_convert_value_reg(HirRegister dst, HirRegister value, int32_t conversion, void *fs);
+HirInstr hir_c_create_unary_op_reg(HirRegister dst, int32_t op_kind, HirRegister operand, void *fs);
+HirInstr hir_c_create_import_from_reg(HirRegister dst, HirRegister name, int32_t name_idx, void *fs);
+HirInstr hir_c_create_invoke_iter_next_reg(HirRegister dst, HirRegister iter, void *fs);
+HirInstr hir_c_create_primitive_unbox_reg(HirRegister dst, HirRegister src, HirType type);
+
 HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
     HirRegister src, void *body_block, void *done_block);
 HirInstr hir_c_create_int_convert_reg(HirRegister dst, HirRegister src,

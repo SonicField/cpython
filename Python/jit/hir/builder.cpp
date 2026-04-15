@@ -695,6 +695,32 @@ struct HIRBuilder::TranslationContext {
         const_cast<void*>(static_cast<const void*>(&fs)))));
   }
 
+  // Batch 3 wrappers
+  void emitDictMerge(Register* dst, Register* dict, Register* update, Register* func, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_dict_merge_reg(dst, dict, update, func, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitDictSubscr(Register* dst, Register* dict, Register* key, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_dict_subscr_reg(dst, dict, key, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitSend(Register* iter, Register* vout, Register* vin, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_send_reg(iter, vout, vin, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitConvertValue(Register* dst, Register* value, int conversion, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_convert_value_reg(dst, value, conversion, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitUnaryOp(Register* dst, UnaryOpKind op, Register* operand, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_unary_op_reg(dst, static_cast<int32_t>(op), operand, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitImportFrom(Register* dst, Register* name, int name_idx, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_import_from_reg(dst, name, name_idx, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitInvokeIterNext(Register* dst, Register* iter, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_invoke_iter_next_reg(dst, iter, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitPrimitiveUnbox(Register* dst, Register* src, Type type) {
+    emitC(static_cast<Instr*>(hir_c_create_primitive_unbox_reg(dst, src, to_hir(type))));
+  }
+
   // Batch: 1-op HasOutput DeoptBase (dst, src, frame)
   void emitGetAIter(Register* dst, Register* src, const FrameState& fs) {
     emitC(static_cast<Instr*>(hir_c_create_get_a_iter_reg(
@@ -3227,7 +3253,7 @@ void HIRBuilder::emitUnaryOp(
   Register* operand = tc.frame.stack.pop();
   Register* result = temps_.AllocateStack();
   UnaryOpKind op_kind = get_unary_op_kind(bc_instr);
-  tc.emit<UnaryOp>(result, op_kind, operand, tc.frame);
+  tc.emitUnaryOp(result, op_kind, operand, tc.frame);
   tc.frame.stack.push(result);
 }
 
@@ -4496,7 +4522,7 @@ void HIRBuilder::unboxPrimitive(
     Register* dst,
     Register* src,
     Type type) {
-  tc.emit<PrimitiveUnbox>(dst, src, type);
+  tc.emitPrimitiveUnbox(dst, src, type);
   if (!(type <= (TCBool | TCDouble))) {
     Register* did_unbox_work = temps_.AllocateStack();
     tc.emitIsNegativeAndErrOccurred(did_unbox_work, dst, tc.frame);
@@ -5361,7 +5387,7 @@ void HIRBuilder::emitForIter(
     iterator = tc.frame.stack.top();
   }
   Register* next_val = temps_.AllocateStack();
-  tc.emit<InvokeIterNext>(next_val, iterator, tc.frame);
+  tc.emitInvokeIterNext(next_val, iterator, tc.frame);
   tc.frame.stack.push(next_val);
   BasicBlock* footer = getBlockAtOff(bc_instr.getJumpTarget());
   BasicBlock* body = getBlockAtOff(bc_instr.nextInstrOffset());
@@ -5782,7 +5808,7 @@ void HIRBuilder::emitImportFrom(
   auto& stack = tc.frame.stack;
   Register* name = stack.top();
   Register* res = temps_.AllocateStack();
-  tc.emit<ImportFrom>(res, name, bc_instr.oparg(), tc.frame);
+  tc.emitImportFrom(res, name, bc_instr.oparg(), tc.frame);
   stack.push(res);
 }
 
@@ -6244,7 +6270,7 @@ void HIRBuilder::emitDictMerge(
   }
   Register* update = stack.pop();
   Register* out = temps_.AllocateStack();
-  tc.emit<DictMerge>(out, dict, update, func, tc.frame);
+  tc.emitDictMerge(out, dict, update, func, tc.frame);
 }
 
 void HIRBuilder::emitSend(
@@ -6254,7 +6280,7 @@ void HIRBuilder::emitSend(
   Register* value_out = stack.pop();
   Register* iter = stack.top();
   Register* value_in = temps_.AllocateStack();
-  tc.emit<Send>(iter, value_out, value_in, tc.frame);
+  tc.emitSend(iter, value_out, value_in, tc.frame);
   Register* is_done = temps_.AllocateNonStack();
   tc.emitGetSecondOutput(is_done, TCInt64, value_in);
   stack.push(value_in);
@@ -6303,7 +6329,7 @@ void HIRBuilder::emitConvertValue(
   OperandStack& stack = tc.frame.stack;
   Register* value = stack.pop();
   Register* out = temps_.AllocateStack();
-  tc.emit<ConvertValue>(out, value, bc_instr.oparg(), tc.frame);
+  tc.emitConvertValue(out, value, bc_instr.oparg(), tc.frame);
   stack.push(out);
 }
 
@@ -6401,7 +6427,7 @@ void HIRBuilder::emitLoadBuildClass(TranslationContext& tc) {
   Register* builtins_dict = temps_.AllocateNonStack();
   tc.emitGuardType(builtins_dict, TDictExact, builtins, tc.frame);
   tc.emitLoadConst(key, Type::fromObject(getContext()->strBuildClass()));
-  tc.emit<DictSubscr>(result, builtins_dict, key, tc.frame);
+  tc.emitDictSubscr(result, builtins_dict, key, tc.frame);
   tc.frame.stack.push(result);
 }
 

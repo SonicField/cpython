@@ -1076,6 +1076,32 @@ HirInstr hir_c_create_load_global_reg(HirRegister dst, int32_t name_idx, void *f
   return LoadGlobal::create(as_reg(dst), name_idx, *static_cast<const FrameState*>(fs));
 }
 
+HirInstr hir_c_create_dict_merge_reg(HirRegister dst, HirRegister dict, HirRegister update, HirRegister func, void *fs) {
+  return DictMerge::create(as_reg(dst), as_reg(dict), as_reg(update), as_reg(func), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_dict_subscr_reg(HirRegister dst, HirRegister dict, HirRegister key, void *fs) {
+  return DictSubscr::create(as_reg(dst), as_reg(dict), as_reg(key), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_send_reg(HirRegister iter, HirRegister vout, HirRegister vin, void *fs) {
+  return Send::create(as_reg(iter), as_reg(vout), as_reg(vin), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_convert_value_reg(HirRegister dst, HirRegister value, int32_t conversion, void *fs) {
+  return ConvertValue::create(as_reg(dst), as_reg(value), conversion, *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_unary_op_reg(HirRegister dst, int32_t op_kind, HirRegister operand, void *fs) {
+  return UnaryOp::create(as_reg(dst), static_cast<UnaryOpKind>(op_kind), as_reg(operand), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_import_from_reg(HirRegister dst, HirRegister name, int32_t name_idx, void *fs) {
+  return ImportFrom::create(as_reg(dst), as_reg(name), name_idx, *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_invoke_iter_next_reg(HirRegister dst, HirRegister iter, void *fs) {
+  return InvokeIterNext::create(as_reg(dst), as_reg(iter), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_primitive_unbox_reg(HirRegister dst, HirRegister src, HirType type) {
+  Type cpp_type = Type::fromHirType(type);
+  return PrimitiveUnbox::create(as_reg(dst), as_reg(src), cpp_type);
+}
+
 HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
     HirRegister src, void *body_block, void *done_block) {
   return CondBranchIterNotDone::create(
