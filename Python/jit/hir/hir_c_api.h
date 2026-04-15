@@ -322,6 +322,12 @@ HirInstr hir_c_create_cond_branch_cpp(void *cond_reg,
                                        void *true_block,
                                        void *false_block);
 
+/* Create a CondBranchCheckType instruction (1 operand, 2 edges, Type field).
+ * Uses C++ Edge::set_to for proper in_edges management. */
+HirInstr hir_c_create_cond_branch_check_type_cpp(
+    HirRegister target, HirType type,
+    void *true_block, void *false_block);
+
 /* ---- Instruction query/mutation (T2-D) ---- */
 
 /* Get the Compare operation kind (CompareOp enum as int).

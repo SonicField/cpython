@@ -413,6 +413,14 @@ struct HIRBuilder::TranslationContext {
     emitC(static_cast<Instr*>(hir_c_create_return(src, to_hir(type))));
   }
 
+  // CondBranchCheckType via C++ bridge (Edge::set_to). Returns instruction.
+  Instr* emitCondBranchCheckType(Register* target, Type type,
+                                  BasicBlock* true_bb, BasicBlock* false_bb) {
+    return emitC(static_cast<Instr*>(
+        hir_c_create_cond_branch_check_type_cpp(target, to_hir(type),
+                                                 true_bb, false_bb)));
+  }
+
   // Assign via C factory.
   void emitAssign(Register* dst, Register* src) {
     emitC(static_cast<Instr*>(hir_assign_create(dst, src)));
@@ -2932,7 +2940,7 @@ void HIRBuilder::emitLoadIterableArg(
     tuple_path.emitSnapshot();
     TranslationContext non_tuple_path{cfg.AllocateBlock(), tc.frame};
     non_tuple_path.emitSnapshot();
-    tc.emit<CondBranchCheckType>(
+    tc.emitCondBranchCheckType(
         iterable, TTuple, tuple_path.block, non_tuple_path.block);
     tc.block = cfg.AllocateBlock();
     tc.emitSnapshot();
@@ -3812,7 +3820,7 @@ void HIRBuilder::emitLoadMethodOrAttrSuper(
   deopt_path.emitSnapshot();
   deopt_path.emitDeopt();
   BasicBlock* fast_path = cfg.AllocateBlock();
-  tc.emit<CondBranchCheckType>(type, TType, fast_path, deopt_path.block);
+  tc.emitCondBranchCheckType(type, TType, fast_path, deopt_path.block);
   tc.block = fast_path;
   tc.emitRefineType(type, TType, type);
 
@@ -4410,7 +4418,7 @@ void HIRBuilder::emitFastLen(
     deopt_path.emitDeopt();
     collection = tc.frame.stack.pop();
     BasicBlock* fast_path = cfg.AllocateBlock();
-    tc.emit<CondBranchCheckType>(collection, type, fast_path, deopt_path.block);
+    tc.emitCondBranchCheckType(collection, type, fast_path, deopt_path.block);
     tc.block = fast_path;
     // TASK(T105038867): Remove once we have RefineTypeInsertion
     tc.emitRefineType(collection, type, collection);
@@ -5019,7 +5027,7 @@ void HIRBuilder::emitGetYieldFromIter(CFG& cfg, TranslationContext& tc) {
 
 #if PY_VERSION_HEX >= 0x030C0000
   BasicBlock* check_coro_block = cfg.AllocateBlock();
-  tc.emit<CondBranchCheckType>(
+  tc.emitCondBranchCheckType(
       iter_in,
       Type::fromTypeExact(cinderx::getModuleState()->coroType()),
       is_coro_block,
@@ -5027,7 +5035,7 @@ void HIRBuilder::emitGetYieldFromIter(CFG& cfg, TranslationContext& tc) {
 
   tc.block = check_coro_block;
 #endif
-  tc.emit<CondBranchCheckType>(
+  tc.emitCondBranchCheckType(
       iter_in, Type::fromTypeExact(&PyCoro_Type), is_coro_block, next_block);
 
   if (!in_coro) {
@@ -5043,7 +5051,7 @@ void HIRBuilder::emitGetYieldFromIter(CFG& cfg, TranslationContext& tc) {
 
   BasicBlock* slow_path = cfg.AllocateBlock();
   Register* iter_out = temps_.AllocateStack();
-  tc.emit<CondBranchCheckType>(iter_in, TGen, nop_block, slow_path);
+  tc.emitCondBranchCheckType(iter_in, TGen, nop_block, slow_path);
 
   tc.block = slow_path;
   tc.emit<GetIter>(iter_out, iter_in, tc.frame);
@@ -5154,7 +5162,7 @@ void HIRBuilder::emitUnpackSequence(
     tc.emitBranch(list_fast_path);
 #endif
   } else {
-    tc.emit<CondBranchCheckType>(
+    tc.emitCondBranchCheckType(
         seq, TTupleExact, tuple_fast_path, list_check_path);
 
     tc.block = list_check_path;
@@ -5162,7 +5170,7 @@ void HIRBuilder::emitUnpackSequence(
 #ifdef Py_GIL_DISABLED
     tc.emitBranch(deopt_path.block);
 #else
-    tc.emit<CondBranchCheckType>(
+    tc.emitCondBranchCheckType(
         seq, TListExact, list_fast_path, deopt_path.block);
 #endif
   }
@@ -5576,14 +5584,14 @@ void HIRBuilder::emitGetAwaitable(
   BasicBlock* block_done = cfg.AllocateBlock();
 #if PY_VERSION_HEX >= 0x030C0000
   BasicBlock* block_check_coro = cfg.AllocateBlock();
-  tc.emit<CondBranchCheckType>(
+  tc.emitCondBranchCheckType(
       iter,
       Type::fromTypeExact(cinderx::getModuleState()->coroType()),
       block_assert_not_awaited_coro,
       block_check_coro);
   tc.block = block_check_coro;
 #endif
-  tc.emit<CondBranchCheckType>(
+  tc.emitCondBranchCheckType(
       iter,
       Type::fromTypeExact(&PyCoro_Type),
       block_assert_not_awaited_coro,
@@ -5694,7 +5702,7 @@ void HIRBuilder::emitDispatchEagerCoroResult(
   Register* stack_top = tc.frame.stack.top();
 
   TranslationContext has_wh_block{cfg.AllocateBlock(), tc.frame};
-  tc.emit<CondBranchCheckType>(
+  tc.emitCondBranchCheckType(
       stack_top, TWaitHandle, has_wh_block.block, await_block);
 
   Register* wait_handle = stack_top;
@@ -5955,7 +5963,7 @@ void HIRBuilder::emitFormatSimple(CFG& cfg, TranslationContext& tc) {
   BasicBlock* do_fmt_block = cfg.AllocateBlock();
   BasicBlock* pass_through_block = cfg.AllocateBlock();
 
-  tc.emit<CondBranchCheckType>(
+  tc.emitCondBranchCheckType(
       value, TUnicodeExact, pass_through_block, do_fmt_block);
   Register* out = temps_.AllocateStack();
 

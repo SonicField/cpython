@@ -894,6 +894,15 @@ HirInstr hir_c_create_branch_cpp(void *target_block) {
   return Branch::create(bb);
 }
 
+HirInstr hir_c_create_cond_branch_check_type_cpp(
+    HirRegister target, HirType type,
+    void *true_block, void *false_block) {
+  Type cpp_type = Type::fromHirType(type);
+  auto* true_bb = static_cast<BasicBlock*>(true_block);
+  auto* false_bb = static_cast<BasicBlock*>(false_block);
+  return CondBranchCheckType::create(as_reg(target), cpp_type, true_bb, false_bb);
+}
+
 HirInstr hir_c_create_cond_branch_cpp(void *cond_reg,
                                        void *true_block,
                                        void *false_block) {
