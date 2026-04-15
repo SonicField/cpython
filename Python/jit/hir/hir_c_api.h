@@ -449,6 +449,7 @@ HirInstr hir_c_create_load_function_indirect_reg(void *indirect_ptr, void *descr
 HirInstr hir_c_create_store_array_item_reg(HirRegister arr, HirRegister idx, HirRegister value, HirRegister container, HirType elem_type);
 HirInstr hir_c_create_cast_reg(HirRegister dst, HirRegister receiver, void *pytype, int optional, int exact, void *fs);
 HirInstr hir_c_create_raise_static_reg(int32_t reraise, void *exc_type, const char *fmt, void *fs);
+HirInstr hir_c_create_call_intrinsic_reg2(size_t n_operands, HirRegister dst, int32_t index, HirRegister *operands);
 
 HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
     HirRegister src, void *body_block, void *done_block);

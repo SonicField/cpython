@@ -1205,6 +1205,14 @@ HirInstr hir_c_create_raise_static_reg(int32_t reraise, void *exc_type, const ch
   return RaiseStatic::create(reraise, static_cast<PyObject*>(exc_type), fmt, *static_cast<const FrameState*>(fs));
 }
 
+HirInstr hir_c_create_call_intrinsic_reg2(size_t n_operands, HirRegister dst, int32_t index, HirRegister *operands) {
+  std::vector<Register*> args;
+  for (size_t i = 0; i < n_operands; i++) {
+    args.push_back(as_reg(operands[i]));
+  }
+  return CallIntrinsic::create(n_operands, as_reg(dst), index, args);
+}
+
 HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
     HirRegister src, void *body_block, void *done_block) {
   return CondBranchIterNotDone::create(
