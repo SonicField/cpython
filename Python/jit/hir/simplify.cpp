@@ -698,7 +698,7 @@ Register* emitGetLengthInt64(Env& env, Register* obj) {
       ty <= TTupleExact) {
     HirType ty_hir_us = to_hir(ty);
     HirType ty_unspec = hir_type_unspecialized(&ty_hir_us);
-    env.emitUseType(obj, *reinterpret_cast<const Type*>(&ty_unspec));
+    env.emitUseType(obj, Type::fromHirType(ty_unspec));
     return env.emitLoadField(
         obj, "ob_size", offsetof(PyVarObject, ob_size), TCInt64);
   }
@@ -726,7 +726,7 @@ Register* emitGetLengthInt64(Env& env, Register* obj) {
     }
     HirType ty_hir_us2 = to_hir(ty);
     HirType ty_unspec2 = hir_type_unspecialized(&ty_hir_us2);
-    env.emitUseType(obj, *reinterpret_cast<const Type*>(&ty_unspec2));
+    env.emitUseType(obj, Type::fromHirType(ty_unspec2));
     return env.emitLoadField(obj, name, offset, TCInt64);
   }
   return nullptr;
@@ -2169,7 +2169,7 @@ Register* simplifyCallMethod(Env& env, const CallMethod* instr) {
                 hir_c_set_descr(patchpoint,"CallMethod __exit__ method resolution");
               }
               HirType recv_unspec = hir_type_unspecialized(&recv_hir);
-              env.emitUseType(receiver, *reinterpret_cast<const Type*>(&recv_unspec));
+              env.emitUseType(receiver, Type::fromHirType(recv_unspec));
 
               Register* func_const = env.emitLoadConst(
                   Type::fromObject(
@@ -2445,7 +2445,7 @@ Register* simplifyVectorCallBoundMethod(Env& env, const VectorCall* instr) {
     hir_c_set_descr(patchpoint,"LoadAttrSpecial method resolution");
   }
   HirType recv_unspec2 = hir_type_unspecialized(&recv_hir2);
-  env.emitUseType(receiver, *reinterpret_cast<const Type*>(&recv_unspec2));
+  env.emitUseType(receiver, Type::fromHirType(recv_unspec2));
 
   // Load the resolved function as a constant.
   Register* func_const = env.emitLoadConst(
