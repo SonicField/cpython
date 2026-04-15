@@ -161,11 +161,20 @@ translate_add_sub_op(void *env, const LirInstruction *instr, int is_sub) {
 
     if (lir_operand_type(opnd1) == JIT_LIR_OPTYPE_IMM) {
         uint64_t constant = lir_operand_get_constant(opnd1);
-        assert(is_add_sub_imm(constant));
-        if (is_sub)
-            phx_a64_sub_rri(pb, output_reg, opnd0_reg, constant);
-        else
-            phx_a64_add_rri(pb, output_reg, opnd0_reg, constant);
+        if (is_add_sub_imm(constant)) {
+            if (is_sub)
+                phx_a64_sub_rri(pb, output_reg, opnd0_reg, constant);
+            else
+                phx_a64_add_rri(pb, output_reg, opnd0_reg, constant);
+        } else {
+            /* Constant doesn't fit in ADD/SUB immediate — use scratch reg */
+            PhxGp scratch = A64_SCRATCH_0;
+            phx_a64_mov_ri(pb, scratch, constant);
+            if (is_sub)
+                phx_a64_sub_rrr(pb, output_reg, opnd0_reg, scratch);
+            else
+                phx_a64_add_rrr(pb, output_reg, opnd0_reg, scratch);
+        }
     } else if (lir_operand_type(opnd1) == JIT_LIR_OPTYPE_REG) {
         if (is_sub)
             phx_a64_sub_rrr(pb, output_reg, opnd0_reg, operand_to_gp(opnd1));
