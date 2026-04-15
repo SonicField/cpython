@@ -622,6 +622,38 @@ struct HIRBuilder::TranslationContext {
         dst, const_cast<void*>(static_cast<const void*>(&fs)))));
   }
 
+  // Batch 2 wrappers
+  void emitWaitHandleLoadWaiter(Register* dst, Register* src) {
+    emitC(static_cast<Instr*>(hir_c_create_wait_handle_load_waiter_reg(dst, src)));
+  }
+  void emitWaitHandleLoadCoroOrResult(Register* dst, Register* src) {
+    emitC(static_cast<Instr*>(hir_c_create_wait_handle_load_coro_reg(dst, src)));
+  }
+  void emitSetUpdate(Register* dst, Register* set, Register* iter, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_set_update_reg(dst, set, iter, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitDictUpdate(Register* dst, Register* dict, Register* update, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_dict_update_reg(dst, dict, update, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitListExtend(Register* dst, Register* list, Register* iter, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_list_extend_reg(dst, list, iter, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitCopyDictWithoutKeys(Register* dst, Register* subj, Register* keys, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_copy_dict_without_keys_reg(dst, subj, keys, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitMakeTupleFromList(Register* dst, Register* list, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_make_tuple_from_list_reg(dst, list, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitListAppend(Register* dst, Register* list, Register* item, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_list_append_reg(dst, list, item, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitCheckFreevar(Register* dst, Register* src, PyObject* name, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_check_freevar_reg(dst, src, name, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitLoadGlobal(Register* dst, int name_idx, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_load_global_reg(dst, name_idx, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
   // StoreSubscr via C++ bridge (DeoptBase, no output).
   void emitStoreSubscr(Register* container, Register* sub, Register* value,
                         const FrameState& fs) {
@@ -3246,7 +3278,7 @@ void HIRBuilder::emitListAppend(
   auto item = tc.frame.stack.pop();
   auto list = tc.frame.stack.peek(bc_instr.oparg());
   auto dst = temps_.AllocateStack();
-  tc.emit<ListAppend>(dst, list, item, tc.frame);
+  tc.emitListAppend(dst, list, item, tc.frame);
 }
 
 void HIRBuilder::emitLoadIterableArg(
@@ -3721,7 +3753,7 @@ void HIRBuilder::emitCopyDictWithoutKeys(TranslationContext& tc) {
   Register* keys = stack.top();
   Register* subject = stack.top(1);
   Register* rest = temps_.AllocateStack();
-  tc.emit<CopyDictWithoutKeys>(rest, subject, keys, tc.frame);
+  tc.emitCopyDictWithoutKeys(rest, subject, keys, tc.frame);
   stack.topPut(0, rest);
 }
 
@@ -4241,7 +4273,7 @@ void HIRBuilder::emitLoadDeref(
   if (idx < PyCode_GetFirstFree(code_)) {
     tc.emitCheckVar(dst, dst, name, tc.frame);
   } else {
-    tc.emit<CheckFreevar>(dst, dst, name, tc.frame);
+    tc.emitCheckFreevar(dst, dst, name, tc.frame);
   }
 #endif
 
@@ -4871,7 +4903,7 @@ void HIRBuilder::emitLoadGlobal(
   };
 
   if (!try_fast_path()) {
-    tc.emit<LoadGlobal>(result, name_idx, tc.frame);
+    tc.emitLoadGlobal(result, name_idx, tc.frame);
   }
 
   tc.frame.stack.push(result);
@@ -4948,13 +4980,13 @@ void HIRBuilder::emitListExtend(
   Register* iterable = tc.frame.stack.pop();
   Register* list = tc.frame.stack.peek(bc_instr.oparg());
   Register* none = temps_.AllocateStack();
-  tc.emit<ListExtend>(none, list, iterable, tc.frame);
+  tc.emitListExtend(none, list, iterable, tc.frame);
 }
 
 void HIRBuilder::emitListToTuple(TranslationContext& tc) {
   Register* list = tc.frame.stack.pop();
   Register* tuple = temps_.AllocateStack();
-  tc.emit<MakeTupleFromList>(tuple, list, tc.frame);
+  tc.emitMakeTupleFromList(tuple, list, tc.frame);
   tc.frame.stack.push(tuple);
 }
 
@@ -6010,7 +6042,7 @@ void HIRBuilder::emitSetUpdate(
   auto* iterable = stack.pop();
   auto* set = stack.peek(oparg);
   auto result = temps_.AllocateStack();
-  tc.emit<SetUpdate>(result, set, iterable, tc.frame);
+  tc.emitSetUpdate(result, set, iterable, tc.frame);
 }
 
 void HIRBuilder::emitDispatchEagerCoroResult(
@@ -6028,8 +6060,8 @@ void HIRBuilder::emitDispatchEagerCoroResult(
   Register* wait_handle = stack_top;
   Register* wh_coro_or_result = temps_.AllocateStack();
   Register* wh_waiter = temps_.AllocateStack();
-  has_wh_block.emit<WaitHandleLoadCoroOrResult>(wh_coro_or_result, wait_handle);
-  has_wh_block.emit<WaitHandleLoadWaiter>(wh_waiter, wait_handle);
+  has_wh_block.emitWaitHandleLoadCoroOrResult(wh_coro_or_result, wait_handle);
+  has_wh_block.emitWaitHandleLoadWaiter(wh_waiter, wait_handle);
   has_wh_block.emitWaitHandleRelease(wait_handle);
 
   TranslationContext coro_block{cfg.AllocateBlock(), tc.frame};
@@ -6184,7 +6216,7 @@ void HIRBuilder::emitDictUpdate(
   Register* update = stack.pop();
   Register* dict = stack.top(bc_instr.oparg() - 1);
   Register* out = temps_.AllocateStack();
-  tc.emit<DictUpdate>(out, dict, update, tc.frame);
+  tc.emitDictUpdate(out, dict, update, tc.frame);
 }
 
 void HIRBuilder::emitDictMerge(

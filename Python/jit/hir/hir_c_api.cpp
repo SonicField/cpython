@@ -1045,6 +1045,37 @@ HirInstr hir_c_create_run_periodic_tasks_reg(HirRegister dst, void *fs) {
   return RunPeriodicTasks::create(as_reg(dst), *static_cast<const FrameState*>(fs));
 }
 
+HirInstr hir_c_create_wait_handle_load_waiter_reg(HirRegister dst, HirRegister src) {
+  return WaitHandleLoadWaiter::create(as_reg(dst), as_reg(src));
+}
+HirInstr hir_c_create_wait_handle_load_coro_reg(HirRegister dst, HirRegister src) {
+  return WaitHandleLoadCoroOrResult::create(as_reg(dst), as_reg(src));
+}
+HirInstr hir_c_create_set_update_reg(HirRegister dst, HirRegister set, HirRegister iter, void *fs) {
+  return SetUpdate::create(as_reg(dst), as_reg(set), as_reg(iter), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_dict_update_reg(HirRegister dst, HirRegister dict, HirRegister update, void *fs) {
+  return DictUpdate::create(as_reg(dst), as_reg(dict), as_reg(update), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_list_extend_reg(HirRegister dst, HirRegister list, HirRegister iter, void *fs) {
+  return ListExtend::create(as_reg(dst), as_reg(list), as_reg(iter), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_copy_dict_without_keys_reg(HirRegister dst, HirRegister subj, HirRegister keys, void *fs) {
+  return CopyDictWithoutKeys::create(as_reg(dst), as_reg(subj), as_reg(keys), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_make_tuple_from_list_reg(HirRegister dst, HirRegister list, void *fs) {
+  return MakeTupleFromList::create(as_reg(dst), as_reg(list), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_list_append_reg(HirRegister dst, HirRegister list, HirRegister item, void *fs) {
+  return ListAppend::create(as_reg(dst), as_reg(list), as_reg(item), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_check_freevar_reg(HirRegister dst, HirRegister src, void *name, void *fs) {
+  return CheckFreevar::create(as_reg(dst), as_reg(src), static_cast<PyObject*>(name), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_load_global_reg(HirRegister dst, int32_t name_idx, void *fs) {
+  return LoadGlobal::create(as_reg(dst), name_idx, *static_cast<const FrameState*>(fs));
+}
+
 HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
     HirRegister src, void *body_block, void *done_block) {
   return CondBranchIterNotDone::create(
