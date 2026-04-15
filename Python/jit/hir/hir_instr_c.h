@@ -16,6 +16,12 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#ifdef __cplusplus
+#include <new>       /* placement new */
+#include <vector>
+#include <string>
+#include "cinderx/Jit/hir/frame_state.h"  /* RegState */
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -564,17 +570,24 @@ static inline void hir_c_init_instr(void *instr, int32_t opcode) {
 }
 
 /* Initialize DeoptBase fields after hir_c_init_instr.
- * Sets up the DeoptBase-specific fields (all zeroed by calloc is fine
- * for most, but suppress_exception_deopt defaults to false = 0). */
+ * In C++ mode: uses placement new for std::vector and std::string
+ * containers that cannot be zero-initialized.
+ * In C mode: just sets opcode (containers not accessible from C). */
 static inline void hir_c_init_deopt(void *instr, int32_t opcode) {
     hir_c_init_instr(instr, opcode);
-    /* DeoptBase fields are zeroed by calloc:
-     * - live_regs_storage: zero = empty vector (constructed by C++ later)
-     * - frame_state: NULL = no frame state
-     * - guilty_reg: NULL
-     * - nonce: 0 (will be set to -1 by C++ constructor, but 0 is safe)
-     * - descr_storage: zero = empty string
-     * - suppress_exception_deopt: 0 = false */
+#ifdef __cplusplus
+    /* Placement new for C++ containers in calloc'd memory.
+     * std::vector<RegState> and std::string cannot be zero-initialized —
+     * they need proper constructor calls. */
+    HirDeoptLayout *d = (HirDeoptLayout *)instr;
+    new (&d->live_regs_storage) std::vector<jit::hir::RegState>();
+    new (&d->descr_storage) std::string();
+    /* nonce defaults to 0 from calloc; C++ constructor uses -1.
+     * Set to -1 for compatibility. */
+    d->nonce = -1;
+#endif
+    /* POD fields (frame_state, guilty_reg, suppress_exception_deopt)
+     * are correctly zero from calloc. */
 }
 
 /* Free an instruction allocated by hir_c_alloc_instr */

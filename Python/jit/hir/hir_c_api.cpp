@@ -1450,7 +1450,9 @@ HirInstr hir_c_create_check_exc_reg(HirRegister dst, HirRegister src) {
 }
 
 HirInstr hir_c_create_deopt(void) {
-  return Deopt::create();
+  HirDeopt *d = (HirDeopt *)hir_c_alloc_instr(sizeof(HirDeopt), 0);
+  hir_c_init_deopt(d, HIR_OP_Deopt);
+  return d;
 }
 
 HirInstr hir_c_create_return(HirRegister src, HirType type) {
