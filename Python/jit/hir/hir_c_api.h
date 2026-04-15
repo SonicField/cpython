@@ -257,6 +257,30 @@ HirInstr hir_c_create_long_in_place_op(HirFunction func, int32_t op_kind,
                                         HirRegister left, HirRegister right,
                                         void *frame_state);
 
+/* ---- Tier 5: Variable-arity + infrastructure factories ---- */
+
+/* Create a VectorCall instruction (variadic DeoptBase).
+ * Caller must wire operands via hir_c_set_operand after creation. */
+HirInstr hir_c_create_vectorcall(HirFunction func, size_t n_operands,
+                                  uint32_t flags, void *frame_state);
+
+/* Create a CallStatic instruction (variadic, non-DeoptBase).
+ * Caller must wire operands via hir_c_set_operand after creation. */
+HirInstr hir_c_create_call_static(HirFunction func, size_t n_operands,
+                                   void *addr, HirType ret_type);
+
+/* Create a DeoptPatchpoint instruction (0 operands, DeoptBase). */
+HirInstr hir_c_create_deopt_patchpoint(void *patcher);
+
+/* Create a Snapshot instruction (0 operands, from FrameState). */
+HirInstr hir_c_create_snapshot(void *frame_state);
+
+/* Set suppress_exception_deopt flag on a DeoptBase instruction. */
+void hir_c_set_suppress_exc_deopt(HirInstr instr, int val);
+
+/* Set the output type on an instruction's output register. */
+void hir_c_set_output_type(HirInstr instr, HirType type);
+
 /* Create a Branch instruction (0 operands, 1 edge).
  * Uses C++ Edge::set_to for proper in_edges management. */
 HirInstr hir_c_create_branch_cpp(void *target_block);

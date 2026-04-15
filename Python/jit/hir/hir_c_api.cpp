@@ -714,6 +714,50 @@ HirInstr hir_c_create_guard(HirRegister src) {
   return Guard::create(as_reg(src));
 }
 
+/* ---- Tier 5: Variable-arity + infrastructure factories ---- */
+
+HirInstr hir_c_create_vectorcall(HirFunction func, size_t n_operands,
+                                  uint32_t flags, void *frame_state) {
+  auto* f = static_cast<Function*>(func);
+  auto* dst = f->env.AllocateRegister();
+  if (frame_state) {
+    return VectorCall::create(
+        n_operands, dst, static_cast<CallFlags>(flags),
+        *static_cast<const FrameState*>(frame_state));
+  }
+  return VectorCall::create(
+      n_operands, dst, static_cast<CallFlags>(flags));
+}
+
+HirInstr hir_c_create_call_static(HirFunction func, size_t n_operands,
+                                   void *addr, HirType ret_type) {
+  auto* f = static_cast<Function*>(func);
+  auto* dst = f->env.AllocateRegister();
+  const Type& cpp_type = *reinterpret_cast<const Type*>(&ret_type);
+  return CallStatic::create(n_operands, dst, addr, cpp_type);
+}
+
+HirInstr hir_c_create_deopt_patchpoint(void *patcher) {
+  return DeoptPatchpoint::create(
+      static_cast<JumpPatcher*>(patcher));
+}
+
+HirInstr hir_c_create_snapshot(void *frame_state) {
+  if (!frame_state) return nullptr;
+  return Snapshot::create(
+      *static_cast<const FrameState*>(frame_state));
+}
+
+void hir_c_set_suppress_exc_deopt(HirInstr instr, int val) {
+  static_cast<DeoptBase*>(as_instr(instr))
+      ->setSuppressExceptionDeopt(val != 0);
+}
+
+void hir_c_set_output_type(HirInstr instr, HirType type) {
+  const Type& cpp_type = *reinterpret_cast<const Type*>(&type);
+  as_instr(instr)->output()->set_type(cpp_type);
+}
+
 /* ---- FillTypeAttrCache / FillTypeMethodCache ---- */
 
 HirInstr hir_c_create_fill_type_attr_cache(HirFunction func,
