@@ -344,6 +344,10 @@ HirInstr hir_c_create_binary_op_reg(HirRegister dst, int32_t op_kind,
                                      void *frame_state);
 HirInstr hir_c_create_guard_is_reg(HirRegister dst, void *target,
                                     HirRegister src);
+HirInstr hir_c_create_get_second_output_reg(HirRegister dst, HirType type,
+                                             HirRegister src);
+HirInstr hir_c_create_set_function_attr_reg(HirRegister value, HirRegister base,
+                                             int32_t field);
 HirInstr hir_c_create_check_neg_reg(HirRegister dst, HirRegister src,
                                      void *frame_state);
 HirInstr hir_c_create_get_length_reg(HirRegister dst, HirRegister src,

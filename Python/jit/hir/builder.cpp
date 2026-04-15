@@ -488,6 +488,18 @@ struct HIRBuilder::TranslationContext {
         hir_c_create_guard_is_reg(dst, target, src))));
   }
 
+  // GetSecondOutput via C factory.
+  void emitGetSecondOutput(Register* dst, Type type, Register* src) {
+    emitC(static_cast<Instr*>(
+        hir_c_create_get_second_output_reg(dst, to_hir(type), src)));
+  }
+
+  // SetFunctionAttr via C factory.
+  void emitSetFunctionAttr(Register* value, Register* base, FunctionAttr field) {
+    emitC(static_cast<Instr*>(hir_c_create_set_function_attr_reg(
+        value, base, static_cast<int32_t>(field))));
+  }
+
   // CheckNeg via C++ bridge (DeoptBase + FrameState).
   void emitCheckNeg(Register* dst, Register* src, const FrameState& fs) {
     emitC(static_cast<Instr*>(hir_c_create_check_neg_reg(
@@ -3355,7 +3367,7 @@ void HIRBuilder::emitLoadMethodStatic(
     // the entry func isn't used by the interpreter and can't be de-opted but
     // we can have a LOAD_METHOD_STATIC that has another LOAD_METHOD_STATIC
     // before we get to the invokes.
-    tc.emit<GetSecondOutput>(entry_func, TCPtr, func_obj);
+    tc.emitGetSecondOutput(entry_func, TCPtr, func_obj);
 
     static_method_stack_.push(entry_func);
   }
@@ -3876,7 +3888,7 @@ void HIRBuilder::emitLoadMethod(TranslationContext& tc, int name_idx) {
   Register* result = temps_.AllocateStack();
   Register* method_instance = temps_.AllocateStack();
   tc.emit<LoadMethod>(result, receiver, name_idx, tc.frame);
-  tc.emit<GetSecondOutput>(method_instance, TOptObject, result);
+  tc.emitGetSecondOutput(method_instance, TOptObject, result);
   tc.frame.stack.push(result);
   tc.frame.stack.push(method_instance);
 }
@@ -3935,7 +3947,7 @@ void HIRBuilder::emitLoadMethodOrAttrSuper(
       name_idx,
       no_args_in_super_call,
       tc.frame);
-  tc.emit<GetSecondOutput>(method_instance, TOptObject, result);
+  tc.emitGetSecondOutput(method_instance, TOptObject, result);
   tc.frame.stack.push(result);
   tc.frame.stack.push(method_instance);
 }
@@ -4675,19 +4687,19 @@ void HIRBuilder::emitMakeFunction(
 
   if (oparg & MAKE_FUNCTION_CLOSURE) {
     Register* closure = tc.frame.stack.pop();
-    tc.emit<SetFunctionAttr>(closure, func, FunctionAttr::kClosure);
+    tc.emitSetFunctionAttr(closure, func, FunctionAttr::kClosure);
   }
   if (oparg & MAKE_FUNCTION_ANNOTATIONS) {
     Register* annotations = tc.frame.stack.pop();
-    tc.emit<SetFunctionAttr>(annotations, func, FunctionAttr::kAnnotations);
+    tc.emitSetFunctionAttr(annotations, func, FunctionAttr::kAnnotations);
   }
   if (oparg & MAKE_FUNCTION_KWDEFAULTS) {
     Register* kwdefaults = tc.frame.stack.pop();
-    tc.emit<SetFunctionAttr>(kwdefaults, func, FunctionAttr::kKwDefaults);
+    tc.emitSetFunctionAttr(kwdefaults, func, FunctionAttr::kKwDefaults);
   }
   if (oparg & MAKE_FUNCTION_DEFAULTS) {
     Register* defaults = tc.frame.stack.pop();
-    tc.emit<SetFunctionAttr>(defaults, func, FunctionAttr::kDefaults);
+    tc.emitSetFunctionAttr(defaults, func, FunctionAttr::kDefaults);
   }
 
   tc.frame.stack.push(func);
@@ -5993,7 +6005,7 @@ void HIRBuilder::emitSend(
   Register* value_in = temps_.AllocateStack();
   tc.emit<Send>(iter, value_out, value_in, tc.frame);
   Register* is_done = temps_.AllocateNonStack();
-  tc.emit<GetSecondOutput>(is_done, TCInt64, value_in);
+  tc.emitGetSecondOutput(is_done, TCInt64, value_in);
   stack.push(value_in);
   BasicBlock* done_block = getBlockAtOff(bc_instr.getJumpTarget());
   BasicBlock* continue_block = getBlockAtOff(bc_instr.nextInstrOffset());
@@ -6087,7 +6099,7 @@ void HIRBuilder::emitLoadSpecial(
   Register* method = temps_.AllocateStack();
   Register* null_or_self = temps_.AllocateStack();
   tc.emit<LoadSpecial>(method, self, bc_instr.oparg(), tc.frame);
-  tc.emit<GetSecondOutput>(null_or_self, TOptObject, method);
+  tc.emitGetSecondOutput(null_or_self, TOptObject, method);
   stack.push(method);
   stack.push(null_or_self);
 }
@@ -6124,7 +6136,7 @@ void HIRBuilder::emitSetFunctionAttribute(
           "Unsupported SET_FUNCTION_ATTRIBUTE oparg: {}", bc_instr.oparg());
   }
 
-  tc.emit<SetFunctionAttr>(value, func, attr);
+  tc.emitSetFunctionAttr(value, func, attr);
   stack.push(func);
 }
 

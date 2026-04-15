@@ -927,6 +927,18 @@ HirInstr hir_c_create_guard_is_reg(HirRegister dst, void *target,
       as_reg(dst), static_cast<PyObject*>(target), as_reg(src));
 }
 
+HirInstr hir_c_create_get_second_output_reg(HirRegister dst, HirType type,
+                                             HirRegister src) {
+  Type cpp_type = Type::fromHirType(type);
+  return GetSecondOutput::create(as_reg(dst), cpp_type, as_reg(src));
+}
+
+HirInstr hir_c_create_set_function_attr_reg(HirRegister value, HirRegister base,
+                                             int32_t field) {
+  return SetFunctionAttr::create(as_reg(value), as_reg(base),
+                                  static_cast<FunctionAttr>(field));
+}
+
 HirInstr hir_c_create_check_neg_reg(HirRegister dst, HirRegister src,
                                      void *frame_state) {
   if (frame_state)
