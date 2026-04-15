@@ -656,11 +656,60 @@ static inline void hir_c_init_deopt(void *instr, int32_t opcode) {
      * suppress_exception_deopt) are correctly zero/NULL from calloc. */
 }
 
-/* NOTE: hir_c_free_instr DELETED (theologian directive).
- * DeoptBase instructions have placement-new'd C++ containers that require
- * destructor calls. Use Instr::Destroy() (C++) for all instruction cleanup.
- * A proper hir_c_destroy_instr will be introduced in H2-E when Destroy()
- * converts to C with explicit container cleanup. */
+/* ==== Slab base pointer ====
+ * The slab layout is: [Register*[N]] [size_t N] [Instr struct...]
+ * base() returns the start of the slab allocation. */
+static inline void *hir_c_instr_base(void *instr) {
+    size_t n = hir_c_num_operands(instr);
+    return (char *)instr - n * sizeof(void *) - sizeof(size_t);
+}
+
+/* ==== FrameState destruction (C++ helper) ====
+ * FrameState still contains std::vector and jit::Stack — destruction
+ * requires C++ destructors. This thin wrapper is implemented in
+ * hir_c_api.cpp as: delete (FrameState*)ptr. */
+void hir_c_destroy_frame_state(void *frame_state);
+
+/* ==== Instruction destruction (pure C dispatch) ====
+ * Replaces the C++ Instr::Destroy() FOREACH_OPCODE dispatch.
+ * Handles per-type cleanup explicitly, then frees the slab. */
+static inline void hir_c_destroy_instr_impl(void *instr) {
+    void *allocation_base = hir_c_instr_base(instr);
+    int32_t op = hir_c_opcode(instr);
+
+    if (hir_instr_info_is_deopt_base(op)) {
+        /* DeoptBase: free descr, live_regs data, delete frame_state */
+        HirDeoptLayout *d = (HirDeoptLayout *)instr;
+        free(d->descr);
+        free(d->live_regs_data);
+        if (d->frame_state) {
+            hir_c_destroy_frame_state(d->frame_state);
+        }
+    } else if (op == HIR_OP_Snapshot) {
+        HirSnapshot *s = (HirSnapshot *)instr;
+        if (s->frame_state_ptr) {
+            hir_c_destroy_frame_state(s->frame_state_ptr);
+        }
+    } else if (op == HIR_OP_BeginInlinedFunction) {
+        HirBeginInlinedFunction *b = (HirBeginInlinedFunction *)instr;
+        if (b->caller_state_ptr) {
+            hir_c_destroy_frame_state(b->caller_state_ptr);
+        }
+        free(b->fullname);
+    } else if (op == HIR_OP_Phi) {
+        HirPhi *p = (HirPhi *)instr;
+        free(p->bb_data);
+    } else if (op == HIR_OP_LoadField) {
+        HirLoadField *lf = (HirLoadField *)instr;
+        free(lf->name);
+    } else if (op == HIR_OP_StoreField) {
+        HirStoreField *sf = (HirStoreField *)instr;
+        free(sf->name);
+    }
+    /* All other types: no owned resources beyond the slab. */
+
+    free(allocation_base);
+}
 
 /* ==== Instruction factory: LoadConst ====
  * Pure C factory — Instr base + HirType field, 0 operands.

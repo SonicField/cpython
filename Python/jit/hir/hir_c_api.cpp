@@ -263,7 +263,7 @@ void hir_instr_insert_before(HirInstr instr, HirInstr before) {
 /* hir_instr_copy_bytecode_offset moved to hir_instr_c.h as hir_c_copy_bytecode_offset */
 
 void hir_instr_delete(HirInstr instr) {
-  Instr::Destroy(as_instr(instr));
+  hir_c_destroy_instr_impl(instr);
 }
 
 /* ---- Operand use visitation ---- */
@@ -2035,10 +2035,17 @@ void *hir_get_frame_state(HirInstr instr) {
   return const_cast<FrameState*>(get_frame_state(*as_instr(instr)));
 }
 
+/* ==== FrameState destruction helper ====
+ * FrameState has std::vector and jit::Stack members that need C++ destructors.
+ * This thin wrapper lets the pure C hir_c_destroy_instr_impl() clean them up. */
+void hir_c_destroy_frame_state(void *frame_state) {
+  delete static_cast<FrameState*>(frame_state);
+}
+
 /* ==== H2-C: Instr lifecycle and list manipulation ==== */
 
 void hir_c_destroy_instr(HirInstr instr) {
-  Instr::Destroy(as_instr(instr));
+  hir_c_destroy_instr_impl(instr);
 }
 
 void hir_c_insert_before(HirInstr new_instr, HirInstr before) {

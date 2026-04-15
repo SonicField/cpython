@@ -3,6 +3,7 @@
 #include "cinderx/Jit/hir/hir.h"
 
 #include "cinderx/Common/log.h"
+#include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_instr_info_c.h"
 #include "cinderx/Jit/threaded_compile.h"
 
@@ -234,18 +235,11 @@ void Instr::operator delete(void* ptr) {
 }
 
 void Instr::Destroy(Instr* instr) {
-  // Compute slab base BEFORE destruction.
-  void* allocation_base = instr->base();
-  // Dispatch to the correct concrete type destructor via opcode (T2-C6).
-#define DESTROY_CASE(opname) \
-  case Opcode::k##opname:   \
-    static_cast<opname*>(instr)->~opname(); \
-    break;
-  switch (instr->opcode()) {
-    FOREACH_OPCODE(DESTROY_CASE)
-  }
-#undef DESTROY_CASE
-  free(allocation_base);
+  // H2-C: Delegate to pure C implementation.
+  // Per-type cleanup is handled explicitly in hir_c_destroy_instr_impl()
+  // (hir_instr_c.h). FrameState deletion goes through the C++ helper
+  // hir_c_destroy_frame_state() since FrameState still has std::vector.
+  hir_c_destroy_instr_impl(instr);
 }
 
 Instr::Instr(Opcode opcode) : opcode_{opcode} {}

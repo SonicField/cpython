@@ -632,8 +632,12 @@ void hir_reflow_types(HirFunction func);
 
 /* ==== H2-C: Instr lifecycle and list manipulation (extern C wrappers) ==== */
 
+/* Destroy a FrameState object (C++ helper for hir_c_destroy_instr_impl).
+ * FrameState still has std::vector/jit::Stack members needing C++ destructors. */
+void hir_c_destroy_frame_state(void *frame_state);
+
 /* Destroy an instruction and free its slab-allocated memory.
- * Dispatches to the correct concrete type destructor via opcode (T2-C6). */
+ * Pure C dispatch — handles per-type cleanup explicitly (H2-C). */
 void hir_c_destroy_instr(HirInstr instr);
 
 /* Insert 'new_instr' before 'before' in the instruction list. */
