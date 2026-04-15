@@ -585,6 +585,60 @@ HirInstr hir_c_create_check_exc(HirFunction func, HirRegister src,
       *static_cast<const FrameState*>(frame_state));
 }
 
+/* ---- LoadField / GuardIs / CheckNeg / PrimitiveBox / CheckSequenceBounds ---- */
+
+HirInstr hir_c_create_load_field(HirFunction func, HirRegister receiver,
+                                  const char *name, intptr_t offset,
+                                  HirType type, int borrowed) {
+  auto* f = static_cast<Function*>(func);
+  auto* dst = f->env.AllocateRegister();
+  const Type& cpp_type = *reinterpret_cast<const Type*>(&type);
+  return LoadField::create(
+      dst, as_reg(receiver), std::string(name),
+      static_cast<std::size_t>(offset), cpp_type,
+      borrowed != 0);
+}
+
+HirInstr hir_c_create_guard_is(HirFunction func, void *target,
+                                HirRegister src) {
+  auto* f = static_cast<Function*>(func);
+  auto* dst = f->env.AllocateRegister();
+  return GuardIs::create(
+      dst, static_cast<PyObject*>(target), as_reg(src));
+}
+
+HirInstr hir_c_create_check_neg(HirFunction func, HirRegister src,
+                                 void *frame_state) {
+  if (!frame_state) return nullptr;
+  auto* f = static_cast<Function*>(func);
+  auto* dst = f->env.AllocateRegister();
+  return CheckNeg::create(
+      dst, as_reg(src),
+      *static_cast<const FrameState*>(frame_state));
+}
+
+HirInstr hir_c_create_primitive_box(HirFunction func, HirRegister src,
+                                     HirType type, void *frame_state) {
+  if (!frame_state) return nullptr;
+  auto* f = static_cast<Function*>(func);
+  auto* dst = f->env.AllocateRegister();
+  const Type& cpp_type = *reinterpret_cast<const Type*>(&type);
+  return PrimitiveBox::create(
+      dst, as_reg(src), cpp_type,
+      *static_cast<const FrameState*>(frame_state));
+}
+
+HirInstr hir_c_create_check_seq_bounds(HirFunction func,
+                                        HirRegister seq, HirRegister idx,
+                                        void *frame_state) {
+  if (!frame_state) return nullptr;
+  auto* f = static_cast<Function*>(func);
+  auto* dst = f->env.AllocateRegister();
+  return CheckSequenceBounds::create(
+      dst, as_reg(seq), as_reg(idx),
+      *static_cast<const FrameState*>(frame_state));
+}
+
 /* ---- FloatBinaryOp / LongBinaryOp / IsNegativeAndErrOccurred factories ---- */
 
 HirInstr hir_c_create_float_binary_op(HirFunction func, int32_t op_kind,

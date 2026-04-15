@@ -158,6 +158,33 @@ HirInstr hir_load_const_bottom_create(HirRegister output);
 /* Create an Assign instruction (copy register). */
 HirInstr hir_assign_create(HirRegister output, HirRegister value);
 
+/* Create a LoadField instruction (Instr + string name + offset + type).
+ * Allocates output register from func's env. Returns the instruction. */
+HirInstr hir_c_create_load_field(HirFunction func, HirRegister receiver,
+                                  const char *name, intptr_t offset,
+                                  HirType type, int borrowed);
+
+/* Create a GuardIs instruction (DeoptBase + PyObject* target).
+ * Allocates output register from func's env. Returns the instruction. */
+HirInstr hir_c_create_guard_is(HirFunction func, void *target,
+                                HirRegister src);
+
+/* Create a CheckNeg instruction (DeoptBase, no custom fields).
+ * Allocates output register from func's env. Returns the instruction. */
+HirInstr hir_c_create_check_neg(HirFunction func, HirRegister src,
+                                 void *frame_state);
+
+/* Create a PrimitiveBox instruction (DeoptBase + HirType).
+ * Allocates output register from func's env. Returns the instruction. */
+HirInstr hir_c_create_primitive_box(HirFunction func, HirRegister src,
+                                     HirType type, void *frame_state);
+
+/* Create a CheckSequenceBounds instruction (DeoptBase, 2 operands).
+ * Allocates output register from func's env. Returns the instruction. */
+HirInstr hir_c_create_check_seq_bounds(HirFunction func,
+                                        HirRegister seq, HirRegister idx,
+                                        void *frame_state);
+
 /* Create a FloatBinaryOp instruction (DeoptBase + enum op).
  * Allocates output register from func's env. Returns the instruction. */
 HirInstr hir_c_create_float_binary_op(HirFunction func, int32_t op_kind,

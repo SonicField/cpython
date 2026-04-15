@@ -268,6 +268,31 @@ struct Env {
     return emitCInstr(static_cast<Instr*>(hir_c_create_is_neg_and_err(
         &func, src, const_cast<void*>(static_cast<const void*>(&fs)))));
   }
+  Register* emitLoadField(Register* receiver, const char* name,
+                           std::size_t offset, Type type, bool borrowed = false) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_load_field(
+        &func, receiver, name, static_cast<intptr_t>(offset),
+        to_hir(type), borrowed ? 1 : 0)));
+  }
+  Register* emitGuardIs(PyObject* target, Register* src) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_guard_is(
+        &func, target, src)));
+  }
+  Register* emitCheckNeg(Register* src, const FrameState& fs) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_check_neg(
+        &func, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  Register* emitPrimitiveBox(Register* src, Type type, const FrameState& fs) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_primitive_box(
+        &func, src, to_hir(type),
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  Register* emitCheckSequenceBounds(Register* seq, Register* idx,
+                                     const FrameState& fs) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_check_seq_bounds(
+        &func, seq, idx,
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
 
   // Insert a pre-created instruction from a C factory into the current block.
   // Sets bytecode offset, inserts at cursor, computes output type.
@@ -439,7 +464,7 @@ Register* simplifyGuardType(Env& env, const GuardType* instr) {
     return input;
   }
   if (type == TNoneType) {
-    return env.emit<GuardIs>(Py_None, input);
+    return env.emitGuardIs(Py_None, input);
   }
   return nullptr;
 }
@@ -482,7 +507,7 @@ Register* emitGetLengthInt64(Env& env, Register* obj) {
     HirType ty_hir_us = to_hir(ty);
     HirType ty_unspec = hir_type_unspecialized(&ty_hir_us);
     env.emitUseType(obj, *reinterpret_cast<const Type*>(&ty_unspec));
-    return env.emit<LoadField>(
+    return env.emitLoadField(
         obj, "ob_size", offsetof(PyVarObject, ob_size), TCInt64);
   }
   if (
@@ -510,7 +535,7 @@ Register* emitGetLengthInt64(Env& env, Register* obj) {
     HirType ty_hir_us2 = to_hir(ty);
     HirType ty_unspec2 = hir_type_unspecialized(&ty_hir_us2);
     env.emitUseType(obj, *reinterpret_cast<const Type*>(&ty_unspec2));
-    return env.emit<LoadField>(obj, name, offset, TCInt64);
+    return env.emitLoadField(obj, name, offset, TCInt64);
   }
   return nullptr;
 }
@@ -518,7 +543,7 @@ Register* emitGetLengthInt64(Env& env, Register* obj) {
 Register* simplifyGetLength(Env& env, const GetLength* instr) {
   Register* obj = instr->GetOperand(0);
   if (Register* size = emitGetLengthInt64(env, obj)) {
-    return env.emit<PrimitiveBox>(size, TCInt64, *instr->frameState());
+    return env.emitPrimitiveBox(size, TCInt64, *instr->frameState());
   }
   return nullptr;
 }
@@ -837,13 +862,13 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
       Register* right_index = env.emitIndexUnbox(rhs);
       env.emitIsNegativeAndErrOccurred(right_index, *instr->frameState());
       Register* adjusted_idx =
-          env.emit<CheckSequenceBounds>(lhs, right_index, *instr->frameState());
+          env.emitCheckSequenceBounds(lhs, right_index, *instr->frameState());
       Py_ssize_t offset = offsetof(PyTupleObject, ob_item);
       Register* array = lhs;
       // Lists carry a nested array of ob_item whereas tuples are variable-sized
       // structs.
       if (lhs->isA(TListExact)) {
-        array = env.emit<LoadField>(
+        array = env.emitLoadField(
             lhs, "ob_item", offsetof(PyListObject, ob_item), TCPtr);
         offset = 0;
       }
@@ -894,7 +919,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
         env.emitUseType(rhs, TLongExact);
         Register* unboxed_idx = env.emitIndexUnbox(rhs);
         env.emitIsNegativeAndErrOccurred(unboxed_idx, *instr->frameState());
-        Register* adjusted_idx = env.emit<CheckSequenceBounds>(
+        Register* adjusted_idx = env.emitCheckSequenceBounds(
             lhs, unboxed_idx, *instr->frameState());
         return env.emit<UnicodeSubscr>(lhs, adjusted_idx, *instr->frameState());
       }
@@ -1174,7 +1199,7 @@ Register* simplifyFloatBinaryOp(Env& env, const FloatBinaryOp* instr) {
     Register* left_unboxed = env.emitPrimitiveUnbox(instr->left(), TCDouble);
     Register* right_unboxed = env.emitPrimitiveUnbox(instr->right(), TCDouble);
     Register* result = env.emitDoubleBinaryOp(instr->op(), left_unboxed, right_unboxed);
-    return env.emit<PrimitiveBox>(result, TFloatExact, *instr->frameState());
+    return env.emitPrimitiveBox(result, TFloatExact, *instr->frameState());
   }
 
   // Constant folding (requires known values at compile time).
@@ -1362,7 +1387,7 @@ Register* simplifyLoadAttrSplitDict(
   patchpoint->setDescr("SplitDictDeoptPatcher");
   env.emitUseType(receiver, receiver->type());
 
-  Register* inline_values_valid = env.emit<LoadField>(
+  Register* inline_values_valid = env.emitLoadField(
       receiver,
       "inline_values.valid",
       type->tp_basicsize + offsetof(PyDictValues, valid),
@@ -1373,9 +1398,9 @@ Register* simplifyLoadAttrSplitDict(
         env.emitCondBranch(inline_values_valid, bb1, bb2);
       },
       [&] { // Inline values are valid.
-        Register* maybe_attr = env.emit<LoadField>(
+        Register* maybe_attr = env.emitLoadField(
             receiver,
-            unicodeAsString(name),
+            unicodeAsString(name).c_str(),
             attr_idx * sizeof(PyObject*) + type->tp_basicsize +
                 offsetof(PyDictValues, values),
             TOptObject);
@@ -1435,11 +1460,11 @@ Register* simplifyLoadAttrSplitDict(
 
 #if PY_VERSION_HEX >= 0x030C0000
   // PyDictOrValues is stored at -3 per _PyObject_DictOrValuesPointer
-  Register* obj_dict = env.emit<LoadField>(
+  Register* obj_dict = env.emitLoadField(
       receiver, "__dict__", -3 * sizeof(PyObject*), TOptDict);
 #else
   Register* obj_dict =
-      env.emit<LoadField>(receiver, "__dict__", type->tp_dictoffset, TOptDict);
+      env.emitLoadField(receiver, "__dict__", type->tp_dictoffset, TOptDict);
 #endif
   // We pass the attribute's name to this CheckField (not "__dict__") because
   // ultimately it means that the attribute we're trying to load is missing,
@@ -1458,10 +1483,10 @@ Register* simplifyLoadAttrSplitDict(
   guard->setDescr("dict values check");
   Register* values = env.emitIntBinaryOp(BinaryOpKind::kAdd, dict_ptr, one);
   Register* values_obj = env.emitBitCast(values, TOptObject);
-  Register* attr = env.emit<LoadField>(
+  Register* attr = env.emitLoadField(
       values_obj, "attr", attr_idx * sizeof(PyObject*), TOptObject);
 #else
-  Register* dict_keys = env.emit<LoadField>(
+  Register* dict_keys = env.emitLoadField(
       checked_dict, "ma_keys", offsetof(PyDictObject, ma_keys), TCPtr);
   Register* expected_keys = env.emitLoadConst(Type::fromCPtr(keys));
   Register* equal = env.emitPrimitiveCompare(
@@ -1533,7 +1558,7 @@ Register* simplifyLoadAttrMemberDescr(Env& env, const DescrInfo& info) {
     emitTypeAttrDeoptPatcher(env, info, "member descriptor attribute");
     env.emitUseType(info.receiver, info.type);
     Register* field =
-        env.emit<LoadField>(info.receiver, name_cstr, def->offset, TOptObject);
+        env.emitLoadField(info.receiver, name_cstr, def->offset, TOptObject);
     if (def->type == T_OBJECT_EX) {
       auto check_field =
           env.emitInstr<CheckField>(field, info.attr_name, *info.frame_state);
@@ -1841,12 +1866,12 @@ static Register* resolveArgs(
     JIT_CHECK(resolved_args.at(i) != nullptr, "expected non-null arg");
   }
 
-  Register* defaults_obj = env.emit<LoadField>(
+  Register* defaults_obj = env.emitLoadField(
       instr->GetOperand(0),
       "func_defaults",
       offsetof(PyFunctionObject, func_defaults),
       TTuple);
-  env.emit<GuardIs>(defaults, defaults_obj);
+  env.emitGuardIs(defaults, defaults_obj);
   // creates an instruction VectorCall(arg_size, dest_reg, frame_state)
   // and inserts it to the current block. Returns the output of vectorcall
   auto new_instr = env.emitRawInstr<VectorCall>(
@@ -2382,7 +2407,7 @@ Register* simplifyVectorCall(Env& env, const VectorCall* instr) {
   Type target_type = target->type();
   if (target_type == env.type_object && instr->NumOperands() == 2) {
     env.emitUseType(target, env.type_object);
-    return env.emit<LoadField>(
+    return env.emitLoadField(
         instr->GetOperand(1), "ob_type", offsetof(PyObject, ob_type), TType);
   }
   if (isBuiltin(target, "len") && instr->numArgs() == 1) {
@@ -2395,7 +2420,7 @@ Register* simplifyVectorCall(Env& env, const VectorCall* instr) {
     auto obj_op = instr->GetOperand(1);
     auto type_op = instr->GetOperand(2);
 
-    auto obj_type = env.emit<LoadField>(
+    auto obj_type = env.emitLoadField(
         obj_op, "ob_type", offsetof(PyObject, ob_type), TType);
 
     auto compare_type = env.emitPrimitiveCompare(
@@ -2492,7 +2517,7 @@ Register* simplifyStoreSubscr(Env& env, const StoreSubscr* instr) {
         instr->GetOperand(1),
         instr->GetOperand(2));
 
-    env.emit<CheckNeg>(output, *instr->frameState());
+    env.emitCheckNeg(output, *instr->frameState());
     return nullptr;
   }
 
