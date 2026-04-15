@@ -1349,9 +1349,14 @@ HirInstr hir_c_create_tp_alloc_reg(HirRegister dst, void *pytype, void *fs) {
   return t;
 }
 HirInstr hir_c_create_unpack_ex_to_tuple_reg(HirRegister dst, HirRegister seq, int32_t before, int32_t after, void *fs) {
-  /* UnpackExToTuple: DeoptBase + before/after fields, HasOutput, 1 operand.
-   * No dedicated C struct yet — keep C++ for now (needs HirUnpackExToTuple struct). */
-  return UnpackExToTuple::create(as_reg(dst), as_reg(seq), before, after, *static_cast<const FrameState*>(fs));
+  HirUnpackExToTuple *u = (HirUnpackExToTuple *)hir_c_alloc_instr(sizeof(HirUnpackExToTuple), 1);
+  hir_c_init_deopt(u, HIR_OP_UnpackExToTuple);
+  u->before = before;
+  u->after = after;
+  hir_c_set_output(u, dst);
+  hir_c_set_operand(u, 0, seq);
+  as_instr(u)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return u;
 }
 HirInstr hir_c_create_load_method_reg(HirRegister dst, HirRegister receiver, int32_t name_idx, void *fs) {
   HirLoadMethod *m = (HirLoadMethod *)hir_c_alloc_instr(sizeof(HirLoadMethod), 1);

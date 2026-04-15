@@ -310,6 +310,9 @@ typedef struct { HIR_INSTR_FIELDS; char basic_blocks_storage[24]; } HirPhi;
 /* ---- Complex multi-inheritance + container types ---- */
 typedef struct { HIR_INSTR_FIELDS; void *func; void *reifier; void *caller_state_ptr; char fullname_storage[32]; } HirBeginInlinedFunction;
 
+/* ---- UnpackExToTuple (DeoptBase + before + after) ---- */
+typedef struct { HIR_DEOPT_FIELDS; int32_t before; int32_t after; } HirUnpackExToTuple;
+
 /* ---- InvokeStaticFunction (DeoptBase + func + ret_type) ---- */
 typedef struct { HIR_DEOPT_FIELDS; void *func; HirType ret_type; } HirInvokeStaticFunction;
 

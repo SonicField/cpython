@@ -126,6 +126,7 @@ struct HirInstrLayoutVerifier {
     static_assert(sizeof(HirBeginInlinedFunction) == sizeof(BeginInlinedFunction));
     static_assert(sizeof(HirHintType) == sizeof(HintType));
     static_assert(sizeof(HirInvokeStaticFunction) == sizeof(InvokeStaticFunction));
+    static_assert(sizeof(HirUnpackExToTuple) == sizeof(UnpackExToTuple));
 
     /* H2-A2: intermediate base class struct sizes */
     static_assert(sizeof(HirCheckExc) == sizeof(CheckExc));
