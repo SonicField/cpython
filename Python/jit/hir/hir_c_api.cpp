@@ -11,6 +11,7 @@
  */
 
 #include "cinderx/Jit/hir/hir_c_api.h"
+#include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/hir/analysis.h"
 #include "cinderx/Jit/bytecode_offsets.h"
@@ -916,7 +917,10 @@ HirInstr hir_c_create_set_current_awaiter_reg(HirRegister src) {
 }
 
 HirInstr hir_c_create_decref_reg(HirRegister src) {
-  return Decref::create(as_reg(src));
+  HirDecref *d = (HirDecref *)hir_c_alloc_instr(sizeof(HirDecref), 1);
+  hir_c_init_instr(d, HIR_OP_Decref);
+  hir_c_set_operand(d, 0, src);
+  return d;
 }
 
 HirInstr hir_c_create_make_cell_reg(HirRegister dst, HirRegister src,
@@ -1015,7 +1019,10 @@ HirInstr hir_c_create_raise_reg(void *fs) {
   return Raise::create(*static_cast<const FrameState*>(fs));
 }
 HirInstr hir_c_create_wait_handle_release_reg(HirRegister src) {
-  return WaitHandleRelease::create(as_reg(src));
+  HirWaitHandleRelease *w = (HirWaitHandleRelease *)hir_c_alloc_instr(sizeof(HirWaitHandleRelease), 1);
+  hir_c_init_instr(w, HIR_OP_WaitHandleRelease);
+  hir_c_set_operand(w, 0, src);
+  return w;
 }
 HirInstr hir_c_create_make_set_reg(HirRegister dst, void *fs) {
   return MakeSet::create(as_reg(dst), *static_cast<const FrameState*>(fs));
@@ -1036,10 +1043,17 @@ HirInstr hir_c_create_steal_cell_item_reg(HirRegister dst, HirRegister cell) {
   return StealCellItem::create(as_reg(dst), as_reg(cell));
 }
 HirInstr hir_c_create_set_cell_item_reg(HirRegister cell, HirRegister value, HirRegister old) {
-  return SetCellItem::create(as_reg(cell), as_reg(value), as_reg(old));
+  HirSetCellItem *s = (HirSetCellItem *)hir_c_alloc_instr(sizeof(HirSetCellItem), 3);
+  hir_c_init_instr(s, HIR_OP_SetCellItem);
+  hir_c_set_operand(s, 0, cell);
+  hir_c_set_operand(s, 1, value);
+  hir_c_set_operand(s, 2, old);
+  return s;
 }
 HirInstr hir_c_create_at_quiescent_state_reg(void) {
-  return AtQuiescentState::create();
+  HirAtQuiescentState *a = (HirAtQuiescentState *)hir_c_alloc_instr(sizeof(HirAtQuiescentState), 0);
+  hir_c_init_instr(a, HIR_OP_AtQuiescentState);
+  return a;
 }
 HirInstr hir_c_create_run_periodic_tasks_reg(HirRegister dst, void *fs) {
   return RunPeriodicTasks::create(as_reg(dst), *static_cast<const FrameState*>(fs));
@@ -1396,7 +1410,9 @@ HirInstr hir_c_create_check_exc_reg(HirRegister dst, HirRegister src) {
 }
 
 HirInstr hir_c_create_deopt(void) {
-  return Deopt::create();
+  HirDeopt *d = (HirDeopt *)hir_c_alloc_instr(sizeof(HirDeopt), 0);
+  hir_c_init_deopt(d, HIR_OP_Deopt);
+  return d;
 }
 
 HirInstr hir_c_create_return(HirRegister src, HirType type) {
