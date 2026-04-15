@@ -375,6 +375,13 @@ PyObject* resumeInInterpreter(
 
   const DeoptMetadata& deopt_meta = code_runtime->getDeoptMetadata(deopt_idx);
   int err_occurred = shouldResumeInterpreterInErrorHandler(deopt_meta.reason);
+  // If an exception is pending (e.g., deopt from inline exception handler
+  // that didn't fully clear state), force error handler path. Without this,
+  // the interpreter enters the dispatch loop with _PyErr_Occurred set,
+  // triggering the ceval.c:769 assert(!_PyErr_Occurred) in debug builds.
+  if (!err_occurred && PyErr_Occurred()) {
+    err_occurred = 1;
+  }
 
   PyObject* result = nullptr;
   // Resume all of the inlined frames and the caller
