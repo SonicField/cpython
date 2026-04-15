@@ -299,42 +299,48 @@ static const struct { PyTypeObject *type; uint64_t bf; } s_exact[] = {
 #define EXACT_MAP_SIZE (sizeof(s_exact) / sizeof(s_exact[0]))
 
 HirType hir_type_from_pytype(PyTypeObject *type, int is_exact) {
-    /* Runtime-resolved types (not in the static table). */
+    /* Runtime-resolved types (not in the static table).
+     * Return type-specialized (kSpecType + pytype pointer). */
     if (type == Py_TYPE(Py_None)) {
-        HirType r = HIR_TYPE_NONETYPE;
-        return r;
+        return hir_type_make(0x080ULL, 3 /* kLifetimeTop */,
+                              is_exact ? HIR_SPEC_TYPE_EXACT : HIR_SPEC_TYPE,
+                              (intptr_t)type);
     }
     if (type == (PyTypeObject *)PyExc_BaseException) {
-        HirType r = HIR_TYPE_BASEEXCEPTION;
-        return r;
+        return hir_type_make(0x1000ULL, 3 /* kLifetimeTop */,
+                              is_exact ? HIR_SPEC_TYPE_EXACT : HIR_SPEC_TYPE,
+                              (intptr_t)type);
     }
 
     /* Exact lookup using ground truth table. */
     if (is_exact) {
         /* Check NoneType */
         if (type == Py_TYPE(Py_None)) {
-            HirType r; r.bits_and_flags = 0x300000000080ULL; r.int_val = 0; return r;
+            return hir_type_make(0x080ULL, 3 /* kLifetimeTop */,
+                                  HIR_SPEC_TYPE_EXACT, (intptr_t)type);
         }
         /* Check BaseException */
         if (type == (PyTypeObject *)PyExc_BaseException) {
-            HirType r; r.bits_and_flags = 0x300000001000ULL; r.int_val = 0; return r;
+            return hir_type_make(0x1000ULL, 3 /* kLifetimeTop */,
+                                  HIR_SPEC_TYPE_EXACT, (intptr_t)type);
         }
         for (size_t i = 0; i < EXACT_MAP_SIZE; i++) {
             if (s_exact[i].type == type) {
-                HirType r; r.bits_and_flags = s_exact[i].bf; r.int_val = 0; return r;
+                return hir_type_make(s_exact[i].bf & HIR_TYPE_BITS_MASK,
+                    (s_exact[i].bf >> HIR_TYPE_LIFETIME_SHIFT) & 0x3,
+                    HIR_SPEC_TYPE_EXACT, (intptr_t)type);
             }
         }
         /* Fall through to MRO for non-builtin types */
     }
 
-    /* Non-exact lookup — use base registration table. */
+    /* Non-exact lookup — use base registration table.
+     * Returns type-specialized (kSpecType + pytype pointer). */
     for (size_t i = 0; i < PYTYPE_MAP_SIZE; i++) {
         if (s_pytype_to_type[i].type == type) {
             uint64_t bits = s_pytype_to_type[i].bits;
-            HirType r;
-            r.bits_and_flags = bits | (HIR_TYPE_LIFETIME_TOP << HIR_TYPE_LIFETIME_SHIFT);
-            r.int_val = 0;
-            return r;
+            return hir_type_make(bits, HIR_TYPE_LIFETIME_TOP,
+                                  HIR_SPEC_TYPE, (intptr_t)type);
         }
     }
 
