@@ -1658,19 +1658,26 @@ class INSTR_CLASS(BeginInlinedFunction, (), Operands<0>), public InlineBase {
       std::unique_ptr<FrameState> caller_state,
       const std::string& fullname,
       BorrowedRef<> reifier)
-      : InstrT(), func_(func), reifier_(reifier), fullname_(fullname) {
-    caller_state_ = std::move(caller_state);
+      : InstrT(), func_(func), reifier_(reifier),
+        caller_state_(caller_state.release()),
+        fullname_(fullname.empty() ? nullptr : strdup(fullname.c_str())) {
   }
 
   // Note: The copy constructor creates a new FrameState - this means that
   // inlined FrameStates will not point to the copied FrameState as their parent
   BeginInlinedFunction(const BeginInlinedFunction& other)
-      : InstrT(), func_(other.func()), fullname_(other.fullname()) {
-    caller_state_ = std::make_unique<FrameState>(*other.callerFrameState());
+      : InstrT(), func_(other.func()),
+        caller_state_(new FrameState(*other.callerFrameState())),
+        fullname_(other.fullname_  ? strdup(other.fullname_) : nullptr) {
+  }
+
+  ~BeginInlinedFunction() {
+    delete caller_state_;
+    free(fullname_);
   }
 
   const FrameState* callerFrameState() const {
-    return caller_state_.get();
+    return caller_state_;
   }
 
   BorrowedRef<PyFunctionObject> func() const {
@@ -1681,8 +1688,8 @@ class INSTR_CLASS(BeginInlinedFunction, (), Operands<0>), public InlineBase {
     return func_->func_code;
   }
 
-  std::string fullname() const {
-    return fullname_;
+  const char* fullname() const {
+    return fullname_ ? fullname_ : "";
   }
 
   BorrowedRef<> builtins() const {
@@ -1709,8 +1716,8 @@ class INSTR_CLASS(BeginInlinedFunction, (), Operands<0>), public InlineBase {
   // Used for printing.
   BorrowedRef<PyFunctionObject> func_;
   BorrowedRef<> reifier_;
-  std::unique_ptr<FrameState> caller_state_{nullptr};
-  std::string fullname_;
+  FrameState* caller_state_{nullptr};  // was unique_ptr
+  char* fullname_{nullptr};  // was std::string
 };
 
 class INSTR_CLASS(EndInlinedFunction, (), Operands<0>), public InlineBase {

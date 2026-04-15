@@ -309,7 +309,7 @@ typedef struct { HIR_INSTR_FIELDS; char *name; size_t offset; HirType type; } Hi
 typedef struct { HIR_INSTR_FIELDS; char basic_blocks_storage[24]; } HirPhi;
 
 /* ---- Complex multi-inheritance + container types ---- */
-typedef struct { HIR_INSTR_FIELDS; void *func; void *reifier; void *caller_state_ptr; char fullname_storage[32]; } HirBeginInlinedFunction;
+typedef struct { HIR_INSTR_FIELDS; void *func; void *reifier; void *caller_state_ptr; char *fullname; } HirBeginInlinedFunction;
 
 /* ---- LoadAttrSpecial (DeoptBase + id + failure_fmt_str) ---- */
 typedef struct { HIR_DEOPT_FIELDS; void *id; const char *failure_fmt; } HirLoadAttrSpecial;
@@ -386,7 +386,7 @@ typedef union HirOpcodeData {
     struct { char *name; size_t offset; HirType type; } store_field;
     struct { char basic_blocks_storage[24]; } phi;              /* Phi: vector<BasicBlock*> */
     struct { char types_storage[24]; } hint_type;               /* HintType: ProfiledTypes */
-    struct { void *func; void *reifier; void *caller_state_ptr; char fullname_storage[32]; } begin_inlined;
+    struct { void *func; void *reifier; void *caller_state_ptr; char *fullname; } begin_inlined;
     struct { void *frame_state_ptr; } snapshot;                 /* Snapshot */
     struct { int32_t func; } call_cfunc;                        /* CallCFunc */
 
