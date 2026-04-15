@@ -60,6 +60,21 @@ typedef struct HirEdge {
     char descr_storage[32];     /* std::string */           \
     uint8_t suppress_exception_deopt
 
+/* DeoptBaseWithNameIdx: DeoptBase + int name_idx_ */
+#define HIR_DEOPT_NAMEIDX_FIELDS  \
+    HIR_DEOPT_FIELDS;             \
+    int32_t name_idx
+
+/* CheckBaseWithName: CheckBase (= DeoptBase) + BorrowedRef<> name_ */
+#define HIR_CHECK_WITH_NAME_FIELDS  \
+    HIR_DEOPT_FIELDS;               \
+    void *name
+
+/* LoadSuperBase: DeoptBaseWithNameIdx + bool no_args_in_super_call_ */
+#define HIR_LOAD_SUPER_FIELDS       \
+    HIR_DEOPT_NAMEIDX_FIELDS;       \
+    uint8_t no_args_in_super_call
+
 /* ---- Base structs (standalone use) ----
  * Named HirInstrLayout / HirDeoptLayout to avoid collision with
  * the void* HirInstr typedef in hir_c_api.h.  C passes include
@@ -192,7 +207,7 @@ typedef struct { HIR_INSTR_FIELDS; } HirLoadEvalBreaker;
 typedef struct { HIR_INSTR_FIELDS; } HirLoadFrame;
 typedef struct { HIR_INSTR_FIELDS; } HirLoadVarObjectSize;
 typedef struct { HIR_DEOPT_FIELDS; } HirCheckErrOccurred;
-typedef struct { HIR_DEOPT_FIELDS; } HirDeleteAttr;
+typedef struct { HIR_DEOPT_NAMEIDX_FIELDS; } HirDeleteAttr;
 typedef struct { HIR_DEOPT_FIELDS; } HirDeleteSubscr;
 typedef struct { HIR_DEOPT_FIELDS; } HirRaise;
 typedef struct { HIR_DEOPT_FIELDS; } HirMakeSet;
@@ -228,10 +243,43 @@ typedef struct { HIR_INSTR_FIELDS; } HirBatchDecref;
  * Types with std::string, std::vector, std::unique_ptr, BorrowedRef.
  * C++ containers stored as opaque byte arrays. */
 
-/* DeoptBaseWithNameIdx: DeoptBase + int name_idx_ */
-#define HIR_DEOPT_NAMEIDX_FIELDS  \
-    HIR_DEOPT_FIELDS;             \
-    int32_t name_idx
+/* ==== H2-A2: DEFINE_SIMPLE_INSTR types with intermediate base classes ====
+ * These were missing from H2-A because they inherit through intermediate
+ * base classes (CheckBase, CheckBaseWithName, DeoptBaseWithNameIdx,
+ * LoadMethodBase, LoadSuperBase, CondBranchBase). */
+
+/* ---- CheckBase types (no extra fields beyond DeoptBase) ---- */
+typedef struct { HIR_DEOPT_FIELDS; } HirCheckExc;
+typedef struct { HIR_DEOPT_FIELDS; } HirCheckNeg;
+typedef struct { HIR_DEOPT_FIELDS; } HirIsNegativeAndErrOccurred;
+
+/* ---- CheckBaseWithName types (DeoptBase + void* name_) ---- */
+typedef struct { HIR_CHECK_WITH_NAME_FIELDS; } HirCheckVar;
+typedef struct { HIR_CHECK_WITH_NAME_FIELDS; } HirCheckFreevar;
+typedef struct { HIR_CHECK_WITH_NAME_FIELDS; } HirCheckField;
+
+/* ---- DeoptBaseWithNameIdx types (no extra fields) ---- */
+typedef struct { HIR_DEOPT_NAMEIDX_FIELDS; } HirLoadAttrCached;
+typedef struct { HIR_DEOPT_NAMEIDX_FIELDS; } HirStoreAttr;
+typedef struct { HIR_DEOPT_NAMEIDX_FIELDS; } HirStoreAttrCached;
+typedef struct { HIR_DEOPT_NAMEIDX_FIELDS; } HirLoadGlobal;
+typedef struct { HIR_DEOPT_NAMEIDX_FIELDS; } HirLoadModuleAttrCached;
+
+/* ---- LoadMethodBase types (= DeoptBaseWithNameIdx, no extra fields) ---- */
+typedef struct { HIR_DEOPT_NAMEIDX_FIELDS; } HirLoadMethod;
+typedef struct { HIR_DEOPT_NAMEIDX_FIELDS; } HirLoadMethodCached;
+typedef struct { HIR_DEOPT_NAMEIDX_FIELDS; } HirLoadModuleMethodCached;
+
+/* ---- LoadSuperBase types (DeoptBaseWithNameIdx + bool) ---- */
+typedef struct { HIR_LOAD_SUPER_FIELDS; } HirLoadMethodSuper;
+typedef struct { HIR_LOAD_SUPER_FIELDS; } HirLoadAttrSuper;
+
+/* ---- LoadAttr (DeoptBaseWithNameIdx + bool already_optimized_) ---- */
+typedef struct { HIR_DEOPT_NAMEIDX_FIELDS; uint8_t already_optimized; } HirLoadAttr;
+
+/* ---- CondBranchBase aliases (same layout as HirCondBranchInstr) ---- */
+typedef HirCondBranchInstr HirCondBranch;
+typedef HirCondBranchInstr HirCondBranchIterNotDone;
 
 /* ---- Simple container types ---- */
 typedef struct { HIR_DEOPT_FIELDS; uint32_t flags; } HirCallMethod;

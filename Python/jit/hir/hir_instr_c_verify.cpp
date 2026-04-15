@@ -125,6 +125,63 @@ struct HirInstrLayoutVerifier {
     static_assert(sizeof(HirPhi) == sizeof(Phi));
     static_assert(sizeof(HirBeginInlinedFunction) == sizeof(BeginInlinedFunction));
     static_assert(sizeof(HirHintType) == sizeof(HintType));
+
+    /* H2-A2: intermediate base class struct sizes */
+    static_assert(sizeof(HirCheckExc) == sizeof(CheckExc));
+    static_assert(sizeof(HirCheckNeg) == sizeof(CheckNeg));
+    static_assert(sizeof(HirIsNegativeAndErrOccurred) == sizeof(IsNegativeAndErrOccurred));
+    static_assert(sizeof(HirCheckVar) == sizeof(CheckVar));
+    static_assert(sizeof(HirCheckFreevar) == sizeof(CheckFreevar));
+    static_assert(sizeof(HirCheckField) == sizeof(CheckField));
+    static_assert(sizeof(HirLoadAttrCached) == sizeof(LoadAttrCached));
+    static_assert(sizeof(HirStoreAttr) == sizeof(StoreAttr));
+    static_assert(sizeof(HirStoreAttrCached) == sizeof(StoreAttrCached));
+    static_assert(sizeof(HirLoadGlobal) == sizeof(LoadGlobal));
+    static_assert(sizeof(HirLoadModuleAttrCached) == sizeof(LoadModuleAttrCached));
+    static_assert(sizeof(HirLoadMethod) == sizeof(LoadMethod));
+    static_assert(sizeof(HirLoadMethodCached) == sizeof(LoadMethodCached));
+    static_assert(sizeof(HirLoadModuleMethodCached) == sizeof(LoadModuleMethodCached));
+    static_assert(sizeof(HirLoadMethodSuper) == sizeof(LoadMethodSuper));
+    static_assert(sizeof(HirLoadAttrSuper) == sizeof(LoadAttrSuper));
+    static_assert(sizeof(HirLoadAttr) == sizeof(LoadAttr));
+    static_assert(sizeof(HirCondBranch) == sizeof(CondBranch));
+    static_assert(sizeof(HirCondBranchIterNotDone) == sizeof(CondBranchIterNotDone));
+
+    /* H2-A2: offsetof checks for intermediate base class custom fields.
+     * sizeof alone is INSUFFICIENT — padding hides missing fields. */
+
+    /* DeoptBaseWithNameIdx types: name_idx field */
+    static_assert(offsetof(HirDeleteAttr, name_idx) == offsetof(DeleteAttr, name_idx_));
+    static_assert(offsetof(HirLoadAttrCached, name_idx) == offsetof(LoadAttrCached, name_idx_));
+    static_assert(offsetof(HirStoreAttr, name_idx) == offsetof(StoreAttr, name_idx_));
+    static_assert(offsetof(HirStoreAttrCached, name_idx) == offsetof(StoreAttrCached, name_idx_));
+    static_assert(offsetof(HirLoadGlobal, name_idx) == offsetof(LoadGlobal, name_idx_));
+    static_assert(offsetof(HirLoadModuleAttrCached, name_idx) == offsetof(LoadModuleAttrCached, name_idx_));
+    static_assert(offsetof(HirLoadMethod, name_idx) == offsetof(LoadMethod, name_idx_));
+    static_assert(offsetof(HirLoadMethodCached, name_idx) == offsetof(LoadMethodCached, name_idx_));
+    static_assert(offsetof(HirLoadModuleMethodCached, name_idx) == offsetof(LoadModuleMethodCached, name_idx_));
+    static_assert(offsetof(HirFillTypeAttrCache, name_idx) == offsetof(FillTypeAttrCache, name_idx_));
+    static_assert(offsetof(HirFillTypeMethodCache, name_idx) == offsetof(FillTypeMethodCache, name_idx_));
+
+    /* LoadSuperBase types: name_idx + no_args_in_super_call */
+    static_assert(offsetof(HirLoadMethodSuper, name_idx) == offsetof(LoadMethodSuper, name_idx_));
+    static_assert(offsetof(HirLoadMethodSuper, no_args_in_super_call) == offsetof(LoadMethodSuper, no_args_in_super_call_));
+    static_assert(offsetof(HirLoadAttrSuper, name_idx) == offsetof(LoadAttrSuper, name_idx_));
+    static_assert(offsetof(HirLoadAttrSuper, no_args_in_super_call) == offsetof(LoadAttrSuper, no_args_in_super_call_));
+
+    /* CheckBaseWithName types: name field */
+    static_assert(offsetof(HirCheckVar, name) == offsetof(CheckVar, name_));
+    static_assert(offsetof(HirCheckFreevar, name) == offsetof(CheckFreevar, name_));
+    static_assert(offsetof(HirCheckField, name) == offsetof(CheckField, name_));
+
+    /* LoadAttr: name_idx + already_optimized */
+    static_assert(offsetof(HirLoadAttr, name_idx) == offsetof(LoadAttr, name_idx_));
+    static_assert(offsetof(HirLoadAttr, already_optimized) == offsetof(LoadAttr, already_optimized_));
+
+    /* Existing Batch 4b container-field offsetof checks */
+    static_assert(offsetof(HirFillTypeAttrCache, cache_id) == offsetof(FillTypeAttrCache, cache_id_));
+    static_assert(offsetof(HirFillTypeMethodCache, cache_id) == offsetof(FillTypeMethodCache, cache_id_));
+
     /* H2-A: DEFINE_SIMPLE_INSTR struct sizes */
     static_assert(sizeof(HirAssign) == sizeof(Assign));
     static_assert(sizeof(HirUnreachable) == sizeof(Unreachable));

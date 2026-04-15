@@ -1331,6 +1331,7 @@ class CheckBaseWithName : public CheckBase {
   }
 
  private:
+  friend struct ::HirInstrLayoutVerifier;
   BorrowedRef<> name_;
 };
 
@@ -2339,6 +2340,7 @@ class DeoptBaseWithNameIdx : public DeoptBase {
   }
 
  private:
+  friend struct ::HirInstrLayoutVerifier;
   int name_idx_;
 };
 
@@ -2366,6 +2368,7 @@ class INSTR_CLASS(
   }
 
  private:
+  friend struct ::HirInstrLayoutVerifier;
   bool already_optimized_;
 };
 
@@ -2512,6 +2515,7 @@ class INSTR_CLASS(
   }
 
  private:
+  friend struct ::HirInstrLayoutVerifier;
   int cache_id_;
 };
 
@@ -2603,6 +2607,7 @@ class LoadSuperBase : public DeoptBaseWithNameIdx {
   }
 
  private:
+  friend struct ::HirInstrLayoutVerifier;
   bool no_args_in_super_call_;
 };
 
@@ -2655,6 +2660,7 @@ class INSTR_CLASS(
   }
 
  private:
+  friend struct ::HirInstrLayoutVerifier;
   int cache_id_;
 };
 
