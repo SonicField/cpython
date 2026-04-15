@@ -202,6 +202,18 @@ HirInstr hir_c_create_long_binary_op(HirFunction func, int32_t op_kind,
 HirInstr hir_c_create_is_neg_and_err(HirFunction func, HirRegister src,
                                       void *frame_state);
 
+/* DeoptBaseWithNameIdx factories (1-op + name_idx + FrameState) */
+HirInstr hir_c_create_load_module_method_cached(HirFunction func,
+    HirRegister receiver, int name_idx, void *frame_state);
+HirInstr hir_c_create_load_method_cached(HirFunction func,
+    HirRegister receiver, int name_idx, void *frame_state);
+HirInstr hir_c_create_load_module_attr_cached(HirFunction func,
+    HirRegister receiver, int name_idx, void *frame_state);
+HirInstr hir_c_create_load_attr_cached(HirFunction func,
+    HirRegister receiver, int name_idx, void *frame_state);
+HirInstr hir_c_create_store_attr_cached(HirFunction func,
+    HirRegister obj, HirRegister value, int name_idx, void *frame_state);
+
 /* Simple DeoptBase factories (no custom fields beyond operands + FrameState) */
 HirInstr hir_c_create_dict_subscr(HirFunction func, HirRegister lhs,
                                    HirRegister rhs, void *frame_state);

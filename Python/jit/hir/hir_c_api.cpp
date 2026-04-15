@@ -639,6 +639,34 @@ HirInstr hir_c_create_check_seq_bounds(HirFunction func,
       *static_cast<const FrameState*>(frame_state));
 }
 
+/* ---- DeoptBaseWithNameIdx factories ---- */
+
+#define DEOPT_NAMEIDX1_FACTORY(name, CppType) \
+HirInstr hir_c_create_##name(HirFunction func, \
+    HirRegister receiver, int name_idx, void *frame_state) { \
+  if (!frame_state) return nullptr; \
+  auto* f = static_cast<Function*>(func); \
+  auto* dst = f->env.AllocateRegister(); \
+  return CppType::create( \
+      dst, as_reg(receiver), name_idx, \
+      *static_cast<const FrameState*>(frame_state)); \
+}
+
+DEOPT_NAMEIDX1_FACTORY(load_module_method_cached, LoadModuleMethodCached)
+DEOPT_NAMEIDX1_FACTORY(load_method_cached, LoadMethodCached)
+DEOPT_NAMEIDX1_FACTORY(load_module_attr_cached, LoadModuleAttrCached)
+DEOPT_NAMEIDX1_FACTORY(load_attr_cached, LoadAttrCached)
+#undef DEOPT_NAMEIDX1_FACTORY
+
+HirInstr hir_c_create_store_attr_cached(HirFunction func,
+    HirRegister obj, HirRegister value, int name_idx, void *frame_state) {
+  if (!frame_state) return nullptr;
+  auto* f = static_cast<Function*>(func);
+  return StoreAttrCached::create(
+      as_reg(obj), as_reg(value), name_idx,
+      *static_cast<const FrameState*>(frame_state));
+}
+
 /* ---- Simple DeoptBase factories (2-operand + FrameState, no custom fields) ---- */
 
 #define DEOPT2_FACTORY(name, CppType) \

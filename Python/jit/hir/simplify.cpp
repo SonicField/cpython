@@ -357,6 +357,38 @@ struct Env {
             func.env.AllocateRegister(), src, item_idx)));
   }
 
+  // DeoptBaseWithNameIdx helpers.
+  Register* emitLoadModuleMethodCached(Register* receiver, int name_idx,
+                                        const FrameState& fs) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_load_module_method_cached(
+        &func, receiver, name_idx,
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  Register* emitLoadMethodCached(Register* receiver, int name_idx,
+                                  const FrameState& fs) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_load_method_cached(
+        &func, receiver, name_idx,
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  Register* emitLoadModuleAttrCached(Register* receiver, int name_idx,
+                                      const FrameState& fs) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_load_module_attr_cached(
+        &func, receiver, name_idx,
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  Register* emitLoadAttrCached(Register* receiver, int name_idx,
+                                const FrameState& fs) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_load_attr_cached(
+        &func, receiver, name_idx,
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  Register* emitStoreAttrCached(Register* obj, Register* value, int name_idx,
+                                 const FrameState& fs) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_store_attr_cached(
+        &func, obj, value, name_idx,
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
   // Insert a pre-created instruction from a C factory into the current block.
   // Sets bytecode offset, inserts at cursor, computes output type.
   // Returns the output register (or nullptr if no output).
@@ -835,7 +867,7 @@ Register* simplifyLoadModuleMethodCached(
     const LoadMethod* load_meth) {
   Register* receiver = load_meth->GetOperand(0);
   int name_idx = load_meth->name_idx();
-  return env.emit<LoadModuleMethodCached>(
+  return env.emitLoadModuleMethodCached(
       receiver, name_idx, *load_meth->frameState());
 }
 
@@ -874,7 +906,7 @@ Register* simplifyLoadMethod(Env& env, const LoadMethod* load_meth) {
   if (type == &PyModule_Type || type == &Ci_StrictModule_Type) {
     return simplifyLoadModuleMethodCached(env, load_meth);
   }
-  return env.emit<LoadMethodCached>(
+  return env.emitLoadMethodCached(
       load_meth->GetOperand(0),
       load_meth->name_idx(),
       *load_meth->frameState());
@@ -1785,7 +1817,7 @@ Register* simplifyLoadAttr(Env& env, const LoadAttr* load_attr) {
     BorrowedRef<PyTypeObject> type{hir_type_runtime_py_type(&ty_hir2)};
 
     if (type == &PyModule_Type || type == &Ci_StrictModule_Type) {
-      return env.emit<LoadModuleAttrCached>(
+      return env.emitLoadModuleAttrCached(
           load_attr->GetOperand(0),
           load_attr->name_idx(),
           *load_attr->frameState());
@@ -1794,7 +1826,7 @@ Register* simplifyLoadAttr(Env& env, const LoadAttr* load_attr) {
     if (Register* reg = simplifyLoadAttrTypeReceiver(env, load_attr)) {
       return reg;
     }
-    return env.emit<LoadAttrCached>(
+    return env.emitLoadAttrCached(
         load_attr->GetOperand(0),
         load_attr->name_idx(),
         *load_attr->frameState());
@@ -1841,7 +1873,7 @@ Register* simplifyIsNegativeAndErrOccurred(
 
 Register* simplifyStoreAttr(Env& env, const StoreAttr* store_attr) {
   if (jit_get_config()->attr_caches) {
-    return env.emit<StoreAttrCached>(
+    return env.emitStoreAttrCached(
         store_attr->GetOperand(0),
         store_attr->GetOperand(1),
         store_attr->name_idx(),
