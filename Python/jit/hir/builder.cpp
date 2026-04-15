@@ -777,6 +777,17 @@ struct HIRBuilder::TranslationContext {
         hir_c_create_invoke_static_function_reg(n, dst, func, to_hir(ret_type)))));
   }
 
+  // Batch 8 wrappers
+  void emitLoadGlobalCached(Register* dst, PyCodeObject* code, PyDictObject* builtins, PyDictObject* globals, int name_idx) {
+    emitC(static_cast<Instr*>(hir_c_create_load_global_cached_reg(dst, code, builtins, globals, name_idx)));
+  }
+  void emitLoadFunctionIndirect(PyObject** ptr, PyObject* descr, Register* dst, const FrameState& fs) {
+    emitC(static_cast<Instr*>(hir_c_create_load_function_indirect_reg(ptr, descr, dst, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  void emitStoreArrayItem(Register* arr, Register* idx, Register* value, Register* container, Type elem_type) {
+    emitC(static_cast<Instr*>(hir_c_create_store_array_item_reg(arr, idx, value, container, to_hir(elem_type))));
+  }
+
   // Batch: 1-op HasOutput DeoptBase (dst, src, frame)
   void emitGetAIter(Register* dst, Register* src, const FrameState& fs) {
     emitC(static_cast<Instr*>(hir_c_create_get_a_iter_reg(
@@ -3607,7 +3618,7 @@ bool HIRBuilder::emitInvokeFunction(
     tc.emitLoadConst(funcreg, Type::fromObject(target.callable));
   } else {
     // The target is patchable so we have to load it indirectly
-    tc.emit<LoadFunctionIndirect>(
+    tc.emitLoadFunctionIndirect(
         target.indirect_ptr, descr, funcreg, tc.frame);
   }
 
@@ -4977,7 +4988,7 @@ void HIRBuilder::emitSequenceSet(
   } else {
     JIT_ABORT("Unsupported oparg for SEQUENCE_SET: {}", oparg);
   }
-  tc.emit<StoreArrayItem>(
+  tc.emitStoreArrayItem(
       ob_item,
       adjusted_idx,
       value,
@@ -5005,7 +5016,7 @@ void HIRBuilder::emitLoadGlobal(
     if (value == nullptr) {
       return false;
     }
-    tc.emit<LoadGlobalCached>(
+    tc.emitLoadGlobalCached(
         result, code_, preloader_.builtins(), preloader_.globals(), name_idx);
     auto guard_is = tc.emitGuardIs(result, value, result);
     BorrowedRef<> name = PyTuple_GET_ITEM(code_->co_names, name_idx);

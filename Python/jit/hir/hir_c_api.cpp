@@ -1185,6 +1185,19 @@ HirInstr hir_c_create_invoke_static_function_reg(size_t n_operands, HirRegister 
   return InvokeStaticFunction::create(n_operands, as_reg(dst), static_cast<PyFunctionObject*>(func), cpp_type);
 }
 
+HirInstr hir_c_create_load_global_cached_reg(HirRegister dst, void *code, void *builtins, void *globals, int32_t name_idx) {
+  return LoadGlobalCached::create(as_reg(dst), static_cast<PyCodeObject*>(code),
+      static_cast<PyDictObject*>(builtins), static_cast<PyDictObject*>(globals), name_idx);
+}
+HirInstr hir_c_create_load_function_indirect_reg(void *indirect_ptr, void *descr, HirRegister dst, void *fs) {
+  return LoadFunctionIndirect::create(static_cast<PyObject**>(indirect_ptr),
+      static_cast<PyObject*>(descr), as_reg(dst), *static_cast<const FrameState*>(fs));
+}
+HirInstr hir_c_create_store_array_item_reg(HirRegister arr, HirRegister idx, HirRegister value, HirRegister container, HirType elem_type) {
+  Type cpp_type = Type::fromHirType(elem_type);
+  return StoreArrayItem::create(as_reg(arr), as_reg(idx), as_reg(value), as_reg(container), cpp_type);
+}
+
 HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
     HirRegister src, void *body_block, void *done_block) {
   return CondBranchIterNotDone::create(
