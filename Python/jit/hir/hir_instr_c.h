@@ -156,6 +156,8 @@ typedef struct { HIR_INSTR_FIELDS; int32_t cache_id; } HirLoadTypeMethodCacheEnt
 
 /* ---- Multi-field (Instr base) ---- */
 typedef struct { HIR_INSTR_FIELDS; void *addr; HirType ret_type; } HirCallStatic;
+/* WARNING: inline_depth defaults to -1 in C++ (hir.h:1731).
+ * Any C factory for this type MUST set inline_depth = -1. */
 typedef struct { HIR_INSTR_FIELDS; void *begin; int32_t inline_depth; } HirEndInlinedFunction;
 typedef struct { HIR_INSTR_FIELDS; int32_t line_no; int32_t _pad; void *parent; } HirUpdatePrevInstr;
 typedef struct { HIR_INSTR_FIELDS; uint32_t arg_idx; int32_t _pad; HirType type; } HirLoadArg;
