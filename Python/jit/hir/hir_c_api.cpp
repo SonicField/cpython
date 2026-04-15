@@ -585,6 +585,42 @@ HirInstr hir_c_create_check_exc(HirFunction func, HirRegister src,
       *static_cast<const FrameState*>(frame_state));
 }
 
+/* ---- FloatBinaryOp / LongBinaryOp / IsNegativeAndErrOccurred factories ---- */
+
+HirInstr hir_c_create_float_binary_op(HirFunction func, int32_t op_kind,
+                                       HirRegister left, HirRegister right,
+                                       void *frame_state) {
+  if (!frame_state) return nullptr;
+  auto* f = static_cast<Function*>(func);
+  auto* dst = f->env.AllocateRegister();
+  return FloatBinaryOp::create(
+      dst, static_cast<BinaryOpKind>(op_kind),
+      as_reg(left), as_reg(right),
+      *static_cast<const FrameState*>(frame_state));
+}
+
+HirInstr hir_c_create_long_binary_op(HirFunction func, int32_t op_kind,
+                                      HirRegister left, HirRegister right,
+                                      void *frame_state) {
+  if (!frame_state) return nullptr;
+  auto* f = static_cast<Function*>(func);
+  auto* dst = f->env.AllocateRegister();
+  return LongBinaryOp::create(
+      dst, static_cast<BinaryOpKind>(op_kind),
+      as_reg(left), as_reg(right),
+      *static_cast<const FrameState*>(frame_state));
+}
+
+HirInstr hir_c_create_is_neg_and_err(HirFunction func, HirRegister src,
+                                      void *frame_state) {
+  if (!frame_state) return nullptr;
+  auto* f = static_cast<Function*>(func);
+  auto* dst = f->env.AllocateRegister();
+  return IsNegativeAndErrOccurred::create(
+      dst, as_reg(src),
+      *static_cast<const FrameState*>(frame_state));
+}
+
 /* ---- Branch/CondBranch factories (C++ bridge for Edge management) ---- */
 
 HirInstr hir_c_create_branch_cpp(void *target_block) {

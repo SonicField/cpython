@@ -158,6 +158,23 @@ HirInstr hir_load_const_bottom_create(HirRegister output);
 /* Create an Assign instruction (copy register). */
 HirInstr hir_assign_create(HirRegister output, HirRegister value);
 
+/* Create a FloatBinaryOp instruction (DeoptBase + enum op).
+ * Allocates output register from func's env. Returns the instruction. */
+HirInstr hir_c_create_float_binary_op(HirFunction func, int32_t op_kind,
+                                       HirRegister left, HirRegister right,
+                                       void *frame_state);
+
+/* Create a LongBinaryOp instruction (DeoptBase + enum op).
+ * Allocates output register from func's env. Returns the instruction. */
+HirInstr hir_c_create_long_binary_op(HirFunction func, int32_t op_kind,
+                                      HirRegister left, HirRegister right,
+                                      void *frame_state);
+
+/* Create an IsNegativeAndErrOccurred instruction (DeoptBase, no custom fields).
+ * Allocates output register from func's env. Returns the instruction. */
+HirInstr hir_c_create_is_neg_and_err(HirFunction func, HirRegister src,
+                                      void *frame_state);
+
 /* Create a Branch instruction (0 operands, 1 edge).
  * Uses C++ Edge::set_to for proper in_edges management. */
 HirInstr hir_c_create_branch_cpp(void *target_block);

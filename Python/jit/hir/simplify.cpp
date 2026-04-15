@@ -251,6 +251,24 @@ struct Env {
         func.env.AllocateRegister(), src, exc)));
   }
 
+  // DeoptBase C++ bridge helpers.
+  Register* emitFloatBinaryOp(BinaryOpKind op, Register* left, Register* right,
+                               const FrameState& fs) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_float_binary_op(
+        &func, static_cast<int32_t>(op), left, right,
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  Register* emitLongBinaryOp(BinaryOpKind op, Register* left, Register* right,
+                              const FrameState& fs) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_long_binary_op(
+        &func, static_cast<int32_t>(op), left, right,
+        const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+  Register* emitIsNegativeAndErrOccurred(Register* src, const FrameState& fs) {
+    return emitCInstr(static_cast<Instr*>(hir_c_create_is_neg_and_err(
+        &func, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+  }
+
   // Insert a pre-created instruction from a C factory into the current block.
   // Sets bytecode offset, inserts at cursor, computes output type.
   // Returns the output register (or nullptr if no output).
@@ -817,7 +835,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
       env.emitUseType(lhs, lhs->isA(TListExact) ? TListExact : TTupleExact);
       env.emitUseType(rhs, TLongExact);
       Register* right_index = env.emitIndexUnbox(rhs);
-      env.emit<IsNegativeAndErrOccurred>(right_index, *instr->frameState());
+      env.emitIsNegativeAndErrOccurred(right_index, *instr->frameState());
       Register* adjusted_idx =
           env.emit<CheckSequenceBounds>(lhs, right_index, *instr->frameState());
       Py_ssize_t offset = offsetof(PyTupleObject, ob_item);
@@ -875,7 +893,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
         env.emitUseType(lhs, TUnicodeExact);
         env.emitUseType(rhs, TLongExact);
         Register* unboxed_idx = env.emitIndexUnbox(rhs);
-        env.emit<IsNegativeAndErrOccurred>(unboxed_idx, *instr->frameState());
+        env.emitIsNegativeAndErrOccurred(unboxed_idx, *instr->frameState());
         Register* adjusted_idx = env.emit<CheckSequenceBounds>(
             lhs, unboxed_idx, *instr->frameState());
         return env.emit<UnicodeSubscr>(lhs, adjusted_idx, *instr->frameState());
@@ -892,7 +910,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
     }
     env.emitUseType(lhs, TLongExact);
     env.emitUseType(rhs, TLongExact);
-    return env.emit<LongBinaryOp>(op, lhs, rhs, *instr->frameState());
+    return env.emitLongBinaryOp(op, lhs, rhs, *instr->frameState());
   }
 
   // BinaryOp float speculation: guard Object operand to FloatExact.
@@ -906,7 +924,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
         env.emitUseType(lhs, TFloatExact);
         Register* guarded = env.emitCInstr(static_cast<Instr*>(
             hir_c_create_guard_type(&env.func, to_hir(TFloatExact), rhs, instr->frameState())));
-        return env.emit<FloatBinaryOp>(op, lhs, guarded,
+        return env.emitFloatBinaryOp(op, lhs, guarded,
                                         *instr->frameState());
       }
     }
@@ -918,7 +936,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
         env.emitUseType(rhs, TFloatExact);
         Register* guarded = env.emitCInstr(static_cast<Instr*>(
             hir_c_create_guard_type(&env.func, to_hir(TFloatExact), lhs, instr->frameState())));
-        return env.emit<FloatBinaryOp>(op, guarded, rhs,
+        return env.emitFloatBinaryOp(op, guarded, rhs,
                                         *instr->frameState());
       }
     }
@@ -932,7 +950,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
                           reinterpret_cast<const HirType*>(&TLongExact))) {
       env.emitUseType(lhs, TLongExact);
       Register* guarded = env.emitGuardType(TLongExact, rhs, instr->frameState());
-      return env.emit<LongBinaryOp>(op, lhs, guarded,
+      return env.emitLongBinaryOp(op, lhs, guarded,
                                       *instr->frameState());
     }
     auto lhs_type_l = lhs->type();
@@ -941,7 +959,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
                           reinterpret_cast<const HirType*>(&TLongExact))) {
       env.emitUseType(rhs, TLongExact);
       Register* guarded = env.emitGuardType(TLongExact, lhs, instr->frameState());
-      return env.emit<LongBinaryOp>(op, guarded, rhs,
+      return env.emitLongBinaryOp(op, guarded, rhs,
                                       *instr->frameState());
     }
   }
@@ -951,7 +969,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
        FloatBinaryOp::slotMethod(instr->op()))) {
     env.emitUseType(lhs, TFloatExact);
     env.emitUseType(rhs, TFloatExact);
-    return env.emit<FloatBinaryOp>(instr->op(), lhs, rhs, *instr->frameState());
+    return env.emitFloatBinaryOp(instr->op(), lhs, rhs, *instr->frameState());
   }
 
   // Phase 3: Constant-fold int->float for mixed (FloatExact, LongExact) ops.
@@ -985,7 +1003,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
           env.emitUseType(int_reg, int_reg->type());
           Register* float_const = env.emitLoadConst(
               Type::fromObject(env.func.env.addReference(std::move(float_obj))));
-          return env.emit<FloatBinaryOp>(op,
+          return env.emitFloatBinaryOp(op,
               (int_reg == lhs) ? float_const : lhs,
               (int_reg == rhs) ? float_const : rhs,
               *instr->frameState());
@@ -998,7 +1016,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
   if ((lhs->isA(TUnicodeExact) && rhs->isA(TLongExact)) &&
       (op == BinaryOpKind::kMultiply)) {
     Register* unboxed_rhs = env.emitIndexUnbox(rhs, PyExc_OverflowError);
-    env.emit<IsNegativeAndErrOccurred>(unboxed_rhs, *instr->frameState());
+    env.emitIsNegativeAndErrOccurred(unboxed_rhs, *instr->frameState());
     return env.emit<UnicodeRepeat>(lhs, unboxed_rhs, *instr->frameState());
   }
 
@@ -1058,7 +1076,7 @@ Register* simplifyInPlaceOp(Env& env, const InPlaceOp* instr) {
     if (binop && (FloatBinaryOp::slotMethod(*binop) || *binop == BinaryOpKind::kPower)) {
       Register* guarded_lhs = env.emitGuardType(TFloatExact, lhs, instr->frameState());
       env.emitUseType(rhs, TFloatExact);
-      return env.emit<FloatBinaryOp>(*binop, guarded_lhs, rhs, *instr->frameState());
+      return env.emitFloatBinaryOp(*binop, guarded_lhs, rhs, *instr->frameState());
     }
   }
 
@@ -1079,7 +1097,7 @@ Register* simplifyInPlaceOp(Env& env, const InPlaceOp* instr) {
     if (binop && (FloatBinaryOp::slotMethod(*binop) || *binop == BinaryOpKind::kPower)) {
       env.emitUseType(lhs, TFloatExact);
       env.emitUseType(rhs, TFloatExact);
-      return env.emit<FloatBinaryOp>(*binop, lhs, rhs, *instr->frameState());
+      return env.emitFloatBinaryOp(*binop, lhs, rhs, *instr->frameState());
     }
   }
 
@@ -1094,7 +1112,7 @@ Register* simplifyInPlaceOp(Env& env, const InPlaceOp* instr) {
                   *binop == BinaryOpKind::kPower)) {
       env.emitUseType(lhs, TFloatExact);
       Register* guarded = env.emitGuardType(TFloatExact, rhs, instr->frameState());
-      return env.emit<FloatBinaryOp>(*binop, lhs, guarded,
+      return env.emitFloatBinaryOp(*binop, lhs, guarded,
                                       *instr->frameState());
     }
   }
@@ -1107,7 +1125,7 @@ Register* simplifyInPlaceOp(Env& env, const InPlaceOp* instr) {
                   *binop == BinaryOpKind::kPower)) {
       env.emitUseType(rhs, TFloatExact);
       Register* guarded = env.emitGuardType(TFloatExact, lhs, instr->frameState());
-      return env.emit<FloatBinaryOp>(*binop, guarded, rhs,
+      return env.emitFloatBinaryOp(*binop, guarded, rhs,
                                       *instr->frameState());
     }
   }
