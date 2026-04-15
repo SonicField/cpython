@@ -205,9 +205,8 @@ MemoryEffects memoryEffects(const Instr& inst) {
 
     case Opcode::kDecref:
     case Opcode::kXDecref: {
-      auto op_type = inst.GetOperand(0)->type();
-      if (hir_type_has_known_destructor(
-              reinterpret_cast<const HirType*>(&op_type))) {
+      HirType op_hir = Type::toHirType(inst.GetOperand(0)->type());
+      if (hir_type_has_known_destructor(&op_hir)) {
         return {false, AEmpty, {inst.NumOperands()}, AOther};
       } else {
         return {false, AEmpty, {1, 1}, AManagedHeapAny};

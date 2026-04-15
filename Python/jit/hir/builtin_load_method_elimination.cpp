@@ -188,8 +188,8 @@ bool tryEliminateLoadMethod(Function& irfunc, MethodInvoke& invoke) {
         type_reg,
         Type::fromObject(
             reinterpret_cast<PyObject*>(
-                hir_type_runtime_py_type(
-                    reinterpret_cast<const HirType*>(&receiver_type)))));
+                [&]{ HirType h = to_hir(receiver_type);
+                     return hir_type_runtime_py_type(&h); }())));
     load_type->setBytecodeOffset(invoke.load_method->bytecodeOffset());
     load_type->InsertBefore(*invoke.call_method);
     call_static->SetOperand(1, type_reg);

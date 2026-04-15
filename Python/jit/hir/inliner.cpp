@@ -419,9 +419,8 @@ void InlineFunctionCalls::Run(Function& irfunc) {
               target->type(),
               caller_name);
           // Speculative inlining: check IC for resolved method
-          auto target_ty = target->type();
-          PyTypeObject* recv_type = hir_type_runtime_py_type(
-              reinterpret_cast<const HirType*>(&target_ty));
+          HirType target_hir = Type::toHirType(target->type());
+          PyTypeObject* recv_type = hir_type_runtime_py_type(&target_hir);
           if (recv_type != nullptr) {
             auto* fs = call->asDeoptBase() ? call->asDeoptBase()->frameState() : nullptr;
             if (fs != nullptr) {
@@ -455,8 +454,8 @@ void InlineFunctionCalls::Run(Function& irfunc) {
         }
 
         auto target_ty2 = target->type();
-        BorrowedRef<PyFunctionObject> callee{
-            hir_type_object_spec(reinterpret_cast<const HirType*>(&target_ty2))};
+        HirType target_hir2 = Type::toHirType(target_ty2);
+        BorrowedRef<PyFunctionObject> callee{hir_type_object_spec(&target_hir2)};
         to_inline.emplace_back(callee, call->numArgs(), call, target);
       } else if (instr.IsInvokeStaticFunction()) {
         auto call = static_cast<InvokeStaticFunction*>(&instr);
