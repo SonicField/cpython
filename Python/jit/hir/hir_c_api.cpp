@@ -83,14 +83,19 @@ static void verify_hir_type_layout() {
     assert(c_tyexact.pytype == &PyLong_Type &&
            "C/C++ HirType kSpecTypeExact value divergence");
 
-    /* Verify TFloatExact round-trip */
+    /* Verify TFloatExact round-trip (base type constant, kSpecTop) */
     HirType c_flt = Type::toHirType(TFloatExact);
-    assert(hir_type_bits(&c_flt) == Type::kFloat &&
+    assert(hir_type_bits(&c_flt) == Type::kFloatExact &&
            "C/C++ HirType TFloatExact bits divergence");
-    assert(hir_type_has_type_exact_spec(&c_flt) &&
+    assert(hir_type_spec_kind(&c_flt) == 0 /* kSpecTop */ &&
            "C/C++ HirType TFloatExact spec divergence");
-    assert(c_flt.pytype == &PyFloat_Type &&
-           "C/C++ HirType TFloatExact pytype divergence");
+
+    /* Verify fromTypeExact (type-specialized, kSpecTypeExact + pytype) */
+    HirType c_flt_spec = Type::toHirType(Type::fromTypeExact(&PyFloat_Type));
+    assert(hir_type_has_type_exact_spec(&c_flt_spec) &&
+           "C/C++ HirType fromTypeExact spec divergence");
+    assert(c_flt_spec.pytype == &PyFloat_Type &&
+           "C/C++ HirType fromTypeExact pytype divergence");
 
     /* Verify memcpy round-trip matches toHirType */
     HirType c_memcpy;
