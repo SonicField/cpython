@@ -16,17 +16,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-/* Forward-declare PhxPtrArray before frame_state.h include to break
- * circular dependency: hir_instr_c.h → frame_state.h → hir_instr_c.h.
- * The full definition follows below in the extern "C" block. */
-#ifndef PHX_PTR_ARRAY_DECLARED
-#define PHX_PTR_ARRAY_DECLARED
-typedef struct PhxPtrArray {
-    void **data;
-    size_t count;
-    size_t capacity;
-} PhxPtrArray;
-#endif
+/* PhxPtrArray must be available before frame_state.h (circular include). */
+#include "cinderx/Jit/hir/phx_ptr_array.h"
 
 #ifdef __cplusplus
 /* H2-E1+E2: no more C++ containers in DeoptBase.
@@ -96,51 +87,7 @@ static inline int phx_edge_arr_empty(const PhxEdgePtrArray *a) {
     return a->count == 0;
 }
 
-/* ---- Void pointer array (generic, used for Register* arrays) ----
- * FrameState→C: replaces std::vector<Register*> and jit::Stack<Register*>.
- * Definition may already exist from forward-declaration above. */
-#ifndef PHX_PTR_ARRAY_DECLARED
-#define PHX_PTR_ARRAY_DECLARED
-typedef struct PhxPtrArray {
-    void **data;
-    size_t count;
-    size_t capacity;
-} PhxPtrArray;
-#endif
-
-static inline void phx_ptr_arr_init(PhxPtrArray *a) {
-    a->data = NULL; a->count = 0; a->capacity = 0;
-}
-static inline void phx_ptr_arr_destroy(PhxPtrArray *a) {
-    free(a->data); a->data = NULL; a->count = 0; a->capacity = 0;
-}
-static inline void phx_ptr_arr_push(PhxPtrArray *a, void *val) {
-    if (a->count == a->capacity) {
-        size_t new_cap = a->capacity ? a->capacity * 2 : 8;
-        a->data = (void **)realloc(a->data, new_cap * sizeof(void *));
-        a->capacity = new_cap;
-    }
-    a->data[a->count++] = val;
-}
-static inline void *phx_ptr_arr_pop(PhxPtrArray *a) {
-    return a->data[--a->count];
-}
-static inline void phx_ptr_arr_clear(PhxPtrArray *a) {
-    a->count = 0;
-}
-static inline void phx_ptr_arr_resize(PhxPtrArray *a, size_t n) {
-    if (n > a->capacity) {
-        a->data = (void **)realloc(a->data, n * sizeof(void *));
-        a->capacity = n;
-    }
-    a->count = n;
-}
-static inline void phx_ptr_arr_reserve(PhxPtrArray *a, size_t n) {
-    if (n > a->capacity) {
-        a->data = (void **)realloc(a->data, n * sizeof(void *));
-        a->capacity = n;
-    }
-}
+/* PhxPtrArray type + functions now in phx_ptr_array.h (included above). */
 
 /* ---- OperandType (C equivalent of hir::OperandType) ---- */
 typedef enum {

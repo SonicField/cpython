@@ -4,7 +4,7 @@
 
 #include "cinderx/Common/log.h"
 #include "cinderx/Jit/bytecode.h"
-#include "cinderx/Jit/hir/hir_instr_c.h"
+#include "cinderx/Jit/hir/phx_ptr_array.h"
 #include "cinderx/Jit/hir/register.h"
 #include "cinderx/Jit/stack.h"
 
