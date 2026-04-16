@@ -1,27 +1,52 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/bytecode.h"
-#include "cinderx/Jit/bytecode_c.h"
 
 namespace jit {
 
 int BytecodeInstruction::opcode() const {
-  JitBytecodeInstr c;
-  jit_bc_instr_init(&c, code_, baseOffset_.value());
-  return jit_bc_instr_opcode(&c);
+  int op = _Py_OPCODE(word());
+  if (extendedOpcode_) {
+    return EXTENDED_OPCODE_FLAG | op;
+  }
+  return op;
 }
 
 void BytecodeInstruction::calcOpcodeOffsetAndOparg() const {
   if (opcodeIndex_.value() != std::numeric_limits<int>::min()) {
     return;
   }
-  // Delegate to C implementation, copy results back to mutable fields.
-  JitBytecodeInstr c;
-  jit_bc_instr_init(&c, code_, baseOffset_.value());
-  jit_bc_instr_opcode_offset(&c);  // triggers lazy computation
-  opcodeIndex_ = BCIndex{c.opcode_index};
-  extendedOparg_ = c.extended_oparg;
-  extendedOpcode_ = c.extended_opcode;
+
+  opcodeIndex_ = baseOffset_;
+  BCIndex end_idx{countIndices(code_)};
+  if (opcodeIndex_.value() >= end_idx) {
+    return;
+  }
+
+  // Consume all EXTENDED_ARG opcodes until we get to something else.
+  auto consume_extended_args = [&] {
+    while (_Py_OPCODE(word()) == EXTENDED_ARG) {
+      JIT_DCHECK(
+          opcodeIndex_.value() < end_idx, "EXTENDED_ARG at end of bytecode");
+      extendedOparg_ = (extendedOparg_ << 8) | _Py_OPARG(word());
+      opcodeIndex_++;
+    }
+  };
+
+  consume_extended_args();
+
+  // Check for EXTENDED_OPCODE, bump forward one opcode if so.
+  if (PY_VERSION_HEX >= 0x030E0000 && _Py_OPCODE(word()) == EXTENDED_OPCODE) {
+    opcodeIndex_++;
+    extendedOparg_ = 0;
+    extendedOpcode_ = true;
+  }
+
+  // If we had an EXTENDED_OPCODE, then it might also be followed by more
+  // EXTENDED_ARGS.
+  consume_extended_args();
+
+  extendedOparg_ = (extendedOparg_ << 8) | _Py_OPARG(word());
 }
 
 int BytecodeInstruction::specializedOpcode() const {
@@ -65,21 +90,50 @@ int BytecodeInstruction::specializedOpcode() const {
 }
 
 bool BytecodeInstruction::isBranch() const {
-  JitBytecodeInstr c;
-  jit_bc_instr_init(&c, code_, baseOffset_.value());
-  return jit_bc_instr_is_branch(&c) != 0;
+  switch (opcode()) {
+    case FOR_ITER:
+    case JUMP_ABSOLUTE:
+    case JUMP_BACKWARD:
+    case JUMP_BACKWARD_NO_INTERRUPT:
+    case JUMP_FORWARD:
+    case JUMP_IF_FALSE_OR_POP:
+    case JUMP_IF_NONZERO_OR_POP:
+    case JUMP_IF_NOT_EXC_MATCH:
+    case JUMP_IF_TRUE_OR_POP:
+    case JUMP_IF_ZERO_OR_POP:
+    case POP_JUMP_IF_FALSE:
+    case POP_JUMP_IF_NONE:
+    case POP_JUMP_IF_NONZERO:
+    case POP_JUMP_IF_NOT_NONE:
+    case POP_JUMP_IF_TRUE:
+    case POP_JUMP_IF_ZERO:
+    case SEND:
+    case SETUP_FINALLY:
+      return true;
+    default:
+      return false;
+  }
 }
 
 bool BytecodeInstruction::isReturn() const {
-  JitBytecodeInstr c;
-  jit_bc_instr_init(&c, code_, baseOffset_.value());
-  return jit_bc_instr_is_return(&c) != 0;
+  switch (opcode()) {
+    case RETURN_CONST:
+    case RETURN_PRIMITIVE:
+    case RETURN_VALUE:
+      return true;
+    default:
+      return false;
+  }
 }
 
 bool BytecodeInstruction::isTerminator() const {
-  JitBytecodeInstr c;
-  jit_bc_instr_init(&c, code_, baseOffset_.value());
-  return jit_bc_instr_is_terminator(&c) != 0;
+  switch (opcode()) {
+    case RAISE_VARARGS:
+    case RERAISE:
+      return true;
+    default:
+      return isBranch() || isReturn();
+  }
 }
 
 BCOffset BytecodeInstruction::getJumpTarget() const {
@@ -113,9 +167,8 @@ BCOffset BytecodeInstruction::getJumpTarget() const {
 }
 
 BCOffset BytecodeInstruction::nextInstrOffset() const {
-  JitBytecodeInstr c;
-  jit_bc_instr_init(&c, code_, baseOffset_.value());
-  return BCOffset{jit_bc_instr_next_offset(&c)};
+  return BCOffset{
+      opcodeIndex() + inlineCacheSize(code_, opcodeIndex().value()) + 1};
 }
 
 _Py_CODEUNIT BytecodeInstruction::word() const {
