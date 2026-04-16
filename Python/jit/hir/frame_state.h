@@ -57,11 +57,52 @@ struct FrameState {
   // Used for testing only.
   explicit FrameState(BCOffset bc_off) : cur_instr_offs(bc_off) {}
 
-  FrameState(const FrameState& other) = default;
-  FrameState& operator=(const FrameState& other) = default;
+  // FrameState→C step 1: explicit lifecycle (was defaulted).
+  // Behavioral no-op — same as compiler-generated defaults.
+  // Prepares for step 2: swap std::vector/Stack → PhxPtrArray.
+  FrameState(const FrameState& other)
+      : cur_instr_offs(other.cur_instr_offs),
+        localsplus(other.localsplus),
+        nlocals(other.nlocals),
+        stack(other.stack),
+        block_stack(other.block_stack),
+        code(other.code),
+        globals(other.globals),
+        builtins(other.builtins),
+        parent(other.parent) {}
 
-  bool operator==(const FrameState& other) const = default;
-  bool operator!=(const FrameState& other) const = default;
+  FrameState& operator=(const FrameState& other) {
+    if (this != &other) {
+      cur_instr_offs = other.cur_instr_offs;
+      localsplus = other.localsplus;
+      nlocals = other.nlocals;
+      stack = other.stack;
+      block_stack = other.block_stack;
+      code = other.code;
+      globals = other.globals;
+      builtins = other.builtins;
+      parent = other.parent;
+    }
+    return *this;
+  }
+
+  ~FrameState() = default;
+
+  bool operator==(const FrameState& other) const {
+    return cur_instr_offs == other.cur_instr_offs &&
+        localsplus == other.localsplus &&
+        nlocals == other.nlocals &&
+        stack == other.stack &&
+        block_stack == other.block_stack &&
+        code == other.code &&
+        globals == other.globals &&
+        builtins == other.builtins &&
+        parent == other.parent;
+  }
+
+  bool operator!=(const FrameState& other) const {
+    return !(*this == other);
+  }
 
   // If the function is inlined into another function, the depth at which it
   // is inlined (nested function calls may be inlined). Starts at 1. If the
