@@ -80,7 +80,7 @@ void HIRPrinter::Print(std::ostream& os, const CFG& cfg) {
 void HIRPrinter::Print(std::ostream& os, const BasicBlock& block) {
   Indented(os);
   fmt::print(os, "bb {}", block.id);
-  auto& in_edges = block.in_edges();
+  auto in_edges = block.in_edges();
   if (!in_edges.empty()) {
     std::vector<const Edge*> edges(in_edges.begin(), in_edges.end());
     std::sort(edges.begin(), edges.end(), [](auto& e1, auto& e2) {
