@@ -1088,7 +1088,8 @@ HirInstr hir_c_create_initial_yield_reg(HirRegister dst, void *frame_state) {
   HirInitialYield *y = (HirInitialYield *)hir_c_alloc_instr(sizeof(HirInitialYield), 0);
   hir_c_init_deopt(y, HIR_OP_InitialYield);
   hir_c_set_output(y, dst);
-  as_instr(y)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  if (frame_state)
+    as_instr(y)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
   return y;
 }
 
@@ -1159,7 +1160,8 @@ HirInstr hir_c_create_format_with_spec_reg(HirRegister dst, HirRegister value,
   hir_c_set_output(f, dst);
   hir_c_set_operand(f, 0, value);
   hir_c_set_operand(f, 1, fmt_spec);
-  as_instr(f)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  if (frame_state)
+    as_instr(f)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
   return f;
 }
 
@@ -1276,7 +1278,8 @@ HirInstr hir_c_create_delete_subscr_reg(HirRegister container, HirRegister sub, 
   hir_c_init_deopt(d, HIR_OP_DeleteSubscr);
   hir_c_set_operand(d, 0, container);
   hir_c_set_operand(d, 1, sub);
-  as_instr(d)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  if (fs)
+    as_instr(d)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
   return d;
 }
 HirInstr hir_c_create_store_attr_reg(HirRegister receiver, HirRegister value, int32_t idx, void *fs) {
@@ -1285,7 +1288,8 @@ HirInstr hir_c_create_store_attr_reg(HirRegister receiver, HirRegister value, in
   s->name_idx = idx;
   hir_c_set_operand(s, 0, receiver);
   hir_c_set_operand(s, 1, value);
-  as_instr(s)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  if (fs)
+    as_instr(s)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
   return s;
 }
 HirInstr hir_c_create_swap_cell_item_reg(HirRegister dst, HirRegister cell, HirRegister value) {
@@ -1320,7 +1324,8 @@ HirInstr hir_c_create_run_periodic_tasks_reg(HirRegister dst, void *fs) {
   HirRunPeriodicTasks *r = (HirRunPeriodicTasks *)hir_c_alloc_instr(sizeof(HirRunPeriodicTasks), 0);
   hir_c_init_deopt(r, HIR_OP_RunPeriodicTasks);
   hir_c_set_output(r, dst);
-  as_instr(r)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  if (fs)
+    as_instr(r)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
   return r;
 }
 
@@ -1407,7 +1412,8 @@ HirInstr hir_c_create_load_global_reg(HirRegister dst, int32_t name_idx, void *f
   hir_c_init_deopt(lg, HIR_OP_LoadGlobal);
   lg->name_idx = name_idx;
   hir_c_set_output(lg, dst);
-  as_instr(lg)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  if (fs)
+    as_instr(lg)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
   return lg;
 }
 
@@ -1517,8 +1523,39 @@ HirInstr hir_c_create_load_method_reg(HirRegister dst, HirRegister receiver, int
   m->name_idx = name_idx;
   hir_c_set_output(m, dst);
   hir_c_set_operand(m, 0, receiver);
-  as_instr(m)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  if (fs)
+    as_instr(m)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
   return m;
+}
+HirInstr hir_c_create_load_method_cached_reg(HirRegister dst, HirRegister receiver, int32_t name_idx, void *fs) {
+  HirLoadMethodCached *m = (HirLoadMethodCached *)hir_c_alloc_instr(sizeof(HirLoadMethodCached), 1);
+  hir_c_init_deopt(m, HIR_OP_LoadMethodCached);
+  m->name_idx = name_idx;
+  hir_c_set_output(m, dst);
+  hir_c_set_operand(m, 0, receiver);
+  if (fs)
+    as_instr(m)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return m;
+}
+HirInstr hir_c_create_load_attr_cached_reg(HirRegister dst, HirRegister receiver, int32_t name_idx, void *fs) {
+  HirLoadAttrCached *a = (HirLoadAttrCached *)hir_c_alloc_instr(sizeof(HirLoadAttrCached), 1);
+  hir_c_init_deopt(a, HIR_OP_LoadAttrCached);
+  a->name_idx = name_idx;
+  hir_c_set_output(a, dst);
+  hir_c_set_operand(a, 0, receiver);
+  if (fs)
+    as_instr(a)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return a;
+}
+HirInstr hir_c_create_store_attr_cached_reg(HirRegister receiver, HirRegister value, int32_t name_idx, void *fs) {
+  HirStoreAttrCached *s = (HirStoreAttrCached *)hir_c_alloc_instr(sizeof(HirStoreAttrCached), 2);
+  hir_c_init_deopt(s, HIR_OP_StoreAttrCached);
+  s->name_idx = name_idx;
+  hir_c_set_operand(s, 0, receiver);
+  hir_c_set_operand(s, 1, value);
+  if (fs)
+    as_instr(s)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  return s;
 }
 HirInstr hir_c_create_load_special_reg(HirRegister dst, HirRegister self, int32_t oparg, void *fs) {
   HirLoadSpecial *l = (HirLoadSpecial *)hir_c_alloc_instr(sizeof(HirLoadSpecial), 1);
@@ -1880,7 +1917,8 @@ HirInstr hir_c_create_yield_value_reg(HirRegister dst, HirRegister src,
   hir_c_init_deopt(y, HIR_OP_YieldValue);
   hir_c_set_output(y, dst);
   hir_c_set_operand(y, 0, src);
-  as_instr(y)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  if (frame_state)
+    as_instr(y)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
   return y;
 }
 
@@ -1902,7 +1940,8 @@ HirInstr hir_c_create_check_var_reg(HirRegister dst, HirRegister src,
   c->name = name;
   hir_c_set_output(c, dst);
   hir_c_set_operand(c, 0, src);
-  as_instr(c)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  if (frame_state)
+    as_instr(c)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
   return c;
 }
 
@@ -1935,7 +1974,8 @@ HirInstr hir_c_create_is_truthy_reg(HirRegister dst, HirRegister src,
   hir_c_init_deopt(t, HIR_OP_IsTruthy);
   hir_c_set_output(t, dst);
   hir_c_set_operand(t, 0, src);
-  as_instr(t)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  if (frame_state)
+    as_instr(t)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
   return t;
 }
 

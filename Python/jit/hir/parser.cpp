@@ -246,7 +246,8 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
     case Opcode::kFormatWithSpec: {
       Register* val = ParseRegister();
       Register* fmt_spec = ParseRegister();
-      instruction = newInstr<FormatWithSpec>(dst, val, fmt_spec);
+      instruction = static_cast<Instr*>(
+          hir_c_create_format_with_spec_reg(dst, val, fmt_spec, nullptr));
       break;
     }
     case Opcode::kCallEx: {
@@ -357,7 +358,8 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
       int idx = GetNextNameIdx();
       expect(">");
       auto receiver = ParseRegister();
-      instruction = newInstr<LoadMethod>(dst, receiver, idx);
+      instruction = static_cast<Instr*>(
+          hir_c_create_load_method_reg(dst, receiver, idx, nullptr));
       break;
     }
     case Opcode::kLoadMethodCached: {
@@ -365,7 +367,8 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
       int idx = GetNextNameIdx();
       expect(">");
       auto receiver = ParseRegister();
-      instruction = newInstr<LoadMethodCached>(dst, receiver, idx);
+      instruction = static_cast<Instr*>(
+          hir_c_create_load_method_cached_reg(dst, receiver, idx, nullptr));
       break;
     }
     case Opcode::kLoadTupleItem: {
@@ -457,7 +460,8 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
       int idx = GetNextNameIdx();
       expect(">");
       auto receiver = ParseRegister();
-      instruction = newInstr<LoadAttrCached>(dst, receiver, idx);
+      instruction = static_cast<Instr*>(
+          hir_c_create_load_attr_cached_reg(dst, receiver, idx, nullptr));
       break;
     }
     case Opcode::kLoadConst: {
@@ -471,7 +475,8 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
       expect("<");
       int name_idx = GetNextNameIdx();
       expect(">");
-      instruction = newInstr<LoadGlobal>(dst, name_idx);
+      instruction = static_cast<Instr*>(
+          hir_c_create_load_global_reg(dst, name_idx, nullptr));
       break;
     }
     case Opcode::kLoadGlobalCached: {
@@ -488,7 +493,8 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
       expect(">");
       auto receiver = ParseRegister();
       auto value = ParseRegister();
-      instruction = newInstr<StoreAttr>(receiver, value, idx);
+      instruction = static_cast<Instr*>(
+          hir_c_create_store_attr_reg(receiver, value, idx, nullptr));
       break;
     }
     case Opcode::kStoreAttrCached: {
@@ -497,7 +503,8 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
       expect(">");
       auto receiver = ParseRegister();
       auto value = ParseRegister();
-      instruction = newInstr<StoreAttrCached>(receiver, value, idx);
+      instruction = static_cast<Instr*>(
+          hir_c_create_store_attr_cached_reg(receiver, value, idx, nullptr));
       break;
     }
     case Opcode::kGetLength: {
@@ -509,7 +516,8 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
     case Opcode::kDeleteSubscr: {
       auto container = ParseRegister();
       auto sub = ParseRegister();
-      newInstr<DeleteSubscr>(container, sub);
+      instruction = static_cast<Instr*>(
+          hir_c_create_delete_subscr_reg(container, sub, nullptr));
       break;
     }
     case Opcode::kDictSubscr: {
@@ -723,11 +731,13 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
     }
     case Opcode::kYieldValue: {
       Register* value = ParseRegister();
-      instruction = newInstr<YieldValue>(dst, value);
+      instruction = static_cast<Instr*>(
+          hir_c_create_yield_value_reg(dst, value, nullptr));
       break;
     }
     case Opcode::kInitialYield: {
-      instruction = newInstr<InitialYield>(dst);
+      instruction = static_cast<Instr*>(
+          hir_c_create_initial_yield_reg(dst, nullptr));
       break;
     }
     case Opcode::kGetIter: {
@@ -793,7 +803,7 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
     }
     case Opcode::kGuard: {
       auto operand = ParseRegister();
-      instruction = newInstr<Guard>(operand);
+      instruction = static_cast<Instr*>(hir_c_create_guard(operand));
       break;
     }
     case Opcode::kGuardType: {
@@ -819,7 +829,8 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
     }
     case Opcode::kIsTruthy: {
       auto src = ParseRegister();
-      instruction = newInstr<IsTruthy>(dst, src);
+      instruction = static_cast<Instr*>(
+          hir_c_create_is_truthy_reg(dst, src, nullptr));
       break;
     }
     case Opcode::kUseType: {
@@ -872,7 +883,8 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
     }
     case Opcode::kCheckExc: {
       auto operand = ParseRegister();
-      instruction = newInstr<CheckExc>(dst, operand);
+      instruction = static_cast<Instr*>(
+          hir_c_create_check_exc_reg(dst, operand));
       break;
     }
     case Opcode::kCheckVar: {
@@ -880,7 +892,8 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
       BorrowedRef<> name = GetNextUnicode();
       expect(">");
       auto operand = ParseRegister();
-      instruction = newInstr<CheckVar>(dst, operand, name);
+      instruction = static_cast<Instr*>(
+          hir_c_create_check_var_reg(dst, operand, name.get(), nullptr));
       break;
     }
     case Opcode::kCheckSequenceBounds: {
@@ -899,7 +912,7 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
       break;
     }
     case Opcode::kDeopt: {
-      instruction = newInstr<Deopt>();
+      instruction = static_cast<Instr*>(hir_c_create_deopt());
       break;
     }
     case Opcode::kUnreachable: {
@@ -977,7 +990,8 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
       break;
     }
     case Opcode::kRunPeriodicTasks: {
-      instruction = newInstr<RunPeriodicTasks>(dst);
+      instruction = static_cast<Instr*>(
+          hir_c_create_run_periodic_tasks_reg(dst, nullptr));
       break;
     }
     case Opcode::kListAppend: {
