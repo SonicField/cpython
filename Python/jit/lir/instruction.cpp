@@ -238,3 +238,36 @@ END_INSTR_PROPERTY
 // clang-format on
 
 } // namespace jit::lir
+
+// ---- Extern C wrappers for InstrProperty queries ----
+// These query the authoritative C++ prop_map_ (generated from
+// FOREACH_INSTR_TYPE). No data duplication — correct by construction.
+
+extern "C" int lir_instr_get_output_phy_reg_use(int opcode) {
+  using IP = jit::lir::InstrProperty;
+  using Op = jit::lir::Instruction::Opcode;
+  if (opcode < 0 || opcode > jit::lir::Instruction::kYieldValue) {
+    return 1; // default: output uses phy reg
+  }
+  return IP::getProperties(static_cast<Op>(opcode)).output_phy_use;
+}
+
+extern "C" int lir_instr_get_input_phy_reg_use(int opcode, size_t i) {
+  using IP = jit::lir::InstrProperty;
+  using Op = jit::lir::Instruction::Opcode;
+  if (opcode < 0 || opcode > jit::lir::Instruction::kYieldValue) {
+    return 0;
+  }
+  auto& uses = IP::getProperties(static_cast<Op>(opcode)).input_phy_uses;
+  if (i >= uses.size()) return 0;
+  return uses[i];
+}
+
+extern "C" int lir_instr_inputs_live_across(int opcode) {
+  using IP = jit::lir::InstrProperty;
+  using Op = jit::lir::Instruction::Opcode;
+  if (opcode < 0 || opcode > jit::lir::Instruction::kYieldValue) {
+    return 0;
+  }
+  return IP::getProperties(static_cast<Op>(opcode)).inputs_live_across;
+}
