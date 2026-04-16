@@ -76,15 +76,10 @@ void BasicBlock::insertInstrBefore(Instruction* pos, Instruction* instr) {
     appendInstr(instr);
     return;
   }
-  instr->next_ = pos;
-  instr->prev_ = pos->prev_;
-  if (pos->prev_) {
-    pos->prev_->next_ = instr;
-  } else {
-    instr_head_ = instr;
-  }
-  pos->prev_ = instr;
-  num_instrs_++;
+  lir_block_insert_instr_before(
+      reinterpret_cast<LirBasicBlock*>(this),
+      reinterpret_cast<LirInstruction*>(pos),
+      reinterpret_cast<LirInstruction*>(instr));
 }
 
 Instruction* BasicBlock::removeInstr(instr_iter_t pos) {
