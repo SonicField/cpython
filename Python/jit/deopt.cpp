@@ -481,10 +481,10 @@ DeoptMetadata DeoptMetadata::fromInstr(const jit::hir::DeoptBase& instr) {
 
   auto populate_localsplus =
       [get_reg_idx](DeoptFrameMetadata& meta, hir::FrameState* fs) {
-        size_t nlocalsplus = fs->localsplus.size();
+        size_t nlocalsplus = fs->localsplus.count;
         meta.localsplus.resize(nlocalsplus);
         for (size_t j = 0; j < nlocalsplus; ++j) {
-          meta.localsplus[j] = get_reg_idx(fs->localsplus[j]);
+          meta.localsplus[j] = get_reg_idx(static_cast<hir::Register*>(fs->localsplus.data[j]));
         }
       };
 

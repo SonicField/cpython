@@ -1101,11 +1101,16 @@ FrameState HIRParser::parseFrameState() {
     if (token == "CurInstrOffset") {
       fs.cur_instr_offs = BCOffset{GetNextInteger()};
     } else if (token == "Locals") {
-      fs.localsplus = parseRegisterVector();
-      fs.nlocals = fs.localsplus.size();
+      auto regs = parseRegisterVector();
+      phx_ptr_arr_clear(&fs.localsplus);
+      phx_ptr_arr_reserve(&fs.localsplus, regs.size());
+      for (auto reg : regs) {
+        phx_ptr_arr_push(&fs.localsplus, reg);
+      }
+      fs.nlocals = fs.localsplus.count;
     } else if (token == "Cells") {
       for (auto reg : parseRegisterVector()) {
-        fs.localsplus.push_back(reg);
+        phx_ptr_arr_push(&fs.localsplus, reg);
       }
     } else if (token == "Stack") {
       for (Register* r : parseRegisterVector()) {

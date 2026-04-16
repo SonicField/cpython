@@ -4,6 +4,7 @@
 
 #include "cinderx/Common/log.h"
 #include "cinderx/Jit/bytecode.h"
+#include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/register.h"
 #include "cinderx/Jit/stack.h"
 
@@ -57,24 +58,40 @@ struct FrameState {
   // Used for testing only.
   explicit FrameState(BCOffset bc_off) : cur_instr_offs(bc_off) {}
 
-  // FrameState→C step 1: explicit lifecycle (was defaulted).
-  // Behavioral no-op — same as compiler-generated defaults.
-  // Prepares for step 2: swap std::vector/Stack → PhxPtrArray.
+  // FrameState→C step 2: explicit lifecycle with PhxPtrArray localsplus.
+  // Shallow copy of Register* pointers (borrowed, not owned).
   FrameState(const FrameState& other)
       : cur_instr_offs(other.cur_instr_offs),
-        localsplus(other.localsplus),
+        localsplus{},
         nlocals(other.nlocals),
         stack(other.stack),
         block_stack(other.block_stack),
         code(other.code),
         globals(other.globals),
         builtins(other.builtins),
-        parent(other.parent) {}
+        parent(other.parent) {
+    if (other.localsplus.count) {
+      localsplus.data = static_cast<void**>(
+          malloc(other.localsplus.count * sizeof(void*)));
+      memcpy(localsplus.data, other.localsplus.data,
+             other.localsplus.count * sizeof(void*));
+      localsplus.count = other.localsplus.count;
+      localsplus.capacity = other.localsplus.count;
+    }
+  }
 
   FrameState& operator=(const FrameState& other) {
     if (this != &other) {
       cur_instr_offs = other.cur_instr_offs;
-      localsplus = other.localsplus;
+      phx_ptr_arr_destroy(&localsplus);
+      if (other.localsplus.count) {
+        localsplus.data = static_cast<void**>(
+            malloc(other.localsplus.count * sizeof(void*)));
+        memcpy(localsplus.data, other.localsplus.data,
+               other.localsplus.count * sizeof(void*));
+        localsplus.count = other.localsplus.count;
+        localsplus.capacity = other.localsplus.count;
+      }
       nlocals = other.nlocals;
       stack = other.stack;
       block_stack = other.block_stack;
@@ -86,18 +103,26 @@ struct FrameState {
     return *this;
   }
 
-  ~FrameState() = default;
+  ~FrameState() {
+    phx_ptr_arr_destroy(&localsplus);
+  }
 
   bool operator==(const FrameState& other) const {
-    return cur_instr_offs == other.cur_instr_offs &&
-        localsplus == other.localsplus &&
-        nlocals == other.nlocals &&
-        stack == other.stack &&
-        block_stack == other.block_stack &&
-        code == other.code &&
-        globals == other.globals &&
-        builtins == other.builtins &&
-        parent == other.parent;
+    if (cur_instr_offs != other.cur_instr_offs ||
+        localsplus.count != other.localsplus.count ||
+        nlocals != other.nlocals ||
+        stack != other.stack ||
+        block_stack != other.block_stack ||
+        code != other.code ||
+        globals != other.globals ||
+        builtins != other.builtins ||
+        parent != other.parent) {
+      return false;
+    }
+    for (size_t i = 0; i < localsplus.count; i++) {
+      if (localsplus.data[i] != other.localsplus.data[i]) return false;
+    }
+    return true;
   }
 
   bool operator!=(const FrameState& other) const {
@@ -128,7 +153,8 @@ struct FrameState {
         return false;
       }
     }
-    for (auto& reg : localsplus) {
+    for (size_t i = 0; i < localsplus.count; i++) {
+      Register*& reg = reinterpret_cast<Register*&>(localsplus.data[i]);
       if (reg != nullptr && !func(reg)) {
         return false;
       }
@@ -146,7 +172,8 @@ struct FrameState {
   // functions), and free variables (our closure). Locals are at the start and
   // free variables are at the end, but note locals can be cells so there is no
   // guarantee cells are all in the middle.
-  std::vector<Register*> localsplus;
+  // FrameState→C step 2: was std::vector<Register*>.
+  PhxPtrArray localsplus{};
 
   // Number of local variables. Stored as a field directly because in tests
   // there's no code object for us to inspect.

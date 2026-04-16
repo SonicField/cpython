@@ -119,6 +119,12 @@ static inline void phx_ptr_arr_resize(PhxPtrArray *a, size_t n) {
     }
     a->count = n;
 }
+static inline void phx_ptr_arr_reserve(PhxPtrArray *a, size_t n) {
+    if (n > a->capacity) {
+        a->data = (void **)realloc(a->data, n * sizeof(void *));
+        a->capacity = n;
+    }
+}
 
 /* ---- OperandType (C equivalent of hir::OperandType) ---- */
 typedef enum {

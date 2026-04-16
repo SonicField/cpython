@@ -957,7 +957,8 @@ void fillDeoptLiveRegs(const StateMap& live_regs, Instr& instr) {
 
 bool isInFrameState(const FrameState* fs, Register* reg) {
   while (fs != nullptr) {
-    for (Register* r : fs->localsplus) {
+    for (size_t i = 0; i < fs->localsplus.count; i++) {
+      Register* r = static_cast<Register*>(fs->localsplus.data[i]);
       if (r == reg) {
         return true;
       }

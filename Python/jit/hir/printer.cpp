@@ -868,7 +868,7 @@ void HIRPrinter::Print(std::ostream& os, const FrameState& state) {
   if (nlocals > 0) {
     Indented(os) << "Locals<" << nlocals << ">";
     for (int i = 0; i < nlocals; ++i) {
-      auto reg = state.localsplus[i];
+      auto reg = static_cast<Register*>(state.localsplus.data[i]);
       if (reg == nullptr) {
         os << " <null>";
       } else {
@@ -878,12 +878,12 @@ void HIRPrinter::Print(std::ostream& os, const FrameState& state) {
     os << '\n';
   }
 
-  auto nlocalsplus = state.localsplus.size();
+  auto nlocalsplus = state.localsplus.count;
   auto ncells = nlocalsplus - state.nlocals;
   if (ncells > 0) {
     Indented(os) << "Cells<" << ncells << ">";
-    for (int i = nlocals; i < nlocalsplus; ++i) {
-      auto reg = state.localsplus[i];
+    for (size_t i = nlocals; i < nlocalsplus; ++i) {
+      auto reg = static_cast<Register*>(state.localsplus.data[i]);
       if (reg == nullptr) {
         os << " <null>";
       } else {
