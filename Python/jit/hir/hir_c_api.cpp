@@ -966,8 +966,11 @@ HirInstr hir_c_create_is_neg_and_err(HirFunction func, HirRegister src,
 /* ---- Branch/CondBranch factories (C++ bridge for Edge management) ---- */
 
 HirInstr hir_c_create_branch_cpp(void *target_block) {
-  auto* bb = static_cast<BasicBlock*>(target_block);
-  return Branch::create(bb);
+  HirBranch *br = (HirBranch *)hir_c_alloc_instr(sizeof(HirBranch), 0);
+  hir_c_init_instr(br, HIR_OP_Branch);
+  /* Edge set_to manages BasicBlock in_edges_ (C++ std::set). */
+  hir_c_set_successor_cpp(br, 0, target_block);
+  return br;
 }
 
 HirInstr hir_c_create_check_seq_bounds_reg(HirRegister dst, HirRegister seq,
@@ -1788,9 +1791,12 @@ HirInstr hir_c_create_call_intrinsic_reg2(size_t n_operands, HirRegister dst, in
 
 HirInstr hir_c_create_cond_branch_iter_not_done_cpp(
     HirRegister src, void *body_block, void *done_block) {
-  return CondBranchIterNotDone::create(
-      as_reg(src), static_cast<BasicBlock*>(body_block),
-      static_cast<BasicBlock*>(done_block));
+  HirCondBranchInstr *cb = (HirCondBranchInstr *)hir_c_alloc_instr(sizeof(HirCondBranchInstr), 1);
+  hir_c_init_instr(cb, HIR_OP_CondBranchIterNotDone);
+  hir_c_set_operand(cb, 0, src);
+  hir_c_set_successor_cpp(cb, 0, body_block);
+  hir_c_set_successor_cpp(cb, 1, done_block);
+  return cb;
 }
 
 HirInstr hir_c_create_int_convert_reg(HirRegister dst, HirRegister src,
@@ -1967,18 +1973,24 @@ HirInstr hir_c_create_vectorcall_reg(size_t n_operands, HirRegister dst,
 HirInstr hir_c_create_cond_branch_check_type_cpp(
     HirRegister target, HirType type,
     void *true_block, void *false_block) {
-  Type cpp_type = Type::fromHirType(type);
-  auto* true_bb = static_cast<BasicBlock*>(true_block);
-  auto* false_bb = static_cast<BasicBlock*>(false_block);
-  return CondBranchCheckType::create(as_reg(target), cpp_type, true_bb, false_bb);
+  HirCondBranchCheckType *cb = (HirCondBranchCheckType *)hir_c_alloc_instr(sizeof(HirCondBranchCheckType), 1);
+  hir_c_init_instr(cb, HIR_OP_CondBranchCheckType);
+  cb->type = type;
+  hir_c_set_operand(cb, 0, target);
+  hir_c_set_successor_cpp(cb, 0, true_block);
+  hir_c_set_successor_cpp(cb, 1, false_block);
+  return cb;
 }
 
 HirInstr hir_c_create_cond_branch_cpp(void *cond_reg,
                                        void *true_block,
                                        void *false_block) {
-  auto* true_bb = static_cast<BasicBlock*>(true_block);
-  auto* false_bb = static_cast<BasicBlock*>(false_block);
-  return CondBranch::create(as_reg(cond_reg), true_bb, false_bb);
+  HirCondBranchInstr *cb = (HirCondBranchInstr *)hir_c_alloc_instr(sizeof(HirCondBranchInstr), 1);
+  hir_c_init_instr(cb, HIR_OP_CondBranch);
+  hir_c_set_operand(cb, 0, cond_reg);
+  hir_c_set_successor_cpp(cb, 0, true_block);
+  hir_c_set_successor_cpp(cb, 1, false_block);
+  return cb;
 }
 
 /* ---- Builder-style factories (caller provides dst register) ---- */
