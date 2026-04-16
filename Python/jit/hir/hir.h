@@ -799,37 +799,6 @@ class INSTR_CLASS(BuildSlice, (TObject), HasOutput, Operands<>, DeoptBase) {
   }
 };
 
-// Builds a new Function object, with the given code object and optionally a
-// qualified name.
-DEFINE_SIMPLE_INSTR(
-    MakeFunction,
-    (TCode, TOptObject),
-    HasOutput,
-    Operands<2>,
-    DeoptBase);
-
-// Takes a list as operand 0
-// Takes an item as operand 1
-DEFINE_SIMPLE_INSTR(
-    ListAppend,
-    (Constraint::kListOrChkList, TOptObject),
-    HasOutput,
-    Operands<2>,
-    DeoptBase);
-
-// extend the list with the elements in iterable
-// Takes a list as operand 0
-// Takes an iterable as operand 1
-DEFINE_SIMPLE_INSTR(
-    ListExtend,
-    (Constraint::kListOrChkList, TObject),
-    HasOutput,
-    Operands<2>,
-    DeoptBase);
-
-// Gets a tuple representation from a sequence.
-DEFINE_SIMPLE_INSTR(GetTuple, (TObject), HasOutput, Operands<1>, DeoptBase);
-
 // An unconditional branch
 class INSTR_CLASS(Branch, (), Operands<0>) {
  public:
@@ -1401,15 +1370,6 @@ class CheckBase : public DeoptBase {
   }
 };
 
-// Check if an exception has occurred (implied by var being NULL).
-// If so, transfer control to the exception handler for the block.
-DEFINE_SIMPLE_INSTR(
-    CheckExc,
-    (Constraint::kOptObjectOrCInt),
-    HasOutput,
-    Operands<1>,
-    CheckBase);
-
 class INSTR_CLASS(GetSecondOutput, (TTop), HasOutput, Operands<1>) {
  public:
   GetSecondOutput(Register* dst, Type type, Register* src)
@@ -1441,22 +1401,6 @@ class CheckBaseWithName : public CheckBase {
   friend struct ::HirInstrLayoutVerifier;
   BorrowedRef<> name_;
 };
-
-// If the operand is Nullptr, raise an UnboundLocalError referencing the
-// given local variable name.
-DEFINE_SIMPLE_INSTR(
-    CheckVar,
-    (TOptObject),
-    HasOutput,
-    Operands<1>,
-    CheckBaseWithName);
-
-DEFINE_SIMPLE_INSTR(
-    IsNegativeAndErrOccurred,
-    (TCInt),
-    HasOutput,
-    Operands<1>,
-    DeoptBase);
 
 class INSTR_CLASS(LoadField, (TOptObject), HasOutput, Operands<1>) {
  public:
@@ -1938,34 +1882,6 @@ class INSTR_CLASS(
   CompareOp op_;
 };
 
-// Perform BinaryOp<Add> with two strings
-DEFINE_SIMPLE_INSTR(
-    UnicodeConcat,
-    (TUnicodeExact, TUnicodeExact),
-    HasOutput,
-    Operands<2>,
-    DeoptBase);
-
-DEFINE_SIMPLE_INSTR(
-    CopyDictWithoutKeys,
-    (TObject, TTupleExact),
-    HasOutput,
-    Operands<2>,
-    DeoptBase);
-
-DEFINE_SIMPLE_INSTR(
-    UnicodeRepeat,
-    (TUnicodeExact, TCInt64),
-    HasOutput,
-    Operands<2>,
-    DeoptBase);
-
-DEFINE_SIMPLE_INSTR(
-    UnicodeSubscr,
-    (TUnicodeExact, TCInt64),
-    HasOutput,
-    Operands<2>,
-    DeoptBase);
 
 // NB: This needs to be in the order that the values appear in the
 // BinaryOpKind enum
@@ -2268,8 +2184,6 @@ class INSTR_CLASS(PrimitiveCompare, (), HasOutput, Operands<2>) {
   PrimitiveCompareOp op_;
 };
 
-DEFINE_SIMPLE_INSTR(PrimitiveBoxBool, (TCBool), HasOutput, Operands<1>);
-
 class INSTR_CLASS(
     PrimitiveBox,
     (TPrimitive),
@@ -2377,14 +2291,6 @@ DEFINE_SIMPLE_INSTR(
     Operands<1>,
     CondBranchBase);
 
-// Branch to `true_bb` if the operand is not the sentinel value that indicates
-// an iterator is exhausted, or `false_bb` otherwise.
-DEFINE_SIMPLE_INSTR(
-    CondBranchIterNotDone,
-    (TObject),
-    Operands<1>,
-    CondBranchBase);
-
 // Branch to `true_bb` if the operand matches the supplied type specification,
 // or `false_bb` otherwise.
 class INSTR_CLASS(CondBranchCheckType, (TObject), Operands<1>, CondBranchBase) {
@@ -2403,18 +2309,6 @@ class INSTR_CLASS(CondBranchCheckType, (TObject), Operands<1>, CondBranchBase) {
  private:
   const Type type_;
 };
-
-// Decrement the reference count of `reg`
-DEFINE_SIMPLE_INSTR(Decref, (TObject), Operands<1>);
-
-// Decrement the reference count of `reg`, if `reg` is not NULL
-DEFINE_SIMPLE_INSTR(XDecref, (TOptObject), Operands<1>);
-
-// Increment the reference count of `reg`
-DEFINE_SIMPLE_INSTR(Incref, (TObject), Operands<1>);
-
-// batch decrement references
-DEFINE_SIMPLE_INSTR(BatchDecref, (TObject), Operands<>);
 
 class DeoptBaseWithNameIdx : public DeoptBase {
  public:
@@ -2466,31 +2360,6 @@ class INSTR_CLASS(
   friend struct ::HirInstrLayoutVerifier;
   bool already_optimized_;
 };
-
-// Variant of LoadAttr that uses an inline cache.
-DEFINE_SIMPLE_INSTR(
-    LoadAttrCached,
-    (TObject),
-    HasOutput,
-    Operands<1>,
-    DeoptBaseWithNameIdx);
-
-// Set the attribute of an object.
-DEFINE_SIMPLE_INSTR(
-    StoreAttr,
-    (TObject, TObject),
-    Operands<2>,
-    DeoptBaseWithNameIdx);
-
-// Variant of StoreAttr that uses an inline cache.
-DEFINE_SIMPLE_INSTR(
-    StoreAttrCached,
-    (TObject, TObject),
-    Operands<2>,
-    DeoptBaseWithNameIdx);
-
-// Delete an attribute from an object
-DEFINE_SIMPLE_INSTR(DeleteAttr, (TObject), Operands<1>, DeoptBaseWithNameIdx);
 
 // Load an attribute from an object, skipping the instance dictionary but still
 // calling descriptors as appropriate (to create bound methods, for example).
@@ -2635,30 +2504,6 @@ DEFINE_SIMPLE_INSTR(
     Operands<1>,
     LoadMethodBase);
 
-// Variant of LoadMethod that uses an inline cache.
-DEFINE_SIMPLE_INSTR(
-    LoadMethodCached,
-    (TObject),
-    HasOutput,
-    Operands<1>,
-    LoadMethodBase);
-
-// Like LoadMethod, but specialized for loading an attribute from a module
-DEFINE_SIMPLE_INSTR(
-    LoadModuleAttrCached,
-    (TObject),
-    HasOutput,
-    Operands<1>,
-    DeoptBaseWithNameIdx);
-
-// Like LoadMethod, but specialized for loading a method from a module
-DEFINE_SIMPLE_INSTR(
-    LoadModuleMethodCached,
-    (TObject),
-    HasOutput,
-    Operands<1>,
-    LoadMethodBase);
-
 // Return true if the instruction is an instance of LoadMethodBase.
 bool isLoadMethodBase(const Instr& instr);
 
@@ -2705,19 +2550,6 @@ class LoadSuperBase : public DeoptBaseWithNameIdx {
   friend struct ::HirInstrLayoutVerifier;
   bool no_args_in_super_call_;
 };
-
-DEFINE_SIMPLE_INSTR(
-    LoadMethodSuper,
-    (TObject, TType, TObject),
-    HasOutput,
-    Operands<3>,
-    LoadSuperBase);
-DEFINE_SIMPLE_INSTR(
-    LoadAttrSuper,
-    (TObject, TType, TObject),
-    HasOutput,
-    Operands<3>,
-    LoadSuperBase);
 
 // Perform a full method lookup. Fill the cache if the receiver does not match
 // the type cached
@@ -2797,33 +2629,6 @@ class INSTR_CLASS(
  private:
   int cache_id_;
 };
-// Load the current PyFunctionObject* into a Register. Must not appear after
-// any non-LoadArg instructions.
-DEFINE_SIMPLE_INSTR(LoadCurrentFunc, (), HasOutput, Operands<0>);
-
-// Load the value from the cell in operand
-DEFINE_SIMPLE_INSTR(LoadCellItem, (TOptObject), HasOutput, Operands<1>);
-
-// Atomically swap the cell value, returning the old value. Used in FT-Python
-// for thread-safe STORE_DEREF. Takes cell as operand 0 and new value as
-// operand 1. Returns the old value (owned reference for decref).
-DEFINE_SIMPLE_INSTR(
-    SwapCellItem,
-    (TObject, TOptObject),
-    HasOutput,
-    Operands<2>);
-
-// Store a value to the cell in dst. The `old` arg is unused but exists in order
-// to ensure that the previous cell contents are not decref-ed until after the
-// new cell contents are in place.
-// Takes a cell as operand 0
-// Takes a src as operand 1
-// Takes in anything as operand 2
-DEFINE_SIMPLE_INSTR(
-    SetCellItem,
-    (TObject, TOptObject, TOptObject),
-    Operands<3>);
-
 class INSTR_CLASS(InitFrameCellVars, (TObject), Operands<1>) {
  public:
   using InstrT::InstrT;
@@ -2981,9 +2786,6 @@ class INSTR_CLASS(UseType, (), Operands<1>) {
   Type type_;
 };
 
-// Assign one register to another
-DEFINE_SIMPLE_INSTR(Assign, (TTop), HasOutput, Operands<1>);
-
 // Assign one register to another with a new type (unchecked!)
 class INSTR_CLASS(BitCast, (TTop), HasOutput, Operands<1>) {
  public:
@@ -3074,13 +2876,7 @@ class INSTR_CLASS(MakeTuple, (TObject), HasOutput, Operands<>, DeoptBase) {
   }
 };
 
-// Initialize a tuple from a list
-DEFINE_SIMPLE_INSTR(
-    MakeTupleFromList,
-    (TList),
-    HasOutput,
-    Operands<1>,
-    DeoptBase);
+
 
 // Load an element from a tuple at a known index, with no bounds checking.
 class INSTR_CLASS(LoadTupleItem, (TTuple), HasOutput, Operands<1>) {
@@ -3215,22 +3011,6 @@ class INSTR_CLASS(StoreArrayItem, (TCPtr, TCInt, TTop, TObject), Operands<4>) {
   Type type_;
 };
 
-// Check whether the given index lies within the array boundary.
-// Returns the actual index between [0, len(array)) into the array (in case it's
-// negative). Returns -1 if the given index is not within bounds.
-// Takes an array as operand 0
-// Takes an idx as operand 1
-DEFINE_SIMPLE_INSTR(
-    CheckSequenceBounds,
-    (TObject, TCInt),
-    HasOutput,
-    Operands<2>,
-    DeoptBase);
-
-// Create a cell holding given value and place the cell in dst.
-// Calls PyCell_New, so it implicitly increfs the value placed in the cell.
-DEFINE_SIMPLE_INSTR(MakeCell, (TOptObject), HasOutput, Operands<1>, DeoptBase);
-
 // Allocate an empty dict with the given capacity, or the default capacity if 0
 // is given.
 class INSTR_CLASS(MakeDict, (), HasOutput, Operands<0>, DeoptBase) {
@@ -3293,17 +3073,6 @@ class INSTR_CLASS(
   Type type_;
 };
 
-// Allocate an empty set
-DEFINE_SIMPLE_INSTR(MakeSet, (), HasOutput, Operands<0>, DeoptBase);
-
-// merge two sets by calling _PySet_Update
-DEFINE_SIMPLE_INSTR(
-    MergeSetUnpack,
-    (TSet, TObject),
-    HasOutput,
-    Operands<2>,
-    DeoptBase);
-
 // the main step in MATCH_CLASS opcode, where match_class() is called
 // takes subject as operand 0
 // takes type as operand 1
@@ -3314,46 +3083,6 @@ DEFINE_SIMPLE_INSTR(
     (TObject, TObject, TCUInt64, TObject),
     HasOutput,
     Operands<4>);
-
-// Takes a dict as operand 0
-// Takes a key as operand 1
-// Takes a value as operand 2
-DEFINE_SIMPLE_INSTR(
-    SetDictItem,
-    (Constraint::kDictOrChkDict, TObject, TOptObject),
-    HasOutput,
-    Operands<3>,
-    DeoptBase);
-
-// Takes a set as operand 0
-// Takes a key as operand 1
-DEFINE_SIMPLE_INSTR(
-    SetSetItem,
-    (TSet, TObject),
-    HasOutput,
-    Operands<2>,
-    DeoptBase);
-
-// Takes a set as operand 0
-// Takes an iterable as operand 1
-DEFINE_SIMPLE_INSTR(
-    SetUpdate,
-    (TSet, TObject),
-    HasOutput,
-    Operands<2>,
-    DeoptBase);
-
-// Load the size of a PyVarObject as a CInt64.
-DEFINE_SIMPLE_INSTR(LoadVarObjectSize, (TOptObject), HasOutput, Operands<1>);
-
-// Stores into an index
-//
-// Places NULL in dst if an error occurred or a non-NULL value otherwise
-DEFINE_SIMPLE_INSTR(
-    StoreSubscr,
-    (TObject, TObject, TOptObject),
-    Operands<3>,
-    DeoptBase);
 
 class INSTR_CLASS(
     DictSubscr,
@@ -3383,9 +3112,6 @@ class INSTR_CLASS(GetIter, (TObject), HasOutput, Operands<1>, DeoptBase) {
 
 DEFINE_SIMPLE_INSTR(GetAIter, (TObject), HasOutput, Operands<1>, DeoptBase);
 
-// Get the length of an object by calling __len__.
-DEFINE_SIMPLE_INSTR(GetLength, (TObject), HasOutput, Operands<1>, DeoptBase);
-
 // Invoke next() on the iterator.
 //
 // The output is one of three values:
@@ -3407,14 +3133,6 @@ class INSTR_CLASS(
     return GetOperand(0);
   }
 };
-
-// Returns a non-zero value if we need to release the GIL or run pending calls
-// (e.g. signal handlers).  Returns 0 otherwise. This is intended to be
-// followed immediately by a CondBranch.
-DEFINE_SIMPLE_INSTR(LoadEvalBreaker, (), HasOutput, Operands<0>);
-
-// Let other threads run, run signal handlers, etc.
-DEFINE_SIMPLE_INSTR(RunPeriodicTasks, (), HasOutput, Operands<0>, DeoptBase);
 
 class INSTR_CLASS(Snapshot, (), Operands<0>) {
  public:
@@ -3485,15 +3203,6 @@ class INSTR_CLASS(DeoptPatchpoint, (), Operands<0>, DeoptBase) {
   JumpPatcher* patcher_;
 };
 
-// A guard verifies that the operand is nonzero. When it's not, control is
-// transferred to the interpreter at the point specified by the attached
-// FrameState.
-DEFINE_SIMPLE_INSTR(
-    Guard,
-    (Constraint::kOptObjectOrCIntOrCBool),
-    Operands<1>,
-    DeoptBase);
-
 // A guard that verifies that its src is the same object as the target, or
 // deopts if not.
 class INSTR_CLASS(GuardIs, (TOptObject), HasOutput, Operands<1>, DeoptBase) {
@@ -3553,16 +3262,6 @@ class INSTR_CLASS(HintType, (TObject), Operands<>) {
   friend struct ::HirInstrLayoutVerifier;
   ProfiledTypes types_;
 };
-
-// Output 1, 0, if `value` is truthy or not truthy.
-DEFINE_SIMPLE_INSTR(IsTruthy, (TObject), HasOutput, Operands<1>, DeoptBase);
-
-DEFINE_SIMPLE_INSTR(
-    IsInstance,
-    (TObject, TType),
-    HasOutput,
-    Operands<2>,
-    DeoptBase);
 
 class INSTR_CLASS(
     ImportFrom,
@@ -3655,8 +3354,6 @@ class INSTR_CLASS(RaiseStatic, (TObject), Operands<>, DeoptBase) {
   PyObject* exc_type_;
 };
 
-DEFINE_SIMPLE_INSTR(YieldValue, (TObject), HasOutput, Operands<1>, DeoptBase);
-
 // InitialYield causes a generator function to suspend and return a new
 // 'PyGenObject' object holding its state. This should only appear in generator
 // functions and in them should be exactly one instance, which in 3.10 is
@@ -3743,16 +3440,6 @@ DEFINE_SIMPLE_INSTR(
     Operands<1>);
 DEFINE_SIMPLE_INSTR(WaitHandleLoadWaiter, (TObject), HasOutput, Operands<1>);
 DEFINE_SIMPLE_INSTR(WaitHandleRelease, (TObject), Operands<1>);
-
-// MatchKeys calls CPython's match_keys interpreter function. It takes two
-// arguments, subject and keys. Returns null on error, None if no match, and a
-// tuple of values on match.
-DEFINE_SIMPLE_INSTR(
-    MatchKeys,
-    (TObject, TObject),
-    HasOutput,
-    Operands<2>,
-    DeoptBase);
 
 class INSTR_CLASS(UpdatePrevInstr, (), Operands<0>) {
  public:
@@ -3845,8 +3532,6 @@ class INSTR_CLASS(LoadSpecial, (TObject), HasOutput, Operands<1>, DeoptBase) {
  private:
   int special_idx_;
 };
-
-DEFINE_SIMPLE_INSTR(CIntToCBool, (TCInt64), HasOutput, Operands<1>);
 
 // Return true if the given instruction returns an exact copy of its input "at
 // runtime" (most passthrough instructions will be copy-propagated away in

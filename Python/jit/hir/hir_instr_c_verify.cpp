@@ -130,48 +130,20 @@ struct HirInstrLayoutVerifier {
     static_assert(sizeof(HirLoadAttrSpecial) == sizeof(LoadAttrSpecial));
 
     /* H2-A2: intermediate base class struct sizes */
-    static_assert(sizeof(HirCheckExc) == sizeof(CheckExc));
-    static_assert(sizeof(HirIsNegativeAndErrOccurred) == sizeof(IsNegativeAndErrOccurred));
-    static_assert(sizeof(HirCheckVar) == sizeof(CheckVar));
-    static_assert(sizeof(HirLoadAttrCached) == sizeof(LoadAttrCached));
-    static_assert(sizeof(HirStoreAttr) == sizeof(StoreAttr));
-    static_assert(sizeof(HirStoreAttrCached) == sizeof(StoreAttrCached));
     static_assert(sizeof(HirLoadGlobal) == sizeof(LoadGlobal));
-    static_assert(sizeof(HirLoadModuleAttrCached) == sizeof(LoadModuleAttrCached));
     static_assert(sizeof(HirLoadMethod) == sizeof(LoadMethod));
-    static_assert(sizeof(HirLoadMethodCached) == sizeof(LoadMethodCached));
-    static_assert(sizeof(HirLoadModuleMethodCached) == sizeof(LoadModuleMethodCached));
-    static_assert(sizeof(HirLoadMethodSuper) == sizeof(LoadMethodSuper));
-    static_assert(sizeof(HirLoadAttrSuper) == sizeof(LoadAttrSuper));
     static_assert(sizeof(HirLoadAttr) == sizeof(LoadAttr));
     static_assert(sizeof(HirCondBranch) == sizeof(CondBranch));
-    static_assert(sizeof(HirCondBranchIterNotDone) == sizeof(CondBranchIterNotDone));
 
     /* H2-A2: offsetof checks for intermediate base class custom fields.
      * sizeof alone is INSUFFICIENT — padding hides missing fields. */
 
     /* DeoptBaseWithNameIdx types: name_idx field */
-    static_assert(offsetof(HirDeleteAttr, name_idx) == offsetof(DeleteAttr, name_idx_));
-    static_assert(offsetof(HirLoadAttrCached, name_idx) == offsetof(LoadAttrCached, name_idx_));
-    static_assert(offsetof(HirStoreAttr, name_idx) == offsetof(StoreAttr, name_idx_));
-    static_assert(offsetof(HirStoreAttrCached, name_idx) == offsetof(StoreAttrCached, name_idx_));
     static_assert(offsetof(HirLoadGlobal, name_idx) == offsetof(LoadGlobal, name_idx_));
-    static_assert(offsetof(HirLoadModuleAttrCached, name_idx) == offsetof(LoadModuleAttrCached, name_idx_));
     static_assert(offsetof(HirLoadMethod, name_idx) == offsetof(LoadMethod, name_idx_));
-    static_assert(offsetof(HirLoadMethodCached, name_idx) == offsetof(LoadMethodCached, name_idx_));
-    static_assert(offsetof(HirLoadModuleMethodCached, name_idx) == offsetof(LoadModuleMethodCached, name_idx_));
     static_assert(offsetof(HirFillTypeAttrCache, name_idx) == offsetof(FillTypeAttrCache, name_idx_));
     static_assert(offsetof(HirFillTypeMethodCache, name_idx) == offsetof(FillTypeMethodCache, name_idx_));
     static_assert(offsetof(HirImportFrom, name_idx) == offsetof(ImportFrom, name_idx_));
-
-    /* LoadSuperBase types: name_idx + no_args_in_super_call */
-    static_assert(offsetof(HirLoadMethodSuper, name_idx) == offsetof(LoadMethodSuper, name_idx_));
-    static_assert(offsetof(HirLoadMethodSuper, no_args_in_super_call) == offsetof(LoadMethodSuper, no_args_in_super_call_));
-    static_assert(offsetof(HirLoadAttrSuper, name_idx) == offsetof(LoadAttrSuper, name_idx_));
-    static_assert(offsetof(HirLoadAttrSuper, no_args_in_super_call) == offsetof(LoadAttrSuper, no_args_in_super_call_));
-
-    /* CheckBaseWithName types: name field */
-    static_assert(offsetof(HirCheckVar, name) == offsetof(CheckVar, name_));
     /* LoadAttr: name_idx + already_optimized */
     static_assert(offsetof(HirLoadAttr, name_idx) == offsetof(LoadAttr, name_idx_));
     static_assert(offsetof(HirLoadAttr, already_optimized) == offsetof(LoadAttr, already_optimized_));
@@ -181,48 +153,20 @@ struct HirInstrLayoutVerifier {
     static_assert(offsetof(HirFillTypeMethodCache, cache_id) == offsetof(FillTypeMethodCache, cache_id_));
 
     /* H2-A: DEFINE_SIMPLE_INSTR struct sizes */
-    static_assert(sizeof(HirAssign) == sizeof(Assign));
-    static_assert(sizeof(HirDecref) == sizeof(Decref));
-    static_assert(sizeof(HirXDecref) == sizeof(XDecref));
-    static_assert(sizeof(HirIncref) == sizeof(Incref));
     static_assert(sizeof(HirDeopt) == sizeof(Deopt));
-    static_assert(sizeof(HirRunPeriodicTasks) == sizeof(RunPeriodicTasks));
-    static_assert(sizeof(HirIsTruthy) == sizeof(IsTruthy));
-    static_assert(sizeof(HirLoadCellItem) == sizeof(LoadCellItem));
-    static_assert(sizeof(HirLoadCurrentFunc) == sizeof(LoadCurrentFunc));
-    static_assert(sizeof(HirLoadEvalBreaker) == sizeof(LoadEvalBreaker));
-    static_assert(sizeof(HirLoadVarObjectSize) == sizeof(LoadVarObjectSize));
-    static_assert(sizeof(HirDeleteAttr) == sizeof(DeleteAttr));
     static_assert(sizeof(HirDeleteSubscr) == sizeof(DeleteSubscr));
     static_assert(sizeof(HirRaise) == sizeof(Raise));
-    static_assert(sizeof(HirMakeSet) == sizeof(MakeSet));
-    static_assert(sizeof(HirSwapCellItem) == sizeof(SwapCellItem));
-    static_assert(sizeof(HirSetCellItem) == sizeof(SetCellItem));
     static_assert(sizeof(HirWaitHandleRelease) == sizeof(WaitHandleRelease));
     static_assert(sizeof(HirWaitHandleLoadWaiter) == sizeof(WaitHandleLoadWaiter));
     static_assert(sizeof(HirWaitHandleLoadCoroOrResult) == sizeof(WaitHandleLoadCoroOrResult));
     static_assert(sizeof(HirGetAIter) == sizeof(GetAIter));
     static_assert(sizeof(HirGetIter) == sizeof(GetIter));
-    static_assert(sizeof(HirGetTuple) == sizeof(GetTuple));
-    static_assert(sizeof(HirGetLength) == sizeof(GetLength));
-    static_assert(sizeof(HirSetUpdate) == sizeof(SetUpdate));
-    static_assert(sizeof(HirListExtend) == sizeof(ListExtend));
-    static_assert(sizeof(HirListAppend) == sizeof(ListAppend));
-    static_assert(sizeof(HirCopyDictWithoutKeys) == sizeof(CopyDictWithoutKeys));
-    static_assert(sizeof(HirMakeTupleFromList) == sizeof(MakeTupleFromList));
-    static_assert(sizeof(HirMatchKeys) == sizeof(MatchKeys));
     static_assert(sizeof(HirDictSubscr) == sizeof(DictSubscr));
     static_assert(sizeof(HirInvokeIterNext) == sizeof(InvokeIterNext));
-    static_assert(sizeof(HirStoreSubscr) == sizeof(StoreSubscr));
-    static_assert(sizeof(HirSetSetItem) == sizeof(SetSetItem));
     static_assert(sizeof(HirImportFrom) == sizeof(ImportFrom));
     static_assert(sizeof(HirMatchClass) == sizeof(MatchClass));
-    static_assert(sizeof(HirYieldValue) == sizeof(YieldValue));
     static_assert(sizeof(HirInitialYield) == sizeof(InitialYield));
     static_assert(sizeof(HirSend) == sizeof(Send));
-    static_assert(sizeof(HirMakeCell) == sizeof(MakeCell));
-    static_assert(sizeof(HirMakeFunction) == sizeof(MakeFunction));
-    static_assert(sizeof(HirBatchDecref) == sizeof(BatchDecref));
 };
 
 /* ---- Runtime read-through-cast verification ----
