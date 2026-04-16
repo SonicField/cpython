@@ -5,11 +5,7 @@
 
 #include "cinderx/Jit/lir/block.h"
 
-#include "cinderx/Common/log.h"
-#include "cinderx/Jit/lir/function.h"
 #include "cinderx/Jit/lir/lir_impl_internal.h"
-
-#include <cstring>
 
 namespace jit::lir {
 
@@ -22,35 +18,6 @@ BasicBlock::~BasicBlock() {
   }
   PyMem_RawFree(successors_);
   PyMem_RawFree(predecessors_);
-}
-
-static void appendToBlockArray(
-    BasicBlock**& arr, size_t& count, size_t& capacity, BasicBlock* bb) {
-  if (count >= capacity) {
-    size_t new_cap = capacity == 0 ? 2 : capacity * 2;
-    auto** new_arr = static_cast<BasicBlock**>(
-        PyMem_RawCalloc(new_cap, sizeof(BasicBlock*)));
-    if (arr) {
-      std::memcpy(new_arr, arr, count * sizeof(BasicBlock*));
-      PyMem_RawFree(arr);
-    }
-    arr = new_arr;
-    capacity = new_cap;
-  }
-  arr[count++] = bb;
-}
-
-static void eraseFromBlockArray(
-    BasicBlock**& arr, size_t& count, BasicBlock* bb) {
-  for (size_t i = 0; i < count; i++) {
-    if (arr[i] == bb) {
-      for (size_t j = i; j + 1 < count; j++) {
-        arr[j] = arr[j + 1];
-      }
-      count--;
-      return;
-    }
-  }
 }
 
 void BasicBlock::addSuccessor(BasicBlock* bb) {
