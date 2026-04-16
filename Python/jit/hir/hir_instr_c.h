@@ -1207,6 +1207,71 @@ static inline int hir_c_visit_uses(void *instr,
 }
 
 
+/* ==== CRTP Phase 2: Simple instruction factories ====
+ * Used to replace InstrT::create() callers in optimization passes. */
+
+/* Assign: 1 operand (src), has output (dst). No DeoptBase. */
+static inline void *hir_c_create_assign(void *dst_reg, void *src_reg) {
+    HirInstrLayout *a = (HirInstrLayout *)hir_c_alloc_instr(sizeof(HirInstrLayout), 1);
+    if (!a) return NULL;
+    hir_c_init_instr(a, HIR_OP_Assign);
+    hir_c_set_output(a, dst_reg);
+    hir_c_set_operand(a, 0, src_reg);
+    return a;
+}
+
+/* Incref: 1 operand (reg). No output, no DeoptBase. */
+static inline void *hir_c_create_incref(void *reg) {
+    HirInstrLayout *i = (HirInstrLayout *)hir_c_alloc_instr(sizeof(HirInstrLayout), 1);
+    if (!i) return NULL;
+    hir_c_init_instr(i, HIR_OP_Incref);
+    hir_c_set_operand(i, 0, reg);
+    return i;
+}
+
+/* XIncref: 1 operand (reg). No output, no DeoptBase. */
+static inline void *hir_c_create_xincref(void *reg) {
+    HirInstrLayout *i = (HirInstrLayout *)hir_c_alloc_instr(sizeof(HirInstrLayout), 1);
+    if (!i) return NULL;
+    hir_c_init_instr(i, HIR_OP_XIncref);
+    hir_c_set_operand(i, 0, reg);
+    return i;
+}
+
+/* Decref: 1 operand (reg). No output, no DeoptBase. */
+static inline void *hir_c_create_decref(void *reg) {
+    HirInstrLayout *i = (HirInstrLayout *)hir_c_alloc_instr(sizeof(HirInstrLayout), 1);
+    if (!i) return NULL;
+    hir_c_init_instr(i, HIR_OP_Decref);
+    hir_c_set_operand(i, 0, reg);
+    return i;
+}
+
+/* XDecref: 1 operand (reg). No output, no DeoptBase. */
+static inline void *hir_c_create_xdecref(void *reg) {
+    HirInstrLayout *i = (HirInstrLayout *)hir_c_alloc_instr(sizeof(HirInstrLayout), 1);
+    if (!i) return NULL;
+    hir_c_init_instr(i, HIR_OP_XDecref);
+    hir_c_set_operand(i, 0, reg);
+    return i;
+}
+
+/* BatchDecref: N operands. No output, no DeoptBase. */
+static inline void *hir_c_create_batch_decref(size_t num) {
+    HirInstrLayout *b = (HirInstrLayout *)hir_c_alloc_instr(sizeof(HirInstrLayout), num);
+    if (!b) return NULL;
+    hir_c_init_instr(b, HIR_OP_BatchDecref);
+    return b;
+}
+
+/* Unreachable: 0 operands. No output, no DeoptBase. */
+static inline void *hir_c_create_unreachable(void) {
+    HirInstrLayout *u = (HirInstrLayout *)hir_c_alloc_instr(sizeof(HirInstrLayout), 0);
+    if (!u) return NULL;
+    hir_c_init_instr(u, HIR_OP_Unreachable);
+    return u;
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
