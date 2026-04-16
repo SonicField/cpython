@@ -38,6 +38,23 @@ typedef struct HirEdge {
     void *to;
 } HirEdge;
 
+/* ---- OperandType (C equivalent of hir::OperandType) ---- */
+typedef enum {
+    HIR_CONSTRAINT_kType = 0,
+    HIR_CONSTRAINT_kMatchAllAsCInt,
+    HIR_CONSTRAINT_kMatchAllAsPrimitive,
+    HIR_CONSTRAINT_kTupleExactOrCPtr,
+    HIR_CONSTRAINT_kListOrChkList,
+    HIR_CONSTRAINT_kDictOrChkDict,
+    HIR_CONSTRAINT_kOptObjectOrCInt,
+    HIR_CONSTRAINT_kOptObjectOrCIntOrCBool,
+} HirConstraint;
+
+typedef struct {
+    HirConstraint kind;
+    HirType type;
+} HirOperandType;
+
 /* ---- Field-flattening macros ----
  * These inline base class fields into derived structs, avoiding
  * struct embedding and its tail padding problems. */

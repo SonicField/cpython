@@ -266,6 +266,16 @@ void hir_instr_delete(HirInstr instr) {
   hir_c_destroy_instr_impl(instr);
 }
 
+/* ---- OperandType ---- */
+
+HirOperandType hir_c_get_operand_type(HirInstr instr, size_t i) {
+  OperandType ot = as_instr(instr)->GetOperandType(i);
+  HirOperandType result;
+  result.kind = static_cast<HirConstraint>(ot.kind);
+  result.type = Type::toHirType(ot.type);
+  return result;
+}
+
 /* ---- Operand use visitation ---- */
 
 void hir_instr_visit_uses(HirInstr instr,

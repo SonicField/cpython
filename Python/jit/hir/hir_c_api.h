@@ -131,6 +131,12 @@ int hir_c_visit_deopt_extension(void *instr,
                                 int (*callback)(void **reg_slot, void *ctx),
                                 void *ctx);
 
+/* ---- OperandType ---- */
+
+/* Get the operand type for operand i of the instruction.
+ * Dispatches via T2-C3 function pointer table (per-opcode). */
+HirOperandType hir_c_get_operand_type(HirInstr instr, size_t i);
+
 /* ---- Branch-specific ---- */
 
 /* Get the target block of a Branch instruction. */
