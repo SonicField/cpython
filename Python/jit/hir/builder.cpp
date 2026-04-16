@@ -364,6 +364,25 @@ struct HIRBuilder::TranslationContext {
     return instr;
   }
 
+  // Non-template variadic emit for DeoptBase types (replaces emitVariadic<T>
+  // when T is a deleted DEFINE_SIMPLE_INSTR class).
+  void emitVariadicDeopt(int opcode, TempAllocator& temps,
+                         std::size_t num_operands) {
+    Register* out = temps.AllocateStack();
+    auto* instr = static_cast<Instr*>(
+        hir_c_alloc_instr(sizeof(DeoptBase), num_operands));
+    hir_c_init_deopt(instr, opcode);
+    hir_c_set_output(instr, out);
+    for (auto i = num_operands; i > 0; i--) {
+      Register* operand = static_cast<Register*>(
+          phx_ptr_arr_pop(&frame.stack));
+      instr->SetOperand(i - 1, operand);
+    }
+    instr->asDeoptBase()->setFrameState(frame);
+    phx_ptr_arr_push(&frame.stack, out);
+    emitC(instr);
+  }
+
   // Convenience: emit LoadConst via pure C factory.
   void emitLoadConst(Register* dst, Type type) {
     emitC(static_cast<Instr*>(hir_c_create_load_const(dst, to_hir(type))));
@@ -6148,7 +6167,7 @@ void HIRBuilder::emitBuildString(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   auto num_operands = bc_instr.oparg();
-  tc.emitVariadic<BuildString>(temps_, num_operands);
+  tc.emitVariadicDeopt(HIR_OP_BuildString, temps_, num_operands);
 }
 
 void HIRBuilder::emitFormatValue(
