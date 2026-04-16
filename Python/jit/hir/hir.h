@@ -3374,6 +3374,9 @@ class INSTR_CLASS(
   int after_;
 };
 
+// Send: kept as C++ class — pure C factory crashes (known issue, TBD).
+DEFINE_SIMPLE_INSTR(Send, (TObject, TObject), HasOutput, Operands<2>, DeoptBase);
+
 class INSTR_CLASS(UpdatePrevInstr, (), Operands<0>) {
  public:
   explicit UpdatePrevInstr(int line_no, BeginInlinedFunction* parent)
