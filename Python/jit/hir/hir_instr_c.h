@@ -84,6 +84,42 @@ static inline int phx_edge_arr_empty(const PhxEdgePtrArray *a) {
     return a->count == 0;
 }
 
+/* ---- Void pointer array (generic, used for Register* arrays) ----
+ * FrameState→C: replaces std::vector<Register*> and jit::Stack<Register*>. */
+typedef struct PhxPtrArray {
+    void **data;
+    size_t count;
+    size_t capacity;
+} PhxPtrArray;
+
+static inline void phx_ptr_arr_init(PhxPtrArray *a) {
+    a->data = NULL; a->count = 0; a->capacity = 0;
+}
+static inline void phx_ptr_arr_destroy(PhxPtrArray *a) {
+    free(a->data); a->data = NULL; a->count = 0; a->capacity = 0;
+}
+static inline void phx_ptr_arr_push(PhxPtrArray *a, void *val) {
+    if (a->count == a->capacity) {
+        size_t new_cap = a->capacity ? a->capacity * 2 : 8;
+        a->data = (void **)realloc(a->data, new_cap * sizeof(void *));
+        a->capacity = new_cap;
+    }
+    a->data[a->count++] = val;
+}
+static inline void *phx_ptr_arr_pop(PhxPtrArray *a) {
+    return a->data[--a->count];
+}
+static inline void phx_ptr_arr_clear(PhxPtrArray *a) {
+    a->count = 0;
+}
+static inline void phx_ptr_arr_resize(PhxPtrArray *a, size_t n) {
+    if (n > a->capacity) {
+        a->data = (void **)realloc(a->data, n * sizeof(void *));
+        a->capacity = n;
+    }
+    a->count = n;
+}
+
 /* ---- OperandType (C equivalent of hir::OperandType) ---- */
 typedef enum {
     HIR_CONSTRAINT_kType = 0,
