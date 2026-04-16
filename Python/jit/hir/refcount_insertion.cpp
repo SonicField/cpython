@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/hir/refcount_insertion.h"
+#include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/jit_config_c.h"
 
@@ -492,9 +493,9 @@ void insertIncref(Env& env, Register* reg, Instr& cursor) {
   JIT_DCHECK(!isUncounted(reg), "Attempt to incref an uncounted value");
   Instr* incref;
   if (reg->type() <= TObject) {
-    incref = Incref::create(reg);
+    incref = static_cast<Instr*>(hir_c_create_incref(reg));
   } else {
-    incref = XIncref::create(reg);
+    incref = static_cast<Instr*>(hir_c_create_xincref(reg));
   }
   incref->copyBytecodeOffset(cursor);
   incref->InsertBefore(cursor);
@@ -511,9 +512,9 @@ void insertDecref(Env& env, Register* reg, Instr& cursor) {
   JIT_DCHECK(!isUncounted(reg), "Attempt to decref an uncounted value");
   Instr* decref;
   if (reg->type() <= TObject) {
-    decref = Decref::create(reg);
+    decref = static_cast<Instr*>(hir_c_create_decref(reg));
   } else {
-    decref = XDecref::create(reg);
+    decref = static_cast<Instr*>(hir_c_create_xdecref(reg));
   }
   decref->copyBytecodeOffset(cursor);
   decref->InsertBefore(cursor);
@@ -1276,7 +1277,7 @@ void optimizeLongDecrefRuns(Function& irfunc) {
         continue;
       }
 
-      auto batch_decref = BatchDecref::create(num);
+      auto batch_decref = static_cast<BatchDecref*>(hir_c_create_batch_decref(num));
       batch_decref->copyBytecodeOffset(*cur_iter);
       batch_decref->InsertBefore(*cur_iter);
 
