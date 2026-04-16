@@ -153,6 +153,13 @@ struct HirInstrLayoutVerifier {
     static_assert(sizeof(HirInvokeIterNext) == sizeof(InvokeIterNext));
     static_assert(sizeof(HirImportFrom) == sizeof(ImportFrom));
     static_assert(sizeof(HirSend) == sizeof(Send));
+    /* Send has REVERSED template parameter order:
+     *   Send: Operands<2>, HasOutput, DeoptBase (non-standard)
+     *   Most: HasOutput, Operands<N>, DeoptBase (standard)
+     * This changes the C++ struct layout. The C factory (hir_c_create_send_reg)
+     * crashes because it uses standard layout assumptions. Send::create() C++
+     * path is kept until HirSend layout matches the actual C++ layout.
+     * See theologian analysis 2026-04-16. */
 };
 
 /* ---- Runtime read-through-cast verification ----
