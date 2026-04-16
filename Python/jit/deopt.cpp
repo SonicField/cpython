@@ -254,7 +254,7 @@ static BCIndex getDeoptResumeIndex(
 
 static void reifyBlockStack(
     PyFrameObject* frame,
-    const jit::hir::BlockStack& block_stack) {
+    const jit::hir::PhxExecBlockArray& block_stack) {
   std::size_t bs_size = block_stack.size();
   frame->f_iblock = bs_size;
   for (std::size_t i = 0; i < bs_size; i++) {

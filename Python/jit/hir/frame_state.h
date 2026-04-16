@@ -43,6 +43,63 @@ struct ExecutionBlock {
 using BlockStack = jit::Stack<ExecutionBlock>;
 using OperandStack = jit::Stack<Register*>;
 
+// FrameState→C: C dynamic array for ExecutionBlock (replaces BlockStack).
+struct PhxExecBlockArray {
+  ExecutionBlock *data = nullptr;
+  size_t count = 0;
+  size_t capacity = 0;
+
+  void destroy() { free(data); data = nullptr; count = 0; capacity = 0; }
+  void clear() { count = 0; }
+  void push(const ExecutionBlock& v) {
+    if (count == capacity) {
+      size_t new_cap = capacity ? capacity * 2 : 4;
+      data = static_cast<ExecutionBlock*>(realloc(data, new_cap * sizeof(ExecutionBlock)));
+      capacity = new_cap;
+    }
+    data[count++] = v;
+  }
+  ExecutionBlock pop() { return data[--count]; }
+  const ExecutionBlock& top() const { return data[count - 1]; }
+  const ExecutionBlock& at(size_t i) const { return data[i]; }
+  size_t size() const { return count; }
+  bool isEmpty() const { return count == 0; }
+
+  bool operator==(const PhxExecBlockArray& other) const {
+    if (count != other.count) return false;
+    for (size_t i = 0; i < count; i++) {
+      if (!(data[i] == other.data[i])) return false;
+    }
+    return true;
+  }
+  bool operator!=(const PhxExecBlockArray& other) const { return !(*this == other); }
+
+  // Deep copy semantics (POD elements, malloc+memcpy).
+  PhxExecBlockArray(const PhxExecBlockArray& other)
+      : data(nullptr), count(other.count), capacity(other.count) {
+    if (count) {
+      data = static_cast<ExecutionBlock*>(malloc(count * sizeof(ExecutionBlock)));
+      memcpy(data, other.data, count * sizeof(ExecutionBlock));
+    }
+  }
+  PhxExecBlockArray& operator=(const PhxExecBlockArray& other) {
+    if (this != &other) {
+      free(data);
+      data = nullptr;
+      count = other.count;
+      capacity = other.count;
+      if (count) {
+        data = static_cast<ExecutionBlock*>(malloc(count * sizeof(ExecutionBlock)));
+        memcpy(data, other.data, count * sizeof(ExecutionBlock));
+      }
+    }
+    return *this;
+  }
+  ~PhxExecBlockArray() { free(data); }
+
+  PhxExecBlockArray() = default;
+};
+
 // The abstract state of the python frame
 struct FrameState {
   FrameState() = default;
@@ -86,6 +143,7 @@ struct FrameState {
       stack.count = other.stack.count;
       stack.capacity = other.stack.count;
     }
+    // block_stack deep-copied via PhxExecBlockArray copy ctor in initializer list.
   }
 
   FrameState& operator=(const FrameState& other) {
@@ -110,7 +168,7 @@ struct FrameState {
         stack.count = other.stack.count;
         stack.capacity = other.stack.count;
       }
-      block_stack = other.block_stack;
+      block_stack = other.block_stack;  // PhxExecBlockArray operator= does deep copy
       code = other.code;
       globals = other.globals;
       builtins = other.builtins;
@@ -122,6 +180,7 @@ struct FrameState {
   ~FrameState() {
     phx_ptr_arr_destroy(&localsplus);
     phx_ptr_arr_destroy(&stack);
+    // block_stack cleaned up by ~PhxExecBlockArray()
   }
 
   bool operator==(const FrameState& other) const {
@@ -201,7 +260,8 @@ struct FrameState {
   int nlocals{0};
 
   PhxPtrArray stack{};
-  BlockStack block_stack;
+  // FrameState→C step 2c: was BlockStack (jit::Stack<ExecutionBlock>).
+  PhxExecBlockArray block_stack{};
   BorrowedRef<PyCodeObject> code;
   BorrowedRef<PyDictObject> globals;
   BorrowedRef<PyDictObject> builtins;
