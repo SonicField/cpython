@@ -66,9 +66,12 @@ class Function {
 
   FrameMode frameMode{FrameMode::kNormal};
 
-  CFG cfg;
-
+  // env MUST be declared before cfg: C++ destroys in reverse declaration
+  // order, so env outlives cfg. FrameState holds borrowed Register* into
+  // env — if env destructs first, cfg teardown reads freed memory.
   Environment env;
+
+  CFG cfg;
 
   // All the code patchers pointing to patch points in this function.
   //
