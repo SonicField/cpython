@@ -66,15 +66,9 @@ void BasicBlock::setSuccessor(size_t index, BasicBlock* bb) {
 }
 
 void BasicBlock::appendInstr(Instruction* instr) {
-  instr->prev_ = instr_tail_;
-  instr->next_ = nullptr;
-  if (instr_tail_) {
-    instr_tail_->next_ = instr;
-  } else {
-    instr_head_ = instr;
-  }
-  instr_tail_ = instr;
-  num_instrs_++;
+  lir_block_append_instr(
+      reinterpret_cast<LirBasicBlock*>(this),
+      reinterpret_cast<LirInstruction*>(instr));
 }
 
 void BasicBlock::insertInstrBefore(Instruction* pos, Instruction* instr) {
