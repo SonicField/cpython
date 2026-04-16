@@ -87,14 +87,19 @@ lir_instruction_origin(const LirInstruction *inst) {
 
 /* ---- Input allocation ---- */
 
+void
+lir_instruction_ensure_input_capacity(LirInstruction *inst, size_t needed) {
+    if (needed <= inst->inputs_capacity_) return;
+    size_t new_cap = inst->inputs_capacity_ == 0 ? 4 : inst->inputs_capacity_ * 2;
+    while (new_cap < needed) new_cap *= 2;
+    inst->inputs_ = (LirOperand **)PyMem_RawRealloc(
+        inst->inputs_, new_cap * sizeof(LirOperand *));
+    inst->inputs_capacity_ = new_cap;
+}
+
 static void
 ensure_input_capacity(LirInstruction *inst) {
-    if (inst->num_inputs_ >= inst->inputs_capacity_) {
-        size_t new_cap = inst->inputs_capacity_ == 0 ? 4 : inst->inputs_capacity_ * 2;
-        inst->inputs_ = (LirOperand **)PyMem_RawRealloc(
-            inst->inputs_, new_cap * sizeof(LirOperand *));
-        inst->inputs_capacity_ = new_cap;
-    }
+    lir_instruction_ensure_input_capacity(inst, inst->num_inputs_ + 1);
 }
 
 static LirOperand *
@@ -150,6 +155,18 @@ LirOperand *
 lir_instruction_alloc_addr_input(LirInstruction *inst, void *addr) {
     LirOperand *op = lir_operand_new(inst);
     lir_operand_set_mem_address(op, addr);
+    return append_input(inst, op);
+}
+
+LirOperand *
+lir_instruction_alloc_phyreg_or_stack_input(LirInstruction *inst,
+                                             LirPhyLocation loc) {
+    LirOperand *op = lir_operand_new(inst);
+    if (loc.loc < 0) {
+        lir_operand_set_stack_slot(op, loc);
+    } else {
+        lir_operand_set_phy_register(op, loc);
+    }
     return append_input(inst, op);
 }
 

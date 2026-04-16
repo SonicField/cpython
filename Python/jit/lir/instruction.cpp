@@ -6,15 +6,14 @@
 
 #include "cinderx/Jit/lir/instruction.h"
 
-#include "cinderx/Common/log.h"
 #include "cinderx/Jit/lir/block.h"
 #include "cinderx/Jit/lir/function.h"
+#include "cinderx/Jit/lir/lir_impl_internal.h"
 
 // Phase B5: Cross-validate C struct sizes against C++ struct sizes.
 #include "cinderx/Jit/lir/lir_types_c.h"
 
 #include <array>
-#include <cstring>
 #include <utility>
 
 namespace jit::lir {
@@ -83,118 +82,113 @@ Instruction::~Instruction() {
   PyMem_RawFree(inputs_);
 }
 
-// ---- Input management ----
+// ---- Input management (wired to lir_instruction.c) ----
 
 Operand* Instruction::allocateImmediateInput(uint64_t n, DataType data_type) {
-  auto* operand = new Operand(this, data_type, OperandBase::kImm, n);
-  appendInput(operand);
-  return operand;
+  return reinterpret_cast<Operand*>(
+      lir_instruction_alloc_imm_input(
+          reinterpret_cast<LirInstruction*>(this), n, static_cast<int>(data_type)));
 }
 
 Operand* Instruction::allocateFPImmediateInput(double n) {
-  auto* operand = new Operand(this, OperandBase::kImm, n);
-  appendInput(operand);
-  return operand;
+  return reinterpret_cast<Operand*>(
+      lir_instruction_alloc_fp_imm_input(
+          reinterpret_cast<LirInstruction*>(this), n));
 }
 
 LinkedOperand* Instruction::allocateLinkedInput(Instruction* def_instr) {
-  auto* operand = new LinkedOperand(this, def_instr);
-  appendInput(operand);
-  return operand;
+  return reinterpret_cast<LinkedOperand*>(
+      lir_instruction_alloc_linked_input(
+          reinterpret_cast<LirInstruction*>(this),
+          reinterpret_cast<LirInstruction*>(def_instr)));
 }
 
 void Instruction::ensureInputCapacity(size_t needed) {
-  if (needed <= inputs_capacity_) return;
-  size_t new_cap = inputs_capacity_ == 0 ? 4 : inputs_capacity_ * 2;
-  while (new_cap < needed) new_cap *= 2;
-  auto** new_arr = static_cast<OperandBase**>(
-      PyMem_RawCalloc(new_cap, sizeof(OperandBase*)));
-  if (inputs_) {
-    std::memcpy(new_arr, inputs_, num_inputs_ * sizeof(OperandBase*));
-    PyMem_RawFree(inputs_);
-  }
-  inputs_ = new_arr;
-  inputs_capacity_ = new_cap;
+  lir_instruction_ensure_input_capacity(
+      reinterpret_cast<LirInstruction*>(this), needed);
 }
 
 Operand* Instruction::allocatePhyRegisterInput(PhyLocation loc) {
-  return allocateOperand(&Operand::setPhyRegister, loc);
+  return reinterpret_cast<Operand*>(
+      lir_instruction_alloc_phyreg_input(
+          reinterpret_cast<LirInstruction*>(this),
+          *reinterpret_cast<LirPhyLocation*>(&loc)));
 }
 
 Operand* Instruction::allocateStackInput(PhyLocation stack) {
-  return allocateOperand(&Operand::setStackSlot, stack);
+  return reinterpret_cast<Operand*>(
+      lir_instruction_alloc_stack_input(
+          reinterpret_cast<LirInstruction*>(this),
+          *reinterpret_cast<LirPhyLocation*>(&stack)));
 }
 
 Operand* Instruction::allocatePhyRegOrStackInput(PhyLocation loc) {
-  return allocateOperand(&Operand::setPhyRegOrStackSlot, loc);
+  return reinterpret_cast<Operand*>(
+      lir_instruction_alloc_phyreg_or_stack_input(
+          reinterpret_cast<LirInstruction*>(this),
+          *reinterpret_cast<LirPhyLocation*>(&loc)));
 }
 
 Operand* Instruction::allocateAddressInput(void* address) {
-  return allocateOperand(&Operand::setMemoryAddress, address);
+  return reinterpret_cast<Operand*>(
+      lir_instruction_alloc_addr_input(
+          reinterpret_cast<LirInstruction*>(this), address));
 }
 
 Operand* Instruction::allocateLabelInput(BasicBlock* block) {
-  return allocateOperand(&Operand::setBasicBlock, block);
+  return reinterpret_cast<Operand*>(
+      lir_instruction_alloc_label_input(
+          reinterpret_cast<LirInstruction*>(this),
+          reinterpret_cast<LirBasicBlock*>(block)));
 }
 
 void Instruction::setInput(size_t i, OperandBase* input) {
-  JIT_DCHECK(i < num_inputs_, "Input index out of bounds");
-  delete inputs_[i];
-  inputs_[i] = input;
-  if (input) {
-    input->assignToInstr(this);
-  }
+  lir_instruction_set_input(
+      reinterpret_cast<LirInstruction*>(this), i,
+      reinterpret_cast<LirOperand*>(input));
 }
 
 OperandBase* Instruction::removeInput(size_t index) {
-  auto* operand = releaseInput(index);
-  for (size_t i = index; i + 1 < num_inputs_; i++) {
-    inputs_[i] = inputs_[i + 1];
-  }
-  num_inputs_--;
-  inputs_[num_inputs_] = nullptr;
-  return operand;
+  return reinterpret_cast<OperandBase*>(
+      lir_instruction_remove_input(
+          reinterpret_cast<LirInstruction*>(this), index));
 }
 
 OperandBase* Instruction::releaseInput(size_t index) {
-  JIT_DCHECK(index < num_inputs_, "Input index out of bounds");
-  auto* operand = inputs_[index];
-  if (operand) {
-    operand->releaseFromInstr();
-  }
-  inputs_[index] = nullptr;
-  return operand;
+  return reinterpret_cast<OperandBase*>(
+      lir_instruction_release_input(
+          reinterpret_cast<LirInstruction*>(this), index));
 }
 
 OperandBase* Instruction::appendInput(OperandBase* operand) {
-  ensureInputCapacity(num_inputs_ + 1);
-  inputs_[num_inputs_] = nullptr;
-  num_inputs_++;
-  setInput(num_inputs_ - 1, operand);
-  return operand;
+  return reinterpret_cast<OperandBase*>(
+      lir_instruction_append_input(
+          reinterpret_cast<LirInstruction*>(this),
+          reinterpret_cast<LirOperand*>(operand)));
 }
 
 OperandBase* Instruction::prependInput(OperandBase* operand) {
-  ensureInputCapacity(num_inputs_ + 1);
-  for (size_t i = num_inputs_; i > 0; i--) {
-    inputs_[i] = inputs_[i - 1];
-  }
-  inputs_[0] = nullptr;
-  num_inputs_++;
-  setInput(0, operand);
-  return operand;
+  return reinterpret_cast<OperandBase*>(
+      lir_instruction_prepend_input(
+          reinterpret_cast<LirInstruction*>(this),
+          reinterpret_cast<LirOperand*>(operand)));
 }
 
 OperandBase* Instruction::getOperandByPredecessor(const BasicBlock* pred) {
-  auto index = getOperandIndexByPredecessor(pred);
-  return index == -1 ? nullptr : inputs_[index];
+  return reinterpret_cast<OperandBase*>(
+      lir_instruction_get_operand_by_predecessor(
+          reinterpret_cast<const LirInstruction*>(this),
+          reinterpret_cast<const LirBasicBlock*>(pred)));
 }
 
 int Instruction::getOperandIndexByPredecessor(const BasicBlock* pred) const {
-  JIT_DCHECK(opcode_ == kPhi, "The current instruction must be Phi.");
-  size_t num_inputs = getNumInputs();
-  for (size_t i = 0; i < num_inputs; i += 2) {
-    if (getInput(i)->getBasicBlock() == pred) {
+  auto* result = lir_instruction_get_operand_by_predecessor(
+      reinterpret_cast<const LirInstruction*>(this),
+      reinterpret_cast<const LirBasicBlock*>(pred));
+  if (result == nullptr) return -1;
+  // Find the index of this operand — it's the value after the label
+  for (size_t i = 0; i < num_inputs_; i += 2) {
+    if (inputs_[i]->getBasicBlock() == pred) {
       return i + 1;
     }
   }

@@ -32,6 +32,31 @@ void lir_operand_set_linked_instr(LirOperand *op, LirInstruction *def);
 
 /* From lir_instruction.c */
 void lir_instruction_free(LirInstruction *inst);
+void lir_instruction_ensure_input_capacity(LirInstruction *inst, size_t needed);
+LirOperand *lir_instruction_alloc_imm_input(LirInstruction *inst,
+                                             uint64_t val, int dt);
+LirOperand *lir_instruction_alloc_fp_imm_input(LirInstruction *inst, double val);
+LirOperand *lir_instruction_alloc_linked_input(LirInstruction *inst,
+                                                LirInstruction *def_instr);
+LirOperand *lir_instruction_alloc_phyreg_input(LirInstruction *inst,
+                                                LirPhyLocation loc);
+LirOperand *lir_instruction_alloc_stack_input(LirInstruction *inst,
+                                               LirPhyLocation loc);
+LirOperand *lir_instruction_alloc_addr_input(LirInstruction *inst, void *addr);
+LirOperand *lir_instruction_alloc_label_input(LirInstruction *inst,
+                                               LirBasicBlock *block);
+LirOperand *lir_instruction_alloc_phyreg_or_stack_input(LirInstruction *inst,
+                                                         LirPhyLocation loc);
+void lir_instruction_set_input(LirInstruction *inst, size_t i,
+                                LirOperand *input);
+LirOperand *lir_instruction_remove_input(LirInstruction *inst, size_t index);
+LirOperand *lir_instruction_release_input(LirInstruction *inst, size_t index);
+LirOperand *lir_instruction_append_input(LirInstruction *inst,
+                                          LirOperand *operand);
+LirOperand *lir_instruction_prepend_input(LirInstruction *inst,
+                                           LirOperand *operand);
+LirOperand *lir_instruction_get_operand_by_predecessor(
+    const LirInstruction *inst, const LirBasicBlock *pred);
 
 /* From block_impl.c */
 LirBasicBlock *lir_block_new(void *function, int id);
