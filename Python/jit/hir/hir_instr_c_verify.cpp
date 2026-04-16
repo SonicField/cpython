@@ -159,7 +159,11 @@ struct HirInstrLayoutVerifier {
      * This changes the C++ struct layout. The C factory (hir_c_create_send_reg)
      * crashes because it uses standard layout assumptions. Send::create() C++
      * path is kept until HirSend layout matches the actual C++ layout.
-     * See theologian analysis 2026-04-16. */
+     * See theologian analysis 2026-04-16.
+     *
+     * offsetof checks to verify/measure the actual layout divergence: */
+    static_assert(offsetof(HirSend, frame_state) == offsetof(Send, frame_state_),
+        "Send frame_state_ layout mismatch — reversed mixin order?");
 };
 
 /* ---- Runtime read-through-cast verification ----
