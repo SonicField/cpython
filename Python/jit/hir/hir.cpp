@@ -630,11 +630,6 @@ BCOffset Instr::bytecodeOffset() const {
   return bytecode_offset_;
 }
 
-Instr* Instr::clone() const {
-  JIT_CHECK(false, "Instr::clone() called through base — use concrete type");
-  return nullptr;
-}
-
 void Instr::setBytecodeOffset(BCOffset off) {
   bytecode_offset_ = off;
 }
