@@ -5,6 +5,7 @@
 #include "cinderx/Common/log.h"
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_instr_info_c.h"
+#include "cinderx/Jit/hir/hir_operand_types_c.h"
 #include "cinderx/Jit/threaded_compile.h"
 
 #include <algorithm>
@@ -43,6 +44,10 @@ static GetOpTypeFn get_operand_type_table[] = {
 };
 #undef MAKE_GET_OP_TYPE_ENTRY
 #undef MAKE_GET_OP_TYPE_OVERRIDE
+
+// Keep default macro for the verification bridge table (at end of file).
+#define MAKE_GET_OP_TYPE_DEFAULT(opname) \
+    get_operand_type_default<opname##_OperandTypes>,
 
 // Patch entries for types that override GetOperandTypeImpl with
 // instance-dependent logic (these 4 cannot use the _OperandTypes mixin).
@@ -1439,3 +1444,27 @@ FrameState* get_frame_state(Instr& instr) {
 }
 
 } // namespace jit::hir
+
+// Default-only table: always uses _OperandTypes mixin, never class overrides.
+// Used by the C bridge for cross-verification (safe to call with nullptr).
+namespace jit::hir {
+static const GetOpTypeFn get_operand_type_default_table[] = {
+    FOREACH_OPCODE(MAKE_GET_OP_TYPE_DEFAULT)
+};
+} // namespace jit::hir
+
+// C++ bridge for operand type cross-verification.
+// Returns the static operand type from the _OperandTypes mixin table.
+extern "C" int hir_operand_type_cpp_get(
+    int opcode, int index, int *out_constraint, HirType *out_type) {
+  using namespace jit::hir;
+  if (opcode < 0 || opcode >= HIR_OP_COUNT) {
+    return -1;
+  }
+  // Use default-only table (safe with nullptr, no instance data needed).
+  OperandType ot = get_operand_type_default_table[opcode](
+      nullptr, static_cast<std::size_t>(index));
+  *out_constraint = static_cast<int>(ot.kind);
+  *out_type = Type::toHirType(ot.type);
+  return 0;
+}
