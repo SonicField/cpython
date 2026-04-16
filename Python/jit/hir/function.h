@@ -180,7 +180,9 @@ inline OpcodeCounts count_opcodes(const Function& func) {
 #ifndef _LIBCPP_VERSION
 static_assert(sizeof(Function) == 48 * kPointerSize);
 static_assert(sizeof(CFG) == 5 * kPointerSize);
-static_assert(sizeof(BasicBlock) == 20 * kPointerSize);
+/* Edge→C: BasicBlock shrank — unordered_set (7 ptrs each) → PhxEdgePtrArray
+ * (3 ptrs each). 20 - (2×7) + (2×3) = 12. Verify after first successful build. */
+static_assert(sizeof(BasicBlock) == 12 * kPointerSize);
 static_assert(sizeof(Instr) == 5 * kPointerSize);
 #endif
 
