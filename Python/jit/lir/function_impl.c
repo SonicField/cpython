@@ -54,14 +54,24 @@ lir_function_set_next_id(LirFunction *func, int id) {
 
 /* ---- Block management ---- */
 
-static void
-ensure_block_capacity(LirFunction *func) {
-    if (func->num_blocks_ >= func->blocks_capacity_) {
-        size_t new_cap = func->blocks_capacity_ * 2;
+void
+lir_function_ensure_block_capacity(LirFunction *func, size_t needed) {
+    if (needed <= func->blocks_capacity_) return;
+    size_t new_cap = func->blocks_capacity_ == 0 ? 8 : func->blocks_capacity_ * 2;
+    while (new_cap < needed) new_cap *= 2;
+    if (func->blocks_ == NULL) {
+        func->blocks_ = (LirBasicBlock **)PyMem_RawMalloc(
+            new_cap * sizeof(LirBasicBlock *));
+    } else {
         func->blocks_ = (LirBasicBlock **)PyMem_RawRealloc(
             func->blocks_, new_cap * sizeof(LirBasicBlock *));
-        func->blocks_capacity_ = new_cap;
     }
+    func->blocks_capacity_ = new_cap;
+}
+
+static void
+ensure_block_capacity(LirFunction *func) {
+    lir_function_ensure_block_capacity(func, func->num_blocks_ + 1);
 }
 
 LirBasicBlock *

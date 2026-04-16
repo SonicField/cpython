@@ -6,11 +6,9 @@
 #include "cinderx/Jit/lir/function.h"
 
 #include "cinderx/Jit/containers.h"
-#include "cinderx/Jit/lir/blocksorter.h"
+#include "cinderx/Jit/lir/lir_impl_internal.h"
 
 #include "pymem.h"
-
-#include <cstring>
 
 namespace jit::lir {
 
@@ -150,20 +148,8 @@ Function::~Function() {
 }
 
 void Function::ensureBlockCapacity(size_t needed) {
-  if (needed <= blocks_capacity_) return;
-  size_t new_cap = blocks_capacity_ ? blocks_capacity_ * 2 : 8;
-  while (new_cap < needed) new_cap *= 2;
-  BasicBlock** new_blocks;
-  if (blocks_ == nullptr) {
-    new_blocks = static_cast<BasicBlock**>(
-        PyMem_RawMalloc(new_cap * sizeof(BasicBlock*)));
-  } else {
-    new_blocks = static_cast<BasicBlock**>(
-        PyMem_RawRealloc(blocks_, new_cap * sizeof(BasicBlock*)));
-  }
-  JIT_CHECK(new_blocks != nullptr, "Failed to allocate block array");
-  blocks_ = new_blocks;
-  blocks_capacity_ = new_cap;
+  lir_function_ensure_block_capacity(
+      reinterpret_cast<LirFunction*>(this), needed);
 }
 
 Function::CopyResult Function::copyFrom(
@@ -200,33 +186,21 @@ Function::CopyResult Function::copyFrom(
 }
 
 BasicBlock* Function::allocateBasicBlock() {
-  auto* new_block = new BasicBlock(this);
-  ensureBlockCapacity(num_blocks_ + 1);
-  blocks_[num_blocks_++] = new_block;
-  return new_block;
+  return reinterpret_cast<BasicBlock*>(
+      lir_function_alloc_block(
+          reinterpret_cast<LirFunction*>(this)));
 }
 
 BasicBlock* Function::allocateBasicBlockAfter(BasicBlock* block) {
-  size_t pos = 0;
-  while (pos < num_blocks_ && blocks_[pos] != block) pos++;
-  pos++;
-
-  auto* new_block = new BasicBlock(this);
-  ensureBlockCapacity(num_blocks_ + 1);
-  memmove(&blocks_[pos + 1], &blocks_[pos],
-          (num_blocks_ - pos) * sizeof(BasicBlock*));
-  blocks_[pos] = new_block;
-  num_blocks_++;
-  return new_block;
+  return reinterpret_cast<BasicBlock*>(
+      lir_function_alloc_block_after(
+          reinterpret_cast<LirFunction*>(this),
+          reinterpret_cast<LirBasicBlock*>(block)));
 }
 
 void Function::sortBasicBlocks() {
-  size_t out_count = 0;
-  JitLirBlock* sorted = jit_lir_sort_blocks_rpo(
-      reinterpret_cast<JitLirBlock*>(blocks_), num_blocks_, &out_count);
-  memcpy(blocks_, sorted, out_count * sizeof(BasicBlock*));
-  num_blocks_ = out_count;
-  PyMem_RawFree(sorted);
+  lir_function_sort_blocks(
+      reinterpret_cast<LirFunction*>(this));
 }
 
 } // namespace jit::lir

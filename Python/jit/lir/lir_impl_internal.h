@@ -75,9 +75,12 @@ LirBasicBlock *lir_block_split_before(LirBasicBlock *bb,
                                        LirInstruction *instr);
 
 /* From function_impl.c */
+LirBasicBlock *lir_function_alloc_block(LirFunction *func);
 LirBasicBlock *lir_function_alloc_block_after(LirFunction *func,
                                                LirBasicBlock *after);
 int lir_function_allocate_id(LirFunction *func);
+void lir_function_ensure_block_capacity(LirFunction *func, size_t needed);
+void lir_function_sort_blocks(LirFunction *func);
 
 /* From lir_c_api.h (blocksorter) */
 JitLirBlock *jit_lir_sort_blocks_rpo(
