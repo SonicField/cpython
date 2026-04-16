@@ -1831,8 +1831,8 @@ InlineResult HIRBuilder::inlineHIR(
   for (auto block : caller->cfg.GetRPOTraversal(entry_block)) {
     auto instr = block->GetTerminator();
     if (instr->IsReturn()) {
-      auto assign = Assign::create(return_val, instr->GetOperand(0));
-      auto branch = Branch::create(exit_block);
+      auto assign = static_cast<Instr*>(hir_c_create_assign(return_val, instr->GetOperand(0)));
+      auto branch = static_cast<Instr*>(hir_c_create_branch_cpp(exit_block));
       instr->ExpandInto({assign, branch});
       Instr::Destroy(instr);
     }
@@ -2805,7 +2805,7 @@ void BlockCanonicalizer::InsertCopies(
     // We've detected a cycle. Move the register to a new home
     // in order to break the cycle.
     auto tmp = temps.AllocateStack();
-    auto mov = Assign::create(tmp, reg);
+    auto mov = static_cast<Instr*>(hir_c_create_assign(tmp, reg));
     mov->copyBytecodeOffset(terminator);
     mov->InsertBefore(terminator);
     moved_[reg] = tmp;
@@ -2828,7 +2828,7 @@ void BlockCanonicalizer::InsertCopies(
         reg = it2->second;
       }
     }
-    auto mov = Assign::create(dst, reg);
+    auto mov = static_cast<Instr*>(hir_c_create_assign(dst, reg));
     mov->copyBytecodeOffset(terminator);
     mov->InsertBefore(terminator);
   }
@@ -2872,7 +2872,7 @@ void BlockCanonicalizer::Run(
       } else if (term->Uses(dst)) {
         auto tmp = temps.AllocateStack();
         alloced.emplace_back(tmp);
-        auto mov = Assign::create(tmp, dst);
+        auto mov = static_cast<Instr*>(hir_c_create_assign(tmp, dst));
         mov->InsertBefore(*term);
         term->ReplaceUsesOf(dst, tmp);
       }
