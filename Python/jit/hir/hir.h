@@ -1401,10 +1401,6 @@ class CheckBase : public DeoptBase {
   }
 };
 
-// Check if an error has occurred (_PyErr_Occurred() is true).
-// If so, transfer control to the exception handler for the block.
-DEFINE_SIMPLE_INSTR(CheckErrOccurred, (), Operands<0>, CheckBase);
-
 // Check if an exception has occurred (implied by var being NULL).
 // If so, transfer control to the exception handler for the block.
 DEFINE_SIMPLE_INSTR(
@@ -1413,10 +1409,6 @@ DEFINE_SIMPLE_INSTR(
     HasOutput,
     Operands<1>,
     CheckBase);
-
-// Check if an exception has occurred as indicated by a negative
-// return code.
-DEFINE_SIMPLE_INSTR(CheckNeg, (TCInt), HasOutput, Operands<1>, CheckBase);
 
 class INSTR_CLASS(GetSecondOutput, (TTop), HasOutput, Operands<1>) {
  public:
@@ -1454,24 +1446,6 @@ class CheckBaseWithName : public CheckBase {
 // given local variable name.
 DEFINE_SIMPLE_INSTR(
     CheckVar,
-    (TOptObject),
-    HasOutput,
-    Operands<1>,
-    CheckBaseWithName);
-
-// If the operand is Nullptr, raise a NameError referencing the given free
-// variable name.
-DEFINE_SIMPLE_INSTR(
-    CheckFreevar,
-    (TOptObject),
-    HasOutput,
-    Operands<1>,
-    CheckBaseWithName);
-
-// If the operand is Nullptr, raise an AttributeError referencing the given
-// attribute/field name.
-DEFINE_SIMPLE_INSTR(
-    CheckField,
     (TOptObject),
     HasOutput,
     Operands<1>,
@@ -2439,9 +2413,6 @@ DEFINE_SIMPLE_INSTR(XDecref, (TOptObject), Operands<1>);
 // Increment the reference count of `reg`
 DEFINE_SIMPLE_INSTR(Incref, (TObject), Operands<1>);
 
-// Increment the refrence count of `reg`, if `reg` is not NULL
-DEFINE_SIMPLE_INSTR(XIncref, (TOptObject), Operands<1>);
-
 // batch decrement references
 DEFINE_SIMPLE_INSTR(BatchDecref, (TObject), Operands<>);
 
@@ -2830,17 +2801,8 @@ class INSTR_CLASS(
 // any non-LoadArg instructions.
 DEFINE_SIMPLE_INSTR(LoadCurrentFunc, (), HasOutput, Operands<0>);
 
-// Load the current interpreter frame pointer from thread state. Must appear
-// in the prologue section alongside LoadArg/LoadCurrentFunc.
-DEFINE_SIMPLE_INSTR(LoadFrame, (), Operands<0>);
-
 // Load the value from the cell in operand
 DEFINE_SIMPLE_INSTR(LoadCellItem, (TOptObject), HasOutput, Operands<1>);
-
-// Load the value from the cell in src, stealing the reference to it. This is
-// used only as the precursor to SetCellItem, so that we can decref the old item
-// in the cell that the cell is about to lose its reference to.
-DEFINE_SIMPLE_INSTR(StealCellItem, (TObject), HasOutput, Operands<1>);
 
 // Atomically swap the cell value, returning the old value. Used in FT-Python
 // for thread-safe STORE_DEREF. Takes cell as operand 0 and new value as
@@ -3331,22 +3293,6 @@ class INSTR_CLASS(
   Type type_;
 };
 
-// Merge two maps by (ultimately) calling PyDict_Update
-DEFINE_SIMPLE_INSTR(
-    DictUpdate,
-    (TDict, TObject),
-    HasOutput,
-    Operands<2>,
-    DeoptBase);
-
-// Merge two maps by (ultimately) calling _PyDict_MergeEx
-DEFINE_SIMPLE_INSTR(
-    DictMerge,
-    (TDict, TObject, TObject),
-    HasOutput,
-    Operands<3>,
-    DeoptBase);
-
 // Allocate an empty set
 DEFINE_SIMPLE_INSTR(MakeSet, (), HasOutput, Operands<0>, DeoptBase);
 
@@ -3436,7 +3382,6 @@ class INSTR_CLASS(GetIter, (TObject), HasOutput, Operands<1>, DeoptBase) {
 };
 
 DEFINE_SIMPLE_INSTR(GetAIter, (TObject), HasOutput, Operands<1>, DeoptBase);
-DEFINE_SIMPLE_INSTR(GetANext, (TObject), HasOutput, Operands<1>, DeoptBase);
 
 // Get the length of an object by calling __len__.
 DEFINE_SIMPLE_INSTR(GetLength, (TObject), HasOutput, Operands<1>, DeoptBase);
@@ -3467,9 +3412,6 @@ class INSTR_CLASS(
 // (e.g. signal handlers).  Returns 0 otherwise. This is intended to be
 // followed immediately by a CondBranch.
 DEFINE_SIMPLE_INSTR(LoadEvalBreaker, (), HasOutput, Operands<0>);
-
-// Called when reaching a quiescent state for free-threading QSBR.
-DEFINE_SIMPLE_INSTR(AtQuiescentState, (), Operands<0>);
 
 // Let other threads run, run signal handlers, etc.
 DEFINE_SIMPLE_INSTR(RunPeriodicTasks, (), HasOutput, Operands<0>, DeoptBase);
@@ -3518,11 +3460,6 @@ class INSTR_CLASS(Snapshot, (), Operands<0>) {
  private:
   FrameState* frame_state_{nullptr};  // H2-E3: was unique_ptr
 };
-
-// Used to indicate a control flow path that is statically known to be
-// unreachable. Executing an Unreachable at runtime can only happen due
-// to bugs in the compiler.
-DEFINE_SIMPLE_INSTR(Unreachable, (), Operands<0>);
 
 // Always deopt.
 DEFINE_SIMPLE_INSTR(Deopt, (), Operands<0>, DeoptBase);
@@ -3718,8 +3655,6 @@ class INSTR_CLASS(RaiseStatic, (TObject), Operands<>, DeoptBase) {
   PyObject* exc_type_;
 };
 
-DEFINE_SIMPLE_INSTR(SetCurrentAwaiter, (TOptObject), Operands<1>);
-
 DEFINE_SIMPLE_INSTR(YieldValue, (TObject), HasOutput, Operands<1>, DeoptBase);
 
 // InitialYield causes a generator function to suspend and return a new
@@ -3727,35 +3662,6 @@ DEFINE_SIMPLE_INSTR(YieldValue, (TObject), HasOutput, Operands<1>, DeoptBase);
 // functions and in them should be exactly one instance, which in 3.10 is
 // before execution begins, and in 3.12 is generated by RETURN_GENERATOR.
 DEFINE_SIMPLE_INSTR(InitialYield, (), HasOutput, Operands<0>, DeoptBase);
-
-// Send the value in operand 0 to the subiterator in operand 1, forwarding
-// yielded values from the subiterator back to our caller until it is
-// exhausted.
-DEFINE_SIMPLE_INSTR(
-    YieldFrom,
-    (TObject, TOptObject),
-    HasOutput,
-    Operands<2>,
-    DeoptBase);
-
-// A more compact (in terms of emitted code) equivalent to YieldValue followed
-// by YieldFrom.
-DEFINE_SIMPLE_INSTR(
-    YieldAndYieldFrom,
-    (TOptObject, TObject),
-    HasOutput,
-    Operands<2>,
-    DeoptBase);
-
-// Like YieldFrom but instead of propagating StopAsyncIteration it instead
-// yields the sentinel value indicating that iteration has completed. Used to
-// implement `async for` loops.
-DEFINE_SIMPLE_INSTR(
-    YieldFromHandleStopAsyncIteration,
-    (TObject),
-    HasOutput,
-    Operands<2>,
-    DeoptBase);
 
 // Implements BUILD_STRING opcode.
 DEFINE_SIMPLE_INSTR(BuildString, (TUnicode), HasOutput, Operands<>, DeoptBase);
