@@ -1034,6 +1034,45 @@ HirInstr hir_c_create_decref_reg(HirRegister src) {
   return d;
 }
 
+HirInstr hir_c_create_xdecref_reg(HirRegister src) {
+  HirXDecref *d = (HirXDecref *)hir_c_alloc_instr(sizeof(HirXDecref), 1);
+  hir_c_init_instr(d, HIR_OP_XDecref);
+  hir_c_set_operand(d, 0, src);
+  return d;
+}
+HirInstr hir_c_create_incref_reg(HirRegister src) {
+  HirIncref *d = (HirIncref *)hir_c_alloc_instr(sizeof(HirIncref), 1);
+  hir_c_init_instr(d, HIR_OP_Incref);
+  hir_c_set_operand(d, 0, src);
+  return d;
+}
+HirInstr hir_c_create_assign_reg(HirRegister dst, HirRegister src) {
+  HirAssign *a = (HirAssign *)hir_c_alloc_instr(sizeof(HirAssign), 1);
+  hir_c_init_instr(a, HIR_OP_Assign);
+  hir_c_set_output(a, dst);
+  hir_c_set_operand(a, 0, src);
+  return a;
+}
+HirInstr hir_c_create_primitive_box_bool_reg(HirRegister dst, HirRegister src) {
+  HirPrimitiveBoxBool *p = (HirPrimitiveBoxBool *)hir_c_alloc_instr(
+      sizeof(HirPrimitiveBoxBool), 1);
+  hir_c_init_instr(p, HIR_OP_PrimitiveBoxBool);
+  hir_c_set_output(p, dst);
+  hir_c_set_operand(p, 0, src);
+  return p;
+}
+HirInstr hir_c_create_check_sequence_bounds_reg(HirRegister dst,
+    HirRegister seq, HirRegister idx, void *frame_state) {
+  HirCheckSequenceBounds *c = (HirCheckSequenceBounds *)hir_c_alloc_instr(
+      sizeof(HirCheckSequenceBounds), 2);
+  hir_c_init_deopt(c, HIR_OP_CheckSequenceBounds);
+  hir_c_set_output(c, dst);
+  hir_c_set_operand(c, 0, seq);
+  hir_c_set_operand(c, 1, idx);
+  as_instr(c)->asDeoptBase()->setFrameState(
+      *static_cast<const FrameState*>(frame_state));
+  return c;
+}
 HirInstr hir_c_create_make_cell_reg(HirRegister dst, HirRegister src,
                                      void *frame_state) {
   HirMakeCell *c = (HirMakeCell *)hir_c_alloc_instr(sizeof(HirMakeCell), 1);

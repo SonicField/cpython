@@ -376,6 +376,12 @@ HirInstr hir_c_create_check_var_reg(HirRegister dst, HirRegister src,
                                      void *name, void *frame_state);
 HirInstr hir_c_create_set_current_awaiter_reg(HirRegister src);
 HirInstr hir_c_create_decref_reg(HirRegister src);
+HirInstr hir_c_create_xdecref_reg(HirRegister src);
+HirInstr hir_c_create_incref_reg(HirRegister src);
+HirInstr hir_c_create_assign_reg(HirRegister dst, HirRegister src);
+HirInstr hir_c_create_primitive_box_bool_reg(HirRegister dst, HirRegister src);
+HirInstr hir_c_create_check_sequence_bounds_reg(HirRegister dst,
+    HirRegister seq, HirRegister idx, void *frame_state);
 HirInstr hir_c_create_make_cell_reg(HirRegister dst, HirRegister src,
                                      void *frame_state);
 HirInstr hir_c_create_initial_yield_reg(HirRegister dst, void *frame_state);
