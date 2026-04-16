@@ -18,13 +18,15 @@ ARCH="$(uname -m)"
 # Parse flags
 CLEAN=0
 PYDEBUG=0
+ASAN=0
 JOBS=32
 for arg in "$@"; do
     case "$arg" in
         --clean)   CLEAN=1 ;;
         --pydebug) PYDEBUG=1 ;;
+        --asan)    ASAN=1 ;;
         --jobs=*)  JOBS="${arg#--jobs=}" ;;
-        *)         echo "Unknown flag: $arg"; echo "Usage: $0 [--clean] [--pydebug] [--jobs=N]"; exit 1 ;;
+        *)         echo "Unknown flag: $arg"; echo "Usage: $0 [--clean] [--pydebug] [--asan] [--jobs=N]"; exit 1 ;;
     esac
 done
 
@@ -40,6 +42,7 @@ echo "Architecture: $ARCH"
 echo "Jobs: $JOBS"
 [ "$CLEAN" -eq 1 ] && echo "Mode: CLEAN (full cmake cache removal)"
 [ "$PYDEBUG" -eq 1 ] && echo "Mode: PYDEBUG (assertions enabled)"
+[ "$ASAN" -eq 1 ] && echo "Mode: ASAN (address sanitizer enabled)"
 
 # Step 0: Check if local branch is behind remote (prevents stale binary builds)
 cd "$CPYTHON_ROOT"
@@ -76,13 +79,17 @@ cd "$BUILD_DIR"
 # CRITICAL: --pydebug requires CMAKE_BUILD_TYPE=Debug so JIT_DCHECK is active.
 # RelWithDebInfo compiles out JIT_DCHECK even with configure --with-pydebug.
 CMAKE_BUILD_TYPE="RelWithDebInfo"
+EXTRA_CMAKE_FLAGS=""
 if [ "$PYDEBUG" -eq 1 ]; then
     CMAKE_BUILD_TYPE="Debug"
 fi
+if [ "$ASAN" -eq 1 ]; then
+    EXTRA_CMAKE_FLAGS=" -fsanitize=address -fno-omit-frame-pointer"
+fi
 if ! cmake .. \
     -DPHOENIX_ASM=ON \
-    -DCMAKE_CXX_FLAGS="-DPHOENIX_ASM" \
-    -DCMAKE_C_FLAGS="-DPHOENIX_ASM" \
+    -DCMAKE_CXX_FLAGS="-DPHOENIX_ASM${EXTRA_CMAKE_FLAGS}" \
+    -DCMAKE_C_FLAGS="-DPHOENIX_ASM${EXTRA_CMAKE_FLAGS}" \
     -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
     -DCMAKE_C_COMPILER=clang \
     -DCMAKE_CXX_COMPILER=clang++; then
@@ -106,25 +113,29 @@ $AR_CMD rcs "$BUILD_DIR/_deps/asmjit-build/libasmjit.a"
 echo "--- Configuring CPython ---"
 cd "$CPYTHON_ROOT"
 PYDEBUG_FLAG="--without-pydebug"
+ASAN_FLAG=""
 if [ "$PYDEBUG" -eq 1 ]; then
     PYDEBUG_FLAG="--with-pydebug"
 fi
+if [ "$ASAN" -eq 1 ]; then
+    ASAN_FLAG="--with-address-sanitizer"
+fi
 if [ "$ARCH" = "aarch64" ]; then
     echo "ARM64 detected — configuring without LTO"
-    if ! CC=clang CXX=clang++ ./configure $PYDEBUG_FLAG --without-lto; then
+    if ! CC=clang CXX=clang++ ./configure $PYDEBUG_FLAG $ASAN_FLAG --without-lto; then
         echo "FAIL: configure failed"
         exit 1
     fi
 else
     if [ "$PYDEBUG" -eq 1 ]; then
         echo "x86_64 detected — configuring without LTO (pydebug)"
-        if ! CC=clang CXX=clang++ ./configure $PYDEBUG_FLAG --without-lto; then
+        if ! CC=clang CXX=clang++ ./configure $PYDEBUG_FLAG $ASAN_FLAG --without-lto; then
             echo "FAIL: configure failed"
             exit 1
         fi
     else
         echo "x86_64 detected — configuring with LTO"
-        if ! CC=clang CXX=clang++ ./configure $PYDEBUG_FLAG --with-lto; then
+        if ! CC=clang CXX=clang++ ./configure $PYDEBUG_FLAG $ASAN_FLAG --with-lto; then
             echo "FAIL: configure failed"
             exit 1
         fi
@@ -134,7 +145,13 @@ fi
 # Step 6: Remove stale python binary and rebuild CPython
 echo "--- Building CPython ---"
 rm -f python
-make -j"$JOBS" 2>&1 | tail -3
+# ASAN builds: disable LeakSanitizer during make — CPython's freeze step runs
+# its own Python, and ASAN flags CPython's startup leaks as errors.
+if [ "$ASAN" -eq 1 ]; then
+    ASAN_OPTIONS=detect_leaks=0 make -j"$JOBS" 2>&1 | tail -3
+else
+    make -j"$JOBS" 2>&1 | tail -3
+fi
 
 # Step 7: Verify binary exists
 if [ ! -f "$CPYTHON_ROOT/python" ]; then

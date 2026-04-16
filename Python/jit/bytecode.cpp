@@ -1,204 +1,94 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/bytecode.h"
+#include "cinderx/Jit/bytecode_c.h"
 
 namespace jit {
 
+// All C functions in bytecode_c.c work with instruction indices (array indices
+// into _Py_CODEUNIT[]).  The C++ BCOffset type stores byte offsets (index * 2).
+// These helpers convert at the C/C++ boundary.
+//
+// baseOffset_.value() is a byte offset.  To pass to C: divide by sizeof.
+// C returns instruction indices.  To return as BCOffset: wrap in BCIndex
+// (which implicitly converts to BCOffset by multiplying by sizeof).
+
+static int toInstrIndex(BCOffset off) {
+  return BCIndex{off}.value();
+}
+
+static BCOffset fromInstrIndex(int idx) {
+  return BCIndex{idx};  // implicit BCIndex → BCOffset: idx * sizeof(_Py_CODEUNIT)
+}
+
 int BytecodeInstruction::opcode() const {
-  int op = _Py_OPCODE(word());
-  if (extendedOpcode_) {
-    return EXTENDED_OPCODE_FLAG | op;
-  }
-  return op;
+  JitBytecodeInstr c;
+  jit_bc_instr_init(&c, code_, toInstrIndex(baseOffset_));
+  return jit_bc_instr_opcode(&c);
 }
 
 void BytecodeInstruction::calcOpcodeOffsetAndOparg() const {
   if (opcodeIndex_.value() != std::numeric_limits<int>::min()) {
     return;
   }
-
-  opcodeIndex_ = baseOffset_;
-  BCIndex end_idx{countIndices(code_)};
-  if (opcodeIndex_.value() >= end_idx) {
-    return;
-  }
-
-  // Consume all EXTENDED_ARG opcodes until we get to something else.
-  auto consume_extended_args = [&] {
-    while (_Py_OPCODE(word()) == EXTENDED_ARG) {
-      JIT_DCHECK(
-          opcodeIndex_.value() < end_idx, "EXTENDED_ARG at end of bytecode");
-      extendedOparg_ = (extendedOparg_ << 8) | _Py_OPARG(word());
-      opcodeIndex_++;
-    }
-  };
-
-  consume_extended_args();
-
-  // Check for EXTENDED_OPCODE, bump forward one opcode if so.
-  if (PY_VERSION_HEX >= 0x030E0000 && _Py_OPCODE(word()) == EXTENDED_OPCODE) {
-    opcodeIndex_++;
-    extendedOparg_ = 0;
-    extendedOpcode_ = true;
-  }
-
-  // If we had an EXTENDED_OPCODE, then it might also be followed by more
-  // EXTENDED_ARGS.
-  consume_extended_args();
-
-  extendedOparg_ = (extendedOparg_ << 8) | _Py_OPARG(word());
+  // Delegate to C implementation, copy results back to mutable fields.
+  JitBytecodeInstr c;
+  jit_bc_instr_init(&c, code_, toInstrIndex(baseOffset_));
+  jit_bc_instr_opcode_offset(&c);  // triggers lazy computation
+  opcodeIndex_ = BCIndex{c.opcode_index};
+  extendedOparg_ = c.extended_oparg;
+  extendedOpcode_ = c.extended_opcode;
 }
 
 int BytecodeInstruction::specializedOpcode() const {
-#if PY_VERSION_HEX >= 0x030C0000
-  int opcode = uninstrumentedOpcode();
-
-  switch (opcode) {
-    case BINARY_OP_ADD_FLOAT:
-    case BINARY_OP_ADD_INT:
-    case BINARY_OP_ADD_UNICODE:
-    case BINARY_OP_MULTIPLY_FLOAT:
-    case BINARY_OP_MULTIPLY_INT:
-    case BINARY_OP_SUBTRACT_FLOAT:
-    case BINARY_OP_SUBTRACT_INT:
-    case BINARY_SUBSCR_DICT:
-    case BINARY_SUBSCR_LIST_INT:
-    case BINARY_SUBSCR_TUPLE_INT:
-    case COMPARE_OP_FLOAT:
-    case COMPARE_OP_INT:
-    case COMPARE_OP_STR:
-    case LOAD_ATTR_MODULE:
-    case LOAD_ATTR_INSTANCE_VALUE:
-    case STORE_ATTR_INSTANCE_VALUE:
-    case STORE_ATTR_SLOT:
-    case LOAD_ATTR_SLOT:
-    case STORE_SUBSCR_DICT:
-    case STORE_SUBSCR_LIST_INT:
-    case UNPACK_SEQUENCE_LIST:
-    case UNPACK_SEQUENCE_TUPLE:
-    case UNPACK_SEQUENCE_TWO_TUPLE:
-    case FOR_ITER_RANGE:
-    case FOR_ITER_LIST:
-    case FOR_ITER_TUPLE:
-      return opcode;
-    default:
-      return unspecialize(opcode);
-  }
-#else
-  return opcode();
-#endif
+  JitBytecodeInstr c;
+  jit_bc_instr_init(&c, code_, toInstrIndex(baseOffset_));
+  return jit_bc_instr_specialized_opcode(&c);
 }
 
 bool BytecodeInstruction::isBranch() const {
-  switch (opcode()) {
-    case FOR_ITER:
-    case JUMP_ABSOLUTE:
-    case JUMP_BACKWARD:
-    case JUMP_BACKWARD_NO_INTERRUPT:
-    case JUMP_FORWARD:
-    case JUMP_IF_FALSE_OR_POP:
-    case JUMP_IF_NONZERO_OR_POP:
-    case JUMP_IF_NOT_EXC_MATCH:
-    case JUMP_IF_TRUE_OR_POP:
-    case JUMP_IF_ZERO_OR_POP:
-    case POP_JUMP_IF_FALSE:
-    case POP_JUMP_IF_NONE:
-    case POP_JUMP_IF_NONZERO:
-    case POP_JUMP_IF_NOT_NONE:
-    case POP_JUMP_IF_TRUE:
-    case POP_JUMP_IF_ZERO:
-    case SEND:
-    case SETUP_FINALLY:
-      return true;
-    default:
-      return false;
-  }
+  JitBytecodeInstr c;
+  jit_bc_instr_init(&c, code_, toInstrIndex(baseOffset_));
+  return jit_bc_instr_is_branch(&c) != 0;
 }
 
 bool BytecodeInstruction::isReturn() const {
-  switch (opcode()) {
-    case RETURN_CONST:
-    case RETURN_PRIMITIVE:
-    case RETURN_VALUE:
-      return true;
-    default:
-      return false;
-  }
+  JitBytecodeInstr c;
+  jit_bc_instr_init(&c, code_, toInstrIndex(baseOffset_));
+  return jit_bc_instr_is_return(&c) != 0;
 }
 
 bool BytecodeInstruction::isTerminator() const {
-  switch (opcode()) {
-    case RAISE_VARARGS:
-    case RERAISE:
-      return true;
-    default:
-      return isBranch() || isReturn();
-  }
+  JitBytecodeInstr c;
+  jit_bc_instr_init(&c, code_, toInstrIndex(baseOffset_));
+  return jit_bc_instr_is_terminator(&c) != 0;
 }
 
 BCOffset BytecodeInstruction::getJumpTarget() const {
   JIT_DCHECK(
       isBranch(), "Calling getJumpTarget() on a non-branch gives nonsense");
-
-  if (isAbsoluteControlFlow()) {
-    return BCIndex{oparg()};
-  }
-
-  int delta = oparg();
-  if (opcode() == JUMP_BACKWARD || opcode() == JUMP_BACKWARD_NO_INTERRUPT) {
-    delta = -delta;
-  }
-  BCIndex target = BCIndex{nextInstrOffset()} + delta;
-  // In 3.11+ the FOR_ITER bytecode encodes a jump to an END_FOR instruction
-  // then at runtime it usually dynamically jumps past this. The only time it
-  // actually goes through the END_FOR is if the FOR_ITER is operating
-  // on a generator and gets adaptively specialized. We always compile
-  // unspecialized bytecode so we can always skip the END_FOR.
-  //
-  // We make this tweak here so it applies both when generating the branching
-  // HIR operation, and when creating block boundaries for bytecode. The END_FOR
-  // will end up on its own in an unreachable block.
-  if (PY_VERSION_HEX >= 0x030B0000 && opcode() == FOR_ITER) {
-    BytecodeInstruction target_bc{code_, target};
-    JIT_CHECK(target_bc.opcode() == END_FOR, "Expected END_FOR");
-    return target_bc.nextInstrOffset();
-  }
-  return target;
+  JitBytecodeInstr c;
+  jit_bc_instr_init(&c, code_, toInstrIndex(baseOffset_));
+  // C function handles all cases including FOR_ITER END_FOR skip.
+  return fromInstrIndex(jit_bc_instr_get_jump_target(&c));
 }
 
 BCOffset BytecodeInstruction::nextInstrOffset() const {
-  return BCOffset{
-      opcodeIndex() + inlineCacheSize(code_, opcodeIndex().value()) + 1};
+  JitBytecodeInstr c;
+  jit_bc_instr_init(&c, code_, toInstrIndex(baseOffset_));
+  return fromInstrIndex(jit_bc_instr_next_offset(&c));
 }
 
 _Py_CODEUNIT BytecodeInstruction::word() const {
-#if PY_VERSION_HEX >= 0x030C0000
-  int opcode = unspecialize(uninstrumentedOpcode());
-  int oparg = _Py_OPARG(codeUnit(code_)[opcodeIndex().value()]);
-  return _Py_MAKE_CODEUNIT(opcode, oparg);
-#else
-  return codeUnit(code_)[opcodeIndex().value()];
-#endif
+  JitBytecodeInstr c;
+  jit_bc_instr_init(&c, code_, toInstrIndex(baseOffset_));
+  return jit_bc_instr_word(&c);
 }
 
 bool BytecodeInstruction::isAbsoluteControlFlow() const {
-  switch (opcode()) {
-    case JUMP_ABSOLUTE:
-    case JUMP_IF_FALSE_OR_POP:
-    case JUMP_IF_NONZERO_OR_POP:
-    case JUMP_IF_NOT_EXC_MATCH:
-    case JUMP_IF_TRUE_OR_POP:
-    case JUMP_IF_ZERO_OR_POP:
-      return true;
-    case POP_JUMP_IF_NONZERO:
-    case POP_JUMP_IF_ZERO:
-    case POP_JUMP_IF_FALSE:
-    case POP_JUMP_IF_TRUE:
-      // These instructions switched from absolute to relative in 3.11.
-      return PY_VERSION_HEX < 0x030B0000;
-    default:
-      return false;
-  }
+  JitBytecodeInstr c;
+  jit_bc_instr_init(&c, code_, toInstrIndex(baseOffset_));
+  return jit_bc_instr_is_absolute_control_flow(&c) != 0;
 }
 
 BytecodeInstructionBlock::BytecodeInstructionBlock(

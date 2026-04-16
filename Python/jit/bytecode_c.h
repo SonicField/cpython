@@ -46,10 +46,16 @@ int jit_bc_instr_oparg(JitBytecodeInstr *bci);
 int jit_bc_instr_is_branch(JitBytecodeInstr *bci);
 int jit_bc_instr_is_return(JitBytecodeInstr *bci);
 int jit_bc_instr_is_terminator(JitBytecodeInstr *bci);
+int jit_bc_instr_is_absolute_control_flow(JitBytecodeInstr *bci);
 
 /* Navigation */
 int jit_bc_instr_get_jump_target(JitBytecodeInstr *bci);
 int jit_bc_instr_next_offset(JitBytecodeInstr *bci);
+
+/* Raw word access (requires _Py_CODEUNIT from cpython/code.h) */
+#ifdef _Py_OPCODE
+_Py_CODEUNIT jit_bc_instr_word(JitBytecodeInstr *bci);
+#endif
 
 /* Bytecode block iteration */
 typedef struct {

@@ -12,7 +12,13 @@ All commits on the phoenix-asm-integration branch require gatekeeper APPROVE in 
 
 Any push without prior gatekeeper APPROVE is a process violation. Medic MUST flag violations via [MEDIC-WARNING].
 
+Gatekeeper MUST NOT issue APPROVE until testkeeper confirms BUILD PASS. Review-only approval (git show --stat without build confirmation) is invalid. This has been violated 3 times — it is now a hard gate.
+
 Retroactive approvals are NOT acceptable for Phase 3D commits (codegen conversion touches 57K lines — unwinding a bad push is costly).
+
+## Build Verification (MANDATORY)
+
+Every BUILD PASS report must include: (1) the build command run, (2) binary timestamp, (3) commit hash verified in the built binary. Reports without these are UNVERIFIED. Two build-verification failures in the 2026-04-16 session (stale binary + phantom build) proved that "it builds" claims without evidence are unreliable.
 
 ## Build Lock (MANDATORY — Phase 3D)
 
