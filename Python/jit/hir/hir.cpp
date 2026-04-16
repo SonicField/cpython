@@ -197,20 +197,20 @@ BasicBlock* Edge::to() const {
 
 void Edge::set_from(BasicBlock* new_from) {
   if (from_) {
-    from_->out_edges_.erase(this);
+    phx_edge_arr_erase(&from_->out_edges_, reinterpret_cast<const HirEdge*>(this));
   }
   if (new_from) {
-    new_from->out_edges_.insert(this);
+    phx_edge_arr_insert(&new_from->out_edges_, reinterpret_cast<const HirEdge*>(this));
   }
   from_ = new_from;
 }
 
 void Edge::set_to(BasicBlock* new_to) {
   if (to_) {
-    to_->in_edges_.erase(this);
+    phx_edge_arr_erase(&to_->in_edges_, reinterpret_cast<const HirEdge*>(this));
   }
   if (new_to) {
-    new_to->in_edges_.insert(this);
+    phx_edge_arr_insert(&new_to->in_edges_, reinterpret_cast<const HirEdge*>(this));
   }
   to_ = new_to;
 }
@@ -925,10 +925,14 @@ Instr* BasicBlock::Append(Instr* instr) {
 
 void BasicBlock::retargetPreds(BasicBlock* target) {
   JIT_CHECK(target != this, "Can't retarget to self");
-  for (auto it = in_edges_.begin(); it != in_edges_.end();) {
-    auto edge = *it;
-    ++it;
-    const_cast<Edge*>(edge)->set_to(target);
+  // Snapshot: set_to modifies in_edges_ (swap-and-pop erase), so we
+  // can't iterate the live array while mutating it.
+  size_t n = in_edges_.count;
+  const HirEdge** snapshot = static_cast<const HirEdge**>(
+      alloca(n * sizeof(const HirEdge*)));
+  memcpy(snapshot, in_edges_.data, n * sizeof(const HirEdge*));
+  for (size_t i = 0; i < n; i++) {
+    const_cast<Edge*>(reinterpret_cast<const Edge*>(snapshot[i]))->set_to(target);
   }
 }
 
@@ -967,10 +971,12 @@ void BasicBlock::clear() {
 
 BasicBlock::~BasicBlock() {
   JIT_DCHECK(
-      in_edges_.empty(), "Attempt to destroy a block with in-edges, {}", id);
+      phx_edge_arr_empty(&in_edges_), "Attempt to destroy a block with in-edges, {}", id);
   clear();
   JIT_DCHECK(
-      out_edges_.empty(), "out_edges not empty after deleting all instrs");
+      phx_edge_arr_empty(&out_edges_), "out_edges not empty after deleting all instrs");
+  phx_edge_arr_destroy(&in_edges_);
+  phx_edge_arr_destroy(&out_edges_);
 }
 
 Instr* BasicBlock::GetTerminator() {

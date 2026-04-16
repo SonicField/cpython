@@ -62,10 +62,16 @@ CFG::~CFG() {
     // This is the one situation where it's not a bug to delete a reachable
     // block, since we're deleting everything. Clear block's incoming edges so
     // its destructor doesn't complain.
-    for (auto it = block->in_edges().begin(); it != block->in_edges().end();) {
-      auto edge = *it;
-      ++it;
-      const_cast<Edge*>(edge)->set_to(nullptr);
+    // Snapshot: set_to(nullptr) modifies in_edges_ via swap-and-pop erase.
+    auto edges = block->in_edges();
+    size_t n = edges.size();
+    const Edge** snapshot = static_cast<const Edge**>(
+        alloca(n * sizeof(const Edge*)));
+    for (size_t i = 0; i < n; i++) {
+      snapshot[i] = edges[i];
+    }
+    for (size_t i = 0; i < n; i++) {
+      const_cast<Edge*>(snapshot[i])->set_to(nullptr);
     }
     delete block;
   }

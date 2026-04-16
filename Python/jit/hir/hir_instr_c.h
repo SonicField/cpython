@@ -38,6 +38,52 @@ typedef struct HirEdge {
     void *to;
 } HirEdge;
 
+/* ---- Edge pointer array (replaces std::unordered_set<const Edge*>) ----
+ * Used by BasicBlock for in_edges_ and out_edges_.
+ * Small counts (1-4 typical), linear scan is faster than hash set. */
+typedef struct PhxEdgePtrArray {
+    const HirEdge **data;
+    size_t count;
+    size_t capacity;
+} PhxEdgePtrArray;
+
+static inline void phx_edge_arr_init(PhxEdgePtrArray *a) {
+    a->data = NULL;
+    a->count = 0;
+    a->capacity = 0;
+}
+
+static inline void phx_edge_arr_destroy(PhxEdgePtrArray *a) {
+    free(a->data);
+    a->data = NULL;
+    a->count = 0;
+    a->capacity = 0;
+}
+
+static inline void phx_edge_arr_insert(PhxEdgePtrArray *a, const HirEdge *e) {
+    if (a->count == a->capacity) {
+        size_t new_cap = a->capacity ? a->capacity * 2 : 4;
+        a->data = (const HirEdge **)realloc(a->data, new_cap * sizeof(const HirEdge *));
+        a->capacity = new_cap;
+    }
+    a->data[a->count++] = e;
+}
+
+static inline void phx_edge_arr_erase(PhxEdgePtrArray *a, const HirEdge *e) {
+    for (size_t i = 0; i < a->count; i++) {
+        if (a->data[i] == e) {
+            /* Swap with last element (order doesn't matter). */
+            a->data[i] = a->data[a->count - 1];
+            a->count--;
+            return;
+        }
+    }
+}
+
+static inline int phx_edge_arr_empty(const PhxEdgePtrArray *a) {
+    return a->count == 0;
+}
+
 /* ---- OperandType (C equivalent of hir::OperandType) ---- */
 typedef enum {
     HIR_CONSTRAINT_kType = 0,

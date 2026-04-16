@@ -6,6 +6,7 @@
 #include "cinderx/Jit/bytecode_offsets.h"
 #include "cinderx/Jit/code_patcher.h"
 #include "cinderx/Jit/hir/frame_state.h"
+#include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_ops.h"
 #include "cinderx/Jit/hir/register.h"
 #include "cinderx/Jit/hir/type.h"
@@ -3958,7 +3959,7 @@ Register* modelReg(Register* reg);
 class BasicBlock {
  public:
   BasicBlock() : BasicBlock(0) {}
-  explicit BasicBlock(int id_) : id(id_) {}
+  explicit BasicBlock(int id_) : id(id_), out_edges_{}, in_edges_{} {}
   ~BasicBlock();
 
   // Replace any references to old_pred in this block's Phis with new_pred.
@@ -3969,11 +3970,12 @@ class BasicBlock {
   void removePhiPredecessor(BasicBlock* old_pred);
 
   // Read-only access to the incoming and outgoing edges.
-  const std::unordered_set<const Edge*>& in_edges() const {
-    return in_edges_;
+  // Returns span over PhxEdgePtrArray (Edge→C: was std::unordered_set).
+  std::span<const Edge* const> in_edges() const {
+    return {reinterpret_cast<const Edge* const*>(in_edges_.data), in_edges_.count};
   }
-  const std::unordered_set<const Edge*>& out_edges() const {
-    return out_edges_;
+  std::span<const Edge* const> out_edges() const {
+    return {reinterpret_cast<const Edge* const*>(out_edges_.data), out_edges_.count};
   }
 
   // Append or prepend an instruction to the instructions in the basic block.
@@ -4122,11 +4124,11 @@ class BasicBlock {
   //
   Instr::List instrs_;
 
-  // Outgoing edges.
-  std::unordered_set<const Edge*> out_edges_;
+  // Outgoing edges (Edge→C: was std::unordered_set<const Edge*>).
+  PhxEdgePtrArray out_edges_;
 
-  // Incoming edges.
-  std::unordered_set<const Edge*> in_edges_;
+  // Incoming edges (Edge→C: was std::unordered_set<const Edge*>).
+  PhxEdgePtrArray in_edges_;
 };
 
 class Environment {
