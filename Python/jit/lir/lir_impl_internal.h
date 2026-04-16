@@ -36,19 +36,12 @@ void lir_instruction_free(LirInstruction *inst);
 /* From block_impl.c */
 LirBasicBlock *lir_block_new(void *function, int id);
 void lir_block_free(LirBasicBlock *bb);
-void lir_block_add_successor(LirBasicBlock *bb, LirBasicBlock *succ);
-void lir_block_set_successor(LirBasicBlock *bb, size_t index,
-                              LirBasicBlock *new_succ);
 void lir_block_fixup_phis(LirBasicBlock *bb,
                           LirBasicBlock *old_pred, LirBasicBlock *new_pred);
 void lir_block_append_instr(LirBasicBlock *bb, LirInstruction *instr);
 void lir_block_insert_instr_before(LirBasicBlock *bb, LirInstruction *before,
                                    LirInstruction *instr);
 LirInstruction *lir_block_remove_instr(LirBasicBlock *bb, LirInstruction *instr);
-LirBasicBlock *lir_block_insert_between(LirBasicBlock *bb,
-                                         LirBasicBlock *succ_block);
-LirBasicBlock *lir_block_split_before(LirBasicBlock *bb,
-                                       LirInstruction *instr);
 
 /* From function_impl.c */
 LirBasicBlock *lir_function_alloc_block_after(LirFunction *func,
