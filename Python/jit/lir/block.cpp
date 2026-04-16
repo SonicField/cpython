@@ -90,20 +90,10 @@ Instruction* BasicBlock::removeInstr(instr_iter_t pos) {
 }
 
 BasicBlock* BasicBlock::insertBasicBlockBetween(BasicBlock* block) {
-  size_t idx = num_succs_;
-  for (size_t i = 0; i < num_succs_; i++) {
-    if (successors_[i] == block) { idx = i; break; }
-  }
-  JIT_DCHECK(idx < num_succs_, "block must be one of the successors.");
-
-  auto new_block = func_->allocateBasicBlockAfter(this);
-  successors_[idx] = new_block;
-  appendToBlockArray(
-      new_block->predecessors_, new_block->num_preds_,
-      new_block->preds_capacity_, this);
-  eraseFromBlockArray(block->predecessors_, block->num_preds_, this);
-  new_block->addSuccessor(block);
-  return new_block;
+  return reinterpret_cast<BasicBlock*>(
+      lir_block_insert_between(
+          reinterpret_cast<LirBasicBlock*>(this),
+          reinterpret_cast<LirBasicBlock*>(block)));
 }
 
 BasicBlock* BasicBlock::splitBefore(Instruction* instr) {

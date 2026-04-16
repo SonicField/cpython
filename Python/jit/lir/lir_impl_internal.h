@@ -44,6 +44,10 @@ void lir_block_append_instr(LirBasicBlock *bb, LirInstruction *instr);
 void lir_block_insert_instr_before(LirBasicBlock *bb, LirInstruction *before,
                                    LirInstruction *instr);
 LirInstruction *lir_block_remove_instr(LirBasicBlock *bb, LirInstruction *instr);
+LirBasicBlock *lir_block_insert_between(LirBasicBlock *bb,
+                                         LirBasicBlock *succ_block);
+LirBasicBlock *lir_block_split_before(LirBasicBlock *bb,
+                                       LirInstruction *instr);
 
 /* From function_impl.c */
 LirBasicBlock *lir_function_alloc_block_after(LirFunction *func,
