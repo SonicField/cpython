@@ -307,7 +307,34 @@ OperandType Instr::GetOperandType(std::size_t i) const {
       "operand {} out of range (max is {})",
       i,
       NumOperands() - 1);
-  return get_operand_type_table[static_cast<int>(opcode_)](this, i);
+  // 4 types with instance-dependent GetOperandTypeImpl use C++ dispatch.
+  // All others use the C operand-type table (no C++ class needed).
+  int op = static_cast<int>(opcode_);
+  if (op == static_cast<int>(Opcode::kPrimitiveCompare) ||
+      op == static_cast<int>(Opcode::kPrimitiveUnbox) ||
+      op == static_cast<int>(Opcode::kReturn) ||
+      op == static_cast<int>(Opcode::kUseType)) {
+    return get_operand_type_table[op](this, i);
+  }
+  const HirOpcodeOperandInfo *info = hir_operand_type_get_info(op);
+  if (info == nullptr || static_cast<int>(i) >= info->count) {
+    // Fallback: last entry repeated (matches C++ makeTypeVec behavior)
+    if (info != nullptr && info->count > 0) {
+      const auto& ot = info->types[info->count - 1];
+      auto constraint = static_cast<Constraint>(ot.kind);
+      if (constraint == Constraint::kType) {
+        return Type::fromHirType(ot.type);
+      }
+      return constraint;
+    }
+    return TBottom;
+  }
+  const auto& ot = info->types[i];
+  auto constraint = static_cast<Constraint>(ot.kind);
+  if (constraint == Constraint::kType) {
+    return Type::fromHirType(ot.type);
+  }
+  return constraint;
 }
 
 void Instr::SetOperand(std::size_t i, Register* reg) {
