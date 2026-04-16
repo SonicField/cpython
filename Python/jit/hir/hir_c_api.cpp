@@ -1437,16 +1437,9 @@ HirInstr hir_c_create_dict_subscr_reg(HirRegister dst, HirRegister dict, HirRegi
   return d;
 }
 HirInstr hir_c_create_send_reg(HirRegister iter, HirRegister vout, HirRegister vin, void *fs) {
-  HirSend *s = (HirSend *)hir_c_alloc_instr(sizeof(HirSend), 2);
-  hir_c_init_deopt(s, HIR_OP_Send);
-  hir_c_set_output(s, vout);
-  hir_c_set_operand(s, 0, iter);
-  hir_c_set_operand(s, 1, vin);
-  if (fs) {
-    as_instr(s)->asDeoptBase()->setFrameState(
-        *static_cast<const FrameState*>(fs));
-  }
-  return s;
+  /* Keep C++ — pure C crashes with _cinderx module loaded (bytecode_offset
+   * fix was necessary but not sufficient, second cause TBD). */
+  return Send::create(as_reg(iter), as_reg(vout), as_reg(vin), *static_cast<const FrameState*>(fs));
 }
 HirInstr hir_c_create_convert_value_reg(HirRegister dst, HirRegister value, int32_t conversion, void *fs) {
   HirConvertValue *c = (HirConvertValue *)hir_c_alloc_instr(sizeof(HirConvertValue), 1);
