@@ -17,6 +17,7 @@
 #include <stdint.h>
 
 #include "cinderx/Jit/hir/hir_type_c.h"
+#include "cinderx/Jit/hir/hir_instr_c.h"
 
 #ifdef __cplusplus
 extern "C" {
