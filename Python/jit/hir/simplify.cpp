@@ -644,7 +644,7 @@ Register* simplifyCheck(const CheckBase* instr) {
 
 Register* simplifyCheckSequenceBounds(
     Env& env,
-    const CheckSequenceBounds* instr) {
+    const Instr* instr) {
   Register* sequence = instr->GetOperand(0);
   Register* idx = instr->GetOperand(1);
   if (sequence->isA(TTupleExact) && sequence->instr()->IsMakeTuple() &&
@@ -759,10 +759,10 @@ Register* emitGetLengthInt64(Env& env, Register* obj) {
   return nullptr;
 }
 
-Register* simplifyGetLength(Env& env, const GetLength* instr) {
+Register* simplifyGetLength(Env& env, const Instr* instr) {
   Register* obj = instr->GetOperand(0);
   if (Register* size = emitGetLengthInt64(env, obj)) {
-    return env.emitPrimitiveBox(size, TCInt64, *instr->frameState());
+    return env.emitPrimitiveBox(size, TCInt64, *instr->asDeoptBase()->frameState());
   }
   return nullptr;
 }
@@ -828,14 +828,15 @@ Register* simplifyCompare(Env& env, const Compare* instr) {
   return nullptr;
 }
 
-Register* simplifyCondBranch(Env& env, const CondBranch* instr) {
+Register* simplifyCondBranch(Env& env, const Instr* instr) {
   Register* cond = instr->GetOperand(0);
   Type cond_type = cond->type();
   HirType cond_hir = to_hir(cond_type);
+  auto cb = static_cast<const CondBranchBase*>(instr);
   // Constant condition folds into an unconditional jump.
   if (hir_type_has_int_spec(&cond_hir)) {
     auto spec = hir_type_int_spec(&cond_hir);
-    return env.emitBranch(spec ? instr->true_bb() : instr->false_bb());
+    return env.emitBranch(spec ? cb->true_bb() : cb->false_bb());
   }
   // Common pattern of CondBranch getting its condition from an IntConvert,
   // which had been simplified down from an IsTruthy.  Can forward the value
@@ -845,7 +846,7 @@ Register* simplifyCondBranch(Env& env, const CondBranch* instr) {
     auto convert = static_cast<IntConvert*>(cond->instr());
     Register* src = convert->src();
     if (convert->type().sizeInBytes() >= src->type().sizeInBytes()) {
-      return env.emitCondBranch(src, instr->true_bb(), instr->false_bb());
+      return env.emitCondBranch(src, cb->true_bb(), cb->false_bb());
     }
   }
   return nullptr;
@@ -870,7 +871,7 @@ Register* simplifyCondBranchCheckType(
   return nullptr;
 }
 
-Register* simplifyIsTruthy(Env& env, const IsTruthy* instr) {
+Register* simplifyIsTruthy(Env& env, const Instr* instr) {
   Type ty = instr->GetOperand(0)->type();
   HirType ty_hir_it = to_hir(ty);
   PyObject* obj = hir_type_as_object(&ty_hir_it);
@@ -962,7 +963,7 @@ Register* simplifyLoadArrayItem(Env& env, const LoadArrayItem* instr) {
   return nullptr;
 }
 
-Register* simplifyLoadVarObjectSize(Env& env, const LoadVarObjectSize* instr) {
+Register* simplifyLoadVarObjectSize(Env& env, const Instr* instr) {
   Register* obj_reg = instr->GetOperand(0);
   Type type = obj_reg->type();
   // We can only do this for tuples because lists and arrays, the other
@@ -1016,11 +1017,12 @@ Register* simplifyLoadTypeMethodCached(Env& env, const LoadMethod* load_meth) {
       });
 }
 
-Register* simplifyLoadMethod(Env& env, const LoadMethod* load_meth) {
+Register* simplifyLoadMethod(Env& env, const Instr* instr) {
   if (!jit_get_config()->attr_caches) {
     return nullptr;
   }
-  Register* receiver = load_meth->GetOperand(0);
+  auto load_meth = static_cast<const LoadMethod*>(instr);
+  Register* receiver = instr->GetOperand(0);
   Type ty = receiver->type();
   if (receiver->isA(TType)) {
     return simplifyLoadTypeMethodCached(env, load_meth);
@@ -1030,10 +1032,11 @@ Register* simplifyLoadMethod(Env& env, const LoadMethod* load_meth) {
   if (type == &PyModule_Type || type == &Ci_StrictModule_Type) {
     return simplifyLoadModuleMethodCached(env, load_meth);
   }
+  auto db = static_cast<const DeoptBaseWithNameIdx*>(instr);
   return env.emitLoadMethodCached(
-      load_meth->GetOperand(0),
-      load_meth->name_idx(),
-      *load_meth->frameState());
+      instr->GetOperand(0),
+      db->name_idx(),
+      *instr->asDeoptBase()->frameState());
 }
 
 Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
@@ -1511,7 +1514,7 @@ Register* simplifyPrimitiveCompare(Env& env, const PrimitiveCompare* instr) {
   return nullptr;
 }
 
-Register* simplifyPrimitiveBoxBool(Env& env, const PrimitiveBoxBool* instr) {
+Register* simplifyPrimitiveBoxBool(Env& env, const Instr* instr) {
   Register* input = instr->GetOperand(0);
   HirType input_hir_bb = to_hir(input->type());
   if (hir_type_has_int_spec(&input_hir_bb)) {
@@ -1972,7 +1975,7 @@ Register* simplifyLoadField(Env& env, const LoadField* instr) {
 
 Register* simplifyIsNegativeAndErrOccurred(
     Env& env,
-    const IsNegativeAndErrOccurred* instr) {
+    const Instr* instr) {
   if (!instr->GetOperand(0)->instr()->IsLoadConst()) {
     return nullptr;
   }
@@ -1986,13 +1989,14 @@ Register* simplifyIsNegativeAndErrOccurred(
   return env.emitLoadConst(Type::fromCInt(0, output_type));
 }
 
-Register* simplifyStoreAttr(Env& env, const StoreAttr* store_attr) {
+Register* simplifyStoreAttr(Env& env, const Instr* instr) {
   if (jit_get_config()->attr_caches) {
+    auto db = static_cast<const DeoptBaseWithNameIdx*>(instr);
     return env.emitStoreAttrCached(
-        store_attr->GetOperand(0),
-        store_attr->GetOperand(1),
-        store_attr->name_idx(),
-        *store_attr->frameState());
+        instr->GetOperand(0),
+        instr->GetOperand(1),
+        db->name_idx(),
+        *instr->asDeoptBase()->frameState());
   }
   return nullptr;
 }
@@ -2691,7 +2695,7 @@ Register* simplifyVectorCall(Env& env, const VectorCall* instr) {
   return nullptr;
 }
 
-Register* simplifyStoreSubscr(Env& env, const StoreSubscr* instr) {
+Register* simplifyStoreSubscr(Env& env, const Instr* instr) {
   if (instr->GetOperand(0)->isA(TDictExact)) {
     auto call = env.emitCallStaticInstr(
         3,
@@ -2701,14 +2705,14 @@ Register* simplifyStoreSubscr(Env& env, const StoreSubscr* instr) {
     call->SetOperand(1, instr->GetOperand(1));
     call->SetOperand(2, instr->GetOperand(2));
 
-    env.emitCheckNeg(call->output(), *instr->frameState());
+    env.emitCheckNeg(call->output(), *instr->asDeoptBase()->frameState());
     return nullptr;
   }
 
   return nullptr;
 }
 
-Register* simplifyCIntToCBool(Env& env, const CIntToCBool* instr) {
+Register* simplifyCIntToCBool(Env& env, const Instr* instr) {
   Type input_type = instr->GetOperand(0)->type();
   HirType input_hir_cb = to_hir(input_type);
   if (hir_type_has_int_spec(&input_hir_cb)) {
@@ -2724,8 +2728,7 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
     case Opcode::kCheckField:
       return simplifyCheck(static_cast<const CheckBase*>(instr));
     case Opcode::kCheckSequenceBounds:
-      return simplifyCheckSequenceBounds(
-          env, static_cast<const CheckSequenceBounds*>(instr));
+      return simplifyCheckSequenceBounds(env, instr);
     case Opcode::kGuardType:
       return simplifyGuardType(env, static_cast<const GuardType*>(instr));
     case Opcode::kRefineType:
@@ -2737,19 +2740,19 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
       return simplifyCompare(env, static_cast<const Compare*>(instr));
 
     case Opcode::kCondBranch:
-      return simplifyCondBranch(env, static_cast<const CondBranch*>(instr));
+      return simplifyCondBranch(env, instr);
     case Opcode::kCondBranchCheckType:
       return simplifyCondBranchCheckType(
           env, static_cast<const CondBranchCheckType*>(instr));
 
     case Opcode::kGetLength:
-      return simplifyGetLength(env, static_cast<const GetLength*>(instr));
+      return simplifyGetLength(env, instr);
 
     case Opcode::kIntConvert:
       return simplifyIntConvert(env, static_cast<const IntConvert*>(instr));
 
     case Opcode::kIsTruthy:
-      return simplifyIsTruthy(env, static_cast<const IsTruthy*>(instr));
+      return simplifyIsTruthy(env, instr);
 
 // TODO(T255262756) - Enable this again. See P2169675076 and P2184559031 (same
 // pattern but applied to simplifyLoadAttrTypeReceiver).
@@ -2760,7 +2763,7 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
 // TODO(T255263721) - Enable this again. See P2169673579 and P2184559031.
 #ifndef Py_GIL_DISABLED
     case Opcode::kLoadMethod:
-      return simplifyLoadMethod(env, static_cast<const LoadMethod*>(instr));
+      return simplifyLoadMethod(env, instr);
 #endif
     case Opcode::kLoadField:
       return simplifyLoadField(env, static_cast<const LoadField*>(instr));
@@ -2771,8 +2774,7 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
       return simplifyLoadArrayItem(
           env, static_cast<const LoadArrayItem*>(instr));
     case Opcode::kLoadVarObjectSize:
-      return simplifyLoadVarObjectSize(
-          env, static_cast<const LoadVarObjectSize*>(instr));
+      return simplifyLoadVarObjectSize(env, instr);
 
     case Opcode::kBinaryOp:
       return simplifyBinaryOp(env, static_cast<const BinaryOp*>(instr));
@@ -2790,18 +2792,16 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
       return simplifyPrimitiveCompare(
           env, static_cast<const PrimitiveCompare*>(instr));
     case Opcode::kPrimitiveBoxBool:
-      return simplifyPrimitiveBoxBool(
-          env, static_cast<const PrimitiveBoxBool*>(instr));
+      return simplifyPrimitiveBoxBool(env, instr);
     case Opcode::kIndexUnbox:
     case Opcode::kPrimitiveUnbox:
       return simplifyUnbox(env, instr);
 
     case Opcode::kIsNegativeAndErrOccurred:
-      return simplifyIsNegativeAndErrOccurred(
-          env, static_cast<const IsNegativeAndErrOccurred*>(instr));
+      return simplifyIsNegativeAndErrOccurred(env, instr);
 
     case Opcode::kStoreAttr:
-      return simplifyStoreAttr(env, static_cast<const StoreAttr*>(instr));
+      return simplifyStoreAttr(env, instr);
 
     case Opcode::kCallMethod:
       return simplifyCallMethod(env, static_cast<const CallMethod*>(instr));
@@ -2810,10 +2810,10 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
       return simplifyVectorCall(env, static_cast<const VectorCall*>(instr));
 
     case Opcode::kStoreSubscr:
-      return simplifyStoreSubscr(env, static_cast<const StoreSubscr*>(instr));
+      return simplifyStoreSubscr(env, instr);
 
     case Opcode::kCIntToCBool:
-      return simplifyCIntToCBool(env, static_cast<const CIntToCBool*>(instr));
+      return simplifyCIntToCBool(env, instr);
 
     case Opcode::kGetIter: {
       // C->C inlining: narrow iterator type for known input types
