@@ -4,6 +4,7 @@
 #include "cinderx/Jit/hir/resolve_kwargs.h"
 
 #include "cinderx/Jit/hir/hir.h"
+#include "cinderx/Jit/hir/hir_c_api.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Common/log.h"
 #include "cinderx/Common/code.h"
@@ -136,7 +137,7 @@ bool resolveVectorCallKwargs(VectorCall* call) {
   std::size_t new_num_operands = total_args + 1;
   CallFlags new_flags = static_cast<CallFlags>(static_cast<uint32_t>(call->flags()) & ~static_cast<uint32_t>(CallFlags::KwArgs));
 
-  auto* new_call = VectorCall::create(new_num_operands, call->output(), new_flags);
+  auto* new_call = static_cast<VectorCall*>(hir_c_create_vectorcall_reg(new_num_operands, call->output(), static_cast<uint32_t>(new_flags)));
   new_call->SetOperand(0, target);  // func
   for (std::size_t i = 0; i < total_args; i++) {
     new_call->SetOperand(i + 1, reordered[i]);
@@ -258,7 +259,7 @@ bool resolveCallMethodKwargs(CallMethod* call) {
   std::size_t new_num_operands = total_args + 2;  // func + self + args
   CallFlags new_flags = static_cast<CallFlags>(static_cast<uint32_t>(call->flags()) & ~static_cast<uint32_t>(CallFlags::KwArgs));
 
-  auto* new_call = CallMethod::create(new_num_operands, call->output(), new_flags);
+  auto* new_call = static_cast<CallMethod*>(hir_c_create_call_method_reg(new_num_operands, call->output(), static_cast<uint32_t>(new_flags)));
   new_call->SetOperand(0, target);
   new_call->SetOperand(1, call->self());
   for (std::size_t i = 0; i < total_args; i++) {
