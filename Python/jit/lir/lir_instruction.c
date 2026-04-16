@@ -40,12 +40,11 @@ lir_instruction_destroy(LirInstruction *inst) {
         lir_operand_free(inst->inputs_[i]);
     }
     PyMem_RawFree(inst->inputs_);
-    inst->inputs_ = NULL;
-    inst->num_inputs_ = 0;
-    /* NOTE: output_ indirect is NOT freed here when called from C++ destructor,
-     * because ~OperandBase() on the embedded output_ member runs automatically
-     * after ~Instruction() and handles its own indirect cleanup.
-     * Only lir_instruction_free (full C path) handles output indirect. */
+    /* Free indirect in output if present */
+    if (!inst->output_.is_linked_ &&
+        inst->output_.type_ == JIT_LIR_OPTYPE_IND) {
+        lir_memind_free(inst->output_.value_.indirect);
+    }
     /* Does NOT free inst itself — caller (C++ delete or lir_instruction_free) handles that */
 }
 
@@ -53,11 +52,6 @@ void
 lir_instruction_free(LirInstruction *inst) {
     if (inst == NULL) return;
     lir_instruction_destroy(inst);
-    /* Free indirect in output if present (not done by destroy — see note above) */
-    if (!inst->output_.is_linked_ &&
-        inst->output_.type_ == JIT_LIR_OPTYPE_IND) {
-        lir_memind_free(inst->output_.value_.indirect);
-    }
     PyMem_RawFree(inst);
 }
 
