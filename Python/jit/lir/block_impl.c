@@ -97,7 +97,7 @@ LirInstruction *lir_block_last_instr(const LirBasicBlock *bb) {
 
 static void
 grow_ptr_array(void ***arr, size_t *cap) {
-    size_t new_cap = (*cap) * 2;
+    size_t new_cap = (*cap == 0) ? 2 : (*cap) * 2;
     *arr = (void **)PyMem_RawRealloc(*arr, new_cap * sizeof(void *));
     *cap = new_cap;
 }

@@ -60,11 +60,9 @@ void BasicBlock::addSuccessor(BasicBlock* bb) {
 }
 
 void BasicBlock::setSuccessor(size_t index, BasicBlock* bb) {
-  JIT_CHECK(index < num_succs_, "Index out of range");
-  BasicBlock* old_bb = successors_[index];
-  eraseFromBlockArray(old_bb->predecessors_, old_bb->num_preds_, this);
-  successors_[index] = bb;
-  appendToBlockArray(bb->predecessors_, bb->num_preds_, bb->preds_capacity_, this);
+  lir_block_set_successor(
+      reinterpret_cast<LirBasicBlock*>(this), index,
+      reinterpret_cast<LirBasicBlock*>(bb));
 }
 
 void BasicBlock::appendInstr(Instruction* instr) {

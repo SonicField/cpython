@@ -36,6 +36,8 @@ void lir_instruction_free(LirInstruction *inst);
 /* From block_impl.c */
 LirBasicBlock *lir_block_new(void *function, int id);
 void lir_block_free(LirBasicBlock *bb);
+void lir_block_set_successor(LirBasicBlock *bb, size_t index,
+                              LirBasicBlock *new_succ);
 void lir_block_fixup_phis(LirBasicBlock *bb,
                           LirBasicBlock *old_pred, LirBasicBlock *new_pred);
 void lir_block_append_instr(LirBasicBlock *bb, LirInstruction *instr);
