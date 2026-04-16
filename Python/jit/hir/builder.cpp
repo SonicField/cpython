@@ -341,11 +341,11 @@ struct HIRBuilder::TranslationContext {
     Register* out = temps.AllocateStack();
     auto call = emit<T>(num_operands, out, std::forward<Args>(args)...);
     for (auto i = num_operands; i > 0; i--) {
-      Register* operand = frame.stack.pop();
+      Register* operand = static_cast<Register*>(phx_ptr_arr_pop(&frame.stack));
       call->SetOperand(i - 1, operand);
     }
     call->setFrameState(frame);
-    frame.stack.push(out);
+    phx_ptr_arr_push(&frame.stack, out);
     return call;
   }
 
@@ -1333,8 +1333,8 @@ void HIRBuilder::emitInlineExceptionMatch(
 
     // Pop excess stack items above handler depth.
     // Refcount insertion will handle decrement automatically.
-    while (static_cast<int>(exc_tc.frame.stack.size()) > handler.depth) {
-      exc_tc.frame.stack.pop();
+    while (static_cast<int>(exc_tc.frame.stack.count) > handler.depth) {
+      static_cast<Register*>(phx_ptr_arr_pop(&exc_tc.frame.stack));
     }
 
     // Load exception type as a constant (resolved at compile time).
@@ -1371,7 +1371,7 @@ void HIRBuilder::emitInlineExceptionMatch(
       // corrupting the exception context chain.
       Register* prev_exc_reg = temps_.AllocateStack();
       match_tc.emitLoadConst(prev_exc_reg, TNoneType);
-      match_tc.frame.stack.push(prev_exc_reg);
+      phx_ptr_arr_push(&match_tc.frame.stack, prev_exc_reg);
 
       BytecodeInstruction ebc{code_, info.except_body};
       bool emitted_terminator = false;
@@ -1384,11 +1384,11 @@ void HIRBuilder::emitInlineExceptionMatch(
             // restores it to exc_info->exc_value. Our placeholder is
             // Py_None, which is correct: there was no active exception
             // before the JIT's inline handler.
-            match_tc.frame.stack.pop();
+            static_cast<Register*>(phx_ptr_arr_pop(&match_tc.frame.stack));
             break;
 
           case POP_TOP:
-            match_tc.frame.stack.pop();
+            static_cast<Register*>(phx_ptr_arr_pop(&match_tc.frame.stack));
             break;
 
           case SWAP:
@@ -1406,7 +1406,7 @@ void HIRBuilder::emitInlineExceptionMatch(
             Type type = Type::fromObject(
                 PyTuple_GET_ITEM(code_->co_consts, ebc.oparg()));
             match_tc.emitLoadConst(reg, type);
-            match_tc.frame.stack.push(reg);
+            phx_ptr_arr_push(&match_tc.frame.stack, reg);
             break;
           }
 
@@ -1429,7 +1429,7 @@ void HIRBuilder::emitInlineExceptionMatch(
           }
 
           case RETURN_VALUE: {
-            Register* ret_val = match_tc.frame.stack.pop();
+            Register* ret_val = static_cast<Register*>(phx_ptr_arr_pop(&match_tc.frame.stack));
             match_tc.emitReturn(ret_val, preloader_.returnType());
             emitted_terminator = true;
             break;
@@ -1474,8 +1474,8 @@ void HIRBuilder::emitInlineExceptionMatch(
     {
       TranslationContext deopt_tc{deopt_block, tc.frame};
       // Push left (container) and right (key) back onto the stack.
-      deopt_tc.frame.stack.push(left);
-      deopt_tc.frame.stack.push(right);
+      phx_ptr_arr_push(&deopt_tc.frame.stack, left);
+      phx_ptr_arr_push(&deopt_tc.frame.stack, right);
       deopt_tc.frame.cur_instr_offs = bc_instr.baseOffset();
       deopt_tc.emitSnapshot();
       deopt_tc.emitDeopt();
@@ -1501,7 +1501,7 @@ void HIRBuilder::emitCallExceptionHandler(
   call_instr->setSuppressExceptionDeopt(true);
 
   // Pop the result that emitAnyCall pushed onto the stack.
-  tc.frame.stack.pop();
+  static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
 
   BasicBlock* ok_block = cfg.AllocateBlock();
   BasicBlock* exc_match_block = cfg.AllocateBlock();
@@ -1515,8 +1515,8 @@ void HIRBuilder::emitCallExceptionHandler(
 
     // Pop excess stack items above handler depth.
     // Refcount insertion will handle decrement automatically.
-    while (static_cast<int>(exc_tc.frame.stack.size()) > handler.depth) {
-      exc_tc.frame.stack.pop();
+    while (static_cast<int>(exc_tc.frame.stack.count) > handler.depth) {
+      static_cast<Register*>(phx_ptr_arr_pop(&exc_tc.frame.stack));
     }
 
     // Load exception type as a constant (resolved at compile time).
@@ -1545,7 +1545,7 @@ void HIRBuilder::emitCallExceptionHandler(
       // in the first emitInlineExceptionMatch for full rationale.
       Register* prev_exc_reg = temps_.AllocateStack();
       match_tc.emitLoadConst(prev_exc_reg, TNoneType);
-      match_tc.frame.stack.push(prev_exc_reg);
+      phx_ptr_arr_push(&match_tc.frame.stack, prev_exc_reg);
 
       BytecodeInstruction ebc{code_, info.except_body};
       bool emitted_terminator = false;
@@ -1554,11 +1554,11 @@ void HIRBuilder::emitCallExceptionHandler(
         switch (ebc.opcode()) {
           case POP_EXCEPT:
             // Pop the prev_exc placeholder.
-            match_tc.frame.stack.pop();
+            static_cast<Register*>(phx_ptr_arr_pop(&match_tc.frame.stack));
             break;
 
           case POP_TOP:
-            match_tc.frame.stack.pop();
+            static_cast<Register*>(phx_ptr_arr_pop(&match_tc.frame.stack));
             break;
 
           case SWAP:
@@ -1576,7 +1576,7 @@ void HIRBuilder::emitCallExceptionHandler(
             Type type = Type::fromObject(
                 PyTuple_GET_ITEM(code_->co_consts, ebc.oparg()));
             match_tc.emitLoadConst(reg, type);
-            match_tc.frame.stack.push(reg);
+            phx_ptr_arr_push(&match_tc.frame.stack, reg);
             break;
           }
 
@@ -1599,7 +1599,7 @@ void HIRBuilder::emitCallExceptionHandler(
           }
 
           case RETURN_VALUE: {
-            Register* ret_val = match_tc.frame.stack.pop();
+            Register* ret_val = static_cast<Register*>(phx_ptr_arr_pop(&match_tc.frame.stack));
             match_tc.emitReturn(ret_val, preloader_.returnType());
             emitted_terminator = true;
             break;
@@ -1645,7 +1645,7 @@ void HIRBuilder::emitCallExceptionHandler(
   // === OK block (no exception, result is non-null) ===
   tc.block = ok_block;
   tc.emitRefineType(result, TObject, result);
-  tc.frame.stack.push(result);
+  phx_ptr_arr_push(&tc.frame.stack, result);
 }
 
 BasicBlock* HIRBuilder::getBlockAtOff(BCOffset off) {
@@ -2143,7 +2143,7 @@ void HIRBuilder::translate(
           if constexpr (PY_VERSION_HEX < 0x030B0000) {
             idx += tc.frame.nlocals;
           }
-          tc.frame.stack.push(static_cast<Register*>(tc.frame.localsplus.data[idx]));
+          phx_ptr_arr_push(&tc.frame.stack, static_cast<Register*>(tc.frame.localsplus.data[idx]));
           break;
         }
         case LOAD_DEREF: {
@@ -2288,16 +2288,16 @@ void HIRBuilder::translate(
         }
         case POP_ITER:
           if constexpr (PY_VERSION_HEX >= 0x030F0000) {
-            tc.frame.stack.pop();
+            static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
           }
-          tc.frame.stack.pop();
+          static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
           break;
         case POP_EXCEPT: {
           // B2: no-op — we never pushed exc_info in the JIT.
           break;
         }
         case POP_TOP: {
-          tc.frame.stack.pop();
+          static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
           break;
         }
         case RETURN_CONST: {
@@ -2321,7 +2321,7 @@ void HIRBuilder::translate(
               "bad return type {}, expected {}",
               type,
               preloader_.returnType());
-          Register* reg = tc.frame.stack.pop();
+          Register* reg = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
           tc.emitReturn(reg, type);
           break;
         }
@@ -2329,7 +2329,7 @@ void HIRBuilder::translate(
           JIT_CHECK(
               tc.frame.block_stack.isEmpty(),
               "Returning with non-empty block stack");
-          Register* reg = tc.frame.stack.pop();
+          Register* reg = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
           Type ret_type = preloader_.returnType();
           if (jit_get_config()->refine_static_python && ret_type < TObject) {
             tc.emitRefineType(reg, ret_type, reg);
@@ -2342,11 +2342,14 @@ void HIRBuilder::translate(
           if (oparg <= 1) {
             break;
           }
-          OperandStack& stack = tc.frame.stack;
-          Register* top = stack.top();
+          PhxPtrArray& stack = tc.frame.stack;
+          Register* top = static_cast<Register*>(stack.data[stack.count - 1]);
 
-          std::copy_backward(stack.end() - oparg, stack.end() - 1, stack.end());
-          stack.topPut(oparg - 1, top);
+          std::copy_backward(
+              reinterpret_cast<Register**>(stack.data + stack.count - oparg),
+              reinterpret_cast<Register**>(stack.data + stack.count - 1),
+              reinterpret_cast<Register**>(stack.data + stack.count));
+          stack.data[stack.count - oparg] = top;
           break;
         }
         case END_ASYNC_FOR: {
@@ -2438,46 +2441,46 @@ void HIRBuilder::translate(
           break;
         }
         case DUP_TOP: {
-          auto& stack = tc.frame.stack;
-          stack.push(stack.top());
+          PhxPtrArray& stack = tc.frame.stack;
+          phx_ptr_arr_push(&stack, stack.data[stack.count - 1]);
           break;
         }
         case DUP_TOP_TWO: {
-          auto& stack = tc.frame.stack;
-          Register* top = stack.top();
-          Register* snd = stack.top(1);
-          stack.push(snd);
-          stack.push(top);
+          PhxPtrArray& stack = tc.frame.stack;
+          Register* top = static_cast<Register*>(stack.data[stack.count - 1]);
+          Register* snd = static_cast<Register*>(stack.data[stack.count - 2]);
+          phx_ptr_arr_push(&stack, snd);
+          phx_ptr_arr_push(&stack, top);
           break;
         }
         case ROT_TWO: {
-          auto& stack = tc.frame.stack;
-          Register* top = stack.pop();
-          Register* snd = stack.pop();
-          stack.push(top);
-          stack.push(snd);
+          PhxPtrArray& stack = tc.frame.stack;
+          Register* top = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+          Register* snd = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+          phx_ptr_arr_push(&stack, top);
+          phx_ptr_arr_push(&stack, snd);
           break;
         }
         case ROT_THREE: {
-          auto& stack = tc.frame.stack;
-          Register* top = stack.pop();
-          Register* snd = stack.pop();
-          Register* thd = stack.pop();
-          stack.push(top);
-          stack.push(thd);
-          stack.push(snd);
+          PhxPtrArray& stack = tc.frame.stack;
+          Register* top = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+          Register* snd = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+          Register* thd = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+          phx_ptr_arr_push(&stack, top);
+          phx_ptr_arr_push(&stack, thd);
+          phx_ptr_arr_push(&stack, snd);
           break;
         }
         case ROT_FOUR: {
-          auto& stack = tc.frame.stack;
-          Register* r1 = stack.pop();
-          Register* r2 = stack.pop();
-          Register* r3 = stack.pop();
-          Register* r4 = stack.pop();
-          stack.push(r1);
-          stack.push(r4);
-          stack.push(r3);
-          stack.push(r2);
+          PhxPtrArray& stack = tc.frame.stack;
+          Register* r1 = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+          Register* r2 = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+          Register* r3 = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+          Register* r4 = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+          phx_ptr_arr_push(&stack, r1);
+          phx_ptr_arr_push(&stack, r4);
+          phx_ptr_arr_push(&stack, r3);
+          phx_ptr_arr_push(&stack, r2);
           break;
         }
         case FOR_ITER: {
@@ -2567,8 +2570,8 @@ void HIRBuilder::translate(
           break;
         }
         case DELETE_SUBSCR: {
-          Register* sub = tc.frame.stack.pop();
-          Register* container = tc.frame.stack.pop();
+          Register* sub = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
+          Register* container = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
           tc.emitDeleteSubscr(container, sub, tc.frame);
           break;
         }
@@ -2633,7 +2636,7 @@ void HIRBuilder::translate(
             advancePastYieldInstr(tc);
           }
           tc.emitInitialYield(out, tc.frame);
-          tc.frame.stack.push(out);
+          phx_ptr_arr_push(&tc.frame.stack, out);
           break;
         }
         case SEND: {
@@ -2643,9 +2646,9 @@ void HIRBuilder::translate(
         case END_SEND: {
           // Pop the value and iterator off the stack and then push back the
           // value.
-          Register* value = tc.frame.stack.pop();
-          tc.frame.stack.pop();
-          tc.frame.stack.push(value);
+          Register* value = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
+          static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
+          phx_ptr_arr_push(&tc.frame.stack, value);
           break;
         }
         case BUILD_INTERPOLATION: {
@@ -2720,11 +2723,11 @@ void HIRBuilder::translate(
         if constexpr (PY_VERSION_HEX >= 0x030E0000) {
           // Just pop the sentinel value. The target POP_ITER will pop the
           // iterator.
-          new_frame.stack.discard(1);
+          new_frame.stack.count -= (1);
         } else {
           // Pop both the sentinel value signaling iteration is complete
           // and the iterator itself.
-          new_frame.stack.discard(2);
+          new_frame.stack.count -= (2);
         }
         queue.emplace_back(condbr->true_bb(), tc.frame);
         queue.emplace_back(condbr->false_bb(), new_frame);
@@ -2734,7 +2737,7 @@ void HIRBuilder::translate(
       case JUMP_IF_ZERO_OR_POP: {
         auto condbr = static_cast<CondBranch*>(last_instr);
         auto new_frame = tc.frame;
-        new_frame.stack.pop();
+        static_cast<Register*>(phx_ptr_arr_pop(&new_frame.stack));
         queue.emplace_back(condbr->true_bb(), new_frame);
         queue.emplace_back(condbr->false_bb(), tc.frame);
         break;
@@ -2743,7 +2746,7 @@ void HIRBuilder::translate(
       case JUMP_IF_TRUE_OR_POP: {
         auto condbr = static_cast<CondBranch*>(last_instr);
         auto new_frame = tc.frame;
-        new_frame.stack.pop();
+        static_cast<Register*>(phx_ptr_arr_pop(&new_frame.stack));
         queue.emplace_back(condbr->true_bb(), tc.frame);
         queue.emplace_back(condbr->false_bb(), new_frame);
         break;
@@ -2757,7 +2760,7 @@ void HIRBuilder::translate(
           auto condbr = static_cast<CondBranchIterNotDone*>(last_instr);
           FrameState new_frame = tc.frame;
           // Pop sentinel value signaling that iteration is complete
-          new_frame.stack.pop();
+          static_cast<Register*>(phx_ptr_arr_pop(&new_frame.stack));
           queue.emplace_back(condbr->true_bb(), tc.frame);
           queue.emplace_back(condbr->false_bb(), std::move(new_frame));
           break;
@@ -2836,8 +2839,8 @@ void BlockCanonicalizer::InsertCopies(
 void BlockCanonicalizer::Run(
     BasicBlock* block,
     TempAllocator& temps,
-    OperandStack& stack) {
-  if (stack.isEmpty()) {
+    PhxPtrArray& stack) {
+  if (stack.count == 0) {
     return;
   }
 
@@ -2847,8 +2850,8 @@ void BlockCanonicalizer::Run(
 
   // Compute the desired stack layout
   std::vector<Register*> dsts;
-  dsts.reserve(stack.size());
-  for (std::size_t i = 0; i < stack.size(); i++) {
+  dsts.reserve(stack.count);
+  for (std::size_t i = 0; i < stack.count; i++) {
     auto reg = temps.GetOrAllocateStack(i);
     dsts.emplace_back(reg);
   }
@@ -2857,8 +2860,8 @@ void BlockCanonicalizer::Run(
   std::vector<Register*> need_copy;
   auto term = block->GetTerminator();
   std::vector<Register*> alloced;
-  for (std::size_t i = 0; i < stack.size(); i++) {
-    auto src = stack.at(i);
+  for (std::size_t i = 0; i < stack.count; i++) {
+    auto src = static_cast<Register*>(stack.data[i]);
     auto dst = dsts[i];
     if (src != dst) {
       need_copy.emplace_back(src);
@@ -2884,8 +2887,8 @@ void BlockCanonicalizer::Run(
   }
 
   // Put the stack in canonical form
-  for (std::size_t i = 0; i < stack.size(); i++) {
-    stack.atPut(i, dsts[i]);
+  for (std::size_t i = 0; i < stack.count; i++) {
+    stack.data[i] = dsts[i];
   }
 }
 
@@ -3028,10 +3031,10 @@ static std::optional<InPlaceOpKind> getInPlaceOpKindFromOparg(int oparg) {
 }
 
 void HIRBuilder::emitPushNull(TranslationContext& tc) {
-  auto& stack = tc.frame.stack;
+  PhxPtrArray& stack = tc.frame.stack;
   Register* tmp = temps_.AllocateStack();
   tc.emitLoadConst(tmp, TNullptr);
-  stack.push(tmp);
+  phx_ptr_arr_push(&stack, tmp);
 }
 
 void HIRBuilder::emitAnyCall(
@@ -3093,7 +3096,7 @@ void HIRBuilder::emitAnyCall(
       Register* out = temps_.AllocateStack();
       auto call = tc.emitCallMethod(num_operands, out, flags);
       for (auto i = num_stack_inputs; i > 0; i--) {
-        Register* arg = tc.frame.stack.pop();
+        Register* arg = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
         call->SetOperand(i - 1, arg);
       }
       if (kwnames_ != nullptr) {
@@ -3105,7 +3108,7 @@ void HIRBuilder::emitAnyCall(
       }
       call->setFrameState(tc.frame);
 
-      tc.frame.stack.push(out);
+      phx_ptr_arr_push(&tc.frame.stack, out);
 
       // B2: If this CALL is inside a try block with a simple except pattern,
       // inline the exception handler instead of deopting on exception.
@@ -3179,7 +3182,7 @@ void HIRBuilder::emitCallInstrinsic(
   auto oparg = bc_instr.oparg();
   auto num_operands = 1;
 
-  Register* value = tc.frame.stack.pop();
+  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   Register* res = temps_.AllocateStack();
   std::vector<Register*> args;
 #if PY_VERSION_HEX >= 0x030C0000
@@ -3188,7 +3191,7 @@ void HIRBuilder::emitCallInstrinsic(
         oparg <= MAX_INTRINSIC_2,
         "Invalid oparg for binary intrinsic function: {}",
         oparg);
-    Register* value2 = tc.frame.stack.pop();
+    Register* value2 = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
     args.push_back(value2);
     num_operands = 2;
   } else {
@@ -3200,7 +3203,7 @@ void HIRBuilder::emitCallInstrinsic(
 #endif
   args.push_back(value);
   tc.emitCallIntrinsic(num_operands, res, oparg, args);
-  tc.frame.stack.push(res);
+  phx_ptr_arr_push(&tc.frame.stack, res);
 }
 
 void HIRBuilder::emitResume(
@@ -3241,13 +3244,13 @@ void HIRBuilder::emitBinaryOp(
     CFG& cfg,
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto& stack = tc.frame.stack;
+  PhxPtrArray& stack = tc.frame.stack;
   if (jit_get_config()->specialized_opcodes) {
     // Bug 7 fix: Snapshot BEFORE popping operands — deopt re-executes instruction
     tc.emitSnapshot();
   }
-  Register* right = stack.pop();
-  Register* left = stack.pop();
+  Register* right = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  Register* left = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   Register* result = temps_.AllocateStack();
 
   int opcode = bc_instr.opcode();
@@ -3301,7 +3304,7 @@ void HIRBuilder::emitBinaryOp(
           oparg);
       InPlaceOpKind inplace_op_kind = *inplace_opt_op_kind;
       tc.emitInPlaceOp(result, inplace_op_kind, left, right, tc.frame);
-      stack.push(result);
+      phx_ptr_arr_push(&stack, result);
       return;
     }
   } else {
@@ -3325,22 +3328,22 @@ void HIRBuilder::emitBinaryOp(
         emitInlineExceptionMatch(
             cfg, tc, bc_instr, *handler, info,
             left, right, result);
-        stack.push(result);
+        phx_ptr_arr_push(&stack, result);
         return;
       }
     }
   }
 
   tc.emitBinaryOp(result, op_kind, left, right, tc.frame);
-  stack.push(result);
+  phx_ptr_arr_push(&stack, result);
 }
 
 void HIRBuilder::emitInPlaceOp(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto& stack = tc.frame.stack;
-  Register* right = stack.pop();
-  Register* left = stack.pop();
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* right = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  Register* left = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   Register* result = temps_.AllocateStack();
   int opcode = bc_instr.opcode();
   auto opt_op_kind = getInPlaceOpKindFromOpcode(opcode);
@@ -3351,7 +3354,7 @@ void HIRBuilder::emitInPlaceOp(
       opcodeName(opcode));
   InPlaceOpKind op_kind = *opt_op_kind;
   tc.emitInPlaceOp(result, op_kind, left, right, tc.frame);
-  stack.push(result);
+  phx_ptr_arr_push(&stack, result);
 }
 
 static inline UnaryOpKind get_unary_op_kind(
@@ -3377,7 +3380,7 @@ static inline UnaryOpKind get_unary_op_kind(
 }
 
 void HIRBuilder::emitUnaryNot(TranslationContext& tc) {
-  Register* operand = tc.frame.stack.pop();
+  Register* operand = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   Register* is_false = temps_.AllocateNonStack();
   Register* const_false = temps_.AllocateNonStack();
   Register* result = temps_.AllocateStack();
@@ -3385,17 +3388,17 @@ void HIRBuilder::emitUnaryNot(TranslationContext& tc) {
   tc.emitPrimitiveCompare(
       is_false, PrimitiveCompareOp::kEqual, const_false, operand);
   tc.emitPrimitiveBoxBool(result, is_false);
-  tc.frame.stack.push(result);
+  phx_ptr_arr_push(&tc.frame.stack, result);
 }
 
 void HIRBuilder::emitUnaryOp(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* operand = tc.frame.stack.pop();
+  Register* operand = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   Register* result = temps_.AllocateStack();
   UnaryOpKind op_kind = get_unary_op_kind(bc_instr);
   tc.emitUnaryOp(result, op_kind, operand, tc.frame);
-  tc.frame.stack.push(result);
+  phx_ptr_arr_push(&tc.frame.stack, result);
 }
 
 void HIRBuilder::emitCallEx(
@@ -3403,33 +3406,33 @@ void HIRBuilder::emitCallEx(
     const jit::BytecodeInstruction& bc_instr,
     CallFlags flags) {
   Register* dst = temps_.AllocateStack();
-  OperandStack& stack = tc.frame.stack;
+  PhxPtrArray& stack = tc.frame.stack;
   // In 3.14+ we always have kwargs on the stack but it may be null.
   bool has_kwargs = (PY_VERSION_HEX >= 0x030E0000) || bc_instr.oparg() & 0x1;
   Register* kwargs = nullptr;
   if (has_kwargs) {
-    kwargs = stack.pop();
+    kwargs = static_cast<Register*>(phx_ptr_arr_pop(&stack));
     flags |= CallFlags::KwArgs;
   } else {
     Register* nullp = temps_.AllocateNonStack();
     tc.emitLoadConst(nullp, TNullptr);
     kwargs = nullp;
   }
-  Register* pargs = stack.pop();
+  Register* pargs = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   Register* func;
   // CALL_FUNCTION_EX has an unused value on the stack, starting with 3.12.
   // In 3.14 this swapped location.
   if constexpr (PY_VERSION_HEX >= 0x030E0000) {
-    stack.pop();
-    func = stack.pop();
+    static_cast<Register*>(phx_ptr_arr_pop(&stack));
+    func = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   } else if constexpr (PY_VERSION_HEX >= 0x030C0000) {
-    func = stack.pop();
-    stack.pop();
+    func = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+    static_cast<Register*>(phx_ptr_arr_pop(&stack));
   } else {
-    func = stack.pop();
+    func = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   }
   tc.emitCallEx(dst, func, pargs, kwargs, flags, tc.frame);
-  stack.push(dst);
+  phx_ptr_arr_push(&stack, dst);
 }
 
 void HIRBuilder::emitBuildSlice(
@@ -3442,8 +3445,8 @@ void HIRBuilder::emitBuildSlice(
 void HIRBuilder::emitListAppend(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto item = tc.frame.stack.pop();
-  auto list = tc.frame.stack.peek(bc_instr.oparg());
+  auto item = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
+  auto list = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - bc_instr.oparg()]);
   auto dst = temps_.AllocateStack();
   tc.emitListAppend(dst, list, item, tc.frame);
 }
@@ -3452,7 +3455,7 @@ void HIRBuilder::emitLoadIterableArg(
     CFG& cfg,
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto iterable = tc.frame.stack.pop();
+  auto iterable = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   Register* tuple;
   if (iterable->type() != TTupleExact) {
     TranslationContext tuple_path{cfg.AllocateBlock(), tc.frame};
@@ -3482,8 +3485,8 @@ void HIRBuilder::emitLoadIterableArg(
   tc.emitPrimitiveBox(tup_idx, tmp, TCInt64, tc.frame);
   tc.emitBinaryOp(
       element, BinaryOpKind::kSubscript, tuple, tup_idx, tc.frame);
-  tc.frame.stack.push(element);
-  tc.frame.stack.push(tuple);
+  phx_ptr_arr_push(&tc.frame.stack, element);
+  phx_ptr_arr_push(&tc.frame.stack, tuple);
 }
 
 bool HIRBuilder::tryEmitDirectMethodCall(
@@ -3503,9 +3506,9 @@ bool HIRBuilder::tryEmitDirectMethodCall(
           tc.emitCallStatic(nargs, out, target.builtin_c_func, ret_type);
     }
 
-    auto& stack = tc.frame.stack;
+    PhxPtrArray& stack = tc.frame.stack;
     for (auto i = nargs - 1; i >= 0; i--) {
-      Register* operand = stack.pop();
+      Register* operand = static_cast<Register*>(phx_ptr_arr_pop(&stack));
       staticCall->SetOperand(i, operand);
     }
 
@@ -3525,9 +3528,9 @@ bool HIRBuilder::tryEmitDirectMethodCall(
       // in _PyClassLoader_ConvertRet).
       Register* tmp = temps_.AllocateStack();
       tc.emitLoadConst(tmp, TNoneType);
-      stack.push(tmp);
+      phx_ptr_arr_push(&stack, tmp);
     } else {
-      stack.push(out);
+      phx_ptr_arr_push(&stack, out);
     }
     return true;
   }
@@ -3543,7 +3546,7 @@ std::vector<Register*> HIRBuilder::setupStaticArgs(
   auto arg_regs = std::vector<Register*>(nargs, nullptr);
 
   for (auto i = nargs - 1; i >= 0; i--) {
-    arg_regs[i] = tc.frame.stack.pop();
+    arg_regs[i] = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   }
 
   // If we have patched a function that accepts/returns primitives,
@@ -3604,7 +3607,7 @@ bool HIRBuilder::tryEmitStaticRandCall(
   Type ret_type = TCInt32;
   // Ci_static_rand() boxes the return value; call rand() directly instead.
   tc.emitCallStatic(nargs, out, (void*)rand, ret_type);
-  tc.frame.stack.push(out);
+  phx_ptr_arr_push(&tc.frame.stack, out);
   return true;
 }
 
@@ -3646,12 +3649,12 @@ bool HIRBuilder::emitInvokeFunction(
       call->SetOperand(0, funcreg);
 
       for (auto i = nargs - 1; i >= 0; i--) {
-        Register* operand = tc.frame.stack.pop();
+        Register* operand = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
         call->SetOperand(i + 1, operand);
       }
       call->setFrameState(tc.frame);
 
-      tc.frame.stack.push(out);
+      phx_ptr_arr_push(&tc.frame.stack, out);
 
       return false;
     } else if (
@@ -3684,7 +3687,7 @@ bool HIRBuilder::emitInvokeFunction(
   call->setFrameState(tc.frame);
 
   fixStaticReturn(tc, out, target.return_type);
-  tc.frame.stack.push(out);
+  phx_ptr_arr_push(&tc.frame.stack, out);
 
   return true;
 }
@@ -3706,11 +3709,11 @@ bool HIRBuilder::emitInvokeNative(
   Type typ = target.return_type;
   auto call = tc.emitCallStatic(nargs, out, target.callable, typ);
   for (auto i = nargs - 1; i >= 0; i--) {
-    Register* operand = tc.frame.stack.pop();
+    Register* operand = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
     call->SetOperand(i, operand);
   }
 
-  tc.frame.stack.push(out);
+  phx_ptr_arr_push(&tc.frame.stack, out);
   return false;
 }
 
@@ -3729,7 +3732,7 @@ void HIRBuilder::emitInvokeMethodVectorCall(
   vectorCall->setFrameState(tc.frame);
 
   fixStaticReturn(tc, out, target.return_type);
-  tc.frame.stack.push(out);
+  phx_ptr_arr_push(&tc.frame.stack, out);
 }
 
 void HIRBuilder::emitLoadMethodStatic(
@@ -3741,7 +3744,7 @@ void HIRBuilder::emitLoadMethodStatic(
 
   const InvokeTarget& target = preloader_.invokeMethodTarget(descr);
 
-  Register* self = tc.frame.stack.pop();
+  Register* self = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   auto type = temps_.AllocateStack();
   if (!is_classmethod) {
     tc.emitLoadField(
@@ -3792,8 +3795,8 @@ void HIRBuilder::emitLoadMethodStatic(
     static_method_stack_.push(entry_func);
   }
 
-  tc.frame.stack.push(func_obj);
-  tc.frame.stack.push(self);
+  phx_ptr_arr_push(&tc.frame.stack, func_obj);
+  phx_ptr_arr_push(&tc.frame.stack, self);
 }
 
 bool HIRBuilder::emitInvokeMethod(
@@ -3807,9 +3810,9 @@ bool HIRBuilder::emitInvokeMethod(
   const InvokeTarget& target = preloader_.invokeMethodTarget(descr);
 
   if (target.is_builtin && tryEmitDirectMethodCall(target, tc, nargs - 1)) {
-    auto res = tc.frame.stack.pop();
-    tc.frame.stack.pop(); // pop the thunk
-    tc.frame.stack.push(res);
+    auto res = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
+    static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack)); // pop the thunk
+    phx_ptr_arr_push(&tc.frame.stack, res);
     return false;
   }
 
@@ -3827,7 +3830,7 @@ bool HIRBuilder::emitInvokeMethod(
     }
 
     invoke->setFrameState(tc.frame);
-    tc.frame.stack.push(out);
+    phx_ptr_arr_push(&tc.frame.stack, out);
   } else {
     emitInvokeMethodVectorCall(tc, is_awaited, arg_regs, target);
   }
@@ -3836,26 +3839,26 @@ bool HIRBuilder::emitInvokeMethod(
 }
 
 void HIRBuilder::emitIsOp(TranslationContext& tc, int oparg) {
-  auto& stack = tc.frame.stack;
-  Register* right = stack.pop();
-  Register* left = stack.pop();
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* right = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  Register* left = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   Register* unboxed_result = temps_.AllocateStack();
   Register* result = temps_.AllocateStack();
   auto op =
       oparg == 0 ? PrimitiveCompareOp::kEqual : PrimitiveCompareOp::kNotEqual;
   tc.emitPrimitiveCompare(unboxed_result, op, left, right);
   tc.emitPrimitiveBoxBool(result, unboxed_result);
-  stack.push(result);
+  phx_ptr_arr_push(&stack, result);
 }
 
 void HIRBuilder::emitContainsOp(TranslationContext& tc, int oparg) {
-  auto& stack = tc.frame.stack;
-  Register* right = stack.pop();
-  Register* left = stack.pop();
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* right = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  Register* left = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   Register* result = temps_.AllocateStack();
   CompareOp op = oparg == 0 ? CompareOp::kIn : CompareOp::kNotIn;
   tc.emitCompare(result, op, left, right, tc.frame);
-  stack.push(result);
+  phx_ptr_arr_push(&stack, result);
 }
 
 void HIRBuilder::emitCompareOp(
@@ -3871,13 +3874,13 @@ void HIRBuilder::emitCompareOp(
 
   JIT_CHECK(compare_op >= Py_LT, "Invalid op {}", compare_op);
   JIT_CHECK(compare_op <= Py_GE, "Invalid op {}", compare_op);
-  auto& stack = tc.frame.stack;
+  PhxPtrArray& stack = tc.frame.stack;
   if (jit_get_config()->specialized_opcodes) {
     // Bug 7 fix: Snapshot BEFORE popping operands — deopt re-executes instruction
     tc.emitSnapshot();
   }
-  Register* right = stack.pop();
-  Register* left = stack.pop();
+  Register* right = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  Register* left = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   Register* result = temps_.AllocateStack();
   CompareOp op = static_cast<CompareOp>(compare_op);
 
@@ -3901,44 +3904,44 @@ void HIRBuilder::emitCompareOp(
   }
 
   tc.emitCompare(result, op, left, right, tc.frame);
-  stack.push(result);
+  phx_ptr_arr_push(&stack, result);
   if (PY_VERSION_HEX >= 0x030E0000 && bc_instr.oparg() & 0x10) {
     emitToBool(tc);
   }
 }
 
 void HIRBuilder::emitToBool(TranslationContext& tc) {
-  Register* operand = tc.frame.stack.pop();
+  Register* operand = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   Register* truthy_result = temps_.AllocateStack();
   tc.emitIsTruthy(truthy_result, operand, tc.frame);
 
   Register* coerced_result = temps_.AllocateStack();
   tc.emitPrimitiveBoxBool(coerced_result, truthy_result);
-  tc.frame.stack.push(coerced_result);
+  phx_ptr_arr_push(&tc.frame.stack, coerced_result);
 }
 
 void HIRBuilder::emitCopyDictWithoutKeys(TranslationContext& tc) {
-  auto& stack = tc.frame.stack;
-  Register* keys = stack.top();
-  Register* subject = stack.top(1);
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* keys = static_cast<Register*>(stack.data[stack.count - 1]);
+  Register* subject = static_cast<Register*>(stack.data[stack.count - (1) - 1]);
   Register* rest = temps_.AllocateStack();
   tc.emitCopyDictWithoutKeys(rest, subject, keys, tc.frame);
-  stack.topPut(0, rest);
+  stack.data[stack.count - (0) - 1] = rest;
 }
 
 void HIRBuilder::emitGetLen(TranslationContext& tc) {
   FrameState state = tc.frame;
-  auto& stack = tc.frame.stack;
-  Register* obj = stack.top();
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* obj = static_cast<Register*>(stack.data[stack.count - 1]);
   Register* result = temps_.AllocateStack();
   tc.emitGetLength(result, obj, state);
-  stack.push(result);
+  phx_ptr_arr_push(&stack, result);
 }
 
 void HIRBuilder::emitJumpIf(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* var = tc.frame.stack.top();
+  Register* var = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - 1]);
 
   BCOffset true_offset, false_offset;
   bool check_truthy = true;
@@ -4051,7 +4054,7 @@ PyTypeObject* findTypeByVersionTag(uint32_t version) {
 void HIRBuilder::emitDeleteAttr(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* receiver = tc.frame.stack.pop();
+  Register* receiver = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   tc.emitDeleteAttr(receiver, bc_instr.oparg(), tc.frame);
 }
 
@@ -4074,7 +4077,7 @@ void HIRBuilder::emitLoadAttr(
     // Bug 7 fix: Snapshot BEFORE popping operands — deopt re-executes instruction
     tc.emitSnapshot();
   }
-  Register* receiver = tc.frame.stack.pop();
+  Register* receiver = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
 
   if (jit_get_config()->specialized_opcodes) {
     switch (bc_instr.specializedOpcode()) {
@@ -4142,7 +4145,7 @@ void HIRBuilder::emitLoadAttr(
               result, result, attr_name, tc.frame);
           cf->setGuiltyReg(receiver);
 
-          tc.frame.stack.push(result);
+          phx_ptr_arr_push(&tc.frame.stack, result);
           return;
         }
         break;
@@ -4189,7 +4192,7 @@ void HIRBuilder::emitLoadAttr(
               result, attr, attr_name, tc.frame);
           cf->setGuiltyReg(receiver);
 
-          tc.frame.stack.push(result);
+          phx_ptr_arr_push(&tc.frame.stack, result);
           return;
         }
         // Fallback: no type found or has subclasses — generic LoadAttr.
@@ -4278,7 +4281,7 @@ void HIRBuilder::emitLoadAttr(
                 result, attr, attr_name, tc.frame);
             cf2->setGuiltyReg(receiver);
 
-            tc.frame.stack.push(result);
+            phx_ptr_arr_push(&tc.frame.stack, result);
             return;
           }
         }
@@ -4300,17 +4303,17 @@ void HIRBuilder::emitLoadAttr(
 
   Register* result = temps_.AllocateStack();
   tc.emitLoadAttr2(result, receiver, name_idx, tc.frame);
-  tc.frame.stack.push(result);
+  phx_ptr_arr_push(&tc.frame.stack, result);
 }
 
 void HIRBuilder::emitLoadMethod(TranslationContext& tc, int name_idx) {
-  Register* receiver = tc.frame.stack.pop();
+  Register* receiver = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   Register* result = temps_.AllocateStack();
   Register* method_instance = temps_.AllocateStack();
   tc.emitLoadMethod(result, receiver, name_idx, tc.frame);
   tc.emitGetSecondOutput(method_instance, TOptObject, result);
-  tc.frame.stack.push(result);
-  tc.frame.stack.push(method_instance);
+  phx_ptr_arr_push(&tc.frame.stack, result);
+  phx_ptr_arr_push(&tc.frame.stack, method_instance);
 }
 
 void HIRBuilder::emitLoadMethodOrAttrSuper(
@@ -4319,9 +4322,9 @@ void HIRBuilder::emitLoadMethodOrAttrSuper(
     const jit::BytecodeInstruction& bc_instr,
     bool load_method) {
   TranslationContext deopt_path{cfg.AllocateBlock(), tc.frame};
-  Register* receiver = tc.frame.stack.pop();
-  Register* type = tc.frame.stack.pop();
-  Register* global_super = tc.frame.stack.pop();
+  Register* receiver = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
+  Register* type = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
+  Register* global_super = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   Register* result = temps_.AllocateStack();
 
 #if PY_VERSION_HEX >= 0x030B0000
@@ -4354,7 +4357,7 @@ void HIRBuilder::emitLoadMethodOrAttrSuper(
         name_idx,
         no_args_in_super_call,
         tc.frame);
-    tc.frame.stack.push(result);
+    phx_ptr_arr_push(&tc.frame.stack, result);
     return;
   }
 
@@ -4368,8 +4371,8 @@ void HIRBuilder::emitLoadMethodOrAttrSuper(
       no_args_in_super_call,
       tc.frame);
   tc.emitGetSecondOutput(method_instance, TOptObject, result);
-  tc.frame.stack.push(result);
-  tc.frame.stack.push(method_instance);
+  phx_ptr_arr_push(&tc.frame.stack, result);
+  phx_ptr_arr_push(&tc.frame.stack, method_instance);
 }
 
 void HIRBuilder::emitMakeCell(TranslationContext& tc, int local_idx) {
@@ -4382,8 +4385,8 @@ void HIRBuilder::emitMakeCell(TranslationContext& tc, int local_idx) {
 
 void HIRBuilder::emitCopy(TranslationContext& tc, int item_idx) {
   JIT_CHECK(item_idx > 0, "The index ({}) must be positive!", item_idx);
-  Register* item = tc.frame.stack.peek(item_idx);
-  tc.frame.stack.push(item);
+  Register* item = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - (item_idx)]);
+  phx_ptr_arr_push(&tc.frame.stack, item);
 }
 
 void HIRBuilder::emitCopyFreeVars(TranslationContext& tc, int nfreevars) {
@@ -4414,10 +4417,10 @@ void HIRBuilder::emitCopyFreeVars(TranslationContext& tc, int nfreevars) {
 void HIRBuilder::emitSwap(TranslationContext& tc, int item_idx) {
   JIT_CHECK(
       item_idx >= 2, "The index ({}) must be greater or equal to 2.", item_idx);
-  Register* item = tc.frame.stack.peek(item_idx);
-  Register* top = tc.frame.stack.top();
-  tc.frame.stack.topPut(0, item);
-  tc.frame.stack.topPut(item_idx - 1, top);
+  Register* item = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - (item_idx)]);
+  Register* top = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - 1]);
+  tc.frame.stack.data[tc.frame.stack.count - (0) - 1] = item;
+  tc.frame.stack.data[tc.frame.stack.count - (item_idx - 1) - 1] = top;
 }
 
 void HIRBuilder::emitLoadDeref(
@@ -4446,7 +4449,7 @@ void HIRBuilder::emitLoadDeref(
   }
 #endif
 
-  tc.frame.stack.push(dst);
+  phx_ptr_arr_push(&tc.frame.stack, dst);
 }
 
 void HIRBuilder::emitStoreDeref(
@@ -4461,7 +4464,7 @@ void HIRBuilder::emitStoreDeref(
 
   Register* old = temps_.AllocateStack();
   Register* dst = static_cast<Register*>(tc.frame.localsplus.data[idx]);
-  Register* src = tc.frame.stack.pop();
+  Register* src = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
 #ifdef Py_GIL_DISABLED
   // Use atomic swap for thread-safe cell access in FT-Python.
   tc.emitSwapCellItem(old, dst, src);
@@ -4477,7 +4480,7 @@ void HIRBuilder::emitLoadAssertionError(
   Register* result = temps_.AllocateStack();
   tc.emitLoadConst(
       result, Type::fromObject(env.addReference(PyExc_AssertionError)));
-  tc.frame.stack.push(result);
+  phx_ptr_arr_push(&tc.frame.stack, result);
 }
 
 void HIRBuilder::emitLoadClass(
@@ -4487,7 +4490,7 @@ void HIRBuilder::emitLoadClass(
   auto pytype = preloader_.pyType(constArg(bc_instr));
   auto pytype_as_pyobj = BorrowedRef(pytype);
   tc.emitLoadConst(tmp, Type::fromObject(pytype_as_pyobj));
-  tc.frame.stack.push(tmp);
+  phx_ptr_arr_push(&tc.frame.stack, tmp);
 }
 
 void HIRBuilder::emitLoadConst(
@@ -4500,7 +4503,7 @@ void HIRBuilder::emitLoadConst(
   tc.emitLoadConst(
       tmp,
       Type::fromObject(PyTuple_GET_ITEM(code_->co_consts, bc_instr.oparg())));
-  tc.frame.stack.push(tmp);
+  phx_ptr_arr_push(&tc.frame.stack, tmp);
 }
 
 void HIRBuilder::emitLoadFast(
@@ -4512,7 +4515,7 @@ void HIRBuilder::emitLoadFast(
   if (bc_instr.opcode() == LOAD_FAST_CHECK || PY_VERSION_HEX < 0x030C0000) {
     tc.emitCheckVar(var, var, getVarname(code_, var_idx), tc.frame);
   }
-  tc.frame.stack.push(var);
+  phx_ptr_arr_push(&tc.frame.stack, var);
   if (bc_instr.opcode() == LOAD_FAST_AND_CLEAR) {
     moveOverwrittenStackRegisters(tc, var);
     tc.emitLoadConst(var, TNullptr);
@@ -4532,10 +4535,10 @@ void HIRBuilder::emitLoadFastLoadFast(
       var_idx2,
       tc.frame.localsplus.count);
   Register* var1 = static_cast<Register*>(tc.frame.localsplus.data[var_idx1]);
-  tc.frame.stack.push(var1);
+  phx_ptr_arr_push(&tc.frame.stack, var1);
 
   Register* var2 = static_cast<Register*>(tc.frame.localsplus.data[var_idx2]);
-  tc.frame.stack.push(var2);
+  phx_ptr_arr_push(&tc.frame.stack, var2);
 }
 
 void HIRBuilder::emitLoadLocal(
@@ -4546,7 +4549,7 @@ void HIRBuilder::emitLoadLocal(
   int index = PyLong_AsLong(PyTuple_GET_ITEM(index_and_descr, 0));
 
   auto var = static_cast<Register*>(tc.frame.localsplus.data[index]);
-  tc.frame.stack.push(var);
+  phx_ptr_arr_push(&tc.frame.stack, var);
 }
 
 void HIRBuilder::emitLoadSmallInt(
@@ -4561,7 +4564,7 @@ void HIRBuilder::emitLoadSmallInt(
       Type::fromObject(
           reinterpret_cast<PyObject*>(
               &_PyLong_SMALL_INTS[_PY_NSMALLNEGINTS + bc_instr.oparg()])));
-  tc.frame.stack.push(tmp);
+  phx_ptr_arr_push(&tc.frame.stack, tmp);
 #else
   JIT_ABORT("LOAD_SMALL_INT not supported on this Python version");
 #endif
@@ -4570,7 +4573,7 @@ void HIRBuilder::emitLoadSmallInt(
 void HIRBuilder::emitStoreLocal(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* src = tc.frame.stack.pop();
+  Register* src = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   PyObject* index_and_descr =
       PyTuple_GET_ITEM(code_->co_consts, bc_instr.oparg());
   int index = PyLong_AsLong(PyTuple_GET_ITEM(index_and_descr, 0));
@@ -4582,21 +4585,21 @@ void HIRBuilder::emitStoreLocal(
 void HIRBuilder::emitLoadType(
     TranslationContext& tc,
     const jit::BytecodeInstruction&) {
-  Register* instance = tc.frame.stack.pop();
+  Register* instance = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   auto type = temps_.AllocateStack();
   tc.emitLoadField(
       type, instance, "ob_type", offsetof(PyObject, ob_type), TType);
-  tc.frame.stack.push(type);
+  phx_ptr_arr_push(&tc.frame.stack, type);
 }
 
 void HIRBuilder::emitConvertPrimitive(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* val = tc.frame.stack.pop();
+  Register* val = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   Register* out = temps_.AllocateStack();
   Type to_type = prim_type_to_type(bc_instr.oparg() >> 4);
   tc.emitIntConvert(out, val, to_type);
-  tc.frame.stack.push(out);
+  phx_ptr_arr_push(&tc.frame.stack, out);
 }
 
 void HIRBuilder::emitPrimitiveLoadConst(
@@ -4625,27 +4628,27 @@ void HIRBuilder::emitPrimitiveLoadConst(
         : Type::fromCInt(PyLong_AsLong(num), size);
   }
   tc.emitLoadConst(tmp, type);
-  tc.frame.stack.push(tmp);
+  phx_ptr_arr_push(&tc.frame.stack, tmp);
 }
 
 void HIRBuilder::emitPrimitiveBox(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   Register* tmp = temps_.AllocateStack();
-  Register* src = tc.frame.stack.pop();
+  Register* src = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   Type typ = prim_type_to_type(bc_instr.oparg());
   boxPrimitive(tc, tmp, src, typ);
-  tc.frame.stack.push(tmp);
+  phx_ptr_arr_push(&tc.frame.stack, tmp);
 }
 
 void HIRBuilder::emitPrimitiveUnbox(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   Register* tmp = temps_.AllocateStack();
-  Register* src = tc.frame.stack.pop();
+  Register* src = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   Type typ = prim_type_to_type(bc_instr.oparg());
   unboxPrimitive(tc, tmp, src, typ);
-  tc.frame.stack.push(tmp);
+  phx_ptr_arr_push(&tc.frame.stack, tmp);
 }
 
 void HIRBuilder::boxPrimitive(
@@ -4785,9 +4788,9 @@ static inline Type element_type_from_seq_type(int seq_type) {
 void HIRBuilder::emitPrimitiveBinaryOp(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto& stack = tc.frame.stack;
-  Register* right = stack.pop();
-  Register* left = stack.pop();
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* right = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  Register* left = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   Register* result = temps_.AllocateStack();
 
   BinaryOpKind op_kind = get_primitive_bin_op_kind(bc_instr);
@@ -4798,15 +4801,15 @@ void HIRBuilder::emitPrimitiveBinaryOp(
     tc.emitIntBinaryOp(result, op_kind, left, right);
   }
 
-  stack.push(result);
+  phx_ptr_arr_push(&stack, result);
 }
 
 void HIRBuilder::emitPrimitiveCompare(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto& stack = tc.frame.stack;
-  Register* right = stack.pop();
-  Register* left = stack.pop();
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* right = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  Register* left = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   Register* result = temps_.AllocateStack();
   PrimitiveCompareOp op;
   switch (bc_instr.oparg()) {
@@ -4850,13 +4853,13 @@ void HIRBuilder::emitPrimitiveCompare(
       JIT_ABORT("unsupported comparison");
   }
   tc.emitPrimitiveCompare(result, op, left, right);
-  stack.push(result);
+  phx_ptr_arr_push(&stack, result);
 }
 
 void HIRBuilder::emitPrimitiveUnaryOp(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* value = tc.frame.stack.pop();
+  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   Register* result = temps_.AllocateStack();
   PrimitiveUnaryOpKind op;
   switch (bc_instr.oparg()) {
@@ -4887,7 +4890,7 @@ void HIRBuilder::emitPrimitiveUnaryOp(
       JIT_ABORT("unsupported unary op");
     }
   }
-  tc.frame.stack.push(result);
+  phx_ptr_arr_push(&tc.frame.stack, result);
 }
 
 void HIRBuilder::emitFastLen(
@@ -4937,34 +4940,34 @@ void HIRBuilder::emitFastLen(
     deopt_path.frame.cur_instr_offs = bc_instr.baseOffset();
     deopt_path.emitSnapshot();
     deopt_path.emitDeopt();
-    collection = tc.frame.stack.pop();
+    collection = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
     BasicBlock* fast_path = cfg.AllocateBlock();
     tc.emitCondBranchCheckType(collection, type, fast_path, deopt_path.block);
     tc.block = fast_path;
     // TASK(T105038867): Remove once we have RefineTypeInsertion
     tc.emitRefineType(collection, type, collection);
   } else {
-    collection = tc.frame.stack.pop();
+    collection = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   }
 
   tc.emitLoadField(result, collection, name, offset, TCInt64);
-  tc.frame.stack.push(result);
+  phx_ptr_arr_push(&tc.frame.stack, result);
 }
 
 void HIRBuilder::emitRefineType(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   Type type = preloader_.type(constArg(bc_instr));
-  Register* dst = tc.frame.stack.top();
+  Register* dst = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - 1]);
   tc.emitRefineType(dst, type, dst);
 }
 
 void HIRBuilder::emitSequenceGet(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto& stack = tc.frame.stack;
-  auto idx = stack.pop();
-  auto sequence = stack.pop();
+  PhxPtrArray& stack = tc.frame.stack;
+  auto idx = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  auto sequence = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   auto oparg = bc_instr.oparg();
   if (oparg == SEQ_LIST_INEXACT) {
     auto type = temps_.AllocateStack();
@@ -5002,16 +5005,16 @@ void HIRBuilder::emitSequenceGet(
   auto type = element_type_from_seq_type(oparg);
   tc.emitLoadArrayItem(
       result, ob_item, adjusted_idx, sequence, /*offset=*/0, type);
-  stack.push(result);
+  phx_ptr_arr_push(&stack, result);
 }
 
 void HIRBuilder::emitSequenceSet(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto& stack = tc.frame.stack;
-  auto idx = stack.pop();
-  auto sequence = stack.pop();
-  auto value = stack.pop();
+  PhxPtrArray& stack = tc.frame.stack;
+  auto idx = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  auto sequence = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  auto value = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   auto adjusted_idx = temps_.AllocateStack();
   auto oparg = bc_instr.oparg();
   if (oparg == SEQ_LIST_INEXACT) {
@@ -5075,7 +5078,7 @@ void HIRBuilder::emitLoadGlobal(
     tc.emitLoadGlobal(result, name_idx, tc.frame);
   }
 
-  tc.frame.stack.push(result);
+  phx_ptr_arr_push(&tc.frame.stack, result);
 
   if constexpr (PY_VERSION_HEX >= 0x030E0000) {
     if (bc_instr.oparg() & 1) {
@@ -5094,35 +5097,35 @@ void HIRBuilder::emitMakeFunction(
   // from the code object, so we use a sentinel Nullptr value here.
   Register* qualname = nullptr;
   if constexpr (PY_VERSION_HEX < 0x030B0000) {
-    qualname = tc.frame.stack.pop();
+    qualname = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   } else {
     qualname = temps_.AllocateNonStack();
     tc.emitLoadConst(qualname, TNullptr);
   }
 
-  Register* codeobj = tc.frame.stack.pop();
+  Register* codeobj = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
 
   // make a function
   tc.emitMakeFunction(func, codeobj, qualname, tc.frame);
 
   if (oparg & MAKE_FUNCTION_CLOSURE) {
-    Register* closure = tc.frame.stack.pop();
+    Register* closure = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
     tc.emitSetFunctionAttr(closure, func, FunctionAttr::kClosure);
   }
   if (oparg & MAKE_FUNCTION_ANNOTATIONS) {
-    Register* annotations = tc.frame.stack.pop();
+    Register* annotations = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
     tc.emitSetFunctionAttr(annotations, func, FunctionAttr::kAnnotations);
   }
   if (oparg & MAKE_FUNCTION_KWDEFAULTS) {
-    Register* kwdefaults = tc.frame.stack.pop();
+    Register* kwdefaults = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
     tc.emitSetFunctionAttr(kwdefaults, func, FunctionAttr::kKwDefaults);
   }
   if (oparg & MAKE_FUNCTION_DEFAULTS) {
-    Register* defaults = tc.frame.stack.pop();
+    Register* defaults = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
     tc.emitSetFunctionAttr(defaults, func, FunctionAttr::kDefaults);
   }
 
-  tc.frame.stack.push(func);
+  phx_ptr_arr_push(&tc.frame.stack, func);
 }
 
 void HIRBuilder::emitMakeListTuple(
@@ -5137,26 +5140,26 @@ void HIRBuilder::emitMakeListTuple(
     instr = tc.emitMakeList(num_elems, dst, tc.frame);
   }
   for (size_t i = num_elems; i > 0; i--) {
-    auto opnd = tc.frame.stack.pop();
+    auto opnd = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
     instr->SetOperand(i - 1, opnd);
   }
-  tc.frame.stack.push(dst);
+  phx_ptr_arr_push(&tc.frame.stack, dst);
 }
 
 void HIRBuilder::emitListExtend(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* iterable = tc.frame.stack.pop();
-  Register* list = tc.frame.stack.peek(bc_instr.oparg());
+  Register* iterable = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
+  Register* list = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - bc_instr.oparg()]);
   Register* none = temps_.AllocateStack();
   tc.emitListExtend(none, list, iterable, tc.frame);
 }
 
 void HIRBuilder::emitListToTuple(TranslationContext& tc) {
-  Register* list = tc.frame.stack.pop();
+  Register* list = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   Register* tuple = temps_.AllocateStack();
   tc.emitMakeTupleFromList(tuple, list, tc.frame);
-  tc.frame.stack.push(tuple);
+  phx_ptr_arr_push(&tc.frame.stack, tuple);
 }
 
 void HIRBuilder::emitBuildCheckedList(
@@ -5175,10 +5178,10 @@ void HIRBuilder::emitBuildCheckedList(
   auto instr = tc.emitMakeCheckedList(list_size, list, type, tc.frame);
   // Fill list
   for (size_t i = list_size; i > 0; i--) {
-    auto operand = tc.frame.stack.pop();
+    auto operand = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
     instr->SetOperand(i - 1, operand);
   }
-  tc.frame.stack.push(list);
+  phx_ptr_arr_push(&tc.frame.stack, list);
 }
 
 void HIRBuilder::emitBuildCheckedMap(
@@ -5196,16 +5199,16 @@ void HIRBuilder::emitBuildCheckedMap(
   Register* dict = temps_.AllocateStack();
   tc.emitMakeCheckedDict(dict, dict_size, type, tc.frame);
   // Fill dict
-  auto& stack = tc.frame.stack;
-  for (auto i = stack.size() - dict_size * 2, end = stack.size(); i < end;
+  PhxPtrArray& stack = tc.frame.stack;
+  for (auto i = stack.count - dict_size * 2, end = stack.count; i < end;
        i += 2) {
-    auto key = stack.at(i);
-    auto value = stack.at(i + 1);
+    auto key = static_cast<Register*>(stack.data[i]);
+    auto value = static_cast<Register*>(stack.data[i + 1]);
     auto result = temps_.AllocateStack();
     tc.emitSetDictItem(result, dict, key, value, tc.frame);
   }
-  stack.discard(dict_size * 2);
-  stack.push(dict);
+  stack.count -= (dict_size * 2);
+  phx_ptr_arr_push(&stack, dict);
 }
 
 void HIRBuilder::emitBuildMap(
@@ -5215,16 +5218,16 @@ void HIRBuilder::emitBuildMap(
   Register* dict = temps_.AllocateStack();
   tc.emitMakeDict(dict, dict_size, tc.frame);
   // Fill dict
-  auto& stack = tc.frame.stack;
-  for (auto i = stack.size() - dict_size * 2, end = stack.size(); i < end;
+  PhxPtrArray& stack = tc.frame.stack;
+  for (auto i = stack.count - dict_size * 2, end = stack.count; i < end;
        i += 2) {
-    auto key = stack.at(i);
-    auto value = stack.at(i + 1);
+    auto key = static_cast<Register*>(stack.data[i]);
+    auto value = static_cast<Register*>(stack.data[i + 1]);
     auto result = temps_.AllocateStack();
     tc.emitSetDictItem(result, dict, key, value, tc.frame);
   }
-  stack.discard(dict_size * 2);
-  stack.push(dict);
+  stack.count -= (dict_size * 2);
+  phx_ptr_arr_push(&stack, dict);
 }
 
 void HIRBuilder::emitBuildSet(
@@ -5235,15 +5238,15 @@ void HIRBuilder::emitBuildSet(
 
   int oparg = bc_instr.oparg();
   for (int i = oparg; i > 0; i--) {
-    auto item = tc.frame.stack.peek(i);
+    auto item = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - (i)]);
 
     auto result = temps_.AllocateStack();
     tc.emitSetSetItem(result, set, item, tc.frame);
   }
 
-  tc.frame.stack.discard(oparg);
+  tc.frame.stack.count -= (oparg);
 
-  tc.frame.stack.push(set);
+  phx_ptr_arr_push(&tc.frame.stack, set);
 }
 
 void HIRBuilder::emitBuildConstKeyMap(
@@ -5253,25 +5256,25 @@ void HIRBuilder::emitBuildConstKeyMap(
   Register* dict = temps_.AllocateStack();
   tc.emitMakeDict(dict, dict_size, tc.frame);
   // Fill dict
-  auto& stack = tc.frame.stack;
-  Register* keys = stack.pop();
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* keys = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   // ceval.c checks the type and size of the keys tuple before proceeding; we
   // intentionally skip that here.
   for (auto i = 0; i < dict_size; ++i) {
     Register* key = temps_.AllocateStack();
     tc.emitLoadTupleItem(key, keys, i);
-    Register* value = stack.at(stack.size() - dict_size + i);
+    Register* value = static_cast<Register*>(stack.data[stack.count - dict_size + i]);
     Register* result = temps_.AllocateStack();
     tc.emitSetDictItem(result, dict, key, value, tc.frame);
   }
-  stack.discard(dict_size);
-  stack.push(dict);
+  stack.count -= (dict_size);
+  phx_ptr_arr_push(&stack, dict);
 }
 
 void HIRBuilder::emitPopJumpIf(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* var = tc.frame.stack.pop();
+  Register* var = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   BCOffset true_offset, false_offset;
   auto opcode = bc_instr.opcode();
   switch (opcode) {
@@ -5321,7 +5324,7 @@ void HIRBuilder::emitPopJumpIf(
 void HIRBuilder::emitPopJumpIfNone(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* var = tc.frame.stack.pop();
+  Register* var = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   BCOffset true_offset = bc_instr.getJumpTarget();
   BCOffset false_offset = bc_instr.nextInstrOffset();
 
@@ -5341,8 +5344,8 @@ void HIRBuilder::emitPopJumpIfNone(
 void HIRBuilder::emitStoreAttr(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* receiver = tc.frame.stack.pop();
-  Register* value = tc.frame.stack.pop();
+  Register* receiver = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
+  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
 
   tc.emitStoreAttr(receiver, value, bc_instr.oparg(), tc.frame);
 }
@@ -5353,21 +5356,21 @@ void HIRBuilder::moveOverwrittenStackRegisters(
   // If we're about to overwrite a register that is on the stack, move it to a
   // new register.
   Register* tmp = nullptr;
-  auto& stack = tc.frame.stack;
-  for (std::size_t i = 0, stack_size = stack.size(); i < stack_size; i++) {
-    if (stack.at(i) == dst) {
+  PhxPtrArray& stack = tc.frame.stack;
+  for (std::size_t i = 0, stack_size = stack.count; i < stack_size; i++) {
+    if (static_cast<Register*>(stack.data[i]) == dst) {
       if (tmp == nullptr) {
         tmp = temps_.AllocateStack();
         tc.emitAssign(tmp, dst);
       }
-      stack.atPut(i, tmp);
+      stack.data[i] = tmp;
     }
   }
 }
 void HIRBuilder::emitStoreFast(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* src = tc.frame.stack.pop();
+  Register* src = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   Register* dst = static_cast<Register*>(tc.frame.localsplus.data[bc_instr.oparg()]);
   JIT_DCHECK(dst != nullptr, "no register");
   moveOverwrittenStackRegisters(tc, dst);
@@ -5387,12 +5390,12 @@ void HIRBuilder::emitStoreFastStoreFast(
       var_idx1,
       var_idx2,
       tc.frame.localsplus.count);
-  Register* src = tc.frame.stack.pop();
+  Register* src = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   Register* dst = static_cast<Register*>(tc.frame.localsplus.data[var_idx1]);
   moveOverwrittenStackRegisters(tc, dst);
   tc.emitAssign(dst, src);
 
-  src = tc.frame.stack.pop();
+  src = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   dst = static_cast<Register*>(tc.frame.localsplus.data[var_idx2]);
   moveOverwrittenStackRegisters(tc, dst);
   tc.emitAssign(dst, src);
@@ -5411,46 +5414,46 @@ void HIRBuilder::emitStoreFastLoadFast(
       var_idx1,
       var_idx2,
       tc.frame.localsplus.count);
-  Register* src = tc.frame.stack.pop();
+  Register* src = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   Register* dst = static_cast<Register*>(tc.frame.localsplus.data[var_idx1]);
   moveOverwrittenStackRegisters(tc, dst);
   tc.emitAssign(dst, src);
 
   Register* var = static_cast<Register*>(tc.frame.localsplus.data[var_idx2]);
-  tc.frame.stack.push(var);
+  phx_ptr_arr_push(&tc.frame.stack, var);
 }
 
 void HIRBuilder::emitBinarySlice(TranslationContext& tc) {
-  auto& stack = tc.frame.stack;
+  PhxPtrArray& stack = tc.frame.stack;
   tc.emitVariadic<BuildSlice>(temps_, 2);
-  Register* slice = stack.pop();
-  Register* container = stack.pop();
+  Register* slice = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  Register* container = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   Register* result = temps_.AllocateStack();
   tc.emitBinaryOp(
       result, BinaryOpKind::kSubscript, container, slice, tc.frame);
-  tc.frame.stack.push(result);
+  phx_ptr_arr_push(&tc.frame.stack, result);
 }
 
 void HIRBuilder::emitStoreSlice(TranslationContext& tc) {
-  auto& stack = tc.frame.stack;
+  PhxPtrArray& stack = tc.frame.stack;
   tc.emitVariadic<BuildSlice>(temps_, 2);
-  Register* slice = stack.pop();
-  Register* container = stack.pop();
-  Register* values = stack.pop();
+  Register* slice = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  Register* container = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  Register* values = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   tc.emitStoreSubscr(container, slice, values, tc.frame);
 }
 
 void HIRBuilder::emitStoreSubscr(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto& stack = tc.frame.stack;
+  PhxPtrArray& stack = tc.frame.stack;
   if (jit_get_config()->specialized_opcodes) {
     // Bug 7 fix: Snapshot BEFORE popping operands — deopt re-executes instruction
     tc.emitSnapshot();
   }
-  Register* sub = stack.pop();
-  Register* container = stack.pop();
-  Register* value = stack.pop();
+  Register* sub = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  Register* container = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&stack));
 
   if (jit_get_config()->specialized_opcodes) {
     switch (bc_instr.specializedOpcode()) {
@@ -5472,7 +5475,7 @@ void HIRBuilder::emitStoreSubscr(
 void HIRBuilder::emitGetIter(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* iterable = tc.frame.stack.pop();
+  Register* iterable = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   Register* result = temps_.AllocateStack();
   tc.emitGetIter(result, iterable, tc.frame);
   // FOR_ITER specialisation: if the next instruction is a specialised FOR_ITER,
@@ -5487,7 +5490,7 @@ void HIRBuilder::emitGetIter(
     //   with the iterator on the stack (FOR_ITER handles any iterator type)
     // - The old code had cur_instr_offs=GET_ITER with iterable popped,
     //   causing the interpreter to re-execute GET_ITER with garbage stack.
-    tc.frame.stack.push(result);  // iterator must be on stack for FOR_ITER
+    phx_ptr_arr_push(&tc.frame.stack, result);  // iterator must be on stack for FOR_ITER
     auto saved_offs = tc.frame.cur_instr_offs;
     tc.frame.cur_instr_offs = bc_instr.nextInstr().baseOffset();  // FOR_ITER
     tc.emitSnapshot();
@@ -5512,7 +5515,7 @@ void HIRBuilder::emitGetIter(
     tc.frame.cur_instr_offs = saved_offs;  // restore for subsequent processing
     // result already pushed above - do NOT push again
   } else {
-    tc.frame.stack.push(result);
+    phx_ptr_arr_push(&tc.frame.stack, result);
   }
   if constexpr (PY_VERSION_HEX >= 0x030F0000) {
     // TASK(T243355471): We should support virtual indexing
@@ -5525,20 +5528,20 @@ void HIRBuilder::emitForIter(
     const jit::BytecodeInstruction& bc_instr) {
   Register* iterator;
   if constexpr (PY_VERSION_HEX >= 0x030F0000) {
-    iterator = tc.frame.stack.top(1);
+    iterator = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - (1) - 1]);
   } else {
-    iterator = tc.frame.stack.top();
+    iterator = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - 1]);
   }
   Register* next_val = temps_.AllocateStack();
   tc.emitInvokeIterNext(next_val, iterator, tc.frame);
-  tc.frame.stack.push(next_val);
+  phx_ptr_arr_push(&tc.frame.stack, next_val);
   BasicBlock* footer = getBlockAtOff(bc_instr.getJumpTarget());
   BasicBlock* body = getBlockAtOff(bc_instr.nextInstrOffset());
   tc.emitCondBranchIterNotDone(next_val, body, footer);
 }
 
 void HIRBuilder::emitGetYieldFromIter(CFG& cfg, TranslationContext& tc) {
-  Register* iter_in = tc.frame.stack.pop();
+  Register* iter_in = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
 
   bool in_coro = code_->co_flags & (CO_COROUTINE | CO_ITERABLE_COROUTINE);
   BasicBlock* done_block = cfg.AllocateBlock();
@@ -5583,7 +5586,7 @@ void HIRBuilder::emitGetYieldFromIter(CFG& cfg, TranslationContext& tc) {
   tc.emitBranch(done_block);
 
   tc.block = done_block;
-  tc.frame.stack.push(iter_out);
+  phx_ptr_arr_push(&tc.frame.stack, iter_out);
 }
 
 void HIRBuilder::emitUnpackEx(
@@ -5593,8 +5596,8 @@ void HIRBuilder::emitUnpackEx(
   int arg_before = oparg & 0xff;
   int arg_after = oparg >> 8;
 
-  auto& stack = tc.frame.stack;
-  Register* seq = stack.pop();
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* seq = static_cast<Register*>(phx_ptr_arr_pop(&stack));
 
   Register* tuple = temps_.AllocateStack();
   tc.emitUnpackExToTuple(tuple, seq, arg_before, arg_after, tc.frame);
@@ -5603,7 +5606,7 @@ void HIRBuilder::emitUnpackEx(
   for (int i = total_args - 1; i >= 0; i--) {
     Register* item = temps_.AllocateStack();
     tc.emitLoadTupleItem(item, tuple, i);
-    stack.push(item);
+    phx_ptr_arr_push(&stack, item);
   }
 }
 
@@ -5611,8 +5614,8 @@ void HIRBuilder::emitUnpackSequence(
     CFG& cfg,
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto& stack = tc.frame.stack;
-  Register* seq = stack.top();
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* seq = static_cast<Register*>(stack.data[stack.count - 1]);
 
   if (jit_get_config()->specialized_opcodes) {
     // Bug 6 fix: ensure dominating Snapshot for specialised-opcode GuardType
@@ -5642,7 +5645,7 @@ void HIRBuilder::emitUnpackSequence(
   BasicBlock* list_fast_path = cfg.AllocateBlock();
   BasicBlock* tuple_fast_path = cfg.AllocateBlock();
   Register* list_mem = temps_.AllocateStack();
-  stack.pop();
+  static_cast<Register*>(phx_ptr_arr_pop(&stack));
 
   // TODO: The manual type checks and branches should go away once we get
   // PGO support to be able to optimize to known types.
@@ -5726,7 +5729,7 @@ void HIRBuilder::emitUnpackSequence(
     Register* item = temps_.AllocateStack();
     tc.emitLoadConst(idx_reg, Type::fromCInt(idx, TCInt64));
     tc.emitLoadArrayItem(item, list_mem, idx_reg, seq, 0, TObject);
-    stack.push(item);
+    phx_ptr_arr_push(&stack, item);
   }
 }
 
@@ -5735,7 +5738,7 @@ void HIRBuilder::emitSetupFinally(
     const jit::BytecodeInstruction& bc_instr) {
   BCOffset handler_off =
       bc_instr.nextInstrOffset() + BCIndex{bc_instr.oparg()}.asOffset();
-  int stack_level = tc.frame.stack.size();
+  int stack_level = tc.frame.stack.count;
   tc.frame.block_stack.push(
       ExecutionBlock{SETUP_FINALLY, handler_off, stack_level});
 }
@@ -5743,16 +5746,16 @@ void HIRBuilder::emitSetupFinally(
 void HIRBuilder::emitAsyncForHeaderYieldFrom(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* send_value = tc.frame.stack.pop();
-  Register* awaitable = tc.frame.stack.top();
+  Register* send_value = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
+  Register* awaitable = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - 1]);
   Register* out = temps_.AllocateStack();
   if (code_->co_flags & CO_COROUTINE) {
     tc.emitSetCurrentAwaiter(awaitable);
   }
   tc.emitYieldFromHandleStopAsyncIteration(
       out, send_value, awaitable, tc.frame);
-  tc.frame.stack.pop();
-  tc.frame.stack.push(out);
+  static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
+  phx_ptr_arr_push(&tc.frame.stack, out);
 
   BasicBlock* yf_cont_block = getBlockAtOff(bc_instr.nextInstrOffset());
   BCOffset handler_off{tc.frame.block_stack.top().handler_off};
@@ -5764,26 +5767,26 @@ void HIRBuilder::emitEndAsyncFor(TranslationContext& tc) {
   // Pop finally block and discard exhausted async iterator.
   const ExecutionBlock& b = tc.frame.block_stack.top();
   JIT_CHECK(
-      static_cast<int>(tc.frame.stack.size()) == b.stack_level,
+      static_cast<int>(tc.frame.stack.count) == b.stack_level,
       "Bad stack depth in END_ASYNC_FOR: block stack expects {}, stack is {}",
       b.stack_level,
-      tc.frame.stack.size());
+      tc.frame.stack.count);
   tc.frame.block_stack.pop();
-  tc.frame.stack.pop();
+  static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
 }
 
 void HIRBuilder::emitGetAIter(TranslationContext& tc) {
-  Register* obj = tc.frame.stack.pop();
+  Register* obj = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   Register* out = temps_.AllocateStack();
   tc.emitGetAIter(out, obj, tc.frame);
-  tc.frame.stack.push(out);
+  phx_ptr_arr_push(&tc.frame.stack, out);
 }
 
 void HIRBuilder::emitGetANext(TranslationContext& tc) {
-  Register* obj = tc.frame.stack.top();
+  Register* obj = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - 1]);
   Register* out = temps_.AllocateStack();
   tc.emitGetANext(out, obj, tc.frame);
-  tc.frame.stack.push(out);
+  phx_ptr_arr_push(&tc.frame.stack, out);
 }
 
 Register* HIRBuilder::emitSetupWithCommon(
@@ -5798,8 +5801,8 @@ Register* HIRBuilder::emitSetupWithCommon(
     bool is_async) {
   // Load the enter and exit attributes from the manager, push exit, and return
   // the result of calling enter().
-  auto& stack = tc.frame.stack;
-  Register* manager = stack.pop();
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* manager = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   Register* enter = temps_.AllocateStack();
   Register* exit = temps_.AllocateStack();
   tc.emitLoadAttrSpecial(
@@ -5821,7 +5824,7 @@ Register* HIRBuilder::emitSetupWithCommon(
           : "'%.200s' object does not support the context manager protocol "
             "(missed __exit__ method)",
       tc.frame);
-  stack.push(exit);
+  phx_ptr_arr_push(&stack, exit);
 
   Register* enter_result = temps_.AllocateStack();
   auto call = tc.emitVectorCall(1, enter_result, CallFlags::None);
@@ -5836,14 +5839,14 @@ void HIRBuilder::emitBeforeWith(
 #if PY_VERSION_HEX < 0x030C0000
   _Py_IDENTIFIER(__aenter__);
   _Py_IDENTIFIER(__aexit__);
-  tc.frame.stack.push(
+  phx_ptr_arr_push(&tc.frame.stack, 
       emitSetupWithCommon(tc, &PyId___aenter__, &PyId___aexit__, true));
 #else
   if (bc_instr.opcode() == BEFORE_ASYNC_WITH) {
-    tc.frame.stack.push(
+    phx_ptr_arr_push(&tc.frame.stack, 
         emitSetupWithCommon(tc, &_Py_ID(__aenter__), &_Py_ID(__aexit__), true));
   } else {
-    tc.frame.stack.push(
+    phx_ptr_arr_push(&tc.frame.stack, 
         emitSetupWithCommon(tc, &_Py_ID(__enter__), &_Py_ID(__exit__), false));
   }
 #endif
@@ -5853,9 +5856,9 @@ void HIRBuilder::emitSetupAsyncWith(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   // The finally block should be above the result of __aenter__.
-  Register* top = tc.frame.stack.pop();
+  Register* top = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   emitSetupFinally(tc, bc_instr);
-  tc.frame.stack.push(top);
+  phx_ptr_arr_push(&tc.frame.stack, top);
 }
 
 void HIRBuilder::emitSetupWith(
@@ -5871,7 +5874,7 @@ void HIRBuilder::emitSetupWith(
       emitSetupWithCommon(tc, &_Py_ID(__aenter__), &_Py_ID(__aexit__), true);
 #endif
   emitSetupFinally(tc, bc_instr);
-  tc.frame.stack.push(enter_result);
+  phx_ptr_arr_push(&tc.frame.stack, enter_result);
 }
 
 void HIRBuilder::emitLoadField(
@@ -5879,7 +5882,7 @@ void HIRBuilder::emitLoadField(
     const jit::BytecodeInstruction& bc_instr) {
   auto& [offset, type, name] = preloader_.fieldInfo(constArg(bc_instr));
 
-  Register* receiver = tc.frame.stack.pop();
+  Register* receiver = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   Register* result = temps_.AllocateStack();
   const char* field_name = PyUnicode_AsUTF8(name);
   if (field_name == nullptr) {
@@ -5892,7 +5895,7 @@ void HIRBuilder::emitLoadField(
     auto* cf = tc.emitCheckField(result, result, name, tc.frame);
     cf->setGuiltyReg(receiver);
   }
-  tc.frame.stack.push(result);
+  phx_ptr_arr_push(&tc.frame.stack, result);
 }
 
 void HIRBuilder::emitStoreField(
@@ -5905,8 +5908,8 @@ void HIRBuilder::emitStoreField(
     field_name = "";
   }
 
-  Register* receiver = tc.frame.stack.pop();
-  Register* value = tc.frame.stack.pop();
+  Register* receiver = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
+  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   Register* previous = temps_.AllocateStack();
   if (type <= TPrimitive) {
     Register* converted = temps_.AllocateStack();
@@ -5923,7 +5926,7 @@ void HIRBuilder::emitCast(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   auto const& preloaded_type = preloader_.preloadedType(constArg(bc_instr));
-  Register* value = tc.frame.stack.pop();
+  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   Register* result = temps_.AllocateStack();
   tc.emitCast(
       result,
@@ -5932,7 +5935,7 @@ void HIRBuilder::emitCast(
       preloaded_type.optional,
       preloaded_type.exact,
       tc.frame);
-  tc.frame.stack.push(result);
+  phx_ptr_arr_push(&tc.frame.stack, result);
 }
 
 void HIRBuilder::emitTpAlloc(
@@ -5942,17 +5945,17 @@ void HIRBuilder::emitTpAlloc(
 
   Register* result = temps_.AllocateStack();
   tc.emitTpAlloc(result, pytype, tc.frame);
-  tc.frame.stack.push(result);
+  phx_ptr_arr_push(&tc.frame.stack, result);
 }
 
 void HIRBuilder::emitImportFrom(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto& stack = tc.frame.stack;
-  Register* name = stack.top();
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* name = static_cast<Register*>(stack.data[stack.count - 1]);
   Register* res = temps_.AllocateStack();
   tc.emitImportFrom(res, name, bc_instr.oparg(), tc.frame);
-  stack.push(res);
+  phx_ptr_arr_push(&stack, res);
 }
 
 // Adjusts the oparg for import name to be the name index.
@@ -5967,9 +5970,9 @@ int importNameIdx(int oparg) {
 void HIRBuilder::emitImportName(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto& stack = tc.frame.stack;
-  Register* fromlist = stack.pop();
-  Register* level = stack.pop();
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* fromlist = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  Register* level = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   Register* res = temps_.AllocateStack();
   if (bc_instr.opcode() == EAGER_IMPORT_NAME) {
     tc.emitEagerImportName(res, bc_instr.oparg(), fromlist, level, tc.frame);
@@ -5977,7 +5980,7 @@ void HIRBuilder::emitImportName(
     tc.emitImportName(
         res, importNameIdx(bc_instr.oparg()), fromlist, level, tc.frame);
   }
-  stack.push(res);
+  phx_ptr_arr_push(&stack, res);
 }
 
 void HIRBuilder::emitRaiseVarargs(TranslationContext& tc) {
@@ -5985,22 +5988,22 @@ void HIRBuilder::emitRaiseVarargs(TranslationContext& tc) {
 }
 
 void HIRBuilder::emitYieldFrom(TranslationContext& tc, Register* out) {
-  auto& stack = tc.frame.stack;
-  auto send_value = stack.pop();
-  auto iter = stack.top();
+  PhxPtrArray& stack = tc.frame.stack;
+  auto send_value = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  auto iter = static_cast<Register*>(stack.data[stack.count - 1]);
   if (code_->co_flags & CO_COROUTINE) {
     tc.emitSetCurrentAwaiter(iter);
   }
   tc.emitYieldFrom(out, send_value, iter, tc.frame);
-  stack.pop();
-  stack.push(out);
+  static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  phx_ptr_arr_push(&stack, out);
 }
 
 void HIRBuilder::emitYieldValue(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto& stack = tc.frame.stack;
-  auto in = stack.pop();
+  PhxPtrArray& stack = tc.frame.stack;
+  auto in = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   auto out = temps_.AllocateStack();
   if (code_->co_flags & CO_ASYNC_GENERATOR) {
     tc.emitChecked<CallCFunc>(
@@ -6022,20 +6025,20 @@ void HIRBuilder::emitYieldValue(
     // primarily for this check - values 2 and 3 indicate a "yield from" and
     // "await" respectively.
     if (next_bc.opcode() == RESUME && next_bc.oparg() >= 2) {
-      tc.emitYieldFrom(out, in, stack.top(), tc.frame);
+      tc.emitYieldFrom(out, in, static_cast<Register*>(stack.data[stack.count - 1]), tc.frame);
     } else {
       tc.emitYieldValue(out, in, tc.frame);
     }
   } else {
     advancePastYieldInstr(tc);
     if (bc_instr.oparg() == 1) {
-      tc.emitYieldFrom(out, in, stack.top(), tc.frame);
+      tc.emitYieldFrom(out, in, static_cast<Register*>(stack.data[stack.count - 1]), tc.frame);
     } else {
       JIT_CHECK(bc_instr.oparg() == 0, "Invalid oparg {}", bc_instr.oparg());
       tc.emitYieldValue(out, in, tc.frame);
     }
   }
-  stack.push(out);
+  phx_ptr_arr_push(&stack, out);
 }
 
 static std::pair<bool, bool> checkAsyncWithError(
@@ -6066,8 +6069,8 @@ void HIRBuilder::emitGetAwaitable(
     TranslationContext& tc,
     const BytecodeInstructionBlock& bc_instrs,
     BytecodeInstruction bc_instr) {
-  OperandStack& stack = tc.frame.stack;
-  Register* iterable = stack.pop();
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* iterable = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   Register* iter = temps_.AllocateStack();
 
   // Most work is done by existing JitPyCoro_GetAwaitableIter() utility.
@@ -6134,7 +6137,7 @@ void HIRBuilder::emitGetAwaitable(
   tc.emitRaiseStatic(
       0, PyExc_RuntimeError, "coroutine is being awaited already", tc.frame);
 
-  stack.push(iter);
+  phx_ptr_arr_push(&stack, iter);
 
   tc.block = block_done;
 }
@@ -6154,37 +6157,37 @@ void HIRBuilder::emitFormatValue(
   int have_fmt_spec = (oparg & FVS_MASK) == FVS_HAVE_SPEC;
   Register* fmt_spec;
   if (have_fmt_spec) {
-    fmt_spec = tc.frame.stack.pop();
+    fmt_spec = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   } else {
     fmt_spec = temps_.AllocateStack();
     tc.emitLoadConst(fmt_spec, TNullptr);
   }
-  Register* value = tc.frame.stack.pop();
+  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   Register* dst = temps_.AllocateStack();
   int which_conversion = oparg & FVC_MASK;
 
   tc.emitFormatValue(dst, fmt_spec, value, which_conversion, tc.frame);
-  tc.frame.stack.push(dst);
+  phx_ptr_arr_push(&tc.frame.stack, dst);
 }
 
 void HIRBuilder::emitFormatWithSpec(TranslationContext& tc) {
-  OperandStack& stack = tc.frame.stack;
-  Register* fmt_spec = stack.pop();
-  Register* value = stack.pop();
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* fmt_spec = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   Register* out = temps_.AllocateStack();
   tc.emitFormatWithSpec(out, value, fmt_spec, tc.frame);
-  stack.push(out);
+  phx_ptr_arr_push(&stack, out);
 }
 
 void HIRBuilder::emitMapAdd(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   auto oparg = bc_instr.oparg();
-  auto& stack = tc.frame.stack;
-  auto value = stack.pop();
-  auto key = stack.pop();
+  PhxPtrArray& stack = tc.frame.stack;
+  auto value = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  auto key = static_cast<Register*>(phx_ptr_arr_pop(&stack));
 
-  auto map = stack.peek(oparg);
+  auto map = static_cast<Register*>(stack.data[stack.count - (oparg)]);
 
   auto result = temps_.AllocateStack();
   tc.emitSetDictItem(result, map, key, value, tc.frame);
@@ -6194,10 +6197,10 @@ void HIRBuilder::emitSetAdd(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   auto oparg = bc_instr.oparg();
-  auto& stack = tc.frame.stack;
+  PhxPtrArray& stack = tc.frame.stack;
 
-  auto* v = stack.pop();
-  auto* set = stack.peek(oparg);
+  auto* v = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  auto* set = static_cast<Register*>(stack.data[stack.count - (oparg)]);
 
   auto result = temps_.AllocateStack();
   tc.emitSetSetItem(result, set, v, tc.frame);
@@ -6207,9 +6210,9 @@ void HIRBuilder::emitSetUpdate(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   auto oparg = bc_instr.oparg();
-  auto& stack = tc.frame.stack;
-  auto* iterable = stack.pop();
-  auto* set = stack.peek(oparg);
+  PhxPtrArray& stack = tc.frame.stack;
+  auto* iterable = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  auto* set = static_cast<Register*>(stack.data[stack.count - (oparg)]);
   auto result = temps_.AllocateStack();
   tc.emitSetUpdate(result, set, iterable, tc.frame);
 }
@@ -6220,7 +6223,7 @@ void HIRBuilder::emitDispatchEagerCoroResult(
     Register* out,
     BasicBlock* await_block,
     BasicBlock* post_await_block) {
-  Register* stack_top = tc.frame.stack.top();
+  Register* stack_top = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - 1]);
 
   TranslationContext has_wh_block{cfg.AllocateBlock(), tc.frame};
   tc.emitCondBranchCheckType(
@@ -6252,7 +6255,7 @@ void HIRBuilder::emitMatchMappingSequence(
     CFG& cfg,
     TranslationContext& tc,
     uint64_t tf_flag) {
-  Register* top = tc.frame.stack.top();
+  Register* top = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - 1]);
   auto type = temps_.AllocateStack();
   tc.emitLoadField(type, top, "ob_type", offsetof(PyObject, ob_type), TType);
   auto tp_flags = temps_.AllocateStack();
@@ -6280,17 +6283,17 @@ void HIRBuilder::emitMatchMappingSequence(
 
   tc.block = done;
 
-  tc.frame.stack.push(result);
+  phx_ptr_arr_push(&tc.frame.stack, result);
 }
 
 void HIRBuilder::emitMatchClass(
     CFG& cfg,
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto& stack = tc.frame.stack;
-  Register* names = stack.pop();
-  Register* type = stack.pop();
-  Register* subject = stack.pop();
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* names = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  Register* type = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  Register* subject = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   auto oparg = bc_instr.oparg();
 
   auto nargs = temps_.AllocateStack();
@@ -6301,11 +6304,11 @@ void HIRBuilder::emitMatchClass(
   tc.emitRefineType(attrs_tuple, TOptTupleExact, attrs_tuple);
 
   Register* tuple_or_none = temps_.AllocateStack();
-  stack.push(tuple_or_none);
+  phx_ptr_arr_push(&stack, tuple_or_none);
   Register* if_success = nullptr;
   if constexpr (PY_VERSION_HEX < 0x030C0000) {
     if_success = temps_.AllocateStack();
-    stack.push(if_success);
+    phx_ptr_arr_push(&stack, if_success);
   }
 
   auto true_block = cfg.AllocateBlock();
@@ -6336,13 +6339,13 @@ void HIRBuilder::emitMatchClass(
 }
 
 void HIRBuilder::emitMatchKeys(CFG& cfg, TranslationContext& tc) {
-  auto& stack = tc.frame.stack;
-  Register* keys = stack.top();
-  Register* subject = stack.top(1);
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* keys = static_cast<Register*>(stack.data[stack.count - 1]);
+  Register* subject = static_cast<Register*>(stack.data[stack.count - (1) - 1]);
 
   auto values_or_none = temps_.AllocateStack();
   tc.emitMatchKeys(values_or_none, subject, keys, tc.frame);
-  stack.push(values_or_none);
+  phx_ptr_arr_push(&stack, values_or_none);
 
   auto none = temps_.AllocateStack();
   tc.emitLoadConst(none, Type::fromObject(Py_None));
@@ -6373,7 +6376,7 @@ void HIRBuilder::emitMatchKeys(CFG& cfg, TranslationContext& tc) {
   }
   tc.emitBranch(done);
   if constexpr (PY_VERSION_HEX < 0x030C0000) {
-    stack.push(if_success);
+    phx_ptr_arr_push(&stack, if_success);
   }
   tc.block = done;
 }
@@ -6381,9 +6384,9 @@ void HIRBuilder::emitMatchKeys(CFG& cfg, TranslationContext& tc) {
 void HIRBuilder::emitDictUpdate(
     TranslationContext& tc,
     const BytecodeInstruction& bc_instr) {
-  auto& stack = tc.frame.stack;
-  Register* update = stack.pop();
-  Register* dict = stack.top(bc_instr.oparg() - 1);
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* update = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  Register* dict = static_cast<Register*>(stack.data[stack.count - bc_instr.oparg()]);
   Register* out = temps_.AllocateStack();
   tc.emitDictUpdate(out, dict, update, tc.frame);
 }
@@ -6391,11 +6394,11 @@ void HIRBuilder::emitDictUpdate(
 void HIRBuilder::emitDictMerge(
     TranslationContext& tc,
     const BytecodeInstruction& bc_instr) {
-  auto& stack = tc.frame.stack;
+  PhxPtrArray& stack = tc.frame.stack;
   Register *dict, *func;
   if constexpr (PY_VERSION_HEX < 0x030E0000) {
-    dict = stack.top(bc_instr.oparg());
-    func = stack.top(bc_instr.oparg() + 2);
+    dict = static_cast<Register*>(stack.data[stack.count - bc_instr.oparg() - 1]);
+    func = static_cast<Register*>(stack.data[stack.count - bc_instr.oparg() - 3]);
   } else {
     // According to bytecodes.c, at this point on the stack we have:
     //  update (top of the stack)
@@ -6408,10 +6411,10 @@ void HIRBuilder::emitDictMerge(
     // "unused" slot is never present. So the 1 and 4 offsets skip to "dict" and
     // "callable" respectively.
     JIT_CHECK(bc_instr.oparg() == 1, "oparg must be 1");
-    dict = stack.top(1);
-    func = stack.top(4);
+    dict = static_cast<Register*>(stack.data[stack.count - (1) - 1]);
+    func = static_cast<Register*>(stack.data[stack.count - (4) - 1]);
   }
-  Register* update = stack.pop();
+  Register* update = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   Register* out = temps_.AllocateStack();
   tc.emitDictMerge(out, dict, update, func, tc.frame);
 }
@@ -6419,14 +6422,14 @@ void HIRBuilder::emitDictMerge(
 void HIRBuilder::emitSend(
     TranslationContext& tc,
     const BytecodeInstruction& bc_instr) {
-  OperandStack& stack = tc.frame.stack;
-  Register* value_out = stack.pop();
-  Register* iter = stack.top();
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* value_out = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  Register* iter = static_cast<Register*>(stack.data[stack.count - 1]);
   Register* value_in = temps_.AllocateStack();
   tc.emitSend(iter, value_out, value_in, tc.frame);
   Register* is_done = temps_.AllocateNonStack();
   tc.emitGetSecondOutput(is_done, TCInt64, value_in);
-  stack.push(value_in);
+  phx_ptr_arr_push(&stack, value_in);
   BasicBlock* done_block = getBlockAtOff(bc_instr.getJumpTarget());
   BasicBlock* continue_block = getBlockAtOff(bc_instr.nextInstrOffset());
   tc.emitCondBranch(is_done, done_block, continue_block);
@@ -6436,49 +6439,49 @@ void HIRBuilder::emitBuildInterpolation(
     [[maybe_unused]] TranslationContext& tc,
     [[maybe_unused]] const jit::BytecodeInstruction& bc_instr) {
 #if PY_VERSION_HEX >= 0x030E0000
-  OperandStack& stack = tc.frame.stack;
+  PhxPtrArray& stack = tc.frame.stack;
   auto oparg = bc_instr.oparg();
   int conversion = oparg >> 2;
 
   Register* format;
   if (oparg & 1) {
-    format = stack.pop();
+    format = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   } else {
     PyObject* empty = &_Py_STR(empty);
     format = temps_.AllocateStack();
     tc.emitLoadConst(format, Type::fromObject(empty));
   }
 
-  Register* str = stack.pop();
-  Register* value = stack.pop();
+  Register* str = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   Register* out = temps_.AllocateStack();
   tc.emitBuildInterpolation(out, value, str, format, conversion, tc.frame);
-  stack.push(out);
+  phx_ptr_arr_push(&stack, out);
 #endif
 }
 
 void HIRBuilder::emitBuildTemplate(TranslationContext& tc) {
-  OperandStack& stack = tc.frame.stack;
-  Register* interpolations = stack.pop();
-  Register* strings = stack.pop();
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* interpolations = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  Register* strings = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   Register* out = temps_.AllocateStack();
   tc.emitBuildTemplate(strings, interpolations, out, tc.frame);
-  stack.push(out);
+  phx_ptr_arr_push(&stack, out);
 }
 
 void HIRBuilder::emitConvertValue(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  OperandStack& stack = tc.frame.stack;
-  Register* value = stack.pop();
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   Register* out = temps_.AllocateStack();
   tc.emitConvertValue(out, value, bc_instr.oparg(), tc.frame);
-  stack.push(out);
+  phx_ptr_arr_push(&stack, out);
 }
 
 void HIRBuilder::emitFormatSimple(CFG& cfg, TranslationContext& tc) {
-  OperandStack& stack = tc.frame.stack;
-  Register* value = stack.pop();
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&stack));
 
   BasicBlock* done_block = cfg.AllocateBlock();
   BasicBlock* do_fmt_block = cfg.AllocateBlock();
@@ -6499,7 +6502,7 @@ void HIRBuilder::emitFormatSimple(CFG& cfg, TranslationContext& tc) {
   tc.emitBranch(done_block);
 
   tc.block = done_block;
-  stack.push(out);
+  phx_ptr_arr_push(&stack, out);
 }
 
 void HIRBuilder::emitLoadCommonConstant(
@@ -6508,28 +6511,28 @@ void HIRBuilder::emitLoadCommonConstant(
   Register* out = temps_.AllocateStack();
   tc.emitLoadConst(
       out, getContext()->typeForCommonConstant(bc_instr.oparg()));
-  tc.frame.stack.push(out);
+  phx_ptr_arr_push(&tc.frame.stack, out);
 }
 
 void HIRBuilder::emitLoadSpecial(
     TranslationContext& tc,
     const BytecodeInstruction& bc_instr) {
-  OperandStack& stack = tc.frame.stack;
-  Register* self = stack.pop();
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* self = static_cast<Register*>(phx_ptr_arr_pop(&stack));
   Register* method = temps_.AllocateStack();
   Register* null_or_self = temps_.AllocateStack();
   tc.emitLoadSpecial(method, self, bc_instr.oparg(), tc.frame);
   tc.emitGetSecondOutput(null_or_self, TOptObject, method);
-  stack.push(method);
-  stack.push(null_or_self);
+  phx_ptr_arr_push(&stack, method);
+  phx_ptr_arr_push(&stack, null_or_self);
 }
 
 void HIRBuilder::emitSetFunctionAttribute(
     TranslationContext& tc,
     const BytecodeInstruction& bc_instr) {
-  OperandStack& stack = tc.frame.stack;
-  Register* func = stack.pop();
-  Register* value = stack.pop();
+  PhxPtrArray& stack = tc.frame.stack;
+  Register* func = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&stack));
 
   // Map the bytecode oparg to FunctionAttr enum
   FunctionAttr attr;
@@ -6557,7 +6560,7 @@ void HIRBuilder::emitSetFunctionAttribute(
   }
 
   tc.emitSetFunctionAttr(value, func, attr);
-  stack.push(func);
+  phx_ptr_arr_push(&stack, func);
 }
 
 void HIRBuilder::emitLoadBuildClass(TranslationContext& tc) {
@@ -6571,7 +6574,7 @@ void HIRBuilder::emitLoadBuildClass(TranslationContext& tc) {
   tc.emitGuardType(builtins_dict, TDictExact, builtins, tc.frame);
   tc.emitLoadConst(key, Type::fromObject(getContext()->strBuildClass()));
   tc.emitDictSubscr(result, builtins_dict, key, tc.frame);
-  tc.frame.stack.push(result);
+  phx_ptr_arr_push(&tc.frame.stack, result);
 }
 
 void HIRBuilder::emitStoreGlobal(
@@ -6588,7 +6591,7 @@ void HIRBuilder::emitStoreGlobal(
   tc.emitLoadConst(
       key,
       Type::fromObject(PyTuple_GET_ITEM(code_->co_names, bc_instr.oparg())));
-  Register* value = tc.frame.stack.pop();
+  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   Register* result = temps_.AllocateNonStack();
   tc.emitSetDictItem(result, globals_dict, key, value, tc.frame);
 }

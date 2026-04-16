@@ -491,10 +491,11 @@ DeoptMetadata DeoptMetadata::fromInstr(const jit::hir::DeoptBase& instr) {
   auto populate_stack = [get_reg_idx](
                             DeoptFrameMetadata& meta, hir::FrameState* fs) {
     std::unordered_set<jit::hir::Register*> lms_on_stack;
-    meta.stack.resize(fs->stack.size());
+    meta.stack.resize(fs->stack.count);
     int stack_idx = 0;
 
-    for (auto& reg : fs->stack) {
+    for (size_t i = 0; i < fs->stack.count; i++) {
+      auto reg = static_cast<hir::Register*>(fs->stack.data[i]);
       if (isAnyLoadMethod(*reg->instr())) {
         // Our logic for reconstructing the Python stack assumes that if a
         // value on the stack was produced by a LoadMethod instruction, it

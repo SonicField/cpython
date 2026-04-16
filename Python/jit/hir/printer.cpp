@@ -893,11 +893,11 @@ void HIRPrinter::Print(std::ostream& os, const FrameState& state) {
     os << '\n';
   }
 
-  auto opstack_size = state.stack.size();
+  auto opstack_size = state.stack.count;
   if (opstack_size > 0) {
     Indented(os) << "Stack<" << opstack_size << ">";
     for (std::size_t i = 0; i < opstack_size; i++) {
-      os << " " << state.stack.at(i)->name();
+      os << " " << static_cast<Register*>(state.stack.data[i])->name();
     }
     os << '\n';
   }

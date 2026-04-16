@@ -576,7 +576,7 @@ void InlineFunctionCalls::Run(Function& irfunc) {
               // the FrameState and push the receiver back so that deopt
               // re-executes LOAD_METHOD from the correct interpreter state.
               FrameState deopt_fs(*def->asDeoptBase()->frameState());
-              deopt_fs.stack.push(receiver);
+              phx_ptr_arr_push(&deopt_fs.stack, receiver);
               auto* guard = GuardType::create(
                   guarded, guard_type, receiver, deopt_fs);
               // Insert Snapshot with the same corrected FrameState before

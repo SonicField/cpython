@@ -57,7 +57,7 @@ class BlockCanonicalizer {
  public:
   BlockCanonicalizer() : processing_(), done_(), copies_(), moved_() {}
 
-  void Run(BasicBlock* block, TempAllocator& temps, OperandStack& stack);
+  void Run(BasicBlock* block, TempAllocator& temps, PhxPtrArray& stack);
 
  private:
   DISALLOW_COPY_AND_ASSIGN(BlockCanonicalizer);

@@ -963,7 +963,8 @@ bool isInFrameState(const FrameState* fs, Register* reg) {
         return true;
       }
     }
-    for (Register* r : fs->stack) {
+    for (size_t i = 0; i < fs->stack.count; i++) {
+      Register* r = static_cast<Register*>(fs->stack.data[i]);
       if (r == reg) {
         return true;
       }

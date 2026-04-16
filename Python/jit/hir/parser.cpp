@@ -1114,7 +1114,7 @@ FrameState HIRParser::parseFrameState() {
       }
     } else if (token == "Stack") {
       for (Register* r : parseRegisterVector()) {
-        fs.stack.push(r);
+        phx_ptr_arr_push(&fs.stack, r);
       }
     } else if (token == "BlockStack") {
       expect("{");

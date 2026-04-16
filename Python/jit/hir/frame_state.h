@@ -64,7 +64,7 @@ struct FrameState {
       : cur_instr_offs(other.cur_instr_offs),
         localsplus{},
         nlocals(other.nlocals),
-        stack(other.stack),
+        stack{},
         block_stack(other.block_stack),
         code(other.code),
         globals(other.globals),
@@ -77,6 +77,14 @@ struct FrameState {
              other.localsplus.count * sizeof(void*));
       localsplus.count = other.localsplus.count;
       localsplus.capacity = other.localsplus.count;
+    }
+    if (other.stack.count) {
+      stack.data = static_cast<void**>(
+          malloc(other.stack.count * sizeof(void*)));
+      memcpy(stack.data, other.stack.data,
+             other.stack.count * sizeof(void*));
+      stack.count = other.stack.count;
+      stack.capacity = other.stack.count;
     }
   }
 
@@ -93,7 +101,15 @@ struct FrameState {
         localsplus.capacity = other.localsplus.count;
       }
       nlocals = other.nlocals;
-      stack = other.stack;
+      phx_ptr_arr_destroy(&stack);
+      if (other.stack.count) {
+        stack.data = static_cast<void**>(
+            malloc(other.stack.count * sizeof(void*)));
+        memcpy(stack.data, other.stack.data,
+               other.stack.count * sizeof(void*));
+        stack.count = other.stack.count;
+        stack.capacity = other.stack.count;
+      }
       block_stack = other.block_stack;
       code = other.code;
       globals = other.globals;
@@ -105,13 +121,14 @@ struct FrameState {
 
   ~FrameState() {
     phx_ptr_arr_destroy(&localsplus);
+    phx_ptr_arr_destroy(&stack);
   }
 
   bool operator==(const FrameState& other) const {
     if (cur_instr_offs != other.cur_instr_offs ||
         localsplus.count != other.localsplus.count ||
         nlocals != other.nlocals ||
-        stack != other.stack ||
+        stack.count != other.stack.count ||
         block_stack != other.block_stack ||
         code != other.code ||
         globals != other.globals ||
@@ -121,6 +138,9 @@ struct FrameState {
     }
     for (size_t i = 0; i < localsplus.count; i++) {
       if (localsplus.data[i] != other.localsplus.data[i]) return false;
+    }
+    for (size_t i = 0; i < stack.count; i++) {
+      if (stack.data[i] != other.stack.data[i]) return false;
     }
     return true;
   }
@@ -148,7 +168,8 @@ struct FrameState {
   }
 
   bool visitUses(const std::function<bool(Register*&)>& func) {
-    for (auto& reg : stack) {
+    for (size_t i = 0; i < stack.count; i++) {
+      Register*& reg = reinterpret_cast<Register*&>(stack.data[i]);
       if (!func(reg)) {
         return false;
       }
@@ -179,7 +200,7 @@ struct FrameState {
   // there's no code object for us to inspect.
   int nlocals{0};
 
-  OperandStack stack;
+  PhxPtrArray stack{};
   BlockStack block_stack;
   BorrowedRef<PyCodeObject> code;
   BorrowedRef<PyDictObject> globals;
