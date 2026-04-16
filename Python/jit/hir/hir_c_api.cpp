@@ -1069,8 +1069,9 @@ HirInstr hir_c_create_check_sequence_bounds_reg(HirRegister dst,
   hir_c_set_output(c, dst);
   hir_c_set_operand(c, 0, seq);
   hir_c_set_operand(c, 1, idx);
-  as_instr(c)->asDeoptBase()->setFrameState(
-      *static_cast<const FrameState*>(frame_state));
+  if (frame_state)
+    as_instr(c)->asDeoptBase()->setFrameState(
+        *static_cast<const FrameState*>(frame_state));
   return c;
 }
 HirInstr hir_c_create_make_cell_reg(HirRegister dst, HirRegister src,
@@ -1107,7 +1108,8 @@ HirInstr hir_c_create_store_subscr_reg(HirRegister container, HirRegister sub,
   hir_c_set_operand(s, 0, container);
   hir_c_set_operand(s, 1, sub);
   hir_c_set_operand(s, 2, value);
-  as_instr(s)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  if (frame_state)
+    as_instr(s)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
   return s;
 }
 
@@ -1118,7 +1120,8 @@ HirInstr hir_c_create_set_set_item_reg(HirRegister dst, HirRegister set,
   hir_c_set_output(s, dst);
   hir_c_set_operand(s, 0, set);
   hir_c_set_operand(s, 1, item);
-  as_instr(s)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  if (frame_state)
+    as_instr(s)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
   return s;
 }
 
@@ -1256,7 +1259,8 @@ HirInstr hir_c_create_make_set_reg(HirRegister dst, void *fs) {
   HirMakeSet *m = (HirMakeSet *)hir_c_alloc_instr(sizeof(HirMakeSet), 0);
   hir_c_init_deopt(m, HIR_OP_MakeSet);
   hir_c_set_output(m, dst);
-  as_instr(m)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  if (fs)
+    as_instr(m)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
   return m;
 }
 HirInstr hir_c_create_delete_attr_reg(HirRegister receiver, int32_t idx, void *fs) {
@@ -1340,7 +1344,8 @@ HirInstr hir_c_create_set_update_reg(HirRegister dst, HirRegister set, HirRegist
   hir_c_set_output(s, dst);
   hir_c_set_operand(s, 0, set);
   hir_c_set_operand(s, 1, iter);
-  as_instr(s)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  if (fs)
+    as_instr(s)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
   return s;
 }
 HirInstr hir_c_create_dict_update_reg(HirRegister dst, HirRegister dict, HirRegister update, void *fs) {
@@ -1384,7 +1389,8 @@ HirInstr hir_c_create_list_append_reg(HirRegister dst, HirRegister list, HirRegi
   hir_c_set_output(l, dst);
   hir_c_set_operand(l, 0, list);
   hir_c_set_operand(l, 1, item);
-  as_instr(l)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
+  if (fs)
+    as_instr(l)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(fs));
   return l;
 }
 HirInstr hir_c_create_check_freevar_reg(HirRegister dst, HirRegister src, void *name, void *fs) {
@@ -1998,6 +2004,42 @@ HirInstr hir_c_create_load_array_item_reg(HirRegister dst, HirRegister arr,
   hir_c_set_operand(l, 1, idx);
   hir_c_set_operand(l, 2, container);
   return l;
+}
+
+HirInstr hir_c_create_unicode_concat_reg(HirRegister dst, HirRegister lhs,
+                                          HirRegister rhs, void *frame_state) {
+  HirUnicodeConcat *u = (HirUnicodeConcat *)hir_c_alloc_instr(sizeof(HirUnicodeConcat), 2);
+  hir_c_init_deopt(u, HIR_OP_UnicodeConcat);
+  hir_c_set_output(u, dst);
+  hir_c_set_operand(u, 0, lhs);
+  hir_c_set_operand(u, 1, rhs);
+  if (frame_state)
+    as_instr(u)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return (HirInstr)u;
+}
+
+HirInstr hir_c_create_unicode_repeat_reg(HirRegister dst, HirRegister lhs,
+                                          HirRegister rhs, void *frame_state) {
+  HirUnicodeRepeat *u = (HirUnicodeRepeat *)hir_c_alloc_instr(sizeof(HirUnicodeRepeat), 2);
+  hir_c_init_deopt(u, HIR_OP_UnicodeRepeat);
+  hir_c_set_output(u, dst);
+  hir_c_set_operand(u, 0, lhs);
+  hir_c_set_operand(u, 1, rhs);
+  if (frame_state)
+    as_instr(u)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return (HirInstr)u;
+}
+
+HirInstr hir_c_create_unicode_subscr_reg(HirRegister dst, HirRegister lhs,
+                                          HirRegister rhs, void *frame_state) {
+  HirUnicodeSubscr *u = (HirUnicodeSubscr *)hir_c_alloc_instr(sizeof(HirUnicodeSubscr), 2);
+  hir_c_init_deopt(u, HIR_OP_UnicodeSubscr);
+  hir_c_set_output(u, dst);
+  hir_c_set_operand(u, 0, lhs);
+  hir_c_set_operand(u, 1, rhs);
+  if (frame_state)
+    as_instr(u)->asDeoptBase()->setFrameState(*static_cast<const FrameState*>(frame_state));
+  return (HirInstr)u;
 }
 
 HirInstr hir_c_create_vectorcall_reg(size_t n_operands, HirRegister dst,

@@ -507,6 +507,12 @@ HirInstr hir_c_create_primitive_box_reg(HirRegister dst, HirRegister src,
 HirInstr hir_c_create_load_array_item_reg(HirRegister dst, HirRegister arr,
                                            HirRegister idx, HirRegister container,
                                            intptr_t offset, HirType type);
+HirInstr hir_c_create_unicode_concat_reg(HirRegister dst, HirRegister lhs,
+                                          HirRegister rhs, void *frame_state);
+HirInstr hir_c_create_unicode_repeat_reg(HirRegister dst, HirRegister lhs,
+                                          HirRegister rhs, void *frame_state);
+HirInstr hir_c_create_unicode_subscr_reg(HirRegister dst, HirRegister lhs,
+                                          HirRegister rhs, void *frame_state);
 
 /* ---- Instruction query/mutation (T2-D) ---- */
 

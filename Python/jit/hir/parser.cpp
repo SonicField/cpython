@@ -323,19 +323,21 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
       break;
     }
     case Opcode::kMakeSet: {
-      NEW_INSTR(MakeSet, dst);
+      instruction = static_cast<Instr*>(hir_c_create_make_set_reg(dst, nullptr));
       break;
     }
     case Opcode::kSetSetItem: {
       auto receiver = ParseRegister();
       auto item = ParseRegister();
-      NEW_INSTR(SetSetItem, dst, receiver, item);
+      instruction = static_cast<Instr*>(
+          hir_c_create_set_set_item_reg(dst, receiver, item, nullptr));
       break;
     }
     case Opcode::kSetUpdate: {
       auto receiver = ParseRegister();
       auto item = ParseRegister();
-      NEW_INSTR(SetUpdate, dst, receiver, item);
+      instruction = static_cast<Instr*>(
+          hir_c_create_set_update_reg(dst, receiver, item, nullptr));
       break;
     }
     case Opcode::kLoadArg: {
@@ -402,10 +404,12 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
       auto false_bb = GetNextInteger();
       expect(">");
       auto var = ParseRegister();
-      NEW_INSTR(CondBranch, var, nullptr, nullptr);
+      instruction = static_cast<Instr*>(
+          hir_c_create_cond_branch_cpp(var, nullptr, nullptr));
       cond_branches_.emplace(
           std::piecewise_construct,
-          std::forward_as_tuple(instr),
+          std::forward_as_tuple(static_cast<CondBranchBase*>(
+              static_cast<CondBranch*>(instruction))),
           std::forward_as_tuple(true_bb, false_bb));
       break;
     }
@@ -427,17 +431,17 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
     }
     case Opcode::kDecref: {
       auto var = ParseRegister();
-      NEW_INSTR(Decref, var);
+      instruction = static_cast<Instr*>(hir_c_create_decref_reg(var));
       break;
     }
     case Opcode::kXDecref: {
       auto var = ParseRegister();
-      NEW_INSTR(XDecref, var);
+      instruction = static_cast<Instr*>(hir_c_create_xdecref_reg(var));
       break;
     }
     case Opcode::kIncref: {
       auto var = ParseRegister();
-      NEW_INSTR(Incref, var);
+      instruction = static_cast<Instr*>(hir_c_create_incref_reg(var));
       break;
     }
     case Opcode::kLoadAttr: {
@@ -498,7 +502,8 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
     }
     case Opcode::kGetLength: {
       auto container = ParseRegister();
-      NEW_INSTR(GetLength, dst, container, FrameState{});
+      instruction = static_cast<Instr*>(
+          hir_c_create_get_length_reg(dst, container, nullptr));
       break;
     }
     case Opcode::kDeleteSubscr: {
@@ -517,12 +522,13 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
       auto receiver = ParseRegister();
       auto index = ParseRegister();
       auto value = ParseRegister();
-      NEW_INSTR(StoreSubscr, receiver, index, value, FrameState{});
+      instruction = static_cast<Instr*>(
+          hir_c_create_store_subscr_reg(receiver, index, value, nullptr));
       break;
     }
     case Opcode::kAssign: {
       auto src = ParseRegister();
-      NEW_INSTR(Assign, dst, src);
+      instruction = static_cast<Instr*>(hir_c_create_assign_reg(dst, src));
       break;
     }
     case Opcode::kBinaryOp: {
@@ -609,19 +615,22 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
     case Opcode::kUnicodeConcat: {
       auto left = ParseRegister();
       auto right = ParseRegister();
-      NEW_INSTR(UnicodeConcat, dst, left, right, FrameState{});
+      instruction = static_cast<Instr*>(
+          hir_c_create_unicode_concat_reg(dst, left, right, nullptr));
       break;
     }
     case Opcode::kUnicodeRepeat: {
       auto left = ParseRegister();
       auto right = ParseRegister();
-      NEW_INSTR(UnicodeRepeat, dst, left, right, FrameState{});
+      instruction = static_cast<Instr*>(
+          hir_c_create_unicode_repeat_reg(dst, left, right, nullptr));
       break;
     }
     case Opcode::kUnicodeSubscr: {
       auto left = ParseRegister();
       auto right = ParseRegister();
-      NEW_INSTR(UnicodeSubscr, dst, left, right, FrameState{});
+      instruction = static_cast<Instr*>(
+          hir_c_create_unicode_subscr_reg(dst, left, right, nullptr));
       break;
     }
     case Opcode::kIntConvert: {
@@ -659,7 +668,8 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
     }
     case Opcode::kPrimitiveBoxBool: {
       auto operand = ParseRegister();
-      NEW_INSTR(PrimitiveBoxBool, dst, operand);
+      instruction = static_cast<Instr*>(
+          hir_c_create_primitive_box_bool_reg(dst, operand));
       break;
     }
     case Opcode::kPrimitiveBox: {
@@ -876,7 +886,8 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
     case Opcode::kCheckSequenceBounds: {
       auto sequence = ParseRegister();
       auto idx = ParseRegister();
-      NEW_INSTR(CheckSequenceBounds, dst, sequence, idx);
+      instruction = static_cast<Instr*>(
+          hir_c_create_check_sequence_bounds_reg(dst, sequence, idx, nullptr));
       break;
     }
     case Opcode::kSnapshot: {
@@ -948,7 +959,8 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
       break;
     }
     case Opcode::kLoadCurrentFunc: {
-      NEW_INSTR(LoadCurrentFunc, dst);
+      instruction = static_cast<Instr*>(
+          hir_c_create_load_current_func_reg(dst));
       break;
     }
     case Opcode::kLoadFrame: {
@@ -956,7 +968,8 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
       break;
     }
     case Opcode::kLoadEvalBreaker: {
-      NEW_INSTR(LoadEvalBreaker, dst);
+      instruction = static_cast<Instr*>(
+          hir_c_create_load_eval_breaker_reg(dst));
       break;
     }
     case Opcode::kAtQuiescentState: {
@@ -970,7 +983,8 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
     case Opcode::kListAppend: {
       auto list = ParseRegister();
       auto value = ParseRegister();
-      NEW_INSTR(ListAppend, dst, list, value);
+      instruction = static_cast<Instr*>(
+          hir_c_create_list_append_reg(dst, list, value, nullptr));
       break;
     }
     // The following are HIR opcodes the parser does not yet support. Please
