@@ -33,9 +33,6 @@ void lir_operand_set_linked_instr(LirOperand *op, LirInstruction *def);
 /* From lir_instruction.c */
 void lir_instruction_destroy(LirInstruction *inst);
 void lir_instruction_free(LirInstruction *inst);
-int lir_instr_get_output_phy_reg_use(int opcode);
-int lir_instr_get_input_phy_reg_use(int opcode, size_t i);
-int lir_instr_inputs_live_across(int opcode);
 void lir_instruction_ensure_input_capacity(LirInstruction *inst, size_t needed);
 LirOperand *lir_instruction_alloc_imm_input(LirInstruction *inst,
                                              uint64_t val, int dt);
