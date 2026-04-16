@@ -1,4 +1,5 @@
 #include "cinderx/Jit/hir/insert_update_prev_instr_c.h"
+#include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/jit_config_c.h"
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
@@ -98,7 +99,7 @@ void InsertUpdatePrevInstr::Run([[maybe_unused]] Function& func) {
     for (Instr& instr : *block) {
       auto update_one = [&]() {
         auto add_update_prev_instr = [&](int line_no) {
-          Instr* update_instr = UpdatePrevInstr::create(line_no, parent);
+          Instr* update_instr = static_cast<Instr*>(hir_c_create_update_prev_instr(line_no, parent));
           update_instr->copyBytecodeOffset(instr);
           update_instr->InsertBefore(instr);
         };
@@ -160,7 +161,7 @@ void InsertUpdatePrevInstr::Run([[maybe_unused]] Function& func) {
           auto& cur_bc_idx_to_line = code_bc_idx_map.at(target_code);
           int line_no = cur_bc_idx_to_line.lineNoFor(
               BCIndex(target_code->_co_firsttraceable));
-          Instr* update_instr = UpdatePrevInstr::create(line_no, parent);
+          Instr* update_instr = static_cast<Instr*>(hir_c_create_update_prev_instr(line_no, parent));
           update_instr->setBytecodeOffset(
               BCIndex(target_code->_co_firsttraceable));
           update_instr->InsertBefore(instr);

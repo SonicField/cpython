@@ -1264,6 +1264,25 @@ static inline void *hir_c_create_batch_decref(size_t num) {
     return b;
 }
 
+/* UpdatePrevInstr: 0 operands + line_no + parent (FrameState*). */
+static inline void *hir_c_create_update_prev_instr(int32_t line_no, void *parent) {
+    HirUpdatePrevInstr *u = (HirUpdatePrevInstr *)hir_c_alloc_instr(sizeof(HirUpdatePrevInstr), 0);
+    if (!u) return NULL;
+    hir_c_init_instr(u, HIR_OP_UpdatePrevInstr);
+    u->line_no = line_no;
+    u->parent = parent;
+    return u;
+}
+
+/* EndInlinedFunction: 0 operands + begin (BeginInlinedFunction*). */
+static inline void *hir_c_create_end_inlined_function(void *begin) {
+    HirEndInlinedFunction *e = (HirEndInlinedFunction *)hir_c_alloc_instr(sizeof(HirEndInlinedFunction), 0);
+    if (!e) return NULL;
+    hir_c_init_end_inlined(e, HIR_OP_EndInlinedFunction);
+    e->begin = begin;
+    return e;
+}
+
 /* Unreachable: 0 operands. No output, no DeoptBase. */
 static inline void *hir_c_create_unreachable(void) {
     HirInstrLayout *u = (HirInstrLayout *)hir_c_alloc_instr(sizeof(HirInstrLayout), 0);
