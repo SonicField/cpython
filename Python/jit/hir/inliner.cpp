@@ -603,7 +603,7 @@ void InlineFunctionCalls::Run(Function& irfunc) {
       Instr* target_def = call.target->instr();
       if (target_def != nullptr &&
           target_def->opcode() == Opcode::kLoadMethodCached) {
-        auto* lmc = static_cast<LoadMethodCached*>(target_def);
+        auto* lmc = static_cast<DeoptBaseWithNameIdx*>(target_def);
         Register* receiver = target_def->GetOperand(0);
 
         // Get the attribute name from co_names for the DeoptPatchpoint.

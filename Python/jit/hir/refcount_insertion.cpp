@@ -1277,7 +1277,7 @@ void optimizeLongDecrefRuns(Function& irfunc) {
         continue;
       }
 
-      auto batch_decref = static_cast<BatchDecref*>(hir_c_create_batch_decref(num));
+      auto batch_decref = static_cast<Instr*>(hir_c_create_batch_decref(num));
       batch_decref->copyBytecodeOffset(*cur_iter);
       batch_decref->InsertBefore(*cur_iter);
 

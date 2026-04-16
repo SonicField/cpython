@@ -19,7 +19,7 @@ void postorder_traverse(
     case Opcode::kCondBranch:
     case Opcode::kCondBranchIterNotDone:
     case Opcode::kCondBranchCheckType: {
-      auto cbr = static_cast<CondBranch*>(instr);
+      auto cbr = static_cast<CondBranchBase*>(instr);
       if (!visited->contains(cbr->false_bb())) {
         postorder_traverse(cbr->false_bb(), traversal, visited);
       }
