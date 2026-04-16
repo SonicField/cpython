@@ -97,41 +97,10 @@ BasicBlock* BasicBlock::insertBasicBlockBetween(BasicBlock* block) {
 }
 
 BasicBlock* BasicBlock::splitBefore(Instruction* instr) {
-  JIT_CHECK(func_ != nullptr, "cannot split block that doesn't belong to a function");
-  JIT_CHECK(instr->opcode_ != Instruction::kPhi, "cannot split block at a phi node");
-
-  bool found = false;
-  for (Instruction* i = instr_head_; i; i = i->next_) {
-    if (i == instr) { found = true; break; }
-  }
-  if (!found) return nullptr;
-
-  auto second_block = func_->allocateBasicBlockAfter(this);
-  Instruction* cur = instr;
-  while (cur) {
-    Instruction* next = cur->next_;
-    removeInstr(cur);
-    cur->setbasicblock(second_block);
-    second_block->appendInstr(cur);
-    cur = next;
-  }
-
-  for (size_t i = 0; i < num_succs_; i++) {
-    auto* bb = successors_[i];
-    bb->fixupPhis(this, second_block);
-    appendToBlockArray(
-        second_block->successors_, second_block->num_succs_,
-        second_block->succs_capacity_, bb);
-    for (size_t j = 0; j < bb->num_preds_; j++) {
-      if (bb->predecessors_[j] == this) {
-        bb->predecessors_[j] = second_block;
-      }
-    }
-  }
-
-  num_succs_ = 0;
-  addSuccessor(second_block);
-  return second_block;
+  return reinterpret_cast<BasicBlock*>(
+      lir_block_split_before(
+          reinterpret_cast<LirBasicBlock*>(this),
+          reinterpret_cast<LirInstruction*>(instr)));
 }
 
 void BasicBlock::fixupPhis(BasicBlock* old_pred, BasicBlock* new_pred) {
