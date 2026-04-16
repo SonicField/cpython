@@ -2,6 +2,8 @@
 
 #include "cinderx/Jit/hir/parser.h"
 
+#include "cinderx/Jit/hir/hir_c_api.h"
+#include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Common/log.h"
 #include "cinderx/Common/ref.h"
 #include "cinderx/Jit/hir/hir.h"
@@ -472,12 +474,8 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
       expect("<");
       int name_idx = GetNextNameIdx();
       expect(">");
-      instruction = LoadGlobalCached::create(
-          dst,
-          /*code=*/nullptr,
-          /*builtins=*/nullptr,
-          /*globals=*/nullptr,
-          name_idx);
+      instruction = static_cast<Instr*>(hir_c_create_load_global_cached_reg(
+          dst, nullptr, nullptr, nullptr, name_idx));
       break;
     }
     case Opcode::kStoreAttr: {
@@ -882,7 +880,7 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
       break;
     }
     case Opcode::kSnapshot: {
-      auto snapshot = Snapshot::create();
+      auto snapshot = static_cast<Snapshot*>(hir_c_create_snapshot(nullptr));
       if (peekNextToken() == "{") {
         snapshot->setFrameState(parseFrameState());
       }
@@ -894,7 +892,7 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
       break;
     }
     case Opcode::kUnreachable: {
-      instruction = Unreachable::create();
+      instruction = static_cast<Instr*>(hir_c_create_unreachable());
       break;
     }
     case Opcode::kMakeDict: {
@@ -954,7 +952,7 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
       break;
     }
     case Opcode::kLoadFrame: {
-      instruction = LoadFrame::create();
+      instruction = static_cast<Instr*>(hir_c_create_load_frame_reg());
       break;
     }
     case Opcode::kLoadEvalBreaker: {
@@ -962,7 +960,7 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
       break;
     }
     case Opcode::kAtQuiescentState: {
-      instruction = AtQuiescentState::create();
+      instruction = static_cast<Instr*>(hir_c_create_at_quiescent_state_reg());
       break;
     }
     case Opcode::kRunPeriodicTasks: {
