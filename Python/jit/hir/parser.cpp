@@ -411,8 +411,7 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
           hir_c_create_cond_branch_cpp(var, nullptr, nullptr));
       cond_branches_.emplace(
           std::piecewise_construct,
-          std::forward_as_tuple(static_cast<CondBranchBase*>(
-              static_cast<CondBranch*>(instruction))),
+          std::forward_as_tuple(static_cast<CondBranchBase*>(instruction)),
           std::forward_as_tuple(true_bb, false_bb));
       break;
     }

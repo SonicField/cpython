@@ -503,9 +503,9 @@ struct Env {
 
   // Emit CondBranch via C++ bridge, returns instruction (not register).
   // Needed for emitCondSlowPath which patches true_bb after creation.
-  CondBranch* emitCondBranchInstr(Register* cond, BasicBlock* true_bb,
+  CondBranchBase* emitCondBranchInstr(Register* cond, BasicBlock* true_bb,
                                    BasicBlock* false_bb) {
-    auto* instr = static_cast<CondBranch*>(static_cast<Instr*>(
+    auto* instr = static_cast<CondBranchBase*>(static_cast<Instr*>(
         hir_c_create_cond_branch_cpp(cond, true_bb, false_bb)));
     optimized = true;
     instr->setBytecodeOffset(bc_off);
@@ -989,14 +989,14 @@ Register* simplifyLoadVarObjectSize(Env& env, const Instr* instr) {
 
 Register* simplifyLoadModuleMethodCached(
     Env& env,
-    const LoadMethod* load_meth) {
+    const DeoptBaseWithNameIdx* load_meth) {
   Register* receiver = load_meth->GetOperand(0);
   int name_idx = load_meth->name_idx();
   return env.emitLoadModuleMethodCached(
       receiver, name_idx, *load_meth->frameState());
 }
 
-Register* simplifyLoadTypeMethodCached(Env& env, const LoadMethod* load_meth) {
+Register* simplifyLoadTypeMethodCached(Env& env, const DeoptBaseWithNameIdx* load_meth) {
   Register* receiver = load_meth->GetOperand(0);
   const int cache_id = env.func.env.allocateLoadTypeMethodCache();
   env.emitUseType(receiver, TType);
@@ -1021,7 +1021,7 @@ Register* simplifyLoadMethod(Env& env, const Instr* instr) {
   if (!jit_get_config()->attr_caches) {
     return nullptr;
   }
-  auto load_meth = static_cast<const LoadMethod*>(instr);
+  auto load_meth = static_cast<const DeoptBaseWithNameIdx*>(instr);
   Register* receiver = instr->GetOperand(0);
   Type ty = receiver->type();
   if (receiver->isA(TType)) {
@@ -1032,11 +1032,10 @@ Register* simplifyLoadMethod(Env& env, const Instr* instr) {
   if (type == &PyModule_Type || type == &Ci_StrictModule_Type) {
     return simplifyLoadModuleMethodCached(env, load_meth);
   }
-  auto db = static_cast<const DeoptBaseWithNameIdx*>(instr);
   return env.emitLoadMethodCached(
       instr->GetOperand(0),
-      db->name_idx(),
-      *instr->asDeoptBase()->frameState());
+      load_meth->name_idx(),
+      *load_meth->frameState());
 }
 
 Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {

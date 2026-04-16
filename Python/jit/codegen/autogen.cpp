@@ -334,7 +334,7 @@ void translateYieldInitial(Environ* env, const Instruction* instr) {
   phx_x86_mov_ri(pb, x86::rdx, env->shadow_frames_and_spill_size / kPointerSize);
   phx_x86_mov_ri(pb, x86::rcx, reinterpret_cast<uint64_t>(env->code_rt));
   JIT_CHECK(instr->origin_->IsInitialYield(), "expected InitialYield");
-  PyCodeObject* code = static_cast<const hir::InitialYield*>(instr->origin_)
+  PyCodeObject* code = static_cast<const hir::DeoptBase*>(instr->origin_)
                            ->frameState()
                            ->code;
   phx_x86_mov_ri(pb, x86::r8, reinterpret_cast<uint64_t>(code));

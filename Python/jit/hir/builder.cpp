@@ -5638,7 +5638,7 @@ void HIRBuilder::emitUnpackSequence(
   TranslationContext deopt_path{cfg.AllocateBlock(), tc.frame};
   deopt_path.frame.cur_instr_offs = bc_instr.baseOffset();
   deopt_path.emitSnapshot();
-  auto* deopt = static_cast<Deopt*>(deopt_path.emitDeopt());
+  auto* deopt = static_cast<DeoptBase*>(deopt_path.emitDeopt());
   deopt->setGuiltyReg(seq);
   deopt->setDescr("UNPACK_SEQUENCE");
 

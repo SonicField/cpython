@@ -585,8 +585,8 @@ static std::string format_immediates(const Function* func, const Instr& instr) {
       return format_name(func, load, load.name_idx());
     }
     case Opcode::kLoadGlobal: {
-      const auto& load = static_cast<const LoadGlobal&>(instr);
-      return format_name(func, load, load.name_idx());
+      const auto& load = static_cast<const DeoptBaseWithNameIdx&>(instr);
+      return format_name(func, instr, load.name_idx());
     }
     case Opcode::kMakeList: {
       const auto& make = static_cast<const MakeList&>(instr);
