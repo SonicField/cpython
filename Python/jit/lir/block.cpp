@@ -7,6 +7,7 @@
 
 #include "cinderx/Common/log.h"
 #include "cinderx/Jit/lir/function.h"
+#include "cinderx/Jit/lir/lir_impl_internal.h"
 
 #include <cstring>
 
@@ -53,8 +54,9 @@ static void eraseFromBlockArray(
 }
 
 void BasicBlock::addSuccessor(BasicBlock* bb) {
-  appendToBlockArray(successors_, num_succs_, succs_capacity_, bb);
-  appendToBlockArray(bb->predecessors_, bb->num_preds_, bb->preds_capacity_, this);
+  lir_block_add_successor(
+      reinterpret_cast<LirBasicBlock*>(this),
+      reinterpret_cast<LirBasicBlock*>(bb));
 }
 
 void BasicBlock::setSuccessor(size_t index, BasicBlock* bb) {
