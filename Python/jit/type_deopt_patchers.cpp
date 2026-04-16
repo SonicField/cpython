@@ -1,37 +1,16 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 //
-// Phase 3D: Reduced — TypeDeoptPatcher constructor, maybePatch, type(),
-// onUnpatch inlined to header. Remaining: destructor (needs Context),
-// TypeAttrDeoptPatcher, SplitDictDeoptPatcher (templates, lambdas, Context).
+// Phase 3D: All method bodies delegate to C functions in
+// type_deopt_patchers_c.c. Class hierarchy stays in the header.
 
 #include "cinderx/Jit/type_deopt_patchers.h"
-#include "cinderx/Jit/context.h"
-
-#include "cinderx/Common/type.h"
-#include "cinderx/Common/util.h"
+#include "cinderx/Jit/type_deopt_patchers_c.h"
+#include "cinderx/Jit/threaded_compile.h"
 
 namespace jit {
 
-template <typename Body>
-bool shouldPatchForAttr(
-    BorrowedRef<PyTypeObject> old_ty,
-    BorrowedRef<PyTypeObject> new_ty,
-    BorrowedRef<PyUnicodeObject> attr_name,
-    Body body) {
-  if (new_ty != old_ty) {
-    return true;
-  }
-  BorrowedRef<> attr{typeLookupSafe(new_ty, attr_name)};
-  return body(attr) || !PyUnstable_Type_AssignVersionTag(new_ty);
-}
-
 TypeDeoptPatcher::~TypeDeoptPatcher() {
-  if (isLinked() && type_ != nullptr) {
-    Context* ctx = getContext();
-    if (ctx != nullptr) {
-      ctx->unwatchType(type_, this);
-    }
-  }
+  jit_type_deopt_patcher_destroy(type_, isLinked(), this);
 }
 
 TypeAttrDeoptPatcher::TypeAttrDeoptPatcher(
@@ -45,10 +24,8 @@ TypeAttrDeoptPatcher::TypeAttrDeoptPatcher(
 }
 
 bool TypeAttrDeoptPatcher::maybePatch(BorrowedRef<PyTypeObject> new_ty) {
-  bool should_patch =
-      shouldPatchForAttr(type_, new_ty, attr_name_, [&](BorrowedRef<> attr) {
-        return attr != target_object_;
-      });
+  bool should_patch = jit_type_attr_patcher_maybe_patch(
+      type_, new_ty, (PyObject*)attr_name_.get(), target_object_.get());
   if (should_patch) {
     patch();
   }
@@ -70,17 +47,8 @@ SplitDictDeoptPatcher::SplitDictDeoptPatcher(
 }
 
 bool SplitDictDeoptPatcher::maybePatch(BorrowedRef<PyTypeObject> new_ty) {
-  bool should_patch =
-      shouldPatchForAttr(type_, new_ty, attr_name_, [&](BorrowedRef<> attr) {
-        if (attr != nullptr) {
-          return true;
-        }
-        if (!PyType_HasFeature(new_ty, Py_TPFLAGS_HEAPTYPE)) {
-          return true;
-        }
-        BorrowedRef<PyHeapTypeObject> ht(new_ty);
-        return ht->ht_cached_keys != keys_;
-      });
+  bool should_patch = jit_split_dict_patcher_maybe_patch(
+      type_, new_ty, (PyObject*)attr_name_.get(), keys_);
   if (should_patch) {
     patch();
   }

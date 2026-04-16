@@ -838,3 +838,18 @@ Context* getContext() {
 }
 
 } // namespace jit
+
+/* --- Extern C wrappers for type_deopt_patchers_c.c --- */
+extern "C" {
+
+void *jit_get_context_ptr(void) {
+  return static_cast<void*>(jit::getContext());
+}
+
+void jit_context_unwatch_type(
+    void *ctx, PyTypeObject *type, void *patcher) {
+  static_cast<jit::Context*>(ctx)->unwatchType(
+      type, static_cast<jit::TypeDeoptPatcher*>(patcher));
+}
+
+} /* extern "C" */
