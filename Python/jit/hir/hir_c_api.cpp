@@ -1970,6 +1970,27 @@ HirInstr hir_c_create_vectorcall_reg(size_t n_operands, HirRegister dst,
   return v;
 }
 
+/* CRTP Phase 2: FrameState-accepting factory variants */
+
+HirInstr hir_c_create_vectorcall_fs_reg(size_t n_operands, HirRegister dst,
+                                         uint32_t flags, void *frame_state) {
+  HirVectorCall *v = (HirVectorCall *)hir_c_alloc_instr(sizeof(HirVectorCall), n_operands);
+  hir_c_init_deopt(v, HIR_OP_VectorCall);
+  v->flags = flags;
+  hir_c_set_output(v, dst);
+  if (frame_state) {
+    as_instr(v)->asDeoptBase()->setFrameState(
+        *static_cast<const FrameState*>(frame_state));
+  }
+  return v;
+}
+
+HirInstr hir_c_create_guard_type_fs_reg(HirRegister dst, HirType type,
+                                         HirRegister src, void *frame_state) {
+  return GuardType::create(as_reg(dst), Type::fromHirType(type),
+                           as_reg(src), *static_cast<const FrameState*>(frame_state));
+}
+
 HirInstr hir_c_create_cond_branch_check_type_cpp(
     HirRegister target, HirType type,
     void *true_block, void *false_block) {

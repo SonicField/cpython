@@ -322,11 +322,11 @@ void inlineFunctionCall(Function& caller, AbstractCall* call_instr) {
           excess_args.push_back(
               call_instr->arg(callee_code->co_argcount + i));
         }
-        auto* make_tuple = MakeTuple::create(
-            num_excess,
-            instr.output(),
-            excess_args,
-            *call_instr->instr->frameState());
+        auto* make_tuple = static_cast<Instr*>(hir_c_create_make_tuple_reg(
+            num_excess, instr.output(), call_instr->instr->frameState()));
+        for (size_t i = 0; i < num_excess; i++) {
+          make_tuple->SetOperand(i, excess_args[i]);
+        }
         instr.ReplaceWith(*make_tuple);
         Instr::Destroy(&instr);
       } else {
@@ -577,12 +577,12 @@ void InlineFunctionCalls::Run(Function& irfunc) {
               // re-executes LOAD_METHOD from the correct interpreter state.
               FrameState deopt_fs(*def->asDeoptBase()->frameState());
               phx_ptr_arr_push(&deopt_fs.stack, receiver);
-              auto* guard = GuardType::create(
-                  guarded, guard_type, receiver, deopt_fs);
+              auto* guard = static_cast<Instr*>(hir_c_create_guard_type_fs_reg(
+                  guarded, Type::toHirType(guard_type), receiver, &deopt_fs));
               // Insert Snapshot with the same corrected FrameState before
               // the guard. refcount_insertion's snapshot resolution overwrites
               // guard FrameStates with the dominating Snapshot's FrameState.
-              auto* snapshot = Snapshot::create(deopt_fs);
+              auto* snapshot = static_cast<Instr*>(hir_c_create_snapshot(&deopt_fs));
               snapshot->copyBytecodeOffset(*def);
               snapshot->InsertBefore(*call.instr);
               guard->InsertBefore(*call.instr);

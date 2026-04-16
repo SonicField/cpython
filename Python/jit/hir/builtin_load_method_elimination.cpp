@@ -177,11 +177,11 @@ bool tryEliminateLoadMethod(Function& irfunc, MethodInvoke& invoke) {
   Register* method_reg = invoke.load_method->output();
   auto load_const = static_cast<Instr*>(hir_c_create_load_const(
       method_reg, Type::toHirType(Type::fromObject(irfunc.env.addReference(method_obj.get())))));
-  auto call_static = VectorCall::create(
+  auto call_static = static_cast<VectorCall*>(hir_c_create_vectorcall_fs_reg(
       invoke.call_method->NumOperands(),
       invoke.call_method->output(),
-      invoke.call_method->flags() | CallFlags::Static,
-      *invoke.call_method->frameState());
+      static_cast<uint32_t>(invoke.call_method->flags() | CallFlags::Static),
+      invoke.call_method->frameState()));
   call_static->SetOperand(0, method_reg);
   if (Py_TYPE(method_obj) == &PyClassMethodDescr_Type) {
     // Pass the type as the first argument (e.g. dict.fromkeys).
