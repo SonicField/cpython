@@ -130,17 +130,12 @@ struct HirInstrLayoutVerifier {
     static_assert(sizeof(HirLoadAttrSpecial) == sizeof(LoadAttrSpecial));
 
     /* H2-A2: intermediate base class struct sizes */
-    static_assert(sizeof(HirLoadGlobal) == sizeof(LoadGlobal));
-    static_assert(sizeof(HirLoadMethod) == sizeof(LoadMethod));
     static_assert(sizeof(HirLoadAttr) == sizeof(LoadAttr));
-    static_assert(sizeof(HirCondBranch) == sizeof(CondBranch));
 
     /* H2-A2: offsetof checks for intermediate base class custom fields.
      * sizeof alone is INSUFFICIENT — padding hides missing fields. */
 
     /* DeoptBaseWithNameIdx types: name_idx field */
-    static_assert(offsetof(HirLoadGlobal, name_idx) == offsetof(LoadGlobal, name_idx_));
-    static_assert(offsetof(HirLoadMethod, name_idx) == offsetof(LoadMethod, name_idx_));
     static_assert(offsetof(HirFillTypeAttrCache, name_idx) == offsetof(FillTypeAttrCache, name_idx_));
     static_assert(offsetof(HirFillTypeMethodCache, name_idx) == offsetof(FillTypeMethodCache, name_idx_));
     static_assert(offsetof(HirImportFrom, name_idx) == offsetof(ImportFrom, name_idx_));
@@ -152,20 +147,11 @@ struct HirInstrLayoutVerifier {
     static_assert(offsetof(HirFillTypeAttrCache, cache_id) == offsetof(FillTypeAttrCache, cache_id_));
     static_assert(offsetof(HirFillTypeMethodCache, cache_id) == offsetof(FillTypeMethodCache, cache_id_));
 
-    /* H2-A: DEFINE_SIMPLE_INSTR struct sizes */
-    static_assert(sizeof(HirDeopt) == sizeof(Deopt));
-    static_assert(sizeof(HirDeleteSubscr) == sizeof(DeleteSubscr));
-    static_assert(sizeof(HirRaise) == sizeof(Raise));
-    static_assert(sizeof(HirWaitHandleRelease) == sizeof(WaitHandleRelease));
-    static_assert(sizeof(HirWaitHandleLoadWaiter) == sizeof(WaitHandleLoadWaiter));
-    static_assert(sizeof(HirWaitHandleLoadCoroOrResult) == sizeof(WaitHandleLoadCoroOrResult));
-    static_assert(sizeof(HirGetAIter) == sizeof(GetAIter));
+    /* H2-A: DEFINE_SIMPLE_INSTR struct sizes (surviving types only) */
     static_assert(sizeof(HirGetIter) == sizeof(GetIter));
     static_assert(sizeof(HirDictSubscr) == sizeof(DictSubscr));
     static_assert(sizeof(HirInvokeIterNext) == sizeof(InvokeIterNext));
     static_assert(sizeof(HirImportFrom) == sizeof(ImportFrom));
-    static_assert(sizeof(HirMatchClass) == sizeof(MatchClass));
-    static_assert(sizeof(HirInitialYield) == sizeof(InitialYield));
     static_assert(sizeof(HirSend) == sizeof(Send));
 };
 
