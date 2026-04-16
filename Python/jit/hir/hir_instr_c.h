@@ -156,8 +156,8 @@ typedef struct { HIR_INSTR_FIELDS; int32_t cache_id; } HirLoadTypeMethodCacheEnt
 
 /* ---- Multi-field (Instr base) ---- */
 typedef struct { HIR_INSTR_FIELDS; void *addr; HirType ret_type; } HirCallStatic;
-/* WARNING: inline_depth defaults to -1 in C++ (hir.h:1731).
- * Any C factory for this type MUST set inline_depth = -1. */
+/* inline_depth defaults to -1 in C++ (hir.h:1731).
+ * Use hir_c_init_end_inlined() for any C factory — enforces the invariant. */
 typedef struct { HIR_INSTR_FIELDS; void *begin; int32_t inline_depth; } HirEndInlinedFunction;
 typedef struct { HIR_INSTR_FIELDS; int32_t line_no; int32_t _pad; void *parent; } HirUpdatePrevInstr;
 typedef struct { HIR_INSTR_FIELDS; uint32_t arg_idx; int32_t _pad; HirType type; } HirLoadArg;
@@ -654,6 +654,14 @@ static inline void hir_c_init_deopt(void *instr, int32_t opcode) {
     ((HirDeoptLayout *)instr)->nonce = -1;
     /* All other POD fields (frame_state, guilty_reg, descr, live_regs,
      * suppress_exception_deopt) are correctly zero/NULL from calloc. */
+}
+
+/* Initialize EndInlinedFunction fields after hir_c_init_instr.
+ * inline_depth defaults to 0 from calloc; C++ constructor uses -1.
+ * Same enforcement pattern as bytecode_offset and nonce. */
+static inline void hir_c_init_end_inlined(void *instr, int32_t opcode) {
+    hir_c_init_instr(instr, opcode);
+    ((HirEndInlinedFunction *)instr)->inline_depth = -1;
 }
 
 /* ==== Slab base pointer ====
