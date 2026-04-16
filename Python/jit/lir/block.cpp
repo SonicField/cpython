@@ -145,16 +145,10 @@ BasicBlock* BasicBlock::splitBefore(Instruction* instr) {
 }
 
 void BasicBlock::fixupPhis(BasicBlock* old_pred, BasicBlock* new_pred) {
-  foreachPhiInstr([&](Instruction* instr) {
-    for (size_t i = 0, n = instr->getNumInputs(); i < n; ++i) {
-      auto block = instr->getInput(i);
-      if (block->type() == Operand::kLabel) {
-        if (block->getBasicBlock() == old_pred) {
-          static_cast<Operand*>(block)->setBasicBlock(new_pred);
-        }
-      }
-    }
-  });
+  lir_block_fixup_phis(
+      reinterpret_cast<LirBasicBlock*>(this),
+      reinterpret_cast<LirBasicBlock*>(old_pred),
+      reinterpret_cast<LirBasicBlock*>(new_pred));
 }
 
 } // namespace jit::lir
