@@ -329,7 +329,9 @@ struct HIRBuilder::TranslationContext {
   T* emitChecked(Args&&... args) {
     auto instr = emit<T>(std::forward<Args>(args)...);
     auto out = instr->output();
-    emit<CheckExc>(out, out, frame);
+    auto* chk = static_cast<Instr*>(hir_c_create_check_exc_reg(out, out));
+    chk->asDeoptBase()->setFrameState(frame);
+    emitC(chk);
     return instr;
   }
 
@@ -525,7 +527,7 @@ struct HIRBuilder::TranslationContext {
     if (src->type() <= TObject) {
       emitC(static_cast<Instr*>(hir_c_create_decref_reg(src)));
     } else {
-      emit<XDecref>(src);
+      emitC(static_cast<Instr*>(hir_c_create_xdecref_reg(src)));
     }
   }
 
@@ -2718,7 +2720,7 @@ void HIRBuilder::translate(
     // untouched along the other. Thus, they must be special cased.
     switch (prev_bc_instr.opcode()) {
       case FOR_ITER: {
-        auto condbr = static_cast<CondBranchIterNotDone*>(last_instr);
+        auto condbr = static_cast<CondBranchBase*>(last_instr);
         auto new_frame = tc.frame;
         if constexpr (PY_VERSION_HEX >= 0x030E0000) {
           // Just pop the sentinel value. The target POP_ITER will pop the
@@ -2735,7 +2737,7 @@ void HIRBuilder::translate(
       }
       case JUMP_IF_FALSE_OR_POP:
       case JUMP_IF_ZERO_OR_POP: {
-        auto condbr = static_cast<CondBranch*>(last_instr);
+        auto condbr = static_cast<CondBranchBase*>(last_instr);
         auto new_frame = tc.frame;
         static_cast<Register*>(phx_ptr_arr_pop(&new_frame.stack));
         queue.emplace_back(condbr->true_bb(), new_frame);
@@ -2744,7 +2746,7 @@ void HIRBuilder::translate(
       }
       case JUMP_IF_NONZERO_OR_POP:
       case JUMP_IF_TRUE_OR_POP: {
-        auto condbr = static_cast<CondBranch*>(last_instr);
+        auto condbr = static_cast<CondBranchBase*>(last_instr);
         auto new_frame = tc.frame;
         static_cast<Register*>(phx_ptr_arr_pop(&new_frame.stack));
         queue.emplace_back(condbr->true_bb(), tc.frame);
@@ -2757,7 +2759,7 @@ void HIRBuilder::translate(
           JIT_CHECK(
               last_instr->IsCondBranchIterNotDone(),
               "Async-for header should end with CondBranchIterNotDone");
-          auto condbr = static_cast<CondBranchIterNotDone*>(last_instr);
+          auto condbr = static_cast<CondBranchBase*>(last_instr);
           FrameState new_frame = tc.frame;
           // Pop sentinel value signaling that iteration is complete
           static_cast<Register*>(phx_ptr_arr_pop(&new_frame.stack));
