@@ -2,6 +2,7 @@
 
 #include "cinderx/Jit/hir/ssa.h"
 
+#include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Common/log.h"
 #include "cinderx/Jit/hir/analysis.h"
 #include "cinderx/Jit/hir/hir.h"
@@ -363,7 +364,7 @@ Register* SSAify::getDefine(SSABasicBlock* ssablock, Register* reg) {
         ++it;
       }
       null_reg_ = env_->AllocateRegister();
-      auto loadnull = LoadConst::create(null_reg_, TNullptr);
+      auto loadnull = static_cast<Instr*>(hir_c_create_load_const(null_reg_, Type::toHirType(TNullptr)));
       loadnull->copyBytecodeOffset(*it);
       loadnull->InsertBefore(*it);
     }
