@@ -1,6 +1,8 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/hir/inliner.h"
+#include "cinderx/Jit/hir/hir_c_api.h"
+#include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/jit_config_c.h"
 
@@ -273,7 +275,7 @@ void inlineFunctionCall(Function& caller, AbstractCall* call_instr) {
   BasicBlock* tail = caller.cfg.splitAfter(*call_instr->instr);
   auto begin_inlined_function = BeginInlinedFunction::create(
       callee, std::move(caller_frame_state), callee_name, preloader->reifier());
-  auto callee_branch = Branch::create(result.entry);
+  auto callee_branch = static_cast<Instr*>(hir_c_create_branch_cpp(result.entry));
   if (call_instr->target != nullptr) {
     // Not a static call. Check that __code__ has not been swapped out since
     // the function was inlined.
@@ -283,20 +285,18 @@ void inlineFunctionCall(Function& caller, AbstractCall* call_instr) {
     // Consider emitting a DeoptPatchpoint here to catch the case where someone
     // swaps out function.__code__.
     Register* code_obj = caller.env.AllocateRegister();
-    auto load_code = LoadField::create(
-        code_obj,
-        call_instr->target,
-        "func_code",
+    auto load_code = static_cast<Instr*>(hir_c_create_load_field_reg(
+        code_obj, call_instr->target, "func_code",
         offsetof(PyFunctionObject, func_code),
-        TObject);
+        Type::toHirType(TObject), 0));
     Register* guarded_code = caller.env.AllocateRegister();
-    auto guard_code = GuardIs::create(guarded_code, callee_code, code_obj);
+    auto guard_code = static_cast<Instr*>(hir_c_create_guard_is_reg(guarded_code, callee_code, code_obj));
     call_instr->instr->ExpandInto(
         {load_code, guard_code, begin_inlined_function, callee_branch});
   } else {
     call_instr->instr->ExpandInto({begin_inlined_function, callee_branch});
   }
-  tail->push_front(EndInlinedFunction::create(begin_inlined_function));
+  tail->push_front(static_cast<Instr*>(hir_c_create_end_inlined_function(begin_inlined_function)));
 
   // Transform LoadArg into Assign (or MakeTuple for *args)
   int starargs_idx = (callee_code->co_flags & CO_VARARGS)
@@ -331,7 +331,7 @@ void inlineFunctionCall(Function& caller, AbstractCall* call_instr) {
         Instr::Destroy(&instr);
       } else {
         auto assign =
-            Assign::create(instr.output(), call_instr->arg(arg_idx));
+            static_cast<Instr*>(hir_c_create_assign(instr.output(), call_instr->arg(arg_idx)));
         instr.ReplaceWith(*assign);
         Instr::Destroy(&instr);
       }
@@ -344,8 +344,8 @@ void inlineFunctionCall(Function& caller, AbstractCall* call_instr) {
       return_instr->IsReturn(),
       "terminator from inlined function should be Return");
   auto assign =
-      Assign::create(call_instr->instr->output(), return_instr->GetOperand(0));
-  auto return_branch = Branch::create(tail);
+      static_cast<Instr*>(hir_c_create_assign(call_instr->instr->output(), return_instr->GetOperand(0)));
+  auto return_branch = static_cast<Instr*>(hir_c_create_branch_cpp(tail));
   return_instr->ExpandInto({assign, return_branch});
   Instr::Destroy(return_instr);
 
@@ -630,7 +630,7 @@ void InlineFunctionCalls::Run(Function& irfunc) {
               BorrowedRef<PyTypeObject>{mono_type},
               BorrowedRef<PyUnicodeObject>{attr_name},
               BorrowedRef<>{func_obj_raw});
-          auto* patchpoint = DeoptPatchpoint::create(patcher);
+          auto* patchpoint = static_cast<DeoptPatchpoint*>(hir_c_create_deopt_patchpoint(patcher));
           patchpoint->copyBytecodeOffset(*target_def);
           auto cloned_fs = std::make_unique<FrameState>(*fs);
           patchpoint->setFrameState(std::move(cloned_fs));
@@ -649,7 +649,7 @@ void InlineFunctionCalls::Run(Function& irfunc) {
             auto& inst = *it;
             ++it;
             if (inst.IsGetSecondOutput() && inst.GetOperand(0) == call.target) {
-              auto* assign = Assign::create(inst.output(), receiver);
+              auto* assign = static_cast<Instr*>(hir_c_create_assign(inst.output(), receiver));
               inst.ReplaceWith(*assign);
               Instr::Destroy(&inst);
             }
@@ -659,7 +659,7 @@ void InlineFunctionCalls::Run(Function& irfunc) {
         // Replace LoadMethodCached with LoadConst of the resolved function.
         PyObject* func_obj = reinterpret_cast<PyObject*>(call.func.get());
         Type func_type = Type::fromObject(irfunc.env.addReference(func_obj));
-        auto* load_const = LoadConst::create(call.target, func_type);
+        auto* load_const = static_cast<Instr*>(hir_c_create_load_const(call.target, Type::toHirType(func_type)));
         target_def->ReplaceWith(*load_const);
         Instr::Destroy(target_def);
         LOG_INLINER(
