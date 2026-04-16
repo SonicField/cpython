@@ -6,6 +6,7 @@
  */
 
 #include "cinderx/Jit/hir/hir_operand_types_c.h"
+#include "cinderx/Jit/hir/hir_instr_c.h"  /* for HIR_CONSTRAINT_k* enum values */
 
 /* Shorthand for common operand type patterns */
 #define OT(ty)    {HIR_CONSTRAINT_kType, ty}   /* Type constraint */

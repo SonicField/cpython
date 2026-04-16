@@ -6,8 +6,13 @@
  */
 #pragma once
 
-#include "cinderx/python.h"
+/* Forward-declare CPython types to avoid pulling in Python.h.
+ * Python.h includes stdatomic.h with _Atomic which breaks C++ TUs
+ * on GCC 11 (ARM64). We only need pointer types here. */
+typedef struct _object PyObject;
+typedef struct _typeobject PyTypeObject;
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -126,13 +131,9 @@ static inline int hir_type_has_spec(const HirType *t) {
 }
 
 /* Get the type specialization (PyTypeObject*), or NULL.
- * For kSpecObject, returns Py_TYPE(pyobject) — the object's type. */
-static inline PyTypeObject *hir_type_type_spec(const HirType *t) {
-    uint64_t sk = hir_type_spec_kind(t);
-    if (sk == HIR_SPEC_OBJECT) return Py_TYPE(t->pyobject);
-    if (sk == HIR_SPEC_TYPE || sk == HIR_SPEC_TYPE_EXACT) return t->pytype;
-    return NULL;
-}
+ * For kSpecObject, returns Py_TYPE(pyobject) — the object's type.
+ * Implemented in hir_type_c.c (needs Py_TYPE from Python.h). */
+PyTypeObject *hir_type_type_spec(const HirType *t);
 
 /* Get the object specialization (PyObject*), or NULL */
 static inline PyObject *hir_type_object_spec(const HirType *t) {

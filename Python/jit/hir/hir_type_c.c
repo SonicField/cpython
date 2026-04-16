@@ -10,6 +10,7 @@
  *   4. union (operator|) — hardest, deferred
  */
 
+#include "cinderx/python.h"   /* for Py_TYPE in hir_type_type_spec */
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/threaded_compile_c.h"
 #include <string.h>  /* strcmp */
@@ -677,4 +678,14 @@ HirType hir_type_from_object(PyObject *obj) {
                      | (((uint64_t)HIR_SPEC_OBJECT) << HIR_TYPE_SPEC_SHIFT);
     r.pyobject = obj;
     return r;
+}
+
+/* Get the type specialization (PyTypeObject*), or NULL.
+ * For kSpecObject, returns Py_TYPE(pyobject) — the object's type.
+ * Moved from header to .c file to avoid Python.h in C++ TUs. */
+PyTypeObject *hir_type_type_spec(const HirType *t) {
+    uint64_t sk = hir_type_spec_kind(t);
+    if (sk == HIR_SPEC_OBJECT) return Py_TYPE(t->pyobject);
+    if (sk == HIR_SPEC_TYPE || sk == HIR_SPEC_TYPE_EXACT) return t->pytype;
+    return NULL;
 }
