@@ -29,11 +29,6 @@ typedef struct {
  * STATIC defaults (from the type list in the INSTR_CLASS macro). */
 const HirOpcodeOperandInfo *hir_operand_type_get_info(int opcode);
 
-/* C++ bridge: get operand type from the C++ _OperandTypes mixin table.
- * Used by the verification test to cross-check C table against C++.
- * Returns 0 on success, -1 if opcode/index out of range. */
-int hir_operand_type_cpp_get(int opcode, int index,
-                             int *out_constraint, HirType *out_type);
 
 #ifdef __cplusplus
 }

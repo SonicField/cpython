@@ -13,56 +13,11 @@
 
 namespace jit::hir {
 
-// T2-C3: Function pointer table for GetOperandType dispatch.
-// Each opcode maps to a function that returns the OperandType for operand i.
-// Most types use _OperandTypes mixin (static type vector, no instance data),
-// allowing class definitions to be deleted (Phase 3). Types that override
-// GetOperandTypeImpl with instance-dependent logic use the class directly.
-using GetOpTypeFn = OperandType (*)(const Instr*, std::size_t);
-
-// Default: uses _OperandTypes mixin (no instance data, class-deletion safe)
-template <typename OpTypes>
-static OperandType get_operand_type_default(const Instr*, std::size_t i) {
-  static const OpTypes instance{};
-  return instance.GetOperandTypeImpl(i);
-}
-
-// Override: uses concrete class (instance-dependent GetOperandTypeImpl)
-template <typename T>
-static OperandType get_operand_type_override(const Instr* instr, std::size_t i) {
-  return static_cast<const T*>(instr)->GetOperandTypeImpl(i);
-}
-
-// 4 types override GetOperandTypeImpl with instance-dependent logic:
-// PrimitiveCompare, PrimitiveUnbox, Return, UseType
-#define MAKE_GET_OP_TYPE_ENTRY(opname) \
-    get_operand_type_default<opname##_OperandTypes>,
-#define MAKE_GET_OP_TYPE_OVERRIDE(opname) \
-    get_operand_type_override<opname>,
-static GetOpTypeFn get_operand_type_table[] = {
-    FOREACH_OPCODE(MAKE_GET_OP_TYPE_ENTRY)
-};
-#undef MAKE_GET_OP_TYPE_ENTRY
-#undef MAKE_GET_OP_TYPE_OVERRIDE
-
-// Keep default macro for the verification bridge table (at end of file).
-#define MAKE_GET_OP_TYPE_DEFAULT(opname) \
-    get_operand_type_default<opname##_OperandTypes>,
-
-// Patch entries for types that override GetOperandTypeImpl with
-// instance-dependent logic (these 4 cannot use the _OperandTypes mixin).
-static struct PatchOverrides {
-  PatchOverrides() {
-    get_operand_type_table[static_cast<int>(Opcode::kPrimitiveCompare)] =
-        get_operand_type_override<PrimitiveCompare>;
-    get_operand_type_table[static_cast<int>(Opcode::kPrimitiveUnbox)] =
-        get_operand_type_override<PrimitiveUnbox>;
-    get_operand_type_table[static_cast<int>(Opcode::kReturn)] =
-        get_operand_type_override<Return>;
-    get_operand_type_table[static_cast<int>(Opcode::kUseType)] =
-        get_operand_type_override<UseType>;
-  }
-} patch_overrides_;
+// T2-C3: GetOperandType dispatch.
+// 164/168 opcodes use the C operand-type table (hir_operand_types_c.c).
+// 4 types with instance-dependent GetOperandTypeImpl use C++ dispatch directly:
+// PrimitiveCompare, PrimitiveUnbox, Return, UseType.
+// No FOREACH_OPCODE or _OperandTypes mixin references — class deletion safe.
 
 DeoptBase::DeoptBase(Opcode op) : Instr(op) {}
 
@@ -310,11 +265,17 @@ OperandType Instr::GetOperandType(std::size_t i) const {
   // 4 types with instance-dependent GetOperandTypeImpl use C++ dispatch.
   // All others use the C operand-type table (no C++ class needed).
   int op = static_cast<int>(opcode_);
-  if (op == static_cast<int>(Opcode::kPrimitiveCompare) ||
-      op == static_cast<int>(Opcode::kPrimitiveUnbox) ||
-      op == static_cast<int>(Opcode::kReturn) ||
-      op == static_cast<int>(Opcode::kUseType)) {
-    return get_operand_type_table[op](this, i);
+  switch (opcode_) {
+    case Opcode::kPrimitiveCompare:
+      return static_cast<const PrimitiveCompare*>(this)->GetOperandTypeImpl(i);
+    case Opcode::kPrimitiveUnbox:
+      return static_cast<const PrimitiveUnbox*>(this)->GetOperandTypeImpl(i);
+    case Opcode::kReturn:
+      return static_cast<const Return*>(this)->GetOperandTypeImpl(i);
+    case Opcode::kUseType:
+      return static_cast<const UseType*>(this)->GetOperandTypeImpl(i);
+    default:
+      break;
   }
   const HirOpcodeOperandInfo *info = hir_operand_type_get_info(op);
   if (info == nullptr || static_cast<int>(i) >= info->count) {
@@ -1471,27 +1432,3 @@ FrameState* get_frame_state(Instr& instr) {
 }
 
 } // namespace jit::hir
-
-// Default-only table: always uses _OperandTypes mixin, never class overrides.
-// Used by the C bridge for cross-verification (safe to call with nullptr).
-namespace jit::hir {
-static const GetOpTypeFn get_operand_type_default_table[] = {
-    FOREACH_OPCODE(MAKE_GET_OP_TYPE_DEFAULT)
-};
-} // namespace jit::hir
-
-// C++ bridge for operand type cross-verification.
-// Returns the static operand type from the _OperandTypes mixin table.
-extern "C" int hir_operand_type_cpp_get(
-    int opcode, int index, int *out_constraint, HirType *out_type) {
-  using namespace jit::hir;
-  if (opcode < 0 || opcode >= HIR_OP_COUNT) {
-    return -1;
-  }
-  // Use default-only table (safe with nullptr, no instance data needed).
-  OperandType ot = get_operand_type_default_table[opcode](
-      nullptr, static_cast<std::size_t>(index));
-  *out_constraint = static_cast<int>(ot.kind);
-  *out_type = Type::toHirType(ot.type);
-  return 0;
-}
