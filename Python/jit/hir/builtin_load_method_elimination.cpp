@@ -5,6 +5,8 @@
 
 #include "cinderx/Common/py-portability.h"
 #include "cinderx/Jit/hir/analysis.h"
+#include "cinderx/Jit/hir/hir_c_api.h"
+#include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/threaded_compile.h"
 #include "cinderx/module_state.h"
@@ -173,8 +175,8 @@ bool tryEliminateLoadMethod(Function& irfunc, MethodInvoke& invoke) {
     return false;
   }
   Register* method_reg = invoke.load_method->output();
-  auto load_const = LoadConst::create(
-      method_reg, Type::fromObject(irfunc.env.addReference(method_obj.get())));
+  auto load_const = static_cast<Instr*>(hir_c_create_load_const(
+      method_reg, Type::toHirType(Type::fromObject(irfunc.env.addReference(method_obj.get())))));
   auto call_static = VectorCall::create(
       invoke.call_method->NumOperands(),
       invoke.call_method->output(),
@@ -184,12 +186,12 @@ bool tryEliminateLoadMethod(Function& irfunc, MethodInvoke& invoke) {
   if (Py_TYPE(method_obj) == &PyClassMethodDescr_Type) {
     // Pass the type as the first argument (e.g. dict.fromkeys).
     Register* type_reg = irfunc.env.AllocateRegister();
-    auto load_type = LoadConst::create(
+    auto load_type = static_cast<Instr*>(hir_c_create_load_const(
         type_reg,
-        Type::fromObject(
+        Type::toHirType(Type::fromObject(
             reinterpret_cast<PyObject*>(
                 [&]{ HirType h = to_hir(receiver_type);
-                     return hir_type_runtime_py_type(&h); }())));
+                     return hir_type_runtime_py_type(&h); }())))));
     load_type->setBytecodeOffset(invoke.load_method->bytecodeOffset());
     load_type->InsertBefore(*invoke.call_method);
     call_static->SetOperand(1, type_reg);
@@ -205,10 +207,10 @@ bool tryEliminateLoadMethod(Function& irfunc, MethodInvoke& invoke) {
   for (std::size_t i = 2; i < invoke.call_method->NumOperands(); i++) {
     call_static->SetOperand(i, invoke.call_method->GetOperand(i));
   }
-  auto use_type = UseType::create(receiver, receiver_type.unspecialized());
+  auto use_type = static_cast<Instr*>(hir_c_create_use_type(receiver, Type::toHirType(receiver_type.unspecialized())));
   invoke.load_method->ExpandInto({use_type, load_const});
   invoke.get_instance->ReplaceWith(
-      *Assign::create(invoke.get_instance->output(), receiver));
+      *static_cast<Instr*>(hir_c_create_assign(invoke.get_instance->output(), receiver)));
   invoke.call_method->ReplaceWith(*call_static);
   Instr::Destroy(invoke.load_method);
   Instr::Destroy(invoke.get_instance);
