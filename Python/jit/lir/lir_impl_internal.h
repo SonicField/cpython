@@ -31,6 +31,7 @@ void lir_operand_set_basic_block(LirOperand *op, void *block);
 void lir_operand_set_linked_instr(LirOperand *op, LirInstruction *def);
 
 /* From lir_instruction.c */
+void lir_instruction_destroy(LirInstruction *inst);
 void lir_instruction_free(LirInstruction *inst);
 void lir_instruction_ensure_input_capacity(LirInstruction *inst, size_t needed);
 LirOperand *lir_instruction_alloc_imm_input(LirInstruction *inst,
@@ -60,6 +61,7 @@ LirOperand *lir_instruction_get_operand_by_predecessor(
 
 /* From block_impl.c */
 LirBasicBlock *lir_block_new(void *function, int id);
+void lir_block_destroy(LirBasicBlock *bb);
 void lir_block_free(LirBasicBlock *bb);
 void lir_block_set_successor(LirBasicBlock *bb, size_t index,
                               LirBasicBlock *new_succ);
@@ -75,6 +77,7 @@ LirBasicBlock *lir_block_split_before(LirBasicBlock *bb,
                                        LirInstruction *instr);
 
 /* From function_impl.c */
+void lir_function_destroy(LirFunction *func);
 LirBasicBlock *lir_function_alloc_block(LirFunction *func);
 LirBasicBlock *lir_function_alloc_block_after(LirFunction *func,
                                                LirBasicBlock *after);

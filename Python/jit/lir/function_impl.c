@@ -30,13 +30,20 @@ lir_function_new(const void *hir_func) {
 }
 
 void
-lir_function_free(LirFunction *func) {
+lir_function_destroy(LirFunction *func) {
     if (func == NULL) return;
     /* Free all owned blocks (which recursively free instructions) */
     for (size_t i = 0; i < func->num_blocks_; i++) {
         lir_block_free(func->blocks_[i]);
     }
     PyMem_RawFree(func->blocks_);
+    /* Does NOT free func itself — caller handles that */
+}
+
+void
+lir_function_free(LirFunction *func) {
+    if (func == NULL) return;
+    lir_function_destroy(func);
     PyMem_RawFree(func);
 }
 

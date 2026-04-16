@@ -76,10 +76,7 @@ static_assert(sizeof(LirFunction) == sizeof(Function),
 // ---- Destructor ----
 
 Instruction::~Instruction() {
-  for (size_t i = 0; i < num_inputs_; i++) {
-    delete inputs_[i];
-  }
-  PyMem_RawFree(inputs_);
+  lir_instruction_destroy(reinterpret_cast<LirInstruction*>(this));
 }
 
 // ---- Input management (wired to lir_instruction.c) ----

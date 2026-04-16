@@ -31,7 +31,7 @@ lir_block_new(void *function, int id) {
 }
 
 void
-lir_block_free(LirBasicBlock *bb) {
+lir_block_destroy(LirBasicBlock *bb) {
     if (bb == NULL) return;
     /* Free all owned instructions */
     LirInstruction *cur = bb->instr_head_;
@@ -42,6 +42,13 @@ lir_block_free(LirBasicBlock *bb) {
     }
     PyMem_RawFree(bb->successors_);
     PyMem_RawFree(bb->predecessors_);
+    /* Does NOT free bb itself — caller handles that */
+}
+
+void
+lir_block_free(LirBasicBlock *bb) {
+    if (bb == NULL) return;
+    lir_block_destroy(bb);
     PyMem_RawFree(bb);
 }
 

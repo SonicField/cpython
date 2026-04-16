@@ -10,14 +10,7 @@
 namespace jit::lir {
 
 BasicBlock::~BasicBlock() {
-  Instruction* cur = instr_head_;
-  while (cur) {
-    Instruction* next = cur->next_;
-    delete cur;
-    cur = next;
-  }
-  PyMem_RawFree(successors_);
-  PyMem_RawFree(predecessors_);
+  lir_block_destroy(reinterpret_cast<LirBasicBlock*>(this));
 }
 
 void BasicBlock::addSuccessor(BasicBlock* bb) {

@@ -141,10 +141,7 @@ void deepCopyBasicBlocks(
 } // namespace
 
 Function::~Function() {
-  for (size_t i = 0; i < num_blocks_; i++) {
-    delete blocks_[i];
-  }
-  PyMem_RawFree(blocks_);
+  lir_function_destroy(reinterpret_cast<LirFunction*>(this));
 }
 
 void Function::ensureBlockCapacity(size_t needed) {

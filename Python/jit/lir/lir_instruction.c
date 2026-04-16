@@ -33,7 +33,7 @@ lir_instruction_create(LirBasicBlock *basic_block, int opcode, const void *origi
 }
 
 void
-lir_instruction_free(LirInstruction *inst) {
+lir_instruction_destroy(LirInstruction *inst) {
     if (inst == NULL) return;
     /* Free owned input operands */
     for (size_t i = 0; i < inst->num_inputs_; i++) {
@@ -45,6 +45,13 @@ lir_instruction_free(LirInstruction *inst) {
         inst->output_.type_ == JIT_LIR_OPTYPE_IND) {
         lir_memind_free(inst->output_.value_.indirect);
     }
+    /* Does NOT free inst itself — caller (C++ delete or lir_instruction_free) handles that */
+}
+
+void
+lir_instruction_free(LirInstruction *inst) {
+    if (inst == NULL) return;
+    lir_instruction_destroy(inst);
     PyMem_RawFree(inst);
 }
 
