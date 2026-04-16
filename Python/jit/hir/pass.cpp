@@ -2,6 +2,8 @@
 
 #include "cinderx/Jit/hir/pass.h"
 
+#include "cinderx/Jit/hir/hir_c_api.h"
+#include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/context.h"
 #include "cinderx/Jit/hir/analysis.h"
@@ -746,11 +748,11 @@ bool removeUnreachableInstructions(Function& func) {
         // from removing it.
         Instr& guard_type = *std::prev(it);
         block->insert(
-            UseType::create(guard_type.output(), guard_type.output()->type()),
+            static_cast<Instr*>(hir_c_create_use_type(guard_type.output(), to_hir(guard_type.output()->type()))),
             it);
       }
 
-      block->insert(Unreachable::create(), it);
+      block->insert(static_cast<Instr*>(hir_c_create_unreachable()), it);
       // Clean up dangling phi references
       if (Instr* old_term = block->GetTerminator()) {
         for (std::size_t i = 0, n = old_term->numEdges(); i < n; ++i) {
@@ -784,7 +786,7 @@ bool removeUnreachableInstructions(Function& func) {
       }
       for (Instr* branch : interesting_branches) {
         if (branch->IsBranch()) {
-          branch->ReplaceWith(*Unreachable::create());
+          branch->ReplaceWith(*static_cast<Instr*>(hir_c_create_unreachable()));
         } else if (branch->IsCondBranch() || branch->IsCondBranchIterNotDone() ||
                    branch->IsCondBranchCheckType()) {
           auto cond_branch = static_cast<CondBranchBase*>(branch);
@@ -810,7 +812,7 @@ bool removeUnreachableInstructions(Function& func) {
             }
 
             Register* operand = check_type_branch->GetOperand(0);
-            RefineType::create(refined_value, check_type, operand)
+            static_cast<Instr*>(hir_c_create_refine_type_reg(refined_value, to_hir(check_type), operand))
                 ->InsertBefore(*cond_branch);
             auto uses = reg_uses.find(operand);
             if (uses == reg_uses.end()) {
@@ -825,7 +827,7 @@ bool removeUnreachableInstructions(Function& func) {
               }
             }
           }
-          cond_branch->ReplaceWith(*Branch::create(target));
+          cond_branch->ReplaceWith(*static_cast<Instr*>(hir_c_create_branch_cpp(target)));
         } else {
           JIT_ABORT("Unexpected branch instruction {}", *branch);
         }
