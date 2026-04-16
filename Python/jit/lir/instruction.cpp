@@ -13,8 +13,6 @@
 // Phase B5: Cross-validate C struct sizes against C++ struct sizes.
 #include "cinderx/Jit/lir/lir_types_c.h"
 
-#include <array>
-#include <utility>
 
 namespace jit::lir {
 
@@ -197,27 +195,25 @@ const OperandBase* Instruction::getOperandByPredecessor(
   return const_cast<Instruction*>(this)->getOperandByPredecessor(pred);
 }
 
-// ---- InstrProperty (static data — stays in .cpp until C equivalent exists) ----
+// ---- InstrProperty (wired to C table in lir_instruction.c) ----
 
 bool Instruction::getOutputPhyRegUse() const {
-  return InstrProperty::getProperties(opcode_).output_phy_use;
+  return lir_instr_get_output_phy_reg_use(static_cast<int>(opcode_));
 }
 
 bool Instruction::getInputPhyRegUse(size_t i) const {
   if ((isMove() || isMoveRelaxed()) && output_.isInd()) {
     return true;
   }
-  auto& uses = InstrProperty::getProperties(opcode_).input_phy_uses;
-  if (i >= uses.size()) {
-    return false;
-  }
-  return uses.at(i);
+  return lir_instr_get_input_phy_reg_use(static_cast<int>(opcode_), i);
 }
 
 bool Instruction::inputsLiveAcross() const {
-  return InstrProperty::getProperties(opcode_).inputs_live_across;
+  return lir_instr_inputs_live_across(static_cast<int>(opcode_));
 }
 
+// InstrProperty C++ static data retained for callers that use
+// InstrProperty::getProperties() directly (e.g., flag_effects, opnd_size_type).
 InstrProperty::InstrInfo& InstrProperty::getProperties(
     Instruction::Opcode opcode) {
   return prop_map_.at(opcode);
