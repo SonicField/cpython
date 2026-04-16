@@ -14,19 +14,50 @@ namespace jit::hir {
 
 // T2-C3: Function pointer table for GetOperandType dispatch.
 // Each opcode maps to a function that returns the OperandType for operand i.
-// Generated via FOREACH_OPCODE — all 168 concrete instruction classes.
+// Most types use _OperandTypes mixin (static type vector, no instance data),
+// allowing class definitions to be deleted (Phase 3). Types that override
+// GetOperandTypeImpl with instance-dependent logic use the class directly.
 using GetOpTypeFn = OperandType (*)(const Instr*, std::size_t);
 
+// Default: uses _OperandTypes mixin (no instance data, class-deletion safe)
+template <typename OpTypes>
+static OperandType get_operand_type_default(const Instr*, std::size_t i) {
+  static const OpTypes instance{};
+  return instance.GetOperandTypeImpl(i);
+}
+
+// Override: uses concrete class (instance-dependent GetOperandTypeImpl)
 template <typename T>
-static OperandType get_operand_type_dispatch(const Instr* instr, std::size_t i) {
+static OperandType get_operand_type_override(const Instr* instr, std::size_t i) {
   return static_cast<const T*>(instr)->GetOperandTypeImpl(i);
 }
 
-#define MAKE_GET_OP_TYPE_ENTRY(opname) get_operand_type_dispatch<opname>,
-static const GetOpTypeFn get_operand_type_table[] = {
+// 4 types override GetOperandTypeImpl with instance-dependent logic:
+// PrimitiveCompare, PrimitiveUnbox, Return, UseType
+#define MAKE_GET_OP_TYPE_ENTRY(opname) \
+    get_operand_type_default<opname##_OperandTypes>,
+#define MAKE_GET_OP_TYPE_OVERRIDE(opname) \
+    get_operand_type_override<opname>,
+static GetOpTypeFn get_operand_type_table[] = {
     FOREACH_OPCODE(MAKE_GET_OP_TYPE_ENTRY)
 };
 #undef MAKE_GET_OP_TYPE_ENTRY
+#undef MAKE_GET_OP_TYPE_OVERRIDE
+
+// Patch entries for types that override GetOperandTypeImpl with
+// instance-dependent logic (these 4 cannot use the _OperandTypes mixin).
+static struct PatchOverrides {
+  PatchOverrides() {
+    get_operand_type_table[static_cast<int>(Opcode::kPrimitiveCompare)] =
+        get_operand_type_override<PrimitiveCompare>;
+    get_operand_type_table[static_cast<int>(Opcode::kPrimitiveUnbox)] =
+        get_operand_type_override<PrimitiveUnbox>;
+    get_operand_type_table[static_cast<int>(Opcode::kReturn)] =
+        get_operand_type_override<Return>;
+    get_operand_type_table[static_cast<int>(Opcode::kUseType)] =
+        get_operand_type_override<UseType>;
+  }
+} patch_overrides_;
 
 DeoptBase::DeoptBase(Opcode op) : Instr(op) {}
 
