@@ -1,18 +1,17 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 //
-// Phase 3D: Minimal stub — only methods with complex logic or
-// circular deps. Simple accessors moved inline to block.h.
+// Phase 3D: All method bodies delegate to C functions in block_impl.c.
+// Class definition stays in block.h.
 
 #include "cinderx/Jit/lir/block.h"
 
-#include "cinderx/Common/log.h"
-#include "cinderx/Jit/lir/function.h"
-
-#include <cstring>
+#include "cinderx/Jit/lir/lir_impl_internal.h"
 
 namespace jit::lir {
 
 BasicBlock::~BasicBlock() {
+  // Use C++ delete (not lir_instruction_free) because operands were
+  // allocated with C++ new Operand() and need ~OperandBase() called.
   Instruction* cur = instr_head_;
   while (cur) {
     Instruction* next = cur->next_;
@@ -23,58 +22,22 @@ BasicBlock::~BasicBlock() {
   PyMem_RawFree(predecessors_);
 }
 
-static void appendToBlockArray(
-    BasicBlock**& arr, size_t& count, size_t& capacity, BasicBlock* bb) {
-  if (count >= capacity) {
-    size_t new_cap = capacity == 0 ? 2 : capacity * 2;
-    auto** new_arr = static_cast<BasicBlock**>(
-        PyMem_RawCalloc(new_cap, sizeof(BasicBlock*)));
-    if (arr) {
-      std::memcpy(new_arr, arr, count * sizeof(BasicBlock*));
-      PyMem_RawFree(arr);
-    }
-    arr = new_arr;
-    capacity = new_cap;
-  }
-  arr[count++] = bb;
-}
-
-static void eraseFromBlockArray(
-    BasicBlock**& arr, size_t& count, BasicBlock* bb) {
-  for (size_t i = 0; i < count; i++) {
-    if (arr[i] == bb) {
-      for (size_t j = i; j + 1 < count; j++) {
-        arr[j] = arr[j + 1];
-      }
-      count--;
-      return;
-    }
-  }
-}
-
 void BasicBlock::addSuccessor(BasicBlock* bb) {
-  appendToBlockArray(successors_, num_succs_, succs_capacity_, bb);
-  appendToBlockArray(bb->predecessors_, bb->num_preds_, bb->preds_capacity_, this);
+  lir_block_add_successor(
+      reinterpret_cast<LirBasicBlock*>(this),
+      reinterpret_cast<LirBasicBlock*>(bb));
 }
 
 void BasicBlock::setSuccessor(size_t index, BasicBlock* bb) {
-  JIT_CHECK(index < num_succs_, "Index out of range");
-  BasicBlock* old_bb = successors_[index];
-  eraseFromBlockArray(old_bb->predecessors_, old_bb->num_preds_, this);
-  successors_[index] = bb;
-  appendToBlockArray(bb->predecessors_, bb->num_preds_, bb->preds_capacity_, this);
+  lir_block_set_successor(
+      reinterpret_cast<LirBasicBlock*>(this), index,
+      reinterpret_cast<LirBasicBlock*>(bb));
 }
 
 void BasicBlock::appendInstr(Instruction* instr) {
-  instr->prev_ = instr_tail_;
-  instr->next_ = nullptr;
-  if (instr_tail_) {
-    instr_tail_->next_ = instr;
-  } else {
-    instr_head_ = instr;
-  }
-  instr_tail_ = instr;
-  num_instrs_++;
+  lir_block_append_instr(
+      reinterpret_cast<LirBasicBlock*>(this),
+      reinterpret_cast<LirInstruction*>(instr));
 }
 
 void BasicBlock::insertInstrBefore(Instruction* pos, Instruction* instr) {
@@ -82,101 +45,38 @@ void BasicBlock::insertInstrBefore(Instruction* pos, Instruction* instr) {
     appendInstr(instr);
     return;
   }
-  instr->next_ = pos;
-  instr->prev_ = pos->prev_;
-  if (pos->prev_) {
-    pos->prev_->next_ = instr;
-  } else {
-    instr_head_ = instr;
-  }
-  pos->prev_ = instr;
-  num_instrs_++;
+  lir_block_insert_instr_before(
+      reinterpret_cast<LirBasicBlock*>(this),
+      reinterpret_cast<LirInstruction*>(pos),
+      reinterpret_cast<LirInstruction*>(instr));
 }
 
 Instruction* BasicBlock::removeInstr(instr_iter_t pos) {
-  Instruction* instr = pos;
-  if (instr->prev_) {
-    instr->prev_->next_ = instr->next_;
-  } else {
-    instr_head_ = instr->next_;
-  }
-  if (instr->next_) {
-    instr->next_->prev_ = instr->prev_;
-  } else {
-    instr_tail_ = instr->prev_;
-  }
-  instr->prev_ = nullptr;
-  instr->next_ = nullptr;
-  num_instrs_--;
-  return instr;
+  return reinterpret_cast<Instruction*>(
+      lir_block_remove_instr(
+          reinterpret_cast<LirBasicBlock*>(this),
+          reinterpret_cast<LirInstruction*>(static_cast<Instruction*>(pos))));
 }
 
 BasicBlock* BasicBlock::insertBasicBlockBetween(BasicBlock* block) {
-  size_t idx = num_succs_;
-  for (size_t i = 0; i < num_succs_; i++) {
-    if (successors_[i] == block) { idx = i; break; }
-  }
-  JIT_DCHECK(idx < num_succs_, "block must be one of the successors.");
-
-  auto new_block = func_->allocateBasicBlockAfter(this);
-  successors_[idx] = new_block;
-  appendToBlockArray(
-      new_block->predecessors_, new_block->num_preds_,
-      new_block->preds_capacity_, this);
-  eraseFromBlockArray(block->predecessors_, block->num_preds_, this);
-  new_block->addSuccessor(block);
-  return new_block;
+  return reinterpret_cast<BasicBlock*>(
+      lir_block_insert_between(
+          reinterpret_cast<LirBasicBlock*>(this),
+          reinterpret_cast<LirBasicBlock*>(block)));
 }
 
 BasicBlock* BasicBlock::splitBefore(Instruction* instr) {
-  JIT_CHECK(func_ != nullptr, "cannot split block that doesn't belong to a function");
-  JIT_CHECK(instr->opcode_ != Instruction::kPhi, "cannot split block at a phi node");
-
-  bool found = false;
-  for (Instruction* i = instr_head_; i; i = i->next_) {
-    if (i == instr) { found = true; break; }
-  }
-  if (!found) return nullptr;
-
-  auto second_block = func_->allocateBasicBlockAfter(this);
-  Instruction* cur = instr;
-  while (cur) {
-    Instruction* next = cur->next_;
-    removeInstr(cur);
-    cur->setbasicblock(second_block);
-    second_block->appendInstr(cur);
-    cur = next;
-  }
-
-  for (size_t i = 0; i < num_succs_; i++) {
-    auto* bb = successors_[i];
-    bb->fixupPhis(this, second_block);
-    appendToBlockArray(
-        second_block->successors_, second_block->num_succs_,
-        second_block->succs_capacity_, bb);
-    for (size_t j = 0; j < bb->num_preds_; j++) {
-      if (bb->predecessors_[j] == this) {
-        bb->predecessors_[j] = second_block;
-      }
-    }
-  }
-
-  num_succs_ = 0;
-  addSuccessor(second_block);
-  return second_block;
+  return reinterpret_cast<BasicBlock*>(
+      lir_block_split_before(
+          reinterpret_cast<LirBasicBlock*>(this),
+          reinterpret_cast<LirInstruction*>(instr)));
 }
 
 void BasicBlock::fixupPhis(BasicBlock* old_pred, BasicBlock* new_pred) {
-  foreachPhiInstr([&](Instruction* instr) {
-    for (size_t i = 0, n = instr->getNumInputs(); i < n; ++i) {
-      auto block = instr->getInput(i);
-      if (block->type() == Operand::kLabel) {
-        if (block->getBasicBlock() == old_pred) {
-          static_cast<Operand*>(block)->setBasicBlock(new_pred);
-        }
-      }
-    }
-  });
+  lir_block_fixup_phis(
+      reinterpret_cast<LirBasicBlock*>(this),
+      reinterpret_cast<LirBasicBlock*>(old_pred),
+      reinterpret_cast<LirBasicBlock*>(new_pred));
 }
 
 } // namespace jit::lir
