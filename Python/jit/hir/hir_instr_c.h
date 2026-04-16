@@ -16,6 +16,18 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+/* Forward-declare PhxPtrArray before frame_state.h include to break
+ * circular dependency: hir_instr_c.h → frame_state.h → hir_instr_c.h.
+ * The full definition follows below in the extern "C" block. */
+#ifndef PHX_PTR_ARRAY_DECLARED
+#define PHX_PTR_ARRAY_DECLARED
+typedef struct PhxPtrArray {
+    void **data;
+    size_t count;
+    size_t capacity;
+} PhxPtrArray;
+#endif
+
 #ifdef __cplusplus
 /* H2-E1+E2: no more C++ containers in DeoptBase.
  * Only frame_state.h needed for visitUses C++ bridge. */
@@ -85,12 +97,16 @@ static inline int phx_edge_arr_empty(const PhxEdgePtrArray *a) {
 }
 
 /* ---- Void pointer array (generic, used for Register* arrays) ----
- * FrameState→C: replaces std::vector<Register*> and jit::Stack<Register*>. */
+ * FrameState→C: replaces std::vector<Register*> and jit::Stack<Register*>.
+ * Definition may already exist from forward-declaration above. */
+#ifndef PHX_PTR_ARRAY_DECLARED
+#define PHX_PTR_ARRAY_DECLARED
 typedef struct PhxPtrArray {
     void **data;
     size_t count;
     size_t capacity;
 } PhxPtrArray;
+#endif
 
 static inline void phx_ptr_arr_init(PhxPtrArray *a) {
     a->data = NULL; a->count = 0; a->capacity = 0;
