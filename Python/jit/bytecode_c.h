@@ -5,10 +5,18 @@
  */
 #pragma once
 
+/* Forward-declare CPython types to avoid Python.h in C++ TUs */
+#ifndef PyObject_HEAD
 typedef struct _object PyObject;
 typedef struct _code PyCodeObject;
+#endif
 
 #include <stdint.h>
+#include <stdbool.h>
+
+#ifndef EXTENDED_OPCODE_FLAG
+#define EXTENDED_OPCODE_FLAG 0
+#endif
 
 #ifdef __cplusplus
 extern "C" {
