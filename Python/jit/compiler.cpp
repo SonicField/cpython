@@ -203,7 +203,8 @@ std::optional<CompiledFunctionData> Compiler::Compile(
 
   Timer timer;
   std::unique_ptr<hir::Function> irfunc(hir::buildHIR(preloader));
-  irfunc->reifier = ThreadedRef<>::create(preloader.reifier());
+  irfunc->reifier = preloader.reifier();
+  Py_XINCREF(irfunc->reifier);
   if (nullptr != compilation_phase_timer) {
     compilation_phase_timer->end();
   }

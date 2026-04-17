@@ -285,9 +285,12 @@ std::unique_ptr<Function> Preloader::makeFunction() const {
   auto irfunc = std::make_unique<Function>();
   irfunc->fullname = strdup(fullname_.c_str());
   irfunc->setCode(code_);
-  irfunc->builtins.reset(builtins_);
-  irfunc->globals.reset(globals_);
-  irfunc->prim_args_info.reset(prim_args_info_);
+  Py_XINCREF(builtins_);
+  irfunc->builtins = builtins_;
+  Py_XINCREF(globals_);
+  irfunc->globals = globals_;
+  Py_XINCREF(prim_args_info_);
+  irfunc->prim_args_info = prim_args_info_;
   irfunc->return_type = return_type_;
   irfunc->has_primitive_args = has_primitive_args_;
   irfunc->has_primitive_first_arg = has_primitive_first_arg_;

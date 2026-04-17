@@ -18,19 +18,24 @@ class Function {
   Function() {}
   ~Function() {
     ThreadedCompileSerialize guard;
-    code.reset();
-    builtins.reset();
-    globals.reset();
-    prim_args_info.reset();
+    Py_XDECREF(code);
+    code = nullptr;
+    Py_XDECREF(builtins);
+    builtins = nullptr;
+    Py_XDECREF(globals);
+    globals = nullptr;
+    Py_XDECREF(prim_args_info);
+    prim_args_info = nullptr;
+    Py_XDECREF(reifier);
+    reifier = nullptr;
     free(fullname);
   }
 
-  ThreadedRef<PyCodeObject> code;
-  ThreadedRef<PyDictObject> builtins;
-  ThreadedRef<PyDictObject> globals;
+  PyCodeObject* code{nullptr};
+  PyDictObject* builtins{nullptr};
+  PyDictObject* globals{nullptr};
 
-  // for primitive args only, null if there are none
-  ThreadedRef<_PyTypedArgsInfo> prim_args_info;
+  _PyTypedArgsInfo* prim_args_info{nullptr};
 
   char* fullname{nullptr};
 
@@ -97,7 +102,9 @@ class Function {
 
   // Set code and a number of other members that are derived from it.
   void setCode(BorrowedRef<PyCodeObject> code_2) {
-    this->code.reset(code_2);
+    Py_XINCREF(code_2.get());
+    Py_XDECREF(this->code);
+    this->code = code_2;
     uses_runtime_func = usesRuntimeFunc(code_2);
     frameMode = static_cast<FrameMode>(jit_get_config()->frame_mode);
   }
@@ -163,7 +170,7 @@ class Function {
     return fs == nullptr ? code : fs->code;
   }
 
-  ThreadedRef<> reifier;
+  PyObject* reifier{nullptr};
 
  private:
   DISALLOW_COPY_AND_ASSIGN(Function);
