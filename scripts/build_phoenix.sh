@@ -77,6 +77,20 @@ else
            "$BUILD_DIR/libcommon.a"
 fi
 
+# Step 1b: Detect stale cmake artifacts (compiler mismatch)
+if [ -f "$BUILD_DIR/CMakeCache.txt" ] && [ "$CLEAN" -eq 0 ]; then
+    CACHED_CC=$(grep 'CMAKE_C_COMPILER:' "$BUILD_DIR/CMakeCache.txt" 2>/dev/null | cut -d= -f2)
+    CACHED_CXX=$(grep 'CMAKE_CXX_COMPILER:' "$BUILD_DIR/CMakeCache.txt" 2>/dev/null | cut -d= -f2)
+    ACTUAL_CC=$(command -v "$PHOENIX_CC" 2>/dev/null || echo "$PHOENIX_CC")
+    ACTUAL_CXX=$(command -v "$PHOENIX_CXX" 2>/dev/null || echo "$PHOENIX_CXX")
+    if [ "$CACHED_CC" != "$ACTUAL_CC" ] || [ "$CACHED_CXX" != "$ACTUAL_CXX" ]; then
+        echo "WARNING: compiler changed (cached: $CACHED_CC/$CACHED_CXX, current: $ACTUAL_CC/$ACTUAL_CXX)"
+        echo "Forcing --clean to prevent stale object contamination."
+        rm -rf "$BUILD_DIR"
+        CLEAN=1
+    fi
+fi
+
 # Step 2: Configure CPython (generates pyconfig.h needed by cmake) (hermetic — always reconfigure)
 # ARM64: no LTO (causes issues on aarch64 devgpu builds)
 # x86_64: LTO enabled for production performance
