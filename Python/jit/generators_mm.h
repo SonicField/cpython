@@ -119,7 +119,7 @@ inline std::pair<JitGenObject*, size_t> JitGenFreeList::allocate(
   (reinterpret_cast<PyObject**>(raw))[1] = nullptr;
   auto* op = reinterpret_cast<PyVarObject*>(
       reinterpret_cast<uintptr_t>(raw) + sizeof(PyGC_Head));
-  PyTypeObject* tp = is_coro ? cinderx::getModuleState()->coroType() : gen_tp;
+  PyTypeObject* tp = is_coro ? (PyTypeObject*)cinderx::getModuleState()->coroType() : gen_tp;
   _PyObject_InitVar(op, tp, slots);
   return {reinterpret_cast<JitGenObject*>(op), size};
 }
