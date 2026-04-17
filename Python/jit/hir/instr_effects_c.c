@@ -7,7 +7,7 @@
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/alias_class_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
-#include "cinderx/Jit/jit_log_c.h"
+#include "cinderx/Common/jit_log_c.h"
 #include "cinderx/Jit/hir/hir_c_api.h"
 
 static HirMemoryEffects common_effects(const void *instr, uint64_t may_store) {
@@ -293,13 +293,13 @@ HirMemoryEffects hir_memory_effects(const void *instr) {
     case HIR_OP_CondBranchCheckType:
     case HIR_OP_CondBranchIterNotDone:
     case HIR_OP_Phi:
-        JIT_ABORT("Opcode %d doesn't have well-defined memory effects", op);
+        JIT_ABORT_C("Opcode %d doesn't have well-defined memory effects", op);
 
     case HIR_OP_GetTuple:
         return common_effects(instr, AAny);
     }
 
-    JIT_ABORT("Bad opcode %d", op);
+    JIT_ABORT_C("Bad opcode %d", op);
 }
 
 int hir_has_arbitrary_execution(const void *instr) {
@@ -495,9 +495,9 @@ int hir_has_arbitrary_execution(const void *instr) {
             return 0;
 #endif
         }
-        JIT_ABORT("Bad CallCFunc function %d", cc->func);
+        JIT_ABORT_C("Bad CallCFunc function %d", cc->func);
     }
     }
 
-    JIT_ABORT("Bad opcode %d", op);
+    JIT_ABORT_C("Bad opcode %d", op);
 }
