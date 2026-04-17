@@ -21,7 +21,7 @@ namespace jit {
 // oparg() for more details.
 class BytecodeInstruction {
  public:
-  BytecodeInstruction(BorrowedRef<PyCodeObject> code, BCOffset baseOffset)
+  BytecodeInstruction(PyCodeObject* code, BCOffset baseOffset)
       : code_{code}, baseOffset_{baseOffset} {}
 
   // Return the position of the first EXTENDED_ARG (if any) making up the full
@@ -80,7 +80,7 @@ class BytecodeInstruction {
   // offset as its target.
   bool isAbsoluteControlFlow() const;
 
-  BorrowedRef<PyCodeObject> code_;
+  PyCodeObject* code_;
   BCOffset baseOffset_;
   mutable BCIndex opcodeIndex_{std::numeric_limits<int>::min()};
   mutable int extendedOparg_{0};
@@ -94,10 +94,10 @@ class BytecodeInstruction {
 // they will not appear in the stream of `BytecodeInstruction`s.
 class BytecodeInstructionBlock {
  public:
-  explicit BytecodeInstructionBlock(BorrowedRef<PyCodeObject> code);
+  explicit BytecodeInstructionBlock(PyCodeObject* code);
 
   BytecodeInstructionBlock(
-      BorrowedRef<PyCodeObject> code,
+      PyCodeObject* code,
       BCIndex start,
       BCIndex end);
 
@@ -109,7 +109,7 @@ class BytecodeInstructionBlock {
     using pointer = const value_type*;
     using reference = const value_type&;
 
-    Iterator(BorrowedRef<PyCodeObject> code, BCIndex idx, BCIndex end_idx)
+    Iterator(PyCodeObject* code, BCIndex idx, BCIndex end_idx)
         : bci_{code, idx}, end_idx_{end_idx} {}
 
     bool atEnd() const {
@@ -179,7 +179,7 @@ class BytecodeInstructionBlock {
   BytecodeInstruction at(BCIndex idx) const;
 
   // Get the block's code object.
-  BorrowedRef<PyCodeObject> code() const;
+  PyCodeObject* code() const;
 
  private:
   ThreadedRef<PyCodeObject> code_;

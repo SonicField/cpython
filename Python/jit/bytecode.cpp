@@ -92,11 +92,11 @@ bool BytecodeInstruction::isAbsoluteControlFlow() const {
 }
 
 BytecodeInstructionBlock::BytecodeInstructionBlock(
-    BorrowedRef<PyCodeObject> code)
+    PyCodeObject* code)
     : BytecodeInstructionBlock{code, BCIndex{0}, BCIndex{countIndices(code)}} {}
 
 BytecodeInstructionBlock::BytecodeInstructionBlock(
-    BorrowedRef<PyCodeObject> code,
+    PyCodeObject* code,
     BCIndex start,
     BCIndex end)
     : code_{ThreadedRef<PyCodeObject>::create(code)},
@@ -133,7 +133,7 @@ BytecodeInstruction BytecodeInstructionBlock::at(BCIndex idx) const {
   return BytecodeInstruction{code_, idx};
 }
 
-BorrowedRef<PyCodeObject> BytecodeInstructionBlock::code() const {
+PyCodeObject* BytecodeInstructionBlock::code() const {
   return code_;
 }
 
