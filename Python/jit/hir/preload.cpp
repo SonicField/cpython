@@ -18,7 +18,7 @@ namespace jit::hir {
 
 namespace {
 
-static OwnedType resolve_type_descr(BorrowedRef<> descr) {
+static OwnedType resolve_type_descr(PyObject* descr) {
   int optional, exact;
   auto type = Ref<PyTypeObject>::steal(
       _PyClassLoader_ResolveType(descr, &optional, &exact));
@@ -27,7 +27,7 @@ static OwnedType resolve_type_descr(BorrowedRef<> descr) {
       std::move(type), static_cast<bool>(optional), static_cast<bool>(exact)};
 }
 
-static FieldInfo resolve_field_descr(BorrowedRef<PyTupleObject> descr) {
+static FieldInfo resolve_field_descr(PyTupleObject* descr) {
   int field_type;
   Py_ssize_t offset = _PyClassLoader_ResolveFieldOffset(descr, &field_type);
 
@@ -40,7 +40,7 @@ static FieldInfo resolve_field_descr(BorrowedRef<PyTupleObject> descr) {
 }
 
 static void _fill_primitive_arg_types_helper(
-    BorrowedRef<_PyTypedArgsInfo> prim_args_info,
+    _PyTypedArgsInfo* prim_args_info,
     ArgToType& map) {
   for (Py_ssize_t i = 0; i < Py_SIZE(prim_args_info.get()); i++) {
     map.emplace(
@@ -50,7 +50,7 @@ static void _fill_primitive_arg_types_helper(
 }
 
 static void fill_primitive_arg_types_func(
-    BorrowedRef<PyFunctionObject> func,
+    PyFunctionObject* func,
     ArgToType& map) {
   auto prim_args_info =
       Ref<_PyTypedArgsInfo>::steal(_PyClassLoader_GetTypedArgsInfo(
@@ -59,7 +59,7 @@ static void fill_primitive_arg_types_func(
 }
 
 static void fill_primitive_arg_types_thunk(
-    BorrowedRef<PyObject> thunk,
+    PyObject* thunk,
     ArgToType& map,
     PyObject* container) {
   auto prim_args_info = Ref<_PyTypedArgsInfo>::steal(
@@ -69,7 +69,7 @@ static void fill_primitive_arg_types_thunk(
 }
 
 static void fill_primitive_arg_types_builtin(
-    BorrowedRef<> callable,
+    PyObject* callable,
     ArgToType& map) {
   Ci_PyTypedMethodDef* def = _PyClassLoader_GetTypedMethodDef(callable);
   JIT_CHECK(def != nullptr, "expected typed method def");
@@ -84,8 +84,8 @@ static void fill_primitive_arg_types_builtin(
 }
 
 static std::unique_ptr<NativeTarget> resolve_native_target(
-    BorrowedRef<> native_descr,
-    BorrowedRef<> signature) {
+    PyObject* native_descr,
+    PyObject* signature) {
   auto target = std::make_unique<NativeTarget>();
   void* raw_ptr = _PyClassloader_LookupSymbol(
       PyTuple_GET_ITEM(native_descr.get(), 0),
@@ -272,7 +272,7 @@ bool Preloader::canCacheGlobals() const {
 }
 
 PyObject* Preloader::global(int name_idx) const {
-  BorrowedRef<> name = map_get(global_names_, name_idx, nullptr);
+  PyObject* name = map_get(global_names_, name_idx, nullptr);
   if (name != nullptr && canCacheGlobals()) {
     return *getGlobalCache(name);
   }
@@ -331,7 +331,7 @@ bool Preloader::preload() {
             name_idx,
             names_len);
 
-        BorrowedRef<> name = PyTuple_GET_ITEM(names, name_idx);
+        PyObject* name = PyTuple_GET_ITEM(names, name_idx);
         JIT_CHECK(name != nullptr, "name cannot be null");
         // Make sure the cached value has been loaded and any side effects of
         // loading it (e.g. lazy imports) have been exercised before we create
@@ -362,7 +362,7 @@ bool Preloader::preload() {
       }
       case BUILD_CHECKED_LIST:
       case BUILD_CHECKED_MAP: {
-        BorrowedRef<> descr = PyTuple_GetItem(constArg(bc_instr), 0);
+        PyObject* descr = PyTuple_GetItem(constArg(bc_instr), 0);
         OwnedType collection_type = resolve_type_descr(descr);
         if (collection_type.type == nullptr) {
           JIT_LOG(
@@ -378,7 +378,7 @@ bool Preloader::preload() {
       case LOAD_CLASS:
       case REFINE_TYPE:
       case TP_ALLOC: {
-        BorrowedRef<> descr = constArg(bc_instr);
+        PyObject* descr = constArg(bc_instr);
         OwnedType alloc_type = resolve_type_descr(descr);
         if (alloc_type.type == nullptr) {
           JIT_LOG(
@@ -393,14 +393,14 @@ bool Preloader::preload() {
       }
       case LOAD_FIELD:
       case STORE_FIELD: {
-        BorrowedRef<PyTupleObject> descr(constArg(bc_instr));
+        PyTupleObject* descr(constArg(bc_instr));
         fields_.emplace(descr, resolve_field_descr(descr));
         break;
       }
       case LOAD_METHOD_STATIC:
       case INVOKE_FUNCTION:
       case INVOKE_METHOD: {
-        BorrowedRef<> descr = PyTuple_GetItem(constArg(bc_instr), 0);
+        PyObject* descr = PyTuple_GetItem(constArg(bc_instr), 0);
         auto& map = bc_instr.opcode() == INVOKE_FUNCTION ? func_targets_
                                                          : meth_targets_;
         std::unique_ptr<InvokeTarget> target =
@@ -413,8 +413,8 @@ bool Preloader::preload() {
         }
       }
       case INVOKE_NATIVE: {
-        BorrowedRef<> target_descr = PyTuple_GetItem(constArg(bc_instr), 0);
-        BorrowedRef<> signature = PyTuple_GetItem(constArg(bc_instr), 1);
+        PyObject* target_descr = PyTuple_GetItem(constArg(bc_instr), 0);
+        PyObject* signature = PyTuple_GetItem(constArg(bc_instr), 1);
         native_targets_.emplace(
             target_descr, resolve_native_target(target_descr, signature));
         break;
@@ -430,7 +430,7 @@ bool Preloader::preload() {
 }
 
 bool Preloader::preloadStatic() {
-  BorrowedRef<> ret_type_descr = _PyClassLoader_GetCodeReturnTypeDescr(code_);
+  PyObject* ret_type_descr = _PyClassLoader_GetCodeReturnTypeDescr(code_);
   if (ret_type_descr == nullptr) {
     // Special case where a module's code object is being preloaded.  It will
     // not have argument or return type descrs (and they cannot be added as they
@@ -458,7 +458,7 @@ bool Preloader::preloadStatic() {
 
   return_type_ = ret_type.toHir();
 
-  BorrowedRef<PyTupleObject> checks = reinterpret_cast<PyTupleObject*>(
+  PyTupleObject* checks = reinterpret_cast<PyTupleObject*>(
       _PyClassLoader_GetCodeArgumentTypeDescrs(code_));
 
   for (int i = 0; i < PyTuple_GET_SIZE(checks); i += 2) {
