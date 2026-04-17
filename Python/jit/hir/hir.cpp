@@ -603,22 +603,17 @@ bool Instr::isReplayable() const {
 }
 
 void Instr::set_block(BasicBlock* block) {
-  block_ = block;
-  if (IsTerminator()) {
-    for (std::size_t i = 0, n = numEdges(); i < n; ++i) {
-      edge(i)->set_from(block);
-    }
-  }
+  hir_c_set_block(this, block);
 }
 
 void Instr::InsertBefore(Instr& instr) {
-  block_node_.InsertBefore(&instr.block_node_);
-  link(instr.block());
+  hir_c_insert_before_pure(
+      this, &instr, reinterpret_cast<const HirBasicBlock*>(instr.block()));
 }
 
 void Instr::InsertAfter(Instr& instr) {
-  block_node_.InsertAfter(&instr.block_node_);
-  link(instr.block());
+  hir_c_insert_after_pure(
+      this, &instr, reinterpret_cast<const HirBasicBlock*>(instr.block()));
 }
 
 void Instr::ReplaceWith(Instr& instr) {
@@ -639,13 +634,12 @@ void Instr::ExpandInto(const std::vector<Instr*>& expansion) {
 
 void Instr::link(BasicBlock* block) {
   JIT_CHECK(block_ == nullptr, "Instr is already linked");
-  set_block(block);
+  hir_c_set_block(this, block);
 }
 
 void Instr::unlink() {
   JIT_CHECK(block_ != nullptr, "Instr isn't linked");
-  block_node_.Unlink();
-  set_block(nullptr);
+  hir_c_unlink(this, reinterpret_cast<const HirBasicBlock*>(block_));
 }
 
 BasicBlock* Instr::block() const {
