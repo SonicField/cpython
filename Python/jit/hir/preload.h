@@ -255,19 +255,19 @@ class Preloader {
 };
 
 using PreloaderMap =
-    std::unordered_map<BorrowedRef<PyCodeObject>, std::unique_ptr<Preloader>>;
+    std::unordered_map<PyCodeObject*, std::unique_ptr<Preloader>>;
 
 // Manages a map of code objects to their associated preloaders.
 class PreloaderManager {
  public:
   // Add a new code object and preloader pair.  Duplicates are not allowed.
   void add(
-      BorrowedRef<PyCodeObject> code,
+      PyCodeObject* code,
       std::unique_ptr<Preloader> preloader);
 
   // Find the preloader for the given code object or function object.
-  Preloader* find(BorrowedRef<PyCodeObject> code);
-  Preloader* find(BorrowedRef<PyFunctionObject> func);
+  Preloader* find(PyCodeObject* code);
+  Preloader* find(PyFunctionObject* func);
 
   // Check if there are any preloaders registered.
   bool empty() const;

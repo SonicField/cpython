@@ -29,7 +29,7 @@ ThreadedCompileContext& getThreadedCompileContext();
 // Threaded-compile state for the whole process.
 class ThreadedCompileContext {
  public:
-  using WorkList = std::vector<BorrowedRef<>>;
+  using WorkList = std::vector<PyObject*>;
 
   // Accept a list of translation units and set them as being compiled by
   // multiple worker threads.
@@ -53,11 +53,11 @@ class ThreadedCompileContext {
   }
 
   // Fetch the next translation unit to compile.
-  BorrowedRef<> nextUnit() {
-    BorrowedRef<> unit;
+  PyObject* nextUnit() {
+    PyObject* unit = nullptr;
     lock();
     if (!work_list_.empty()) {
-      unit = std::move(work_list_.back());
+      unit = work_list_.back();
       work_list_.pop_back();
     }
     unlock();
@@ -65,7 +65,7 @@ class ThreadedCompileContext {
   }
 
   // Mark a unit as having failed to compile and to be retried in the future.
-  void retryUnit(BorrowedRef<> unit) {
+  void retryUnit(PyObject* unit) {
     lock();
     retry_list_.emplace_back(std::move(unit));
     unlock();

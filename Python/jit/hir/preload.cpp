@@ -516,7 +516,7 @@ bool Preloader::isModuleCodeObject() const {
 }
 
 void PreloaderManager::add(
-    BorrowedRef<PyCodeObject> code,
+    PyCodeObject* code,
     std::unique_ptr<Preloader> preloader) {
   auto [_, inserted] = preloaders_.emplace(code, std::move(preloader));
   JIT_CHECK(
@@ -525,13 +525,13 @@ void PreloaderManager::add(
       PyUnicode_AsUTF8(code->co_qualname));
 }
 
-Preloader* PreloaderManager::find(BorrowedRef<PyCodeObject> code) {
+Preloader* PreloaderManager::find(PyCodeObject* code) {
   auto it = preloaders_.find(code);
   return it != preloaders_.end() ? it->second.get() : nullptr;
 }
 
-Preloader* PreloaderManager::find(BorrowedRef<PyFunctionObject> func) {
-  BorrowedRef<PyCodeObject> code = func->func_code;
+Preloader* PreloaderManager::find(PyFunctionObject* func) {
+  PyCodeObject* code = (PyCodeObject*)func->func_code;
   return find(code);
 }
 

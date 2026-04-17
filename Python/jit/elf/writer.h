@@ -98,7 +98,7 @@ struct Object {
 
 // Code entry to add to an ELF file.
 struct CodeEntry {
-  BorrowedRef<PyCodeObject> code;
+  PyCodeObject* code;
   std::span<const std::byte> compiled_code;
   void* normal_entry{nullptr};
   void* static_entry{nullptr};
