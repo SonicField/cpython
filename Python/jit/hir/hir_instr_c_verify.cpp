@@ -67,6 +67,19 @@ static_assert(offsetof(HirFrameStateLayout, block_stack_data) == offsetof(FrameS
 static_assert(offsetof(HirFrameStateLayout, code) == offsetof(FrameState, code));
 static_assert(offsetof(HirFrameStateLayout, parent) == offsetof(FrameState, parent));
 
+/* Phase E2: Environment layout verification */
+static_assert(sizeof(HirEnvironment) == sizeof(Environment),
+    "HirEnvironment size mismatch with Environment");
+struct HirEnvironmentLayoutVerifier {
+    static_assert(offsetof(HirEnvironment, reg_data) == offsetof(Environment, reg_data_));
+    static_assert(offsetof(HirEnvironment, reg_count) == offsetof(Environment, reg_count_));
+    static_assert(offsetof(HirEnvironment, reg_capacity) == offsetof(Environment, reg_capacity_));
+    static_assert(offsetof(HirEnvironment, references_opaque) == offsetof(Environment, references_));
+    static_assert(offsetof(HirEnvironment, next_register_id) == offsetof(Environment, next_register_id_));
+    static_assert(offsetof(HirEnvironment, next_load_type_attr_cache) == offsetof(Environment, next_load_type_attr_cache_));
+    static_assert(offsetof(HirEnvironment, next_load_type_method_cache) == offsetof(Environment, next_load_type_method_cache_));
+};
+
 /* ---- Per-field offsetof checks via friend struct ---- */
 struct HirInstrLayoutVerifier {
     /* HirInstr vs Instr */

@@ -28,6 +28,7 @@
 struct HirInstrLayoutVerifier;
 struct HirEdgeLayoutVerifier;
 struct HirBasicBlockLayoutVerifier;
+struct HirEnvironmentLayoutVerifier;
 
 namespace jit::hir {
 
@@ -3698,6 +3699,7 @@ class Environment {
 
  private:
   DISALLOW_COPY_AND_ASSIGN(Environment);
+  friend struct ::HirEnvironmentLayoutVerifier;
 
   Register** reg_data_{nullptr};
   size_t reg_count_{0};
