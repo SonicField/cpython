@@ -1183,7 +1183,7 @@ static inline void *hir_phi_block_at(const void *phi, size_t i) {
     return ((const HirPhi *)phi)->bb_data[i];
 }
 
-static inline void *hir_phi_is_trivial(const void *phi) {
+static inline void *hir_phi_is_trivial_impl(const void *phi) {
     void *out = hir_c_output(phi);
     void *val = NULL;
     size_t n = hir_c_num_operands(phi);

@@ -27,6 +27,7 @@
 /* Forward declaration for T2-B layout verification (friend access) */
 struct HirInstrLayoutVerifier;
 struct HirEdgeLayoutVerifier;
+struct HirBasicBlockLayoutVerifier;
 
 namespace jit::hir {
 
@@ -1179,7 +1180,7 @@ class INSTR_CLASS(Phi, (TTop), HasOutput, Operands<>) {
   }
 
   Register* isTrivial() const {
-    return static_cast<Register*>(hir_phi_is_trivial(this));
+    return static_cast<Register*>(hir_phi_is_trivial_impl(this));
   }
 
   // Return the index of the given predecessor in basic_blocks.
@@ -3628,6 +3629,7 @@ class BasicBlock {
   DISALLOW_COPY_AND_ASSIGN(BasicBlock);
 
   friend class Edge;
+  friend struct ::HirBasicBlockLayoutVerifier;
 
   // Instructions for this basic block.
   //
