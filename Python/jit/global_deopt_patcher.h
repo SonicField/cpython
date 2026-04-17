@@ -17,9 +17,9 @@ namespace jit {
 class GlobalDeoptPatcher : public JumpPatcher {
  public:
   GlobalDeoptPatcher(
-      BorrowedRef<PyDictObject> globals,
+      PyDictObject* globals,
       BorrowedRef<PyUnicodeObject> key_name,
-      BorrowedRef<> expected_value)
+      PyObject* expected_value)
       : globals_{globals} {
     ThreadedCompileSerialize guard;
     key_name_.reset(key_name);
@@ -35,7 +35,7 @@ class GlobalDeoptPatcher : public JumpPatcher {
     }
   }
 
-  bool maybePatch(BorrowedRef<> new_value) {
+  bool maybePatch(PyObject* new_value) {
     if (new_value == expected_value_.get()) {
       return false;
     }
@@ -43,8 +43,8 @@ class GlobalDeoptPatcher : public JumpPatcher {
     return true;
   }
 
-  BorrowedRef<PyDictObject> globals() const { return globals_; }
-  BorrowedRef<PyUnicodeObject> keyName() const { return key_name_; }
+  PyDictObject* globals() const { return globals_; }
+  PyUnicodeObject* keyName() const { return key_name_; }
 
  private:
   void onPatch() override {
@@ -52,7 +52,7 @@ class GlobalDeoptPatcher : public JumpPatcher {
     expected_value_.reset();
   }
 
-  BorrowedRef<PyDictObject> globals_;
+  PyDictObject* globals_;
   ThreadedRef<PyUnicodeObject> key_name_;
   ThreadedRef<> expected_value_;
 };
