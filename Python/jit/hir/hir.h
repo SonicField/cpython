@@ -1378,20 +1378,20 @@ class INSTR_CLASS(GetSecondOutput, (TTop), HasOutput, Operands<1>) {
 class CheckBaseWithName : public CheckBase {
  protected:
   // Used only for tests.
-  CheckBaseWithName(Opcode op, BorrowedRef<> name)
+  CheckBaseWithName(Opcode op, PyObject* name)
       : CheckBase(op), name_(name) {}
 
-  CheckBaseWithName(Opcode op, BorrowedRef<> name, const FrameState& frame)
+  CheckBaseWithName(Opcode op, PyObject* name, const FrameState& frame)
       : CheckBase(op, frame), name_(name) {}
 
  public:
-  BorrowedRef<> name() const {
+  PyObject* name() const {
     return name_;
   }
 
  private:
   friend struct ::HirInstrLayoutVerifier;
-  BorrowedRef<> name_;
+  PyObject* name_;
 };
 
 class INSTR_CLASS(LoadField, (TOptObject), HasOutput, Operands<1>) {
@@ -2309,8 +2309,8 @@ class DeoptBaseWithNameIdx : public DeoptBase {
   }
 
   // The name object, retrieved from the code object's co_names tuple.
-  BorrowedRef<PyUnicodeObject> name() const {
-    return PyTuple_GET_ITEM(frameState()->code->co_names, name_idx());
+  PyUnicodeObject* name() const {
+    return (PyUnicodeObject*)PyTuple_GET_ITEM(frameState()->code->co_names, name_idx());
   }
 
  private:
