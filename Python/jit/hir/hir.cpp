@@ -12,16 +12,6 @@
 #include <algorithm>
 #include <cstring>
 
-// Phase H2: BB field offsetof checks (global namespace for friend access)
-struct HirBasicBlockLayoutVerifier {
-    static_assert(offsetof(HirBasicBlock, instrs_) ==
-        offsetof(jit::hir::BasicBlock, instrs_));
-    static_assert(offsetof(HirBasicBlock, out_edges_) ==
-        offsetof(jit::hir::BasicBlock, out_edges_));
-    static_assert(offsetof(HirBasicBlock, in_edges_) ==
-        offsetof(jit::hir::BasicBlock, in_edges_));
-};
-
 namespace jit::hir {
 
 // Phase H1a: Cross-validate HirBasicBlock C struct against C++ BasicBlock.
