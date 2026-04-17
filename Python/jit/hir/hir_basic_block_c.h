@@ -79,6 +79,8 @@ void *hir_bb_pop_front_instr(HirBasicBlock *bb);
 void hir_bb_insert_before(HirBasicBlock *bb, void *instr, void *before);
 void hir_bb_clear(HirBasicBlock *bb);
 void *hir_bb_get_terminator(const HirBasicBlock *bb);
+void *hir_bb_entry_snapshot(const HirBasicBlock *bb);
+int hir_bb_is_trampoline(const HirBasicBlock *bb);
 
 #ifdef __cplusplus
 } /* extern "C" */

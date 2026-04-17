@@ -187,6 +187,42 @@ hir_bb_get_terminator(const HirBasicBlock *bb) {
     return hir_bb_last_instr(bb);
 }
 
+void *
+hir_bb_entry_snapshot(const HirBasicBlock *bb) {
+    void *instr = hir_bb_first_instr(bb);
+    while (instr) {
+        if (hir_c_is_phi(instr)) {
+            instr = hir_bb_next_instr(bb, instr);
+            continue;
+        }
+        if (hir_c_is_snapshot(instr)) {
+            return instr;
+        }
+        return NULL;
+    }
+    return NULL;
+}
+
+int
+hir_bb_is_trampoline(const HirBasicBlock *bb) {
+    void *instr = hir_bb_first_instr(bb);
+    while (instr) {
+        if (hir_c_is_branch(instr)) {
+            HirBasicBlock *succ =
+                (HirBasicBlock *)hir_c_successor(instr, 0);
+            if (succ == bb) return 0;
+            if (hir_bb_empty(succ)) return 1;
+            return !hir_c_is_phi(hir_bb_first_instr(succ));
+        }
+        if (hir_c_is_snapshot(instr)) {
+            instr = hir_bb_next_instr(bb, instr);
+            continue;
+        }
+        return 0;
+    }
+    return 0;
+}
+
 /* ---- Instruction list mutation ---- */
 
 void *

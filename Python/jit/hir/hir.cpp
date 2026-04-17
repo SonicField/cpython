@@ -1011,36 +1011,12 @@ Instr* BasicBlock::GetTerminator() {
 }
 
 Snapshot* BasicBlock::entrySnapshot() {
-  for (auto& instr : instrs_) {
-    if (instr.IsPhi()) {
-      continue;
-    }
-    if (instr.IsSnapshot()) {
-      return static_cast<Snapshot*>(&instr);
-    }
-    return nullptr;
-  }
-  return nullptr;
+  return static_cast<Snapshot*>(
+      hir_bb_entry_snapshot(reinterpret_cast<const HirBasicBlock*>(this)));
 }
 
 bool BasicBlock::IsTrampoline() {
-  for (auto& instr : instrs_) {
-    if (instr.IsBranch()) {
-      auto succ = instr.successor(0);
-      // Don't consider a block a trampoline if its successor has one or more
-      // Phis, since this block may be necessary to pass a specific value to
-      // the Phi. This is correct but conservative: it's often safe to
-      // eliminate trampolines that jump to Phis, but that requires more
-      // involved analysis in the caller.
-      return succ != this && (succ->empty() || !succ->front().IsPhi());
-    }
-    if (instr.IsSnapshot()) {
-      continue;
-    }
-    return false;
-  }
-  // empty block
-  return false;
+  return hir_bb_is_trampoline(reinterpret_cast<const HirBasicBlock*>(this));
 }
 
 void BasicBlock::fixupPhis(BasicBlock* old_pred, BasicBlock* new_pred) {
