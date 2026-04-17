@@ -5905,7 +5905,7 @@ void HIRBuilder::emitLoadField(
 
   Register* receiver = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
   Register* result = temps_.AllocateStack();
-  const char* field_name = PyUnicode_AsUTF8(name);
+  const char* field_name = PyUnicode_AsUTF8((PyObject*)name);
   if (field_name == nullptr) {
     PyErr_Clear();
     field_name = "";
@@ -5913,7 +5913,7 @@ void HIRBuilder::emitLoadField(
   tc.emitLoadField(result, receiver, field_name, offset, type);
   HirType h_type = to_hir(type), h_null = to_hir(TNullptr);
   if (hir_type_could_be(&h_type, &h_null)) {
-    auto* cf = tc.emitCheckField(result, result, name, tc.frame);
+    auto* cf = tc.emitCheckField(result, result, (PyObject*)name, tc.frame);
     cf->setGuiltyReg(receiver);
   }
   phx_ptr_arr_push(&tc.frame.stack, result);
@@ -5923,7 +5923,7 @@ void HIRBuilder::emitStoreField(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   auto& [offset, type, name] = preloader_.fieldInfo(constArg(bc_instr));
-  const char* field_name = PyUnicode_AsUTF8(name);
+  const char* field_name = PyUnicode_AsUTF8((PyObject*)name);
   if (field_name == nullptr) {
     PyErr_Clear();
     field_name = "";

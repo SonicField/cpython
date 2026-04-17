@@ -1252,8 +1252,8 @@ hir::Preloader* preload(BorrowedRef<> unit) {
         funcFullname(outer_func));
     preloader = hir::Preloader::makePreloader(
         code,
-        outer_func->func_builtins,
-        outer_func->func_globals,
+        (PyDictObject*)outer_func->func_builtins,
+        (PyDictObject*)outer_func->func_globals,
         nullptr,
         codeFullname(outer_func->func_module, code),
         makeFrameReifier(code));
