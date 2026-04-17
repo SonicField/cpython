@@ -580,8 +580,10 @@ void reflowTypes(Function& func) {
 void reflowTypes(Function& func, BasicBlock* start) {
   // First, reset all types to Bottom so Phi inputs from back edges don't
   // contribute to the output type of the Phi until they've been processed.
-  for (auto& pair : func.env.GetRegisters()) {
-    pair.second->set_type(TBottom);
+  for (size_t i = 0; i < func.env.reg_count(); i++) {
+    if (func.env.reg_data()[i]) {
+      func.env.reg_data()[i]->set_type(TBottom);
+    }
   }
 
   // Next, flow types forward, iterating to a fixed point.

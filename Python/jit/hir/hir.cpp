@@ -1284,32 +1284,60 @@ Environment::~Environment() {
   references_.clear();
 }
 
+Environment::~Environment() {
+  for (size_t i = 0; i < reg_count_; i++) {
+    delete reg_data_[i];
+  }
+  free(reg_data_);
+}
+
 Register* Environment::AllocateRegister() {
   auto id = next_register_id_++;
-  while (registers_.contains(id)) {
+  while (id < static_cast<int>(reg_count_) && reg_data_[id] != nullptr) {
     id = next_register_id_++;
   }
-  auto res = registers_.emplace(id, std::make_unique<Register>(id));
-  return res.first->second.get();
+  auto reg = new Register(id);
+  if (static_cast<size_t>(id) >= reg_capacity_) {
+    size_t new_cap = reg_capacity_ ? reg_capacity_ * 2 : 16;
+    while (new_cap <= static_cast<size_t>(id)) new_cap *= 2;
+    reg_data_ = static_cast<Register**>(
+        realloc(reg_data_, new_cap * sizeof(Register*)));
+    memset(reg_data_ + reg_count_, 0,
+           (new_cap - reg_count_) * sizeof(Register*));
+    reg_capacity_ = new_cap;
+  }
+  if (static_cast<size_t>(id) >= reg_count_) {
+    reg_count_ = static_cast<size_t>(id) + 1;
+  }
+  JIT_CHECK(reg_data_[id] == nullptr, "Register {} already allocated", id);
+  reg_data_[id] = reg;
+  return reg;
 }
 
 Register* Environment::getRegister(int id) {
-  auto it = registers_.find(id);
-  if (it == registers_.end()) {
+  if (id < 0 || static_cast<size_t>(id) >= reg_count_) {
     return nullptr;
   }
-  return it->second.get();
-}
-
-const Environment::RegisterMap& Environment::GetRegisters() const {
-  return registers_;
+  return reg_data_[id];
 }
 
 Register* Environment::addRegister(std::unique_ptr<Register> reg) {
   auto id = reg->id();
-  auto res = registers_.emplace(id, std::move(reg));
-  JIT_CHECK(res.second, "Register {} already in map", id);
-  return res.first->second.get();
+  if (static_cast<size_t>(id) >= reg_capacity_) {
+    size_t new_cap = reg_capacity_ ? reg_capacity_ * 2 : 16;
+    while (new_cap <= static_cast<size_t>(id)) new_cap *= 2;
+    reg_data_ = static_cast<Register**>(
+        realloc(reg_data_, new_cap * sizeof(Register*)));
+    memset(reg_data_ + reg_count_, 0,
+           (new_cap - reg_count_) * sizeof(Register*));
+    reg_capacity_ = new_cap;
+  }
+  if (static_cast<size_t>(id) >= reg_count_) {
+    reg_count_ = static_cast<size_t>(id) + 1;
+  }
+  JIT_CHECK(reg_data_[id] == nullptr, "Register {} already in map", id);
+  reg_data_[id] = reg.release();
+  return reg_data_[id];
 }
 
 BorrowedRef<> Environment::addReference(BorrowedRef<> obj) {

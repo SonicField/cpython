@@ -3651,7 +3651,6 @@ class BasicBlock {
 
 class Environment {
  public:
-  using RegisterMap = std::unordered_map<int, std::unique_ptr<Register>>;
   using ReferenceSet = std::unordered_set<ThreadedRef<>>;
 
   Environment() = default;
@@ -3659,21 +3658,18 @@ class Environment {
 
   Register* AllocateRegister();
 
-  const RegisterMap& GetRegisters() const;
+  // Iterate registers: use reg_data_/reg_count_ directly.
+  Register** reg_data() const { return reg_data_; }
+  size_t reg_count() const { return reg_count_; }
 
   // Only intended to be used in tests and parsing code.
   Register* addRegister(std::unique_ptr<Register> reg);
 
-  // Only intended to be used in tests and parsing code. Ensure that this
-  // Environment owns a reference to the given borrowed object, keeping it
-  // alive for use by the compiled code. Make Environment a new owner of the
-  // object.
   BorrowedRef<> addReference(BorrowedRef<> obj);
   BorrowedRef<> addReference(Ref<> obj);
 
   const ReferenceSet& references() const;
 
-  // Returns nullptr if a register with the given `id` isn't found
   Register* getRegister(int id);
 
   int nextRegisterId() const {
@@ -3703,7 +3699,9 @@ class Environment {
  private:
   DISALLOW_COPY_AND_ASSIGN(Environment);
 
-  RegisterMap registers_;
+  Register** reg_data_{nullptr};
+  size_t reg_count_{0};
+  size_t reg_capacity_{0};
   ReferenceSet references_;
   int next_register_id_{0};
   int next_load_type_attr_cache_{0};

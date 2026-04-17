@@ -178,9 +178,14 @@ void DataflowAnalysis::AddBasicBlock(const BasicBlock* cfg_block) {
 void DataflowAnalysis::Initialize() {
   // Add all registers -- this sets up the correct number of bits for the
   // analysis
-  num_bits_ = irfunc_.env.GetRegisters().size();
-  for (const auto& it : irfunc_.env.GetRegisters()) {
-    df_analyzer_.AddObject(it.second.get());
+  num_bits_ = 0;
+  for (size_t i = 0; i < irfunc_.env.reg_count(); i++) {
+    if (irfunc_.env.reg_data()[i]) num_bits_++;
+  }
+  for (size_t i = 0; i < irfunc_.env.reg_count(); i++) {
+    if (irfunc_.env.reg_data()[i]) {
+      df_analyzer_.AddObject(irfunc_.env.reg_data()[i]);
+    }
   }
 
   // Compute the initial state for each block
