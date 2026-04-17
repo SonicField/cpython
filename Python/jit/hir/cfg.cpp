@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/hir/cfg.h"
+#include "cinderx/Jit/hir/hir_basic_block_c.h"
 
 namespace jit::hir {
 
@@ -91,11 +92,15 @@ BasicBlock* CFG::AllocateUnlinkedBlock() {
 }
 
 void CFG::InsertBlock(BasicBlock* block) {
-  blocks.PushBack(*block);
+  hir_cfg_insert_block(
+      reinterpret_cast<HirCFG*>(this),
+      reinterpret_cast<HirBasicBlock*>(block));
 }
 
 void CFG::RemoveBlock(BasicBlock* block) {
-  block->cfg_node.Unlink();
+  hir_cfg_remove_block(
+      reinterpret_cast<HirCFG*>(this),
+      reinterpret_cast<HirBasicBlock*>(block));
 }
 
 BasicBlock* CFG::splitAfter(Instr& target) {
