@@ -215,7 +215,7 @@ static inline void *hir_func_prim_args_info(const void *func) {
     return ((void**)func)[3]; /* prim_args_info is fourth field */
 }
 
-static inline const char *hir_func_fullname(const void *func) {
+static inline const char *hir_func_fullname_ptr(const void *func) {
     return ((const char**)func)[4]; /* fullname is fifth field */
 }
 
