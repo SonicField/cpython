@@ -27,7 +27,7 @@ namespace {
 
 struct AbstractCall {
   AbstractCall(
-      BorrowedRef<PyFunctionObject> func,
+      PyFunctionObject* func,
       size_t nargs,
       DeoptBase* instr,
       Register* target = nullptr)
@@ -53,7 +53,7 @@ struct AbstractCall {
     JIT_ABORT("Unsupported call type {}", instr->opname());
   }
 
-  BorrowedRef<PyFunctionObject> func;
+  PyFunctionObject* func;
   size_t nargs{0};
   DeoptBase* instr{nullptr};
   Register* target{nullptr};
@@ -63,7 +63,7 @@ void dlogAndCollectFailureStats(
     Function& caller,
     AbstractCall* call_instr,
     InlineFailureType failure_type) {
-  BorrowedRef<PyFunctionObject> func = call_instr->func;
+  PyFunctionObject* func = call_instr->func;
   std::string callee_name = funcFullname(func);
   Function::InlineFailureStats& inline_failure_stats =
       caller.inline_function_stats.failure_stats;
@@ -80,7 +80,7 @@ void dlogAndCollectFailureStats(
     AbstractCall* call_instr,
     InlineFailureType failure_type,
     const char* tp_name) {
-  BorrowedRef<PyFunctionObject> func = call_instr->func;
+  PyFunctionObject* func = call_instr->func;
   std::string callee_name = funcFullname(func);
   Function::InlineFailureStats& inline_failure_stats =
       caller.inline_function_stats.failure_stats;
@@ -95,7 +95,7 @@ void dlogAndCollectFailureStats(
 
 // Assigns a cost to every function, to be used when determining whether it
 // makes sense to inline or not.
-size_t codeCost(BorrowedRef<PyCodeObject> code) {
+size_t codeCost(PyCodeObject* code) {
   // Manually iterating through the code block to count real opcodes and not
   // inline caches.  Not the best metric but it's something to start with.
   size_t num_opcodes = 0;
@@ -108,9 +108,9 @@ size_t codeCost(BorrowedRef<PyCodeObject> code) {
 // Most of these checks are only temporary and do not in perpetuity prohibit
 // inlining.
 bool canInline(Function& caller, AbstractCall* call_instr) {
-  BorrowedRef<PyFunctionObject> func = call_instr->func;
+  PyFunctionObject* func = call_instr->func;
 
-  BorrowedRef<> globals = func->func_globals;
+  PyObject* globals = func->func_globals;
   if (!PyDict_Check(globals)) {
     dlogAndCollectFailureStats(
         caller,
@@ -120,7 +120,7 @@ bool canInline(Function& caller, AbstractCall* call_instr) {
     return false;
   }
 
-  BorrowedRef<> builtins = func->func_builtins;
+  PyObject* builtins = func->func_builtins;
   if (!PyDict_CheckExact(builtins)) {
     dlogAndCollectFailureStats(
         caller,
@@ -139,7 +139,7 @@ bool canInline(Function& caller, AbstractCall* call_instr) {
     return fail(InlineFailureType::kHasKwdefaults);
   }
 
-  BorrowedRef<PyCodeObject> code{func->func_code};
+  PyCodeObject* code = (PyCodeObject*)func->func_code;
   JIT_CHECK(PyCode_Check(code), "Expected PyCodeObject");
 
   if (code->co_kwonlyargcount > 0) {
@@ -229,7 +229,7 @@ void inlineFunctionCall(Function& caller, AbstractCall* call_instr) {
   auto caller_frame_state =
       std::make_unique<FrameState>(*call_instr->instr->frameState());
 
-  BorrowedRef<PyFunctionObject> callee = call_instr->func;
+  PyFunctionObject* callee = call_instr->func;
 
   // We are only able to inline functions that were already preloaded, since we
   // can't safely preload anything mid-compile (preloading can execute arbitrary
@@ -271,7 +271,7 @@ void inlineFunctionCall(Function& caller, AbstractCall* call_instr) {
       callee_name,
       caller.fullname);
 
-  BorrowedRef<PyCodeObject> callee_code = preloader->code();
+  PyCodeObject* callee_code = preloader->code();
   BasicBlock* tail = caller.cfg.splitAfter(*call_instr->instr);
   auto begin_inlined_function = BeginInlinedFunction::create(
       callee, std::move(caller_frame_state), callee_name, preloader->reifier());
@@ -424,10 +424,10 @@ void InlineFunctionCalls::Run(Function& irfunc) {
           if (recv_type != nullptr) {
             auto* fs = call->asDeoptBase() ? call->asDeoptBase()->frameState() : nullptr;
             if (fs != nullptr) {
-              auto* ic = jit::getContext()->allocateLoadMethodCache(BorrowedRef<PyCodeObject>(fs->code), instr.bytecodeOffset().value());
+              auto* ic = jit::getContext()->allocateLoadMethodCache((PyCodeObject*)fs->code, instr.bytecodeOffset().value());
               for (const auto& entry : ic->entries()) {
                 if (entry.value != nullptr && PyFunction_Check(entry.value)) {
-                  BorrowedRef<PyFunctionObject> callee{entry.value};
+                  PyFunctionObject* callee = (PyFunctionObject*)entry.value;
                   to_inline.emplace_back(callee, call->numArgs(), call, target);
                   break;
                 }
@@ -455,7 +455,7 @@ void InlineFunctionCalls::Run(Function& irfunc) {
 
         auto target_ty2 = target->type();
         HirType target_hir2 = Type::toHirType(target_ty2);
-        BorrowedRef<PyFunctionObject> callee{hir_type_object_spec(&target_hir2)};
+        PyFunctionObject* callee = (PyFunctionObject*)hir_type_object_spec(&target_hir2);
         to_inline.emplace_back(callee, call->numArgs(), call, target);
       } else if (instr.IsInvokeStaticFunction()) {
         auto call = static_cast<InvokeStaticFunction*>(&instr);
@@ -469,7 +469,7 @@ void InlineFunctionCalls::Run(Function& irfunc) {
         if (def != nullptr && def->opcode() == Opcode::kLoadMethodCached) {
           auto* fs = def->asDeoptBase()->frameState();
           if (fs != nullptr) {
-            BorrowedRef<PyCodeObject> code = fs->code;
+            PyCodeObject* code = fs->code;
             int bc_off = def->bytecodeOffset().value();
             auto* ic = jit::getContext()->allocateLoadMethodCache(code, bc_off);
             // Check for monomorphic type in IC entries
@@ -490,7 +490,7 @@ void InlineFunctionCalls::Run(Function& irfunc) {
               // Get the resolved function from the IC entry
               for (const auto& entry : ic->entries()) {
                 if (entry.value != nullptr && PyFunction_Check(entry.value)) {
-                  BorrowedRef<PyFunctionObject> callee{entry.value};
+                  PyFunctionObject* callee = (PyFunctionObject*)entry.value;
                   LOG_INLINER(
                       "Speculative inline: monomorphic CallMethod via IC type {}",
                       mono_type->tp_name);
@@ -515,7 +515,7 @@ void InlineFunctionCalls::Run(Function& irfunc) {
   // Inline as many calls as possible, starting from the top of the function and
   // working down.
   for (auto& call : to_inline) {
-    BorrowedRef<PyCodeObject> call_code{call.func->func_code};
+    PyCodeObject* call_code = (PyCodeObject*)call.func->func_code;
     size_t new_cost = cost + codeCost(call_code);
     if (new_cost > cost_limit) {
       LOG_INLINER(
@@ -554,7 +554,7 @@ void InlineFunctionCalls::Run(Function& irfunc) {
         if (def != nullptr && def->opcode() == Opcode::kLoadMethodCached) {
           auto* fs = def->asDeoptBase()->frameState();
           if (fs != nullptr) {
-            BorrowedRef<PyCodeObject> code = fs->code;
+            PyCodeObject* code = fs->code;
             int bc_off = def->bytecodeOffset().value();
             auto* ic = jit::getContext()->allocateLoadMethodCache(code, bc_off);
             PyTypeObject* mono_type = nullptr;
@@ -625,7 +625,7 @@ void InlineFunctionCalls::Run(Function& irfunc) {
 
         if (mono_type != nullptr &&
             !_PyClassLoader_IsImmutable(reinterpret_cast<PyObject*>(mono_type))) {
-          PyObject* func_obj_raw = reinterpret_cast<PyObject*>(call.func.get());
+          PyObject* func_obj_raw = reinterpret_cast<PyObject*>(call.func);
           auto* patcher = irfunc.allocateCodePatcher<TypeAttrDeoptPatcher>(
               mono_type,
               (PyUnicodeObject*)attr_name,
@@ -657,7 +657,7 @@ void InlineFunctionCalls::Run(Function& irfunc) {
         }
 
         // Replace LoadMethodCached with LoadConst of the resolved function.
-        PyObject* func_obj = reinterpret_cast<PyObject*>(call.func.get());
+        PyObject* func_obj = reinterpret_cast<PyObject*>(call.func);
         Type func_type = Type::fromObject(irfunc.env.addReference(func_obj));
         auto* load_const = static_cast<Instr*>(hir_c_create_load_const(call.target, Type::toHirType(func_type)));
         target_def->ReplaceWith(*load_const);

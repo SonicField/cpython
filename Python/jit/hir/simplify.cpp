@@ -926,7 +926,7 @@ Register* simplifyLoadTupleItem(Env& env, const LoadTupleItem* instr) {
     return nullptr;
   }
   env.emitUseType(src, src_ty);
-  BorrowedRef<> item = PyTuple_GET_ITEM(hir_type_object_spec(&src_hir), instr->idx());
+  PyObject* item = PyTuple_GET_ITEM(hir_type_object_spec(&src_hir), instr->idx());
   return env.emitLoadConst(Type::fromObject(env.func.env.addReference(item)));
 }
 
@@ -955,7 +955,7 @@ Register* simplifyLoadArrayItem(Env& env, const LoadArrayItem* instr) {
     if (idx_signed < PyTuple_GET_SIZE(hir_type_object_spec(&src_arr_hir))) {
       env.emitUseType(src, src->type());
       env.emitUseType(instr->idx(), instr->idx()->type());
-      BorrowedRef<> item = PyTuple_GET_ITEM(hir_type_object_spec(&src_arr_hir), idx);
+      PyObject* item = PyTuple_GET_ITEM(hir_type_object_spec(&src_arr_hir), idx);
       return env.emitLoadConst(
           Type::fromObject(env.func.env.addReference(item)));
     }
@@ -1028,7 +1028,7 @@ Register* simplifyLoadMethod(Env& env, const Instr* instr) {
     return simplifyLoadTypeMethodCached(env, load_meth);
   }
   HirType ty_hir = to_hir(ty);
-  BorrowedRef<PyTypeObject> type{hir_type_runtime_py_type(&ty_hir)};
+  PyTypeObject* type{hir_type_runtime_py_type(&ty_hir)};
   if (type == &PyModule_Type || type == &Ci_StrictModule_Type) {
     return simplifyLoadModuleMethodCached(env, load_meth);
   }
@@ -1063,7 +1063,7 @@ Register* simplifyBinaryOp(Env& env, const BinaryOp* instr) {
       if (!overflow) {
         PyObject* lhs_obj = hir_type_object_spec(&lhs_hir);
         if (index >= 0 && index < PyTuple_GET_SIZE(lhs_obj)) {
-          BorrowedRef<> item = PyTuple_GET_ITEM(lhs_obj, index);
+          PyObject* item = PyTuple_GET_ITEM(lhs_obj, index);
           env.emitUseType(lhs, lhs_type);
           env.emitUseType(rhs, rhs_type);
           return env.emitLoadConst(
@@ -1578,8 +1578,8 @@ Register* simplifyUnbox(Env& env, const Instr* instr) {
 Register* simplifyLoadAttrSplitDict(
     Env& env,
     const LoadAttr* load_attr,
-    BorrowedRef<PyTypeObject> type,
-    BorrowedRef<PyUnicodeObject> name) {
+    PyTypeObject* type,
+    PyUnicodeObject* name) {
 #ifdef Py_GIL_DISABLED
   // See T255055907.
   return nullptr;
@@ -1589,7 +1589,7 @@ Register* simplifyLoadAttrSplitDict(
           type, Py_TPFLAGS_MANAGED_DICT | Py_TPFLAGS_INLINE_VALUES)) {
     return nullptr;
   }
-  BorrowedRef<PyHeapTypeObject> heap_type{type};
+  PyHeapTypeObject* heap_type = (PyHeapTypeObject*)type;
   if (heap_type->ht_cached_keys == nullptr) {
     return nullptr;
   }
@@ -1648,8 +1648,8 @@ Register* simplifyLoadAttrSplitDict(
 Register* simplifyLoadAttrSplitDict(
     Env& env,
     const LoadAttr* load_attr,
-    BorrowedRef<PyTypeObject> type,
-    BorrowedRef<PyUnicodeObject> name) {
+    PyTypeObject* type,
+    PyUnicodeObject* name) {
 
 #if PY_VERSION_HEX >= 0x030C0000
   if (!PyType_HasFeature(type, Py_TPFLAGS_MANAGED_DICT)) {
@@ -1661,12 +1661,12 @@ Register* simplifyLoadAttrSplitDict(
     return nullptr;
   }
 #endif
-  BorrowedRef<PyHeapTypeObject> ht(type);
+  PyHeapTypeObject* ht = (PyHeapTypeObject*)type;
   if (ht->ht_cached_keys == nullptr) {
     return nullptr;
   }
   PyDictKeysObject* keys = ht->ht_cached_keys;
-  Py_ssize_t attr_idx = getDictKeysIndex(keys, name);
+  Py_ssize_t attr_idx = getDictKeysIndex(keys, (PyObject*)name);
   if (attr_idx == -1) {
     return nullptr;
   }
@@ -1690,7 +1690,7 @@ Register* simplifyLoadAttrSplitDict(
   // ultimately it means that the attribute we're trying to load is missing,
   // and the AttributeError to be raised should contain the attribute's name.
   Register* checked_dict =
-      env.emitCheckField(obj_dict, name, *load_attr->frameState(), receiver);
+      env.emitCheckField(obj_dict, (PyObject*)name, *load_attr->frameState(), receiver);
 
 #if PY_VERSION_HEX >= 0x030C0000
   Register* one = env.emitLoadConst(Type::fromCUInt(1, TCUInt64));
@@ -1717,7 +1717,7 @@ Register* simplifyLoadAttrSplitDict(
 #endif
 
   Register* checked_attr =
-      env.emitCheckField(attr, name, *load_attr->frameState(), receiver);
+      env.emitCheckField(attr, (PyObject*)name, *load_attr->frameState(), receiver);
 
   return checked_attr;
 }
@@ -1729,16 +1729,16 @@ struct DescrInfo {
   FrameState* frame_state;
   Register* receiver;
   Type type;
-  BorrowedRef<PyTypeObject> py_type;
-  BorrowedRef<PyUnicodeObject> attr_name;
-  BorrowedRef<> descr;
+  PyTypeObject* py_type;
+  PyUnicodeObject* attr_name;
+  PyObject* descr;
 };
 
 void emitTypeAttrDeoptPatcher(
     Env& env,
     const DescrInfo& info,
     const char* description) {
-  if (_PyClassLoader_IsImmutable(info.py_type)) {
+  if (_PyClassLoader_IsImmutable((PyObject*)info.py_type)) {
     return;
   }
 
@@ -1760,7 +1760,7 @@ Register* simplifyLoadAttrMemberDescr(Env& env, const DescrInfo& info) {
   // PyMemberDescrs are data descriptors, so we don't need to check if the
   // instance dictionary overrides the descriptor.
   PyMemberDef* def =
-      reinterpret_cast<PyMemberDescrObject*>(info.descr.get())->d_member;
+      reinterpret_cast<PyMemberDescrObject*>(info.descr)->d_member;
   if (def->flags & READ_RESTRICTED) {
     // This should be rare and requires raising an audit event; see
     // Objects/descrobject.c:member_get().
@@ -1768,7 +1768,7 @@ Register* simplifyLoadAttrMemberDescr(Env& env, const DescrInfo& info) {
   }
 
   if (def->type == T_OBJECT || def->type == T_OBJECT_EX) {
-    const char* name_cstr = PyUnicode_AsUTF8(info.attr_name);
+    const char* name_cstr = PyUnicode_AsUTF8((PyObject*)info.attr_name);
     if (name_cstr == nullptr) {
       PyErr_Clear();
       name_cstr = "<unknown>";
@@ -1778,7 +1778,7 @@ Register* simplifyLoadAttrMemberDescr(Env& env, const DescrInfo& info) {
     Register* field =
         env.emitLoadField(info.receiver, name_cstr, def->offset, TOptObject);
     if (def->type == T_OBJECT_EX) {
-      return env.emitCheckField(field, info.attr_name, *info.frame_state,
+      return env.emitCheckField(field, (PyObject*)info.attr_name, *info.frame_state,
                                 info.receiver);
     }
 
@@ -1800,8 +1800,8 @@ Register* simplifyLoadAttrProperty(Env& env, const DescrInfo& info) {
   if (Py_TYPE(info.descr) != &PyProperty_Type) {
     return nullptr;
   }
-  auto property = reinterpret_cast<Ci_propertyobject*>(info.descr.get());
-  BorrowedRef<> getter = property->prop_get;
+  auto property = reinterpret_cast<Ci_propertyobject*>(info.descr);
+  PyObject* getter = property->prop_get;
   if (getter == nullptr) {
     return nullptr;
   }
@@ -1816,7 +1816,7 @@ Register* simplifyLoadAttrProperty(Env& env, const DescrInfo& info) {
 }
 
 Register* simplifyLoadAttrGenericDescriptor(Env& env, const DescrInfo& info) {
-  BorrowedRef<PyTypeObject> descr_type = Py_TYPE(info.descr);
+  PyTypeObject* descr_type = Py_TYPE(info.descr);
   descrgetfunc descr_get = descr_type->tp_descr_get;
   descrsetfunc descr_set = descr_type->tp_descr_set;
   if (descr_get == nullptr || descr_set == nullptr) {
@@ -1824,7 +1824,7 @@ Register* simplifyLoadAttrGenericDescriptor(Env& env, const DescrInfo& info) {
   }
 
   emitTypeAttrDeoptPatcher(env, info, "generic descriptor attribute");
-  if (!_PyClassLoader_IsImmutable(descr_type)) {
+  if (!_PyClassLoader_IsImmutable((PyObject*)descr_type)) {
     // We unfortunately have to use a generic TypeDeoptPatcher here that
     // patches on any changes to the type, since type_setattro() calls
     // PyType_Modified() before updating tp_descr_{get,set}.
@@ -1835,7 +1835,7 @@ Register* simplifyLoadAttrGenericDescriptor(Env& env, const DescrInfo& info) {
   }
   env.emitUseType(info.receiver, info.type);
   Register* descr_reg = env.emitLoadConst(Type::fromObject(info.descr));
-  Register* type_reg = env.emitLoadConst(Type::fromObject(info.py_type));
+  Register* type_reg = env.emitLoadConst(Type::fromObject((PyObject*)info.py_type));
   auto call = env.emitCallStaticInstr(3, reinterpret_cast<void*>(descr_get),
                                       TOptObject);
   call->SetOperand(0, descr_reg);
@@ -1852,7 +1852,7 @@ Register* simplifyLoadAttrInstanceReceiver(
   Register* receiver = load_attr->GetOperand(0);
   Type type = receiver->type();
   HirType type_hir = to_hir(type);
-  BorrowedRef<PyTypeObject> py_type{hir_type_runtime_py_type(&type_hir)};
+  PyTypeObject* py_type{hir_type_runtime_py_type(&type_hir)};
 
   if (!hir_type_is_exact(&type_hir) || py_type == nullptr ||
       !PyType_HasFeature(py_type, Py_TPFLAGS_READY) ||
@@ -1869,12 +1869,12 @@ Register* simplifyLoadAttrInstanceReceiver(
     return nullptr;
   }
 
-  BorrowedRef<PyUnicodeObject> attr_name{load_attr->name()};
+  PyUnicodeObject* attr_name = load_attr->name();
   if (!PyUnicode_CheckExact(attr_name)) {
     return nullptr;
   }
 
-  BorrowedRef<> descr{typeLookupSafe(py_type, attr_name)};
+  PyObject* descr{typeLookupSafe(py_type, (PyObject*)attr_name)};
   if (descr == nullptr) {
     return simplifyLoadAttrSplitDict(env, load_attr, py_type, attr_name);
   }
@@ -1931,7 +1931,7 @@ Register* simplifyLoadAttr(Env& env, const LoadAttr* load_attr) {
     Register* receiver = load_attr->GetOperand(0);
     Type ty = receiver->type();
     HirType ty_hir2 = to_hir(ty);
-    BorrowedRef<PyTypeObject> type{hir_type_runtime_py_type(&ty_hir2)};
+    PyTypeObject* type{hir_type_runtime_py_type(&ty_hir2)};
 
     if (type == &PyModule_Type || type == &Ci_StrictModule_Type) {
       return env.emitLoadModuleAttrCached(
@@ -2035,8 +2035,8 @@ static bool isBuiltin(Register* callable, const char* name) {
 static Register* resolveArgs(
     Env& env,
     const VectorCall* instr,
-    BorrowedRef<PyFunctionObject> target) {
-  BorrowedRef<PyCodeObject> code{target->func_code};
+    PyFunctionObject* target) {
+  PyCodeObject* code = (PyCodeObject*)target->func_code;
   JIT_CHECK(!(code->co_flags & CO_VARARGS), "can't resolve varargs");
   // number of positional args (including args with default values)
   size_t co_argcount = static_cast<size_t>(code->co_argcount);
@@ -2051,11 +2051,11 @@ static Register* resolveArgs(
   JIT_CHECK(!(code->co_flags & CO_VARKEYWORDS), "can't resolve varkwargs");
 
   // grab default positional arguments
-  BorrowedRef<PyTupleObject> defaults{target->func_defaults};
+  PyTupleObject* defaults = (PyTupleObject*)target->func_defaults;
 
   // TASK(T143644350): support kwargs and kwdefaults
   size_t num_defaults =
-      defaults == nullptr ? 0 : static_cast<size_t>(PyTuple_GET_SIZE(defaults));
+      defaults == nullptr ? 0 : static_cast<size_t>(PyTuple_GET_SIZE((PyObject*)defaults));
 
   if (num_positional + num_defaults < co_argcount) {
     // function was called with too few arguments
@@ -2071,7 +2071,7 @@ static Register* resolveArgs(
       size_t default_idx = i - num_non_defaults;
 
       ThreadedCompileSerialize guard;
-      auto def = PyTuple_GET_ITEM(defaults, default_idx);
+      auto def = PyTuple_GET_ITEM((PyObject*)defaults, default_idx);
       JIT_CHECK(def != nullptr, "expected non-null default");
       auto type = Type::fromObject(env.func.env.addReference(def));
       resolved_args[i] = env.emitLoadConst(type);
@@ -2084,7 +2084,7 @@ static Register* resolveArgs(
       "func_defaults",
       offsetof(PyFunctionObject, func_defaults),
       TTuple);
-  env.emitGuardIs(defaults, defaults_obj);
+  env.emitGuardIs((PyObject*)defaults, defaults_obj);
   auto new_instr = env.emitVectorCallInstr(
       resolved_args.size() + 1, CallFlags::None, *instr->frameState());
   Register* result = new_instr->output();
@@ -2162,7 +2162,7 @@ Register* simplifyCallMethod(Env& env, const CallMethod* instr) {
         Register* receiver = load_attr_special->GetOperand(0);
         Type receiver_type = receiver->type();
         HirType recv_hir = to_hir(receiver_type);
-        BorrowedRef<PyTypeObject> py_type{hir_type_runtime_py_type(&recv_hir)};
+        PyTypeObject* py_type{hir_type_runtime_py_type(&recv_hir)};
 
         if (hir_type_is_exact(&recv_hir) && py_type != nullptr &&
             PyType_HasFeature(py_type, Py_TPFLAGS_READY)) {
@@ -2171,17 +2171,17 @@ Register* simplifyCallMethod(Env& env, const CallMethod* instr) {
               : ensureVersionTag(py_type);
 
           if (version_ok) {
-            BorrowedRef<> method{typeLookupSafe(py_type, attr_id)};
+            PyObject* method{typeLookupSafe(py_type, attr_id)};
             if (method != nullptr && PyFunction_Check(method)) {
               // Ensure a preloader exists for the resolved callee.
               if (!getThreadedCompileContext().compileRunning()) {
-                BorrowedRef<PyFunctionObject> py_func{method};
+                PyFunctionObject* py_func = (PyFunctionObject*)method;
                 if (preloaderManager().find(py_func) == nullptr) {
                   auto callee_preloader =
                       Preloader::makePreloader(py_func);
                   if (callee_preloader) {
                     preloaderManager().add(
-                        BorrowedRef<PyCodeObject>{py_func->func_code},
+                        (PyCodeObject*)py_func->func_code,
                         std::move(callee_preloader));
                   }
                 }
@@ -2189,11 +2189,11 @@ Register* simplifyCallMethod(Env& env, const CallMethod* instr) {
 
               env.emitSnapshot(*instr->frameState());
 
-              if (!_PyClassLoader_IsImmutable(py_type)) {
+              if (!_PyClassLoader_IsImmutable((PyObject*)py_type)) {
                 auto patchpoint = env.emitDeoptPatchpoint(
                     env.func.allocateCodePatcher<TypeAttrDeoptPatcher>(
                         py_type,
-                        BorrowedRef<PyUnicodeObject>{attr_id},
+                        (PyUnicodeObject*)attr_id,
                         method));
                 hir_c_set_guilty_reg(patchpoint,receiver);
                 hir_c_set_descr(patchpoint,"CallMethod __exit__ method resolution");
@@ -2203,7 +2203,7 @@ Register* simplifyCallMethod(Env& env, const CallMethod* instr) {
 
               Register* func_const = env.emitLoadConst(
                   Type::fromObject(
-                      env.func.env.addReference(method.get())));
+                      env.func.env.addReference(method)));
 
               // Build VectorCall: resolved_func, receiver (self), then the
               // original CallMethod operands (exc_type, exc_val, exc_tb).
@@ -2415,7 +2415,7 @@ Register* simplifyVectorCallBoundMethod(Env& env, const VectorCall* instr) {
   Register* receiver = load_attr_special->GetOperand(0);
   Type receiver_type = receiver->type();
   HirType recv_hir2 = to_hir(receiver_type);
-  BorrowedRef<PyTypeObject> py_type{hir_type_runtime_py_type(&recv_hir2)};
+  PyTypeObject* py_type{hir_type_runtime_py_type(&recv_hir2)};
 
   // Bail if receiver type is not exact or not ready.
   if (!hir_type_is_exact(&recv_hir2) || py_type == nullptr ||
@@ -2433,7 +2433,7 @@ Register* simplifyVectorCallBoundMethod(Env& env, const VectorCall* instr) {
   }
 
   // Resolve the special method through the MRO at compile time.
-  BorrowedRef<> method{typeLookupSafe(py_type, attr_id)};
+  PyObject* method{typeLookupSafe(py_type, attr_id)};
   if (method == nullptr) {
     return nullptr;
   }
@@ -2451,12 +2451,12 @@ Register* simplifyVectorCallBoundMethod(Env& env, const VectorCall* instr) {
   // trivial methods (e.g. __enter__(self): return self) the preloader
   // matches no bytecodes -- no Python code execution occurs.
   if (!getThreadedCompileContext().compileRunning()) {
-    BorrowedRef<PyFunctionObject> py_func{method};
+    PyFunctionObject* py_func = (PyFunctionObject*)method;
     if (preloaderManager().find(py_func) == nullptr) {
       auto callee_preloader = Preloader::makePreloader(py_func);
       if (callee_preloader) {
         preloaderManager().add(
-            BorrowedRef<PyCodeObject>{py_func->func_code},
+            (PyCodeObject*)py_func->func_code,
             std::move(callee_preloader));
       }
     }
@@ -2467,10 +2467,10 @@ Register* simplifyVectorCallBoundMethod(Env& env, const VectorCall* instr) {
   // (LoadAttrSpecial), so our DeoptPatchpoint needs its own Snapshot.
   env.emitSnapshot(*instr->frameState());
 
-  if (!_PyClassLoader_IsImmutable(py_type)) {
+  if (!_PyClassLoader_IsImmutable((PyObject*)py_type)) {
     auto patchpoint = env.emitDeoptPatchpoint(
         env.func.allocateCodePatcher<TypeAttrDeoptPatcher>(
-            py_type, BorrowedRef<PyUnicodeObject>{attr_id}, method));
+            py_type, (PyUnicodeObject*)attr_id, method));
     hir_c_set_guilty_reg(patchpoint,receiver);
     hir_c_set_descr(patchpoint,"LoadAttrSpecial method resolution");
   }
@@ -2479,7 +2479,7 @@ Register* simplifyVectorCallBoundMethod(Env& env, const VectorCall* instr) {
 
   // Load the resolved function as a constant.
   Register* func_const = env.emitLoadConst(
-      Type::fromObject(env.func.env.addReference(method.get())));
+      Type::fromObject(env.func.env.addReference(method)));
 
   // Build a new VectorCall with the function, self (receiver), and
   // original arguments. Mark as Static since we're calling directly.
@@ -2537,13 +2537,13 @@ Register* simplifyVectorCallGlobal(Env& env, const VectorCall* instr) {
 
   // Get the globals dict and name from the LoadGlobalCached instruction.
   auto load_global = static_cast<const LoadGlobalCached*>(input_def);
-  BorrowedRef<PyDictObject> globals{load_global->globals()};
+  PyDictObject* globals{load_global->globals()};
   PyObject* name = PyTuple_GET_ITEM(load_global->code()->co_names,
                                      load_global->name_idx());
   if (!PyUnicode_CheckExact(name)) {
     return nullptr;
   }
-  BorrowedRef<PyUnicodeObject> key_name{name};
+  PyUnicodeObject* key_name = (PyUnicodeObject*)name;
 
   // Don't simplify during threaded compilation -- we need the GIL to
   // safely register watchers and access the preloader.
@@ -2556,7 +2556,7 @@ Register* simplifyVectorCallGlobal(Env& env, const VectorCall* instr) {
 
   // Install a GlobalDeoptPatcher that fires if this global is rebound.
   auto* patcher = env.func.allocateCodePatcher<GlobalDeoptPatcher>(
-      globals, key_name, BorrowedRef<>{expected});
+      globals, key_name, (PyObject*)expected);
   auto patchpoint = env.emitDeoptPatchpoint(patcher);
   hir_c_set_guilty_reg(patchpoint,func_reg);
   hir_c_set_descr(patchpoint,"Global callee guard elimination");
@@ -2676,8 +2676,8 @@ Register* simplifyVectorCall(Env& env, const VectorCall* instr) {
   }
   HirType target_hir = to_hir(target_type);
   if (hir_type_has_value_spec(&target_hir, to_hir(TFunc))) {
-    BorrowedRef<PyFunctionObject> func{hir_type_object_spec(&target_hir)};
-    BorrowedRef<PyCodeObject> code{func->func_code};
+    PyFunctionObject* func = (PyFunctionObject*)hir_type_object_spec(&target_hir);
+    PyCodeObject* code = (PyCodeObject*)func->func_code;
     if (code->co_kwonlyargcount > 0 || (code->co_flags & CO_VARARGS) ||
         (code->co_flags & CO_VARKEYWORDS)) {
       // TASK(T143644854): full argument resolution
