@@ -2031,9 +2031,9 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
               name);
           break;
         }
-        PyObject* builtins = i.asDeoptBase()->frameState()->builtins;
+        PyObject* builtins = (PyObject*)i.asDeoptBase()->frameState()->builtins;
         env_->code_rt->addReference(builtins);
-        PyObject* globals = i.asDeoptBase()->frameState()->globals;
+        PyObject* globals = (PyObject*)i.asDeoptBase()->frameState()->globals;
         env_->code_rt->addReference(globals);
         bbb.appendCallInstruction(
             i.output(), JITRT_LoadGlobal, globals, builtins, name);
@@ -2766,7 +2766,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
 
         Instruction* globals;
         if (jit_get_config()->stable_frame) {
-          BorrowedRef<> obj = i.asDeoptBase()->frameState()->globals;
+          PyObject* obj = (PyObject*)i.asDeoptBase()->frameState()->globals;
           env_->code_rt->addReference(obj);
           globals = bbb.appendInstr(
               OutVReg{},
@@ -3348,8 +3348,8 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
             instr->GetFromList(),
             instr->GetLevel());
 #elif PY_VERSION_HEX >= 0x030C0000 && ENABLE_LAZY_IMPORTS
-        PyObject* globals = instr->frameState()->globals;
-        PyObject* builtins = instr->frameState()->builtins;
+        PyObject* globals = (PyObject*)instr->frameState()->globals;
+        PyObject* builtins = (PyObject*)instr->frameState()->builtins;
         PyObject* locals = Py_None; /* see JITRT_ImportName. */
         bbb.appendCallInstruction(
             i.output(),

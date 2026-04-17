@@ -6588,7 +6588,7 @@ void HIRBuilder::emitLoadBuildClass(TranslationContext& tc) {
   Register* result = temps_.AllocateStack();
   Register* builtins = temps_.AllocateNonStack();
   Register* key = temps_.AllocateNonStack();
-  tc.emitLoadConst(builtins, Type::fromObject(tc.frame.builtins));
+  tc.emitLoadConst(builtins, Type::fromObject((PyObject*)tc.frame.builtins));
   // Starting at the preloader the JIT seems to assume builtins will be a
   // dictionary, however I'm not sure there's any guarantee of this.
   Register* builtins_dict = temps_.AllocateNonStack();
@@ -6604,7 +6604,7 @@ void HIRBuilder::emitStoreGlobal(
   Register* globals = temps_.AllocateNonStack();
   Register* key = temps_.AllocateNonStack();
 
-  tc.emitLoadConst(globals, Type::fromObject(tc.frame.globals));
+  tc.emitLoadConst(globals, Type::fromObject((PyObject*)tc.frame.globals));
   // Starting at the preloader the JIT seems to assume globals will be a
   // dictionary, however I'm not sure there's any guarantee of this.
   Register* globals_dict = temps_.AllocateNonStack();
