@@ -1612,17 +1612,15 @@ class InlineBase {
 class INSTR_CLASS(BeginInlinedFunction, (), Operands<0>), public InlineBase {
  public:
   BeginInlinedFunction(
-      BorrowedRef<PyFunctionObject> func,
+      PyFunctionObject* func,
       std::unique_ptr<FrameState> caller_state,
       const std::string& fullname,
-      BorrowedRef<> reifier)
+      PyObject* reifier)
       : InstrT(), func_(func), reifier_(reifier),
         caller_state_(caller_state.release()),
         fullname_(fullname.empty() ? nullptr : strdup(fullname.c_str())) {
   }
 
-  // Note: The copy constructor creates a new FrameState - this means that
-  // inlined FrameStates will not point to the copied FrameState as their parent
   BeginInlinedFunction(const BeginInlinedFunction& other)
       : InstrT(), func_(other.func()),
         caller_state_(new FrameState(*other.callerFrameState())),
@@ -1638,27 +1636,27 @@ class INSTR_CLASS(BeginInlinedFunction, (), Operands<0>), public InlineBase {
     return caller_state_;
   }
 
-  BorrowedRef<PyFunctionObject> func() const {
+  PyFunctionObject* func() const {
     return func_;
   }
 
-  BorrowedRef<PyCodeObject> code() const {
-    return func_->func_code;
+  PyCodeObject* code() const {
+    return (PyCodeObject*)func_->func_code;
   }
 
   const char* fullname() const {
     return fullname_ ? fullname_ : "";
   }
 
-  BorrowedRef<> builtins() const {
+  PyObject* builtins() const {
     return func_->func_builtins;
   }
 
-  BorrowedRef<PyObject> globals() const {
+  PyObject* globals() const {
     return func_->func_globals;
   }
 
-  BorrowedRef<> reifier() const {
+  PyObject* reifier() const {
     return reifier_;
   }
 
@@ -1672,8 +1670,8 @@ class INSTR_CLASS(BeginInlinedFunction, (), Operands<0>), public InlineBase {
   // linked list of FrameStates as well as its parent FrameState. The parent is
   // originally owned by the Call instruction, but that gets destroyed.
   // Used for printing.
-  BorrowedRef<PyFunctionObject> func_;
-  BorrowedRef<> reifier_;
+  PyFunctionObject* func_;
+  PyObject* reifier_;
   FrameState* caller_state_{nullptr};  // was unique_ptr
   char* fullname_{nullptr};  // was std::string
 };
