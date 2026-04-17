@@ -152,6 +152,34 @@ typedef struct HirRegisterLayout {
     char *name;        /* 8 bytes — malloc'd lazy name */
 } HirRegisterLayout;
 
+/* ---- Environment C accessors ---- */
+
+static inline void *hir_env_get_register(const void *env, int id) {
+    const HirEnvironment *e = (const HirEnvironment *)env;
+    if (id < 0 || (size_t)id >= e->reg_count) return NULL;
+    return e->reg_data[id];
+}
+
+static inline size_t hir_env_reg_count(const void *env) {
+    return ((const HirEnvironment *)env)->reg_count;
+}
+
+static inline void **hir_env_reg_data(const void *env) {
+    return (void **)((const HirEnvironment *)env)->reg_data;
+}
+
+static inline int hir_env_next_register_id(const void *env) {
+    return ((const HirEnvironment *)env)->next_register_id;
+}
+
+static inline int hir_env_num_load_type_attr_caches(const void *env) {
+    return ((const HirEnvironment *)env)->next_load_type_attr_cache;
+}
+
+static inline int hir_env_num_load_type_method_caches(const void *env) {
+    return ((const HirEnvironment *)env)->next_load_type_method_cache;
+}
+
 /* ---- FrameState C struct ---- */
 typedef struct HirFrameStateLayout {
     ssize_t cur_instr_offs;           /* 8 bytes — BCOffset */
