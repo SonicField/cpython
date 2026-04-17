@@ -779,16 +779,7 @@ static inline HirEdge *hir_c_edge_at(void *instr, size_t i) {
     return NULL;
 }
 
-static inline void hir_c_set_block(void *instr, void *block) {
-    ((HirInstrLayout *)instr)->block = block;
-    if (hir_instr_info_is_terminator(hir_c_opcode(instr))) {
-        size_t n = hir_c_num_edges(instr);
-        for (size_t i = 0; i < n; i++) {
-            HirEdge *e = hir_c_edge_at(instr, i);
-            hir_edge_set_from(e, (HirBasicBlock *)block);
-        }
-    }
-}
+/* hir_c_set_block is in hir_basic_block_c.h (needs HirBasicBlock + hir_edge_set_from) */
 
 static inline void *hir_c_successor(const void *instr, size_t i) {
     int op = hir_c_opcode(instr);
