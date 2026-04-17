@@ -262,7 +262,7 @@ PyObject** Preloader::getGlobalCache(PyObject* name_obj) const {
       canCacheGlobals(),
       "trying to get a globals cache with unwatchable builtins and/or globals");
   JIT_CHECK(PyUnicode_CheckExact(name_obj), "Name must be a str");
-  BorrowedRef<PyUnicodeObject> name{name_obj};
+  PyUnicodeObject* name = (PyUnicodeObject*)name_obj;
   return cinderx::getModuleState()->cacheManager()->getGlobalCache(
       builtins_, globals_, name);
 }

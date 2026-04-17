@@ -1322,14 +1322,14 @@ void compile_worker_thread() {
       retries);
 }
 
-void compile_units_preloaded(std::vector<BorrowedRef<>>&& units) {
+void compile_units_preloaded(std::vector<PyObject*>&& units) {
   for (auto unit : units) {
     tryCompilePreloaded(unit);
   }
 }
 
 void multithread_compile_units_preloaded(
-    std::vector<BorrowedRef<>>&& units,
+    std::vector<PyObject*>&& units,
     size_t worker_count) {
   JIT_CHECK(worker_count > 1, "Expecting >1 workers but got {}", worker_count);
 
@@ -1384,7 +1384,7 @@ bool compile_all(size_t workers = 0) {
     workers = std::max<size_t>(getConfig().batch_compile_workers, 1);
   }
 
-  std::vector<BorrowedRef<>> compilation_units;
+  std::vector<PyObject*> compilation_units;
   // units that were deleted during preloading
   std::unordered_set<PyObject*> deleted_units;
 
@@ -1424,7 +1424,7 @@ bool compile_all(size_t workers = 0) {
   handle_unit_deleted_during_preload = nullptr;
 
   // Filter out any units that were deleted as a side effect of preloading.
-  std::erase_if(compilation_units, [&](BorrowedRef<> unit) {
+  std::erase_if(compilation_units, [&](PyObject* unit) {
     return deleted_units.contains(unit);
   });
 

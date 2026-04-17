@@ -2017,7 +2017,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
             "Global name should be a string, but is actually a {}",
             Py_TYPE(name)->tp_name);
         auto cache = cinderx::getModuleState()->cacheManager()->getGlobalCache(
-            builtins, globals, name);
+            (PyDictObject*)builtins, (PyDictObject*)globals, (PyUnicodeObject*)name);
         bbb.appendInstr(instr->output(), Instruction::kMove, MemImm{cache});
         break;
       }
