@@ -14,7 +14,7 @@ class IJitGenFreeList {
   virtual ~IJitGenFreeList() = default;
 
   virtual std::pair<JitGenObject*, size_t> allocate(
-      BorrowedRef<PyCodeObject> code,
+      PyCodeObject* code,
       uint64_t jit_spill_words) = 0;
   virtual void free(PyObject* ptr) = 0;
   virtual bool contains(void* ptr) const = 0;

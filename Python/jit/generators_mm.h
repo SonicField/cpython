@@ -30,14 +30,14 @@ static_assert(sizeof(GenDataFooter) == 72, "GenDataFooter size mismatch");
 static_assert(sizeof(GenDataFooter) == 64, "GenDataFooter size mismatch");
 #endif
 
-inline size_t computeGenSlots(BorrowedRef<PyCodeObject> code, uint64_t jit_data_size) {
+inline size_t computeGenSlots(PyCodeObject* code, uint64_t jit_data_size) {
   static_assert(sizeof(uint64_t) == sizeof(PyObject*));
   return _PyFrame_NumSlotsForCodeObject(code) + 1 + ceilDiv(jit_data_size, 8);
 }
 
 inline std::pair<JitGenObject*, size_t> allocateNonFreeList(
     size_t slots, bool is_coro) {
-  BorrowedRef<PyTypeObject> gen_tp = cinderx::getModuleState()->genType();
+  PyTypeObject* gen_tp = cinderx::getModuleState()->genType();
   size_t size = _PyObject_VAR_SIZE(gen_tp, slots);
   JitGenObject* gen = is_coro
       ? reinterpret_cast<JitGenObject*>(PyObject_GC_NewVar(
@@ -71,7 +71,7 @@ class JitGenFreeList : public IJitGenFreeList {
   }
   ~JitGenFreeList() override = default;
 
-  std::pair<JitGenObject*, size_t> allocate(BorrowedRef<PyCodeObject> code, uint64_t jit_data_size) override;
+  std::pair<JitGenObject*, size_t> allocate(PyCodeObject* code, uint64_t jit_data_size) override;
   void free(PyObject* ptr) override;
   bool contains(void* ptr) const override { return ptr >= &entries_ && ptr < &entries_[kGenFreeListEntries - 1] + 1; }
 
@@ -95,7 +95,7 @@ class JITGenFreeThreadedFreeList : public IJitGenFreeList {
   ~JITGenFreeThreadedFreeList() override = default;
 
   std::pair<JitGenObject*, size_t> allocate(
-      BorrowedRef<PyCodeObject> code, uint64_t jit_data_size) override {
+      PyCodeObject* code, uint64_t jit_data_size) override {
     size_t slots = computeGenSlots(code, jit_data_size);
     return allocateNonFreeList(slots, !!(code->co_flags & CO_COROUTINE));
   }
@@ -105,8 +105,8 @@ class JITGenFreeThreadedFreeList : public IJitGenFreeList {
 
 // Deferred inline definitions for JitGenFreeList complex methods.
 inline std::pair<JitGenObject*, size_t> JitGenFreeList::allocate(
-    BorrowedRef<PyCodeObject> code, uint64_t jit_data_size) {
-  BorrowedRef<PyTypeObject> gen_tp = cinderx::getModuleState()->genType();
+    PyCodeObject* code, uint64_t jit_data_size) {
+  PyTypeObject* gen_tp = cinderx::getModuleState()->genType();
   size_t slots = computeGenSlots(code, jit_data_size);
   size_t size = _PyObject_VAR_SIZE(gen_tp, slots);
   size_t total_size = sizeof(PyGC_Head) + size;
