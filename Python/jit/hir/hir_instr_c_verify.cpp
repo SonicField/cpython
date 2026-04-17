@@ -8,6 +8,7 @@
 #include "cinderx/Jit/hir/hir_basic_block_c.h"
 #include "cinderx/Jit/hir/hir.h"
 #include "cinderx/Jit/hir/cfg.h"
+#include "cinderx/Jit/hir/frame_state.h"
 
 #include <cassert>
 
@@ -54,6 +55,17 @@ struct HirCFGLayoutVerifier {
     static_assert(offsetof(HirCFG, block_root) == offsetof(CFG, blocks));
     static_assert(offsetof(HirCFG, next_block_id) == offsetof(CFG, next_block_id_));
 };
+
+/* Phase F1: FrameState layout verification */
+static_assert(sizeof(HirFrameStateLayout) == sizeof(FrameState),
+    "HirFrameStateLayout size mismatch with FrameState");
+static_assert(offsetof(HirFrameStateLayout, cur_instr_offs) == offsetof(FrameState, cur_instr_offs));
+static_assert(offsetof(HirFrameStateLayout, localsplus) == offsetof(FrameState, localsplus));
+static_assert(offsetof(HirFrameStateLayout, nlocals) == offsetof(FrameState, nlocals));
+static_assert(offsetof(HirFrameStateLayout, stack) == offsetof(FrameState, stack));
+static_assert(offsetof(HirFrameStateLayout, block_stack_data) == offsetof(FrameState, block_stack));
+static_assert(offsetof(HirFrameStateLayout, code) == offsetof(FrameState, code));
+static_assert(offsetof(HirFrameStateLayout, parent) == offsetof(FrameState, parent));
 
 /* ---- Per-field offsetof checks via friend struct ---- */
 struct HirInstrLayoutVerifier {

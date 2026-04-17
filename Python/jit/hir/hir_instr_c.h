@@ -152,6 +152,22 @@ typedef struct HirRegisterLayout {
     char *name;        /* 8 bytes — malloc'd lazy name */
 } HirRegisterLayout;
 
+/* ---- FrameState C struct ---- */
+typedef struct HirFrameStateLayout {
+    ssize_t cur_instr_offs;           /* 8 bytes — BCOffset */
+    PhxPtrArray localsplus;           /* 24 bytes */
+    int nlocals;                      /* 4 bytes */
+    int _fs_pad0;                     /* 4 bytes */
+    PhxPtrArray stack;                /* 24 bytes */
+    void *block_stack_data;           /* 24 bytes — PhxExecBlockArray */
+    size_t block_stack_count;
+    size_t block_stack_cap;
+    void *code;                       /* 8 bytes — PyCodeObject* */
+    void *globals;                    /* 8 bytes — PyDictObject* */
+    void *builtins;                   /* 8 bytes — PyDictObject* */
+    struct HirFrameStateLayout *parent; /* 8 bytes */
+} HirFrameStateLayout;
+
 /* ---- Register C accessors ---- */
 
 static inline HirType hir_reg_type(const void *reg) {
