@@ -477,12 +477,12 @@ class FrozenList {
   }
 };
 
-using FuncVisitor = void (*)(BorrowedRef<PyFunctionObject>);
+using FuncVisitor = void (*)(PyFunctionObject*);
 
 inline void walkFunctionObjects(FuncVisitor visitor) {
   auto wrapper = [](PyObject* obj, void* arg) {
     if (PyFunction_Check(obj)) {
-      BorrowedRef<PyFunctionObject> func{obj};
+      PyFunctionObject* func = (PyFunctionObject*)obj;
       reinterpret_cast<FuncVisitor>(arg)(func);
     }
     return 1;

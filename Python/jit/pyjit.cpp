@@ -106,7 +106,7 @@ std::atomic<int> g_compile_workers_retries;
 // Don't care flags: CO_NOFREE, CO_FUTURE_* (the only still-relevant future is
 // "annotations" which doesn't impact bytecode execution.)
 constexpr int required_code_flags = CO_OPTIMIZED | CO_NEWLOCALS;
-bool hasRequiredFlags(BorrowedRef<PyCodeObject> code) {
+bool hasRequiredFlags(PyCodeObject* code) {
   return (code->co_flags & required_code_flags) == required_code_flags;
 }
 
@@ -126,7 +126,7 @@ uint64_t countCalls(PyCodeObject* code) {
 //
 // This is a hack around that by preventing the JIT from compiling anything in
 // cinderx.
-bool isCinderModule(BorrowedRef<> module_name) {
+bool isCinderModule(PyObject* module_name) {
   if (module_name == nullptr || !PyUnicode_Check(module_name)) {
     return false;
   }
@@ -134,7 +134,7 @@ bool isCinderModule(BorrowedRef<> module_name) {
   return name == "cinderx";
 }
 
-bool shouldAlwaysScheduleCompile(BorrowedRef<PyCodeObject> code) {
+bool shouldAlwaysScheduleCompile(PyCodeObject* code) {
   // There's a config option for forcing all Static Python functions to be
   // compiled.
   bool is_static = code->co_flags & CI_CO_STATICALLY_COMPILED;
@@ -142,11 +142,11 @@ bool shouldAlwaysScheduleCompile(BorrowedRef<PyCodeObject> code) {
 }
 
 // Check if a function has been preloaded.
-bool isPreloaded(BorrowedRef<PyFunctionObject> func) {
+bool isPreloaded(PyFunctionObject* func) {
   return hir::preloaderManager().find(func) != nullptr;
 }
 
-void incrementShadowcodeCall(BorrowedRef<PyCodeObject> code) {
+void incrementShadowcodeCall(PyCodeObject* code) {
 #if SHADOWCODE_SUPPORTED
   // The interpreter will only increment up to the shadowcode threshold
   // PYSHADOW_INIT_THRESHOLD. After that, it will stop incrementing. If someone
@@ -176,7 +176,7 @@ void incrementShadowcodeCall(BorrowedRef<PyCodeObject> code) {
 // 1. Function has >= 1 STORE_ATTR instruction
 // 2. ALL STORE_ATTRs are generic (opcode 95, not SLOT/INSTANCE_VALUE/HINT)
 // 3. Function has NO specialised LOAD_ATTRs (SLOT, INSTANCE_VALUE)
-static bool shouldSkipCompilation(BorrowedRef<PyCodeObject> code) {
+static bool shouldSkipCompilation(PyCodeObject* code) {
   // Skip functions containing IMPORT_NAME — the JIT does not set up
   // frame globals correctly for PyImport_Import, causing SIGSEGV.
   // Bail out to interpreter which handles imports correctly.
@@ -377,7 +377,7 @@ PyObject* forcedJitVectorcall(
       PyFunction_Check(func_obj),
       "Called JIT wrapper with {} object instead of a function",
       Py_TYPE(func_obj)->tp_name);
-  BorrowedRef<PyFunctionObject> func{func_obj};
+  PyFunctionObject* func = (PyFunctionObject*)func_obj;
 
   // Already compiled (e.g., compiled by a concurrent deferred callback
   // between the vectorcall stamp and this call).  Dispatch through the
@@ -484,8 +484,8 @@ PyObject* jitVectorcall(
       PyFunction_Check(func_obj),
       "Called JIT wrapper with {} object instead of a function",
       Py_TYPE(func_obj)->tp_name);
-  BorrowedRef<PyFunctionObject> func{func_obj};
-  BorrowedRef<PyCodeObject> code{func->func_code};
+  PyFunctionObject* func = (PyFunctionObject*)func_obj;
+  PyCodeObject* code = (PyCodeObject*)func->func_code;
 
   // If there's a call count limit, interpret the function as usual until the
   // limit is reached.
@@ -1104,7 +1104,7 @@ JitFlagProcessor initFlagProcessor() {
  * Return true if the function was successfully reopted, false if nothing
  * happened.
  */
-bool reoptFunc(BorrowedRef<PyFunctionObject> func) {
+bool reoptFunc(PyFunctionObject* func) {
   if (jitCtx() == nullptr) {
     return false;
   } else if (jitCtx()->didCompile(func)) {
@@ -1116,7 +1116,7 @@ bool reoptFunc(BorrowedRef<PyFunctionObject> func) {
     if (CompiledFunction* compiled = jitCtx()->lookupFunc(func)) {
       CodeRuntime* rt = compiled->runtime();
       if (jitCtx()->isDeoptBackoffTriggered(rt)) {
-        BorrowedRef<PyCodeObject> code{func->func_code};
+        PyCodeObject* code = (PyCodeObject*)func->func_code;
         code->co_flags |= CI_CO_SUPPRESS_JIT;
         return false;
       }
@@ -1129,7 +1129,7 @@ bool reoptFunc(BorrowedRef<PyFunctionObject> func) {
     return true;
   }
 
-  BorrowedRef<PyCodeObject> code{func->func_code};
+  PyCodeObject* code = (PyCodeObject*)func->func_code;
   if (code->co_flags & CI_CO_SUPPRESS_JIT) {
     return false;
   }
@@ -1298,7 +1298,7 @@ void compile_worker_thread() {
   size_t attempts = 0;
   size_t retries = 0;
 
-  while (BorrowedRef<> unit = getThreadedCompileContext().nextUnit()) {
+  while (PyObject* unit = getThreadedCompileContext().nextUnit()) {
     attempts++;
     _PyJIT_Result res = tryCompilePreloaded(unit);
     if (res == PYJIT_RESULT_ALREADY_SCHEDULED) {
@@ -1473,13 +1473,13 @@ enum class JitEligibility { Ineligible, JitListEligible, Eligible };
  * checks if the JIT has been configured in such a way that compilation is
  * possible.
  */
-JitEligibility getCompilationEligibility(BorrowedRef<PyFunctionObject> func) {
+JitEligibility getCompilationEligibility(PyFunctionObject* func) {
   // Can be called after the module has been finalized, due to function events.
   if (jitCtx() == nullptr || isCinderModule(func->func_module)) {
     return JitEligibility::Ineligible;
   }
 
-  BorrowedRef<PyCodeObject> code{func->func_code};
+  PyCodeObject* code = (PyCodeObject*)func->func_code;
   if (!hasRequiredFlags(code)) {
     return JitEligibility::Ineligible;
   }
@@ -1501,8 +1501,8 @@ JitEligibility getCompilationEligibility(BorrowedRef<PyFunctionObject> func) {
  * Variant of getCompilationEligibility() for nested code objects.
  */
 JitEligibility getCompilationEligibility(
-    BorrowedRef<> module_name,
-    BorrowedRef<PyCodeObject> code) {
+    PyObject* module_name,
+    PyCodeObject* code) {
   // Can be called after the module has been finalized, due to function events.
   if (jitCtx() == nullptr) {
     return JitEligibility::Ineligible;
@@ -1530,12 +1530,12 @@ JitEligibility getCompilationEligibility(
 // Recursively search the given co_consts tuple for any code objects that are
 // on the current jit-list, using the given module name to form a
 // fully-qualified function name.
-std::vector<BorrowedRef<PyCodeObject>> findNestedCodes(
-    BorrowedRef<> module,
-    BorrowedRef<> root_consts) {
+std::vector<PyCodeObject*> findNestedCodes(
+    PyObject* module,
+    PyObject* root_consts) {
   std::queue<PyObject*> consts_tuples;
   std::unordered_set<PyCodeObject*> visited;
-  std::vector<BorrowedRef<PyCodeObject>> result;
+  std::vector<PyCodeObject*> result;
 
   consts_tuples.push(root_consts);
   while (!consts_tuples.empty()) {
@@ -1543,7 +1543,7 @@ std::vector<BorrowedRef<PyCodeObject>> findNestedCodes(
     consts_tuples.pop();
 
     for (size_t i = 0, size = PyTuple_GET_SIZE(consts); i < size; ++i) {
-      BorrowedRef<PyCodeObject> code = PyTuple_GET_ITEM(consts, i);
+      PyCodeObject* code = (PyCodeObject*)PyTuple_GET_ITEM(consts, i);
       if (!PyCode_Check(code) || !visited.insert(code).second ||
           code->co_qualname == nullptr ||
           getCompilationEligibility(module, code) ==
@@ -1571,7 +1571,7 @@ std::vector<BorrowedRef<PyCodeObject>> findNestedCodes(
 //
 // Return true if the function is registered with JIT or is already compiled,
 // and false otherwise.
-bool registerFunction(BorrowedRef<PyFunctionObject> func) {
+bool registerFunction(PyFunctionObject* func) {
   // Attempt to attach already-compiled code even if the JIT is disabled, as
   // long as it hasn't been finalized.
   if (reoptFunc(func)) {
@@ -1590,7 +1590,7 @@ bool registerFunction(BorrowedRef<PyFunctionObject> func) {
       !getThreadedCompileContext().compileRunning(),
       "Not intended for using during threaded compilation");
   auto& jit_reg_units = cinderx::getModuleState()->registeredCompilationUnits();
-  jit_reg_units.emplace(func.getObj());
+  jit_reg_units.emplace((PyObject*)func);
 
   return true;
 }
@@ -1630,7 +1630,7 @@ PyObject* is_multithreaded_compile_test_enabled(PyObject*, PyObject*) {
   Py_RETURN_FALSE;
 }
 
-bool deoptFuncImpl(BorrowedRef<PyFunctionObject> func) {
+bool deoptFuncImpl(PyFunctionObject* func) {
   // There appear to be instances where the runtime is finalizing and goes to
   // destroy the cinderjit module and deopt all compiled functions, only to find
   // that some of the compiled functions have already been zeroed out and
@@ -1642,7 +1642,7 @@ bool deoptFuncImpl(BorrowedRef<PyFunctionObject> func) {
         Py_IsFinalizing(),
         "Trying to deopt destroyed function at {} when runtime is not "
         "finalizing",
-        reinterpret_cast<void*>(func.get()));
+        reinterpret_cast<void*>(func));
     return false;
   }
 
@@ -1653,7 +1653,7 @@ bool deoptFuncImpl(BorrowedRef<PyFunctionObject> func) {
   return true;
 }
 
-void uncompile(BorrowedRef<PyFunctionObject> func) {
+void uncompile(PyFunctionObject* func) {
   deoptFuncImpl(func);
   jitCtx()->forgetCode(func);
 }
@@ -1664,7 +1664,7 @@ void uncompile(BorrowedRef<PyFunctionObject> func) {
  *
  * Return true if the function was previously JIT-compiled, false otherwise.
  */
-bool deoptFunc(BorrowedRef<PyFunctionObject> func) {
+bool deoptFunc(PyFunctionObject* func) {
   if (jitCtx() && deoptFuncImpl(func)) {
     jitCtx()->addDeoptedFunc(func);
     return true;
@@ -1682,7 +1682,7 @@ void disable_jit_impl(bool deopt_all) {
     JIT_DLOG(
         "Deopting {} compiled functions", jitCtx()->compiledFuncs().size());
     size_t success = 0;
-    for (BorrowedRef<PyFunctionObject> func : jitCtx()->compiledFuncs()) {
+    for (PyFunctionObject* func : jitCtx()->compiledFuncs()) {
       if (deoptFunc(func)) {
         success++;
       } else {
@@ -1725,7 +1725,7 @@ bool enable_jit_impl() {
   }
 
   size_t count = 0;
-  for (BorrowedRef<PyFunctionObject> func : jitCtx()->deoptedFuncs()) {
+  for (PyFunctionObject* func : jitCtx()->deoptedFuncs()) {
     reoptFunc(func);
     count++;
   }
@@ -1759,7 +1759,7 @@ bool hasRegisteredMonitoringCallbacks() {
       continue;
     }
     for (int event_id = 0; event_id < _PY_MONITORING_EVENTS; ++event_id) {
-      BorrowedRef<> entry = is->monitoring_callables[tool_id][event_id];
+      PyObject* entry = is->monitoring_callables[tool_id][event_id];
       if (entry != nullptr && !Py_IsNone(entry)) {
         return true;
       }
@@ -1795,7 +1795,7 @@ PyObject* patched_sys_monitoring_register_callback(
     PyObject* const* args,
     Py_ssize_t nargs) {
   auto mod_state = cinderx::getModuleState();
-  BorrowedRef<> original =
+  PyObject* original =
       mod_state->getOriginalSysMonitoringRegisterCallback();
   JIT_CHECK(
       original != nullptr,
@@ -1823,7 +1823,7 @@ PyObject* patched_sys_setprofile(
     PyObject* const* args,
     Py_ssize_t nargs) {
   auto mod_state = cinderx::getModuleState();
-  BorrowedRef<> original = mod_state->getOriginalSysSetProfile();
+  PyObject* original = mod_state->getOriginalSysSetProfile();
   JIT_CHECK(
       original != nullptr, "Expecting to have sys.setprofile already saved");
 
@@ -1848,7 +1848,7 @@ PyObject* patched_sys_settrace(
     PyObject* const* args,
     Py_ssize_t nargs) {
   auto mod_state = cinderx::getModuleState();
-  BorrowedRef<> original = mod_state->getOriginalSysSetTrace();
+  PyObject* original = mod_state->getOriginalSysSetTrace();
   JIT_CHECK(
       original != nullptr, "Expecting to have sys.settrace already saved");
 
@@ -1885,8 +1885,8 @@ int compile_after_n_calls_impl(uint32_t calls) {
     s_funcs.clear();
     s_funcs.reserve(1024);
     walkFunctionObjects(
-        [](BorrowedRef<PyFunctionObject> func) {
-            s_funcs.push_back((PyObject*)func.get());
+        [](PyFunctionObject* func) {
+            s_funcs.push_back((PyObject*)func);
         });
     for (auto* f : s_funcs) {
       scheduleJitCompile((PyFunctionObject*)f);
@@ -1928,11 +1928,11 @@ PyObject* auto_jit(PyObject* /* self */, PyObject* /* arg */) {
   Py_RETURN_NONE;
 }
 
-BorrowedRef<PyFunctionObject> get_func_arg(
+PyFunctionObject* get_func_arg(
     const char* method_name,
-    BorrowedRef<> arg) {
+    PyObject* arg) {
   if (PyFunction_Check(arg)) {
-    return BorrowedRef<PyFunctionObject>{arg};
+    return (PyFunctionObject*)arg;
   }
   PyErr_Format(
       PyExc_TypeError,
@@ -1980,7 +1980,7 @@ precompile_all(PyObject* /* self */, PyObject* args, PyObject* kwargs) {
 }
 
 PyObject* force_compile(PyObject* /* self */, PyObject* arg) {
-  BorrowedRef<PyFunctionObject> func = get_func_arg("force_compile", arg);
+  PyFunctionObject* func = get_func_arg("force_compile", arg);
   if (func == nullptr) {
     return nullptr;
   }
@@ -2042,7 +2042,7 @@ PyObject* force_compile(PyObject* /* self */, PyObject* arg) {
 }
 
 PyObject* lazy_compile(PyObject* /* self */, PyObject* arg) {
-  BorrowedRef<PyFunctionObject> func = get_func_arg("lazy_compile", arg);
+  PyFunctionObject* func = get_func_arg("lazy_compile", arg);
   if (func == nullptr) {
     return nullptr;
   }
@@ -2066,7 +2066,7 @@ PyObject* lazy_compile(PyObject* /* self */, PyObject* arg) {
 
 // Uncompile a function by returning it to its non-jitted version.
 PyObject* force_uncompile(PyObject* /* self */, PyObject* arg) {
-  BorrowedRef<PyFunctionObject> func = get_func_arg("force_uncompile", arg);
+  PyFunctionObject* func = get_func_arg("force_uncompile", arg);
   if (func == nullptr) {
     return nullptr;
   }
@@ -2097,7 +2097,7 @@ int aot_func_visitor(PyObject* obj, void* arg) {
     return kGcVisitContinue;
   }
 
-  BorrowedRef<PyFunctionObject> func{obj};
+  PyFunctionObject* func = (PyFunctionObject*)obj;
   auto func_state = aot_ctx->lookupFuncState(func);
   if (func_state != nullptr) {
     func->vectorcall = func_state->normalEntry();
@@ -2183,17 +2183,17 @@ PyObject* is_enabled(PyObject* /* self */, PyObject* /* args */) {
 }
 
 PyObject* count_interpreted_calls(PyObject* /* self */, PyObject* arg) {
-  BorrowedRef<PyFunctionObject> func =
+  PyFunctionObject* func =
       get_func_arg("count_interpreted_calls", arg);
   if (func == nullptr) {
     return nullptr;
   }
-  BorrowedRef<PyCodeObject> code{func->func_code};
+  PyCodeObject* code = (PyCodeObject*)func->func_code;
   return PyLong_FromLong(static_cast<long>(countCalls(code)));
 }
 
 PyObject* is_jit_compiled(PyObject* /* self */, PyObject* arg) {
-  BorrowedRef<PyFunctionObject> func = get_func_arg("is_jit_compiled", arg);
+  PyFunctionObject* func = get_func_arg("is_jit_compiled", arg);
   return func != nullptr ? PyBool_FromLong(isJitCompiled(func)) : nullptr;
 }
 
@@ -2265,8 +2265,8 @@ PyObject* dump_elf(PyObject* /* self */, PyObject* arg) {
   const char* filename = PyUnicode_AsUTF8AndSize(arg, &filename_size);
 
   std::vector<elf::CodeEntry> entries;
-  for (BorrowedRef<PyFunctionObject> func : jitCtx()->compiledFuncs()) {
-    BorrowedRef<PyCodeObject> code{func->func_code};
+  for (PyFunctionObject* func : jitCtx()->compiledFuncs()) {
+    PyCodeObject* code = (PyCodeObject*)func->func_code;
     CompiledFunction* compiled_func = jitCtx()->lookupFunc((PyFunctionObject*)func);
 
     elf::CodeEntry entry;
@@ -2331,10 +2331,10 @@ int rescheduleJitList() {
     static std::vector<PyObject*> s_funcs;
     s_funcs.clear();
     s_funcs.reserve(1024);
-    walkFunctionObjects([](BorrowedRef<PyFunctionObject> func) {
+    walkFunctionObjects([](PyFunctionObject* func) {
       auto jit_list = cinderx::getModuleState()->jitList();
       if (jit_list->lookupFunc(func)) {
-        s_funcs.push_back((PyObject*)func.get());
+        s_funcs.push_back((PyObject*)func);
       }
     });
     for (auto* f : s_funcs) {
@@ -2427,8 +2427,8 @@ PyObject* get_compiled_functions(PyObject* /* self */, PyObject*) {
   if (funcs == nullptr) {
     return nullptr;
   }
-  for (BorrowedRef<PyFunctionObject> func : jitCtx()->compiledFuncs()) {
-    if (PyList_Append(funcs, func) < 0) {
+  for (PyFunctionObject* func : jitCtx()->compiledFuncs()) {
+    if (PyList_Append(funcs, (PyObject*)func) < 0) {
       return nullptr;
     }
   }
@@ -2446,7 +2446,7 @@ PyObject* get_function_compilation_time(PyObject* /* self */, PyObject* arg) {
     Py_RETURN_NONE;
   }
 
-  BorrowedRef<PyFunctionObject> func{arg};
+  PyFunctionObject* func = (PyFunctionObject*)arg;
   CompiledFunction* compiled_func = jitCtx()->lookupFunc((PyFunctionObject*)func);
   if (compiled_func == nullptr) {
     Py_RETURN_NONE;
@@ -2461,7 +2461,7 @@ PyObject* get_inlined_functions_stats(PyObject* /* self */, PyObject* arg) {
   if (jitCtx() == nullptr || !PyFunction_Check(arg)) {
     Py_RETURN_NONE;
   }
-  BorrowedRef<PyFunctionObject> func{arg};
+  PyFunctionObject* func = (PyFunctionObject*)arg;
   CompiledFunction* compiled_func = jitCtx()->lookupFunc((PyFunctionObject*)func);
   if (compiled_func == nullptr) {
     Py_RETURN_NONE;
@@ -2516,7 +2516,7 @@ PyObject* get_num_inlined_functions(PyObject* /* self */, PyObject* arg) {
   if (jitCtx() == nullptr || !PyFunction_Check(arg)) {
     return PyLong_FromLong(0);
   }
-  BorrowedRef<PyFunctionObject> func{arg};
+  PyFunctionObject* func = (PyFunctionObject*)arg;
   CompiledFunction* compiled_func = jitCtx()->lookupFunc((PyFunctionObject*)func);
   int size = compiled_func != nullptr
       ? compiled_func->inlinedFunctionsStats().num_inlined_functions
@@ -2528,7 +2528,7 @@ PyObject* get_function_hir_opcode_counts(PyObject* /* self */, PyObject* arg) {
   if (jitCtx() == nullptr || !PyFunction_Check(arg)) {
     Py_RETURN_NONE;
   }
-  BorrowedRef<PyFunctionObject> func{arg};
+  PyFunctionObject* func = (PyFunctionObject*)arg;
   CompiledFunction* compiled_func = jitCtx()->lookupFunc((PyFunctionObject*)func);
   if (compiled_func == nullptr) {
     Py_RETURN_NONE;
@@ -2623,7 +2623,7 @@ Ref<> make_deopt_stats() {
       const DeoptStat& stat = *stat_ptr;
 
       const DeoptFrameMetadata& frame_meta = meta.innermostFrame();
-      BorrowedRef<PyCodeObject> code = frame_meta.code;
+      PyCodeObject* code = frame_meta.code;
 
       auto func_qualname = code->co_qualname;
       BCOffset line_offset = frame_meta.cause_instr_idx;
@@ -2782,12 +2782,12 @@ PyObject* get_and_clear_inline_cache_stats(PyObject* /* self */, PyObject*) {
 }
 
 PyObject* jit_suppress(PyObject* /* self */, PyObject* arg) {
-  BorrowedRef<PyFunctionObject> func = get_func_arg("jit_suppress", arg);
+  PyFunctionObject* func = get_func_arg("jit_suppress", arg);
   if (func == nullptr) {
     return nullptr;
   }
 
-  BorrowedRef<PyCodeObject> code{func->func_code};
+  PyCodeObject* code = (PyCodeObject*)func->func_code;
   code->co_flags |= CI_CO_SUPPRESS_JIT;
 
   Py_INCREF(arg);
@@ -2797,12 +2797,12 @@ PyObject* jit_suppress(PyObject* /* self */, PyObject* arg) {
 // Unsuppress a function that was suppressed by jit_suppress. This will allow it
 // to be compiled in the future.
 PyObject* jit_unsuppress(PyObject* /* self */, PyObject* arg) {
-  BorrowedRef<PyFunctionObject> func = get_func_arg("jit_unsuppress", arg);
+  PyFunctionObject* func = get_func_arg("jit_unsuppress", arg);
   if (func == nullptr) {
     return nullptr;
   }
 
-  BorrowedRef<PyCodeObject> code{func->func_code};
+  PyCodeObject* code = (PyCodeObject*)func->func_code;
   code->co_flags &= ~CI_CO_SUPPRESS_JIT;
 
   Py_INCREF(arg);
@@ -2977,7 +2977,7 @@ PyObject* after_fork_child(PyObject*, PyObject*) {
 void patchSysMonitoringFunctions(PyObject* cinderjit_module) {
 #if PY_VERSION_HEX >= 0x030C0000
 
-  BorrowedRef<> monitoring = PySys_GetObject("monitoring");
+  PyObject* monitoring = PySys_GetObject("monitoring");
   if (monitoring == nullptr) {
     JIT_DLOG("sys.monitoring not found, skipping JIT monitoring integration");
     return;
@@ -3035,7 +3035,7 @@ void patchSysSetProfileAndSetTrace(PyObject* cinderjit_module) {
   auto patchSysFunc =
       [&](const char* attr_name,
           const char* patched_attr_name,
-          const std::function<void(BorrowedRef<>)>& storeOriginal) {
+          const std::function<void(PyObject*)>& storeOriginal) {
         Ref<> original = Ref<>::steal(PyObject_GetAttrString(sys, attr_name));
         if (original == nullptr) {
           JIT_DLOG("sys.{} not found, skipping patching", attr_name);
@@ -3059,10 +3059,10 @@ void patchSysSetProfileAndSetTrace(PyObject* cinderjit_module) {
         }
       };
 
-  patchSysFunc("setprofile", "patched_sys_setprofile", [&](BorrowedRef<> func) {
+  patchSysFunc("setprofile", "patched_sys_setprofile", [&](PyObject* func) {
     mod_state->setOriginalSysSetProfile(func);
   });
-  patchSysFunc("settrace", "patched_sys_settrace", [&](BorrowedRef<> func) {
+  patchSysFunc("settrace", "patched_sys_settrace", [&](PyObject* func) {
     mod_state->setOriginalSysSetTrace(func);
   });
 
@@ -3073,13 +3073,13 @@ void restoreSysMonitoringRegisterCallback() {
 #if PY_VERSION_HEX >= 0x030C0000
 
   auto mod_state = cinderx::getModuleState();
-  BorrowedRef<> original =
+  PyObject* original =
       mod_state->getOriginalSysMonitoringRegisterCallback();
   if (original == nullptr) {
     return;
   }
 
-  BorrowedRef<> monitoring = PySys_GetObject("monitoring");
+  PyObject* monitoring = PySys_GetObject("monitoring");
   if (monitoring == nullptr) {
     return;
   }
@@ -3095,14 +3095,14 @@ void restoreSysSetProfileAndSetTrace() {
 
   auto mod_state = cinderx::getModuleState();
 
-  if (BorrowedRef<> original_setprofile =
+  if (PyObject* original_setprofile =
           mod_state->getOriginalSysSetProfile()) {
     if (PySys_SetObject("setprofile", original_setprofile) < 0) {
       PyErr_Clear();
     }
   }
 
-  if (BorrowedRef<> original_settrace = mod_state->getOriginalSysSetTrace()) {
+  if (PyObject* original_settrace = mod_state->getOriginalSysSetTrace()) {
     if (PySys_SetObject("settrace", original_settrace) < 0) {
       PyErr_Clear();
     }
@@ -3411,8 +3411,8 @@ PyModuleDef jit_module = {
 };
 
 void trackEligibleCodeObjects(
-    BorrowedRef<PyFunctionObject> func,
-    BorrowedRef<PyCodeObject> func_code,
+    PyFunctionObject* func,
+    PyCodeObject* func_code,
     JitEligibility eligibility = JitEligibility::Eligible) {
   // We need to maintain a mapping for all functions which are
   // eligible for compilation at some point - we track the code
@@ -3431,14 +3431,14 @@ void trackEligibleCodeObjects(
   // Scan this function's code object for any nested functions that
   // might be compiled
   PyObject* module = func->func_module;
-  BorrowedRef<> top_consts{func_code->co_consts};
-  for (BorrowedRef<PyCodeObject> code : findNestedCodes(module, top_consts)) {
+  PyObject* top_consts{func_code->co_consts};
+  for (PyCodeObject* code : findNestedCodes(module, top_consts)) {
     if (jit_code_outer_funcs.contains(code)) {
       continue;
     }
     jit_code_outer_funcs.emplace(code, func);
     if (eligibility == JitEligibility::JitListEligible) {
-      jit_reg_units.emplace(code.getObj());
+      jit_reg_units.emplace((PyObject*)code);
     }
   }
 }
@@ -3446,7 +3446,7 @@ void trackEligibleCodeObjects(
 // Preload a function and its dependencies, then compile them all.
 //
 // Failing to compile a dependent function is a soft failure, and is ignored.
-_PyJIT_Result compile_func(BorrowedRef<PyFunctionObject> func) {
+_PyJIT_Result compile_func(PyFunctionObject* func) {
   // isolate preloaders state since batch preloading might trigger a call to a
   // jitable function, resulting in a single-function compile
   hir::IsolatedPreloaders ip;
@@ -3457,7 +3457,7 @@ _PyJIT_Result compile_func(BorrowedRef<PyFunctionObject> func) {
   // function is destroyed we need to remove the dangling registrations in
   // codeOuterFunctions. We will treat whatever remains as new top-level
   // functions.
-  trackEligibleCodeObjects(func, func->func_code);
+  trackEligibleCodeObjects(func, (PyCodeObject*)func->func_code);
 
   // Collect a list of functions to compile.  If it's empty then there must have
   // been a Python error during preloading.
@@ -3511,7 +3511,7 @@ _PyJIT_Result compile_func(BorrowedRef<PyFunctionObject> func) {
 
   // This is the common case, where the original function is compiled last.
   // Return its compilation result.
-  BorrowedRef<PyFunctionObject> last_func = targets.back();
+  PyFunctionObject* last_func = targets.back();
   if (last_func == func) {
     return result;
   }
@@ -3527,7 +3527,7 @@ _PyJIT_Result compile_func(BorrowedRef<PyFunctionObject> func) {
 // Call posix.register_at_fork(None, None, cinderjit.after_fork_child), if it
 // exists. Returns 0 on success or if the module/function doesn't exist, and -1
 // on any other errors.
-int register_fork_callback(BorrowedRef<> cinderjit_module) {
+int register_fork_callback(PyObject* cinderjit_module) {
   auto os_module = Ref<>::steal(
       PyImport_ImportModuleLevel("posix", nullptr, nullptr, nullptr, 0));
   if (os_module == nullptr) {
@@ -3572,14 +3572,14 @@ int jit_audit_hook(const char* event, PyObject* args, void* /* data */) {
   if (strcmp(event, "object.__setattr__") != 0 || PyTuple_GET_SIZE(args) != 3) {
     return 0;
   }
-  BorrowedRef<> name(PyTuple_GET_ITEM(args, 1));
+  PyObject* name(PyTuple_GET_ITEM(args, 1));
   if (!PyUnicode_Check(name) ||
       PyUnicode_CompareWithASCIIString(name, "__class__") != 0) {
     return 0;
   }
 
-  BorrowedRef<> object(PyTuple_GET_ITEM(args, 0));
-  BorrowedRef<PyTypeObject> new_type(PyTuple_GET_ITEM(args, 2));
+  PyObject* object(PyTuple_GET_ITEM(args, 0));
+  PyTypeObject* new_type = (PyTypeObject*)PyTuple_GET_ITEM(args, 2);
   instanceTypeAssigned(Py_TYPE(object), new_type);
   return 0;
 }
@@ -3643,14 +3643,14 @@ void unregisterFunctionCodes(PyFunctionObject* func) {
     jit_code_outer_funcs.erase(it);
     PyObject* module = func->func_module;
     PyObject* top_consts = top_code->co_consts;
-    for (BorrowedRef<PyCodeObject> code : findNestedCodes(module, top_consts)) {
-      jit_reg_units.erase(code);
+    for (PyCodeObject* code : findNestedCodes(module, top_consts)) {
+      jit_reg_units.erase((PyObject*)code);
       auto existing = jit_code_outer_funcs.find(code);
       if (existing != jit_code_outer_funcs.end() && existing->second == func) {
         jit_code_outer_funcs.erase(code);
       }
       if (handle_unit_deleted_during_preload != nullptr) {
-        handle_unit_deleted_during_preload(code.getObj());
+        handle_unit_deleted_during_preload((PyObject*)code);
       }
     }
   }
@@ -3985,8 +3985,8 @@ void finalize() {
   getMutableConfig().state = State::kNotInitialized;
 }
 
-bool shouldScheduleCompile(BorrowedRef<PyFunctionObject> func) {
-  BorrowedRef<PyCodeObject> code{func->func_code};
+bool shouldScheduleCompile(PyFunctionObject* func) {
+  PyCodeObject* code = (PyCodeObject*)func->func_code;
   return shouldAlwaysScheduleCompile(code) ||
       getConfig().compile_after_n_calls.has_value();
 }
@@ -3996,7 +3996,7 @@ bool scheduleJitCompile(PyFunctionObject* func) {
   if (eligible == JitEligibility::Ineligible) {
     return false;
   }
-  trackEligibleCodeObjects(func, func->func_code, eligible);
+  trackEligibleCodeObjects(func, (PyCodeObject*)func->func_code, eligible);
 
   // If we're not eligible due to the JIT list check if we have config (e.g.
   // auto jit, jit all, or jit all static methods) that makes compilation happen
@@ -4031,7 +4031,7 @@ bool scheduleJitCompile(PyFunctionObject* func) {
   // Cache the skip decision in CodeExtra so cinderx_func_watcher can
   // short-circuit on re-encounter without repeating the analysis.
   {
-    BorrowedRef<PyCodeObject> code{func->func_code};
+    PyCodeObject* code = (PyCodeObject*)func->func_code;
     bool should_skip = false;
     // Check for IMPORT_NAME — JIT does not set up frame globals
     // correctly for PyImport_Import, causing SIGSEGV.
@@ -4274,15 +4274,15 @@ _PyJIT_Result compilePreloaderImpl(
       func != nullptr ||
           jitCtx()->codeOuterFunctions().contains(preloader.code()),
       "expected function or outer function to be registered");
-  BorrowedRef<PyCodeObject> code = preloader.code();
+  PyCodeObject* code = preloader.code();
 
   if (code == nullptr) {
     JIT_DLOG("Can't compile {} as it has no code object", preloader.fullname());
     return PYJIT_RESULT_CANNOT_SPECIALIZE;
   }
 
-  BorrowedRef<PyDictObject> builtins = preloader.builtins();
-  BorrowedRef<PyDictObject> globals = preloader.globals();
+  PyDictObject* builtins = preloader.builtins();
+  PyDictObject* globals = preloader.globals();
 
   if (!hasRequiredFlags(code)) {
     JIT_DLOG(
@@ -4306,7 +4306,7 @@ _PyJIT_Result compilePreloaderImpl(
     return PYJIT_RESULT_CANNOT_SPECIALIZE;
   }
 
-  CompilationKey key{code, builtins, globals};
+  CompilationKey key{(PyObject*)code, (PyObject*)builtins, (PyObject*)globals};
   {
     // Attempt to atomically transition the code from "not compiled" to "in
     // progress".

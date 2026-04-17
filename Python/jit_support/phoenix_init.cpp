@@ -264,12 +264,11 @@ static int phoenix_exec(PyObject* m) {
         s_funcs.clear();
         s_funcs.reserve(1024);
         jit::walkFunctionObjects(
-            [](BorrowedRef<PyFunctionObject> func) {
-                s_funcs.push_back((PyObject*)(void*)func.get());
+            [](PyFunctionObject* func) {
+                s_funcs.push_back((PyObject*)func);
             });
         for (auto* f : s_funcs) {
-            jit::scheduleJitCompile(
-                BorrowedRef<PyFunctionObject>{f});
+            jit::scheduleJitCompile((PyFunctionObject*)f);
         }
         s_funcs.clear();
     }
