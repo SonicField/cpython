@@ -84,18 +84,18 @@ class alignas(16) CodeRuntime {
 
   explicit CodeRuntime(PyFunctionObject* func)
       : CodeRuntime{
-            PyCodeObject*{func->func_code},
-            func->func_builtins,
-            func->func_globals} {}
+            (PyCodeObject*)func->func_code,
+            (PyDictObject*)func->func_builtins,
+            (PyDictObject*)func->func_globals} {}
 
   CodeRuntime(
       PyCodeObject* code,
       PyDictObject* builtins,
       PyDictObject* globals)
       : frame_state_{code, builtins, globals} {
-    addReference(code);
-    addReference(builtins);
-    addReference(globals);
+    addReference((PyObject*)code);
+    addReference((PyObject*)builtins);
+    addReference((PyObject*)globals);
   }
 
   template <typename... Args>
