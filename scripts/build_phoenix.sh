@@ -140,7 +140,7 @@ else
         fi
     else
         echo "x86_64 detected — configuring with LTO"
-        if ! CC="${PHOENIX_CC:-/opt/llvm/bin/clang}" CXX="${PHOENIX_CXX:-/opt/llvm/bin/clang++}" ./configure $PYDEBUG_FLAG $ASAN_FLAG --with-lto; then
+        if ! CC="${PHOENIX_CC:-/opt/llvm/bin/clang}" CXX="${PHOENIX_CXX:-/opt/llvm/bin/clang++}" LDFLAGS='-fuse-ld=lld' ./configure $PYDEBUG_FLAG $ASAN_FLAG --with-lto; then
             echo "FAIL: configure failed"
             exit 1
         fi
