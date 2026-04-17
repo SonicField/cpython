@@ -888,7 +888,7 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
     }
     case Opcode::kCheckVar: {
       expect("<");
-      BorrowedRef<> name = GetNextUnicode();
+      PyObject* name = GetNextUnicode();
       expect(">");
       auto operand = ParseRegister();
       instruction = static_cast<Instr*>(
@@ -1326,7 +1326,7 @@ int HIRParser::GetNextNameIdx() {
   return idx;
 }
 
-BorrowedRef<> HIRParser::GetNextUnicode() {
+PyObject* HIRParser::GetNextUnicode() {
   std::string_view str = GetNextToken();
   auto raw_obj = PyUnicode_FromStringAndSize(str.data(), str.size());
   JIT_CHECK(raw_obj != nullptr, "Failed to create string {}", str);

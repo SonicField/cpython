@@ -70,7 +70,7 @@ class HIRParser {
 
   int GetNextNameIdx();
   RegState GetNextRegState();
-  BorrowedRef<> GetNextUnicode();
+  PyObject* GetNextUnicode();
 
   void expect(std::string_view expected);
 
