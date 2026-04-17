@@ -177,7 +177,7 @@ class Function {
   PyCodeObject* codeFor(const Instr& instr) const {
     if (instr.IsBeginInlinedFunction()) {
       auto bif = static_cast<const BeginInlinedFunction*>(&instr);
-      return bif->func()->func_code;
+      return (PyCodeObject*)bif->func()->func_code;
     }
     if (instr.IsLoadGlobalCached()) {
       auto load_global = static_cast<const LoadGlobalCached*>(&instr);
