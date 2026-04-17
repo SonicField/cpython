@@ -2669,9 +2669,9 @@ class INSTR_CLASS(LoadGlobalCached, (), HasOutput, Operands<0>) {
  public:
   LoadGlobalCached(
       Register* dst,
-      BorrowedRef<PyCodeObject> code,
-      BorrowedRef<PyDictObject> builtins,
-      BorrowedRef<PyDictObject> globals,
+      PyCodeObject* code,
+      PyDictObject* builtins,
+      PyDictObject* globals,
       int name_idx)
       : InstrT(dst),
         code_(code),
@@ -2679,15 +2679,15 @@ class INSTR_CLASS(LoadGlobalCached, (), HasOutput, Operands<0>) {
         globals_(globals),
         name_idx_(name_idx) {}
 
-  BorrowedRef<PyCodeObject> code() const {
+  PyCodeObject* code() const {
     return code_;
   }
 
-  BorrowedRef<PyDictObject> builtins() const {
+  PyDictObject* builtins() const {
     return builtins_;
   }
 
-  BorrowedRef<PyDictObject> globals() const {
+  PyDictObject* globals() const {
     return globals_;
   }
 
@@ -2696,9 +2696,10 @@ class INSTR_CLASS(LoadGlobalCached, (), HasOutput, Operands<0>) {
   }
 
  private:
-  BorrowedRef<PyCodeObject> code_;
-  BorrowedRef<PyDictObject> builtins_;
-  BorrowedRef<PyDictObject> globals_;
+  friend struct ::HirInstrLayoutVerifier;
+  PyCodeObject* code_;
+  PyDictObject* builtins_;
+  PyDictObject* globals_;
   int name_idx_;
 };
 
