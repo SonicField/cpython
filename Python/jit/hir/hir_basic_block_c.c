@@ -102,6 +102,38 @@ hir_bb_prev_instr(const HirBasicBlock *bb, void *instr) {
     return node_to_instr(bb, prev);
 }
 
+/* ---- Edge management (set_from / set_to) ---- */
+
+void
+hir_edge_set_from(HirEdge *edge, HirBasicBlock *new_from) {
+    if (edge->from) {
+        phx_edge_arr_erase(&((HirBasicBlock *)edge->from)->out_edges_,
+                           (const HirEdge *)edge);
+    }
+    if (new_from) {
+        phx_edge_arr_insert(&new_from->out_edges_, (const HirEdge *)edge);
+    }
+    edge->from = new_from;
+}
+
+void
+hir_edge_set_to(HirEdge *edge, HirBasicBlock *new_to) {
+    if (edge->to) {
+        phx_edge_arr_erase(&((HirBasicBlock *)edge->to)->in_edges_,
+                           (const HirEdge *)edge);
+    }
+    if (new_to) {
+        phx_edge_arr_insert(&new_to->in_edges_, (const HirEdge *)edge);
+    }
+    edge->to = new_to;
+}
+
+void
+hir_edge_destroy(HirEdge *edge) {
+    hir_edge_set_from(edge, NULL);
+    hir_edge_set_to(edge, NULL);
+}
+
 /* ---- Instruction list mutation ---- */
 
 void *

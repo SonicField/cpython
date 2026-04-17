@@ -48,6 +48,12 @@ typedef struct HirBasicBlock {
 
 /* Expected size: 4 + 4(pad) + 16 + 24 + 24 + 24 = 96 bytes */
 
+/* ---- Edge management ---- */
+
+void hir_edge_set_from(HirEdge *edge, HirBasicBlock *new_from);
+void hir_edge_set_to(HirEdge *edge, HirBasicBlock *new_to);
+void hir_edge_destroy(HirEdge *edge);
+
 /* ---- Accessors ---- */
 
 int hir_bb_id(const HirBasicBlock *bb);
@@ -55,6 +61,17 @@ size_t hir_bb_in_edges_count(const HirBasicBlock *bb);
 size_t hir_bb_out_edges_count(const HirBasicBlock *bb);
 const HirEdge *hir_bb_in_edge(const HirBasicBlock *bb, size_t i);
 const HirEdge *hir_bb_out_edge(const HirBasicBlock *bb, size_t i);
+
+/* ---- Instruction list operations ---- */
+
+int hir_bb_empty(const HirBasicBlock *bb);
+void *hir_bb_first_instr(const HirBasicBlock *bb);
+void *hir_bb_last_instr(const HirBasicBlock *bb);
+void *hir_bb_next_instr(const HirBasicBlock *bb, void *instr);
+void *hir_bb_prev_instr(const HirBasicBlock *bb, void *instr);
+void *hir_bb_append_instr(HirBasicBlock *bb, void *instr);
+void hir_bb_push_front_instr(HirBasicBlock *bb, void *instr);
+void *hir_bb_pop_front_instr(HirBasicBlock *bb);
 
 #ifdef __cplusplus
 } /* extern "C" */
