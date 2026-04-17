@@ -59,7 +59,7 @@ _PyInterpreterFrame* convertInterpreterFrameFromStackToSlab(
 
 // Gets the PyFunctionObject that is stashed away in a JIT frame. We
 // store the function as an extra local.
-BorrowedRef<PyFunctionObject> jitFrameGetFunction(_PyInterpreterFrame* frame);
+PyFunctionObject* jitFrameGetFunction(_PyInterpreterFrame* frame);
 // Sets the PyFunctionObject to be stashed away in an interpreter frame.
 void jitFrameSetFunction(_PyInterpreterFrame* frame, PyFunctionObject* func);
 
@@ -94,7 +94,7 @@ void jitFrameInit(
 // to initialize a frame object.
 size_t jitFrameGetSize(PyCodeObject* code);
 
-Ref<> makeFrameReifier(BorrowedRef<PyCodeObject> code);
+Ref<> makeFrameReifier(PyCodeObject* code);
 
 } // namespace jit
 

@@ -315,7 +315,7 @@ PyType_Slot framereifier_type_slots[] = {
 
 } // namespace
 
-Ref<> makeFrameReifier([[maybe_unused]] BorrowedRef<PyCodeObject> code) {
+Ref<> makeFrameReifier([[maybe_unused]] PyCodeObject* code) {
 #if PY_VERSION_HEX >= 0x030E0000 && defined(ENABLE_LIGHTWEIGHT_FRAMES)
   if (jit_get_config()->frame_mode == JIT_FRAME_LIGHTWEIGHT) {
     PyObject* reifier =
@@ -500,7 +500,7 @@ void jitFrameSetFunction(_PyInterpreterFrame* frame, PyFunctionObject* func) {
   jitFrameGetHeader(frame)->func = func;
 }
 
-BorrowedRef<PyFunctionObject> jitFrameGetFunction(_PyInterpreterFrame* frame) {
+PyFunctionObject* jitFrameGetFunction(_PyInterpreterFrame* frame) {
   if constexpr (PY_VERSION_HEX >= 0x030E0000) {
     return frameFunction(frame);
   }
