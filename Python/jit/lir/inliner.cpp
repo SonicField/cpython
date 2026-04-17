@@ -370,8 +370,4 @@ std::string_view LIRInliner::callerName() {
 
 } // namespace jit::lir
 
-/* C-callable wrapper for LIRInliner::inlineCalls */
-extern "C" int lir_inliner_inline_calls(void* func) {
-  return jit::lir::LIRInliner::inlineCalls(
-      static_cast<jit::lir::Function*>(func)) ? 1 : 0;
-}
+/* lir_inliner_inline_calls is now implemented in inliner_c.c */
