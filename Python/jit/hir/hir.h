@@ -26,6 +26,7 @@
 
 /* Forward declaration for T2-B layout verification (friend access) */
 struct HirInstrLayoutVerifier;
+struct HirEdgeLayoutVerifier;
 
 namespace jit::hir {
 
@@ -75,6 +76,7 @@ class Edge {
   void set_to(BasicBlock* to);
 
  private:
+  friend struct ::HirEdgeLayoutVerifier;
   BasicBlock* from_{nullptr};
   BasicBlock* to_{nullptr};
 };

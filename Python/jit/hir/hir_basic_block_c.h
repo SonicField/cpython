@@ -76,6 +76,9 @@ void *hir_bb_prev_instr(const HirBasicBlock *bb, void *instr);
 void *hir_bb_append_instr(HirBasicBlock *bb, void *instr);
 void hir_bb_push_front_instr(HirBasicBlock *bb, void *instr);
 void *hir_bb_pop_front_instr(HirBasicBlock *bb);
+void hir_bb_insert_before(HirBasicBlock *bb, void *instr, void *before);
+void hir_bb_clear(HirBasicBlock *bb);
+void *hir_bb_get_terminator(const HirBasicBlock *bb);
 
 #ifdef __cplusplus
 } /* extern "C" */

@@ -148,6 +148,45 @@ hir_bb_retarget_preds(HirBasicBlock *bb, HirBasicBlock *target) {
     }
 }
 
+/* ---- Insert before / clear / GetTerminator ---- */
+
+void
+hir_bb_insert_before(HirBasicBlock *bb, void *instr, void *before) {
+    /* Propagate bytecodeOffset from adjacent instruction if missing. */
+    int32_t off = hir_c_bytecode_offset(instr);
+    if (off == -1) {
+        HirIntrusiveListNode *before_node = instr_to_node(bb, before);
+        const HirIntrusiveListNode *s = sentinel_const(bb);
+        if (before_node->prev_ != s) {
+            void *prev_instr = node_to_instr(bb, before_node->prev_);
+            hir_c_set_bytecode_offset(instr, hir_c_bytecode_offset(prev_instr));
+        } else {
+            hir_c_set_bytecode_offset(instr, hir_c_bytecode_offset(before));
+        }
+    }
+    /* Intrusive list insert: instr goes before 'before'. */
+    HirIntrusiveListNode *node = instr_to_node(bb, instr);
+    HirIntrusiveListNode *b = instr_to_node(bb, before);
+    HirIntrusiveListNode *prev = b->prev_;
+    prev->next_ = node;
+    node->prev_ = prev;
+    node->next_ = b;
+    b->prev_ = node;
+}
+
+void
+hir_bb_clear(HirBasicBlock *bb) {
+    while (!hir_bb_empty(bb)) {
+        void *instr = hir_bb_pop_front_instr(bb);
+        hir_c_destroy_instr_impl(instr);
+    }
+}
+
+void *
+hir_bb_get_terminator(const HirBasicBlock *bb) {
+    return hir_bb_last_instr(bb);
+}
+
 /* ---- Instruction list mutation ---- */
 
 void *

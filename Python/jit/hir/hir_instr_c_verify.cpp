@@ -21,6 +21,12 @@ static_assert(sizeof(HirListNode) == sizeof(jit::IntrusiveListNode),
 static_assert(sizeof(HirEdge) == sizeof(Edge),
     "HirEdge size mismatch");
 
+/* Phase H2: Edge per-field offsetof checks (theologian gap #2) */
+struct HirEdgeLayoutVerifier {
+    static_assert(offsetof(HirEdge, from) == offsetof(Edge, from_));
+    static_assert(offsetof(HirEdge, to) == offsetof(Edge, to_));
+};
+
 /* ---- Per-field offsetof checks via friend struct ---- */
 struct HirInstrLayoutVerifier {
     /* HirInstr vs Instr */

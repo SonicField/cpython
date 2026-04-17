@@ -14,6 +14,17 @@ Any push without prior gatekeeper APPROVE is a process violation. Medic MUST fla
 
 Gatekeeper MUST NOT issue APPROVE until testkeeper confirms BUILD PASS. Review-only approval (git show --stat without build confirmation) is invalid. This has been violated 3 times — it is now a hard gate.
 
+## Push Authorization (MANDATORY — added 2026-04-17)
+
+Generalist CANNOT push until supervisor posts "PUSH AUTHORIZED" in chat citing testkeeper's ARM64 PASS message timestamp. The sequence is:
+
+1. Testkeeper posts ARM64 gate PASS with timestamp
+2. Gatekeeper posts APPROVE with git show excerpts citing ARM64 PASS timestamp
+3. Supervisor posts "PUSH AUTHORIZED citing testkeeper ARM64 PASS at <timestamp>"
+4. ONLY THEN may generalist run git push
+
+This rule exists because push-before-ARM64-gate occurred 3 times with social-only enforcement. Mechanical rule: no PUSH AUTHORIZED message = no push. Crashes block gate FOREVER (Alex directive 2026-04-17).
+
 Retroactive approvals are NOT acceptable for Phase 3D commits (codegen conversion touches 57K lines — unwinding a bad push is costly).
 
 ## Build Verification (MANDATORY)

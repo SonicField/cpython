@@ -27,6 +27,13 @@ static_assert(sizeof(HirIntrusiveListNode) == sizeof(IntrusiveListNode),
 // Instr::List layout validation
 static_assert(sizeof(HirInstrList) == sizeof(Instr::List),
     "HirInstrList size mismatch");
+// Phase H2: Missing offsetof checks for BB fields (theologian gap #1)
+static_assert(offsetof(HirBasicBlock, instrs_) == offsetof(BasicBlock, instrs_),
+    "HirBasicBlock.instrs_ offset mismatch");
+static_assert(offsetof(HirBasicBlock, out_edges_) == offsetof(BasicBlock, out_edges_),
+    "HirBasicBlock.out_edges_ offset mismatch");
+static_assert(offsetof(HirBasicBlock, in_edges_) == offsetof(BasicBlock, in_edges_),
+    "HirBasicBlock.in_edges_ offset mismatch");
 
 // T2-C3: GetOperandType dispatch.
 // 164/168 opcodes use the C operand-type table (hir_operand_types_c.c).
@@ -973,25 +980,19 @@ Instr* BasicBlock::pop_front() {
 }
 
 void BasicBlock::insert(Instr* instr, Instr::List::iterator it) {
-  // If the instruction doesn't come with a bytecode offset, try to take one
-  // from an adjacent instruction.
-  if (instr->bytecodeOffset() == -1) {
-    if (it != instrs_.begin()) {
-      instr->setBytecodeOffset(std::prev(it)->bytecodeOffset());
-    } else if (it != instrs_.end()) {
-      instr->setBytecodeOffset(it->bytecodeOffset());
-    }
+  if (it == instrs_.end()) {
+    Append(instr);
+    return;
   }
-
-  instrs_.insert(*instr, it);
+  hir_bb_insert_before(
+      reinterpret_cast<HirBasicBlock*>(this),
+      instr,
+      &*it);
   instr->link(this);
 }
 
 void BasicBlock::clear() {
-  while (!instrs_.IsEmpty()) {
-    Instr* instr = &(instrs_.ExtractFront());
-    Instr::Destroy(instr);
-  }
+  hir_bb_clear(reinterpret_cast<HirBasicBlock*>(this));
 }
 
 BasicBlock::~BasicBlock() {
@@ -1005,10 +1006,8 @@ BasicBlock::~BasicBlock() {
 }
 
 Instr* BasicBlock::GetTerminator() {
-  if (instrs_.IsEmpty()) {
-    return nullptr;
-  }
-  return &instrs_.Back();
+  return static_cast<Instr*>(
+      hir_bb_get_terminator(reinterpret_cast<const HirBasicBlock*>(this)));
 }
 
 Snapshot* BasicBlock::entrySnapshot() {
