@@ -15,6 +15,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 /* PhxPtrArray must be available before frame_state.h (circular include). */
 #include "cinderx/Jit/hir/phx_ptr_array.h"
@@ -165,7 +166,7 @@ static inline int hir_reg_id(const void *reg) {
     return ((const HirRegisterLayout *)reg)->id;
 }
 
-static inline void *hir_reg_instr(const void *reg) {
+static inline void *hir_reg_instr_ptr(const void *reg) {
     return ((const HirRegisterLayout *)reg)->instr;
 }
 
