@@ -3739,7 +3739,7 @@ struct TypedArgument {
 
 // Does the given code object need access to its containing PyFunctionObject at
 // runtime?
-bool usesRuntimeFunc(BorrowedRef<PyCodeObject> code);
+bool usesRuntimeFunc(PyCodeObject* code);
 
 #define FOREACH_FAILURE_TYPE(V)                                            \
   V(HasDefaults, "it has defaults")                                        \

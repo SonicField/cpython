@@ -184,7 +184,7 @@ std::unique_ptr<InvokeTarget> Preloader::resolve_target_descr(
     JIT_CHECK(target->slot != -1, "method lookup failed: {}", repr(descr));
   } else { // the rest of this only used by INVOKE_FUNCTION currently
     target->uses_runtime_func =
-        target->is_function && usesRuntimeFunc(target->func()->func_code);
+        target->is_function && usesRuntimeFunc((PyCodeObject*)target->func()->func_code);
     if (!target->container_is_immutable) {
       target->indirect_ptr = _PyClassLoader_ResolveIndirectPtr(descr);
       if (target->indirect_ptr == nullptr) {
