@@ -10,6 +10,6 @@ class IAsyncLazyValueState {
   virtual ~IAsyncLazyValueState() = default;
 
   virtual bool init() = 0;
-  virtual BorrowedRef<PyTypeObject> asyncLazyValueType() = 0;
+  virtual PyTypeObject* asyncLazyValueType() = 0;
 };
 } // namespace cinderx

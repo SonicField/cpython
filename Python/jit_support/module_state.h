@@ -76,95 +76,95 @@ class ModuleState {
     async_lazy_value_ = std::unique_ptr<IAsyncLazyValueState>(state);
   }
 
-  void setCoroType(BorrowedRef<PyTypeObject> coro_type) {
+  void setCoroType(PyTypeObject* coro_type) {
     coro_type_ = Ref<PyTypeObject>::create(coro_type);
   }
 
-  BorrowedRef<PyTypeObject> coroType() const {
+  PyTypeObject* coroType() const {
     return coro_type_;
   }
 
-  void setGenType(BorrowedRef<PyTypeObject> gen_type) {
+  void setGenType(PyTypeObject* gen_type) {
     gen_type_ = Ref<PyTypeObject>::create(gen_type);
   }
 
-  BorrowedRef<PyTypeObject> genType() const {
+  PyTypeObject* genType() const {
     return gen_type_;
   }
 
   // Sets the value of sys._clear_type_caches when CinderX was initialized.
   // We then replace it with a function which forwards to the original.
-  void setSysClearCaches(BorrowedRef<> clear_caches) {
+  void setSysClearCaches(PyObject* clear_caches) {
     sys_clear_caches_ = Ref<>::create(clear_caches);
   }
 
 #if PY_VERSION_HEX < 0x030E0000
-  void setFrameReifier(BorrowedRef<> frame_reifier) {
+  void setFrameReifier(PyObject* frame_reifier) {
     frame_reifier_ = Ref<>::create(frame_reifier);
   }
 
-  BorrowedRef<> frameReifier() const {
+  PyObject* frameReifier() const {
     return frame_reifier_;
   }
 #endif
 
   // Gets the value of sys._clear_type_caches when CinderX was initialized.
-  BorrowedRef<> sysClearCaches() const {
+  PyObject* sysClearCaches() const {
     return sys_clear_caches_;
   }
 
-  BorrowedRef<> getOriginalSysMonitoringRegisterCallback() const {
+  PyObject* getOriginalSysMonitoringRegisterCallback() const {
     return orig_sys_monitoring_register_callback_;
   }
 
-  void setOriginalSysMonitoringRegisterCallback(BorrowedRef<> func) {
+  void setOriginalSysMonitoringRegisterCallback(PyObject* func) {
     orig_sys_monitoring_register_callback_ = Ref<>::create(func);
   }
 
-  BorrowedRef<> getOriginalSysSetProfile() const {
+  PyObject* getOriginalSysSetProfile() const {
     return orig_sys_setprofile_;
   }
 
-  void setOriginalSysSetProfile(BorrowedRef<> func) {
+  void setOriginalSysSetProfile(PyObject* func) {
     orig_sys_setprofile_ = Ref<>::create(func);
   }
 
-  BorrowedRef<> getOriginalSysSetTrace() const {
+  PyObject* getOriginalSysSetTrace() const {
     return orig_sys_settrace_;
   }
 
-  void setOriginalSysSetTrace(BorrowedRef<> func) {
+  void setOriginalSysSetTrace(PyObject* func) {
     orig_sys_settrace_ = Ref<>::create(func);
   }
 
-  void setAnextAwaitableType(BorrowedRef<PyTypeObject> type) {
+  void setAnextAwaitableType(PyTypeObject* type) {
     anext_awaitable_type_ = Ref<PyTypeObject>::create(type);
   }
 
-  BorrowedRef<PyTypeObject> anextAwaitableType() const {
+  PyTypeObject* anextAwaitableType() const {
     return anext_awaitable_type_;
   }
 
-  void setBuiltinNext(BorrowedRef<> builtin_next) {
+  void setBuiltinNext(PyObject* builtin_next) {
     builtin_next_ = Ref<>::create(builtin_next);
   }
 
-  BorrowedRef<> builtinNext() const {
+  PyObject* builtinNext() const {
     return builtin_next_;
   }
 
-  jit::UnorderedSet<BorrowedRef<PyFunctionObject>>& perfTrampolineWorklist() {
+  jit::UnorderedSet<PyFunctionObject*>& perfTrampolineWorklist() {
     return perf_trampoline_worklist_;
   }
 
-  void setModule(BorrowedRef<> module) {
+  void setModule(PyObject* module) {
     cinderx_module_ = module;
   }
 
   // Returns the PyModule instance for the CinderX module. This can be useful if
   // we have live data backed by the module, in which case we can increase the
   // refcount of the module to prevent it from being freed prematurely.
-  BorrowedRef<> module() const {
+  PyObject* module() const {
     return cinderx_module_;
   }
 
@@ -187,7 +187,7 @@ class ModuleState {
 
   CiWatcherState& watcherState();
 
-  jit::UnorderedSet<BorrowedRef<>>& registeredCompilationUnits();
+  jit::UnorderedSet<PyObject*>& registeredCompilationUnits();
 
  private:
   CiWatcherState watcher_state_;
@@ -210,12 +210,12 @@ class ModuleState {
   Ref<> orig_sys_settrace_;
 
   // Function and code objects ("units") registered for compilation.
-  jit::UnorderedSet<BorrowedRef<>> registered_compilation_units;
+  jit::UnorderedSet<PyObject*> registered_compilation_units;
 
   // Function objects registered for pre-fork perf-trampoline compilation.
-  jit::UnorderedSet<BorrowedRef<PyFunctionObject>> perf_trampoline_worklist_;
+  jit::UnorderedSet<PyFunctionObject*> perf_trampoline_worklist_;
 
-  BorrowedRef<> cinderx_module_;
+  PyObject* cinderx_module_;
 };
 
 // Get the global ModuleState singleton.
@@ -224,10 +224,10 @@ ModuleState* getModuleState();
 // Get the ModuleState from the CinderX module object.
 //
 // Prefer this to using the global singleton when possible.
-ModuleState* getModuleState(BorrowedRef<> mod);
+ModuleState* getModuleState(PyObject* mod);
 
 // Set the global ModuleState singleton, using the CinderX module object.
-void setModuleState(BorrowedRef<> mod);
+void setModuleState(PyObject* mod);
 
 // Unset the global ModuleState singleton, but don't destroy it.
 //

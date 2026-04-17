@@ -84,7 +84,7 @@ bool AsyncLazyValueState::init() {
   return true;
 }
 
-BorrowedRef<> AsyncLazyValueState::getEventLoop() {
+PyObject* AsyncLazyValueState::getEventLoop() {
   if (get_event_loop_ != nullptr) {
     return get_event_loop_;
   }
@@ -97,7 +97,7 @@ BorrowedRef<> AsyncLazyValueState::getEventLoop() {
   return get_event_loop_;
 }
 
-BorrowedRef<PyTypeObject> AsyncLazyValueState::futureType() {
+PyTypeObject* AsyncLazyValueState::futureType() {
   if (future_type_ != nullptr) {
     return future_type_;
   }
@@ -109,7 +109,7 @@ BorrowedRef<PyTypeObject> AsyncLazyValueState::futureType() {
   return future_type_;
 }
 
-BorrowedRef<> AsyncLazyValueState::asyncioFutureBlocking() {
+PyObject* AsyncLazyValueState::asyncioFutureBlocking() {
   if (asyncio_future_blocking_ != nullptr) {
     return asyncio_future_blocking_;
   }
@@ -123,7 +123,7 @@ BorrowedRef<> AsyncLazyValueState::asyncioFutureBlocking() {
   return asyncio_future_blocking_;
 }
 
-BorrowedRef<PyTypeObject> AsyncLazyValueState::cancalledError() {
+PyTypeObject* AsyncLazyValueState::cancalledError() {
   if (cancelled_error_ != nullptr) {
     return cancelled_error_;
   }
@@ -153,7 +153,7 @@ Ref<PyGetSetDescrObject> AsyncLazyValueState::lookupFutureGetSet(
   return func;
 }
 
-BorrowedRef<PyGetSetDescrObject> AsyncLazyValueState::futureSourceTraceback() {
+PyGetSetDescrObject* AsyncLazyValueState::futureSourceTraceback() {
   if (future_source_traceback_ != nullptr) {
     return future_source_traceback_;
   }
@@ -161,7 +161,7 @@ BorrowedRef<PyGetSetDescrObject> AsyncLazyValueState::futureSourceTraceback() {
   return future_source_traceback_;
 }
 
-BorrowedRef<PyMethodTableRef> AsyncLazyValueState::futureTableRef() {
+PyMethodTableRef* AsyncLazyValueState::futureTableRef() {
   if (future_table_ref_ != nullptr) {
     return future_table_ref_.get();
   }
@@ -178,7 +178,7 @@ BorrowedRef<PyMethodTableRef> AsyncLazyValueState::futureTableRef() {
 #define MethodTable_Check(obj) \
   (Py_TYPE(obj) == get_state()->methodTableRefType())
 
-static inline BorrowedRef<PyMethodTableRef> get_method_table(
+static inline PyMethodTableRef* get_method_table(
     PyTypeObject* type) {
   PyWeakReference** weakrefs =
       (PyWeakReference**)PyObject_GET_WEAKREFS_LISTPTR((PyObject*)type);
@@ -223,7 +223,7 @@ static Ref<PyMethodTableRef> get_or_create_method_table(PyTypeObject* type) {
     return Ref<PyMethodTableRef>::create(
         get_state()->lastUsedTaskTypeTableRef());
   }
-  BorrowedRef<PyMethodTableRef> tableref = get_method_table(type);
+  PyMethodTableRef* tableref = get_method_table(type);
   if (tableref != nullptr) {
     return Ref<PyMethodTableRef>::create(tableref);
   }

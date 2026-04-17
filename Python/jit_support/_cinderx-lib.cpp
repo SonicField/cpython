@@ -320,8 +320,8 @@ PyObject* compile_perf_trampoline_pre_fork(PyObject* mod, PyObject*) {
   auto& perf_trampoline_worklist =
       cinderx::getModuleState(mod)->perfTrampolineWorklist();
 
-  for (BorrowedRef<PyFunctionObject> func : perf_trampoline_worklist) {
-    BorrowedRef<PyCodeObject> code = func->func_code;
+  for (PyFunctionObject* func : perf_trampoline_worklist) {
+    PyCodeObject* code = func->func_code;
     if (PyUnstable_PerfTrampoline_CompileCode(code) == -1) {
       JIT_LOG(
           "Failed to compile perf trampoline for function {}",
@@ -500,7 +500,7 @@ int ensurePyFunctionVectorcall() {
         Py_TYPE(obj)->tp_name);
     return -1;
   }
-  BorrowedRef<PyFunctionObject> func{obj};
+  PyFunctionObject* func{obj};
   Ci_PyFunction_Vectorcall = func->vectorcall;
 #endif
 
@@ -509,7 +509,7 @@ int ensurePyFunctionVectorcall() {
 
 // Schedule a function to be JIT-compiled.  If that fails, then also try
 // compiling a perf trampoline for the Python function.
-void scheduleCompile(BorrowedRef<PyFunctionObject> func) {
+void scheduleCompile(PyFunctionObject* func) {
   bool scheduled = jit::scheduleJitCompile(func);
   if (!scheduled && jit::perf::isPreforkCompilationEnabled()) {
     auto& perf_trampoline_worklist =
@@ -529,16 +529,16 @@ builtin_anext(PyObject* module, PyObject* const* args, Py_ssize_t nargs) {
 
   cinderx::ModuleState* state = cinderx::getModuleState(module);
 
-  BorrowedRef<> aiterator;
-  BorrowedRef<> default_value = nullptr;
+  PyObject* aiterator;
+  PyObject* default_value = nullptr;
 
   aiterator = args[0];
   if (nargs == 2) {
     default_value = args[1];
   }
 
-  BorrowedRef<PyTypeObject> t;
-  BorrowedRef<> awaitable;
+  PyTypeObject* t;
+  PyObject* awaitable;
 
   t = Py_TYPE(aiterator);
   if (t->tp_as_async == nullptr || t->tp_as_async->am_anext == nullptr) {
@@ -557,7 +557,7 @@ builtin_anext(PyObject* module, PyObject* const* args, Py_ssize_t nargs) {
     return awaitable;
   }
 
-  BorrowedRef<> new_awaitable =
+  PyObject* new_awaitable =
       jit::JitGen_AnextAwaitable_New(state, awaitable, default_value);
   Py_DECREF(awaitable);
   return new_awaitable;
@@ -569,9 +569,9 @@ builtin_anext(PyObject* module, PyObject* const* args, Py_ssize_t nargs) {
  */
 
 // Visit a Python function on CinderX module initialization.
-int function_visitor(BorrowedRef<PyFunctionObject> func) {
+int function_visitor(PyFunctionObject* func) {
   // Ensure the code object can track how often it is called.
-  BorrowedRef<PyCodeObject> code = func->func_code;
+  PyCodeObject* code = func->func_code;
   JIT_CHECK(
       !USE_CODE_EXTRA || codeExtra(code) != nullptr,
       "Failed to initialize extra data for {}",
@@ -655,7 +655,7 @@ void getsetOverride(
   auto descr = Ref<>::steal(PyDescr_NewGetSet(type, def));
   JIT_CHECK(
       descr != nullptr, "Failed to create descr for typed signature getter");
-  BorrowedRef<> dict = _PyType_GetDict(type);
+  PyObject* dict = _PyType_GetDict(type);
   JIT_CHECK(
       PyDict_SetDefault(dict, PyDescr_NAME(descr.get()), descr.get()) !=
           nullptr,
@@ -743,7 +743,7 @@ int cinderx_dict_watcher(
     PyObject* key_obj,
     PyObject* new_value) {
   JIT_DCHECK(PyDict_Check(dict_obj), "Expecting dict from dict watcher");
-  BorrowedRef<PyDictObject> dict{dict_obj};
+  PyDictObject* dict = (PyDictObject*)dict_obj;
 
   auto state = cinderx::getModuleState();
   jit::IGlobalCacheManager* globalCaches =
@@ -771,7 +771,7 @@ int cinderx_dict_watcher(
         PyUnicode_InternInPlace(&key_obj);
         Py_DECREF(key_obj);
       }
-      BorrowedRef<PyUnicodeObject> key{key_obj};
+      PyUnicodeObject* key = (PyUnicodeObject*)key_obj;
       globalCaches->notifyDictUpdate(dict, key, new_value);
       break;
     }
@@ -1080,7 +1080,7 @@ static PyObject* clear_type_deopt_patchers(PyObject*, PyObject*) {
 // cleanup. Currently this includes clearing out all strict modules which the
 // interpreter won't do because it only supports clearing normal module objects.
 static PyObject* clear_strict_modules(PyObject*, PyObject*) {
-  BorrowedRef<> modules = PyImport_GetModuleDict();
+  PyObject* modules = PyImport_GetModuleDict();
   Ref<> clearing;
   if (PyDict_CheckExact(modules)) {
     Py_ssize_t pos = 0;
@@ -1099,8 +1099,8 @@ static PyObject* clear_strict_modules(PyObject*, PyObject*) {
 
   if (clearing != nullptr) {
     for (Py_ssize_t i = 0; i < PyList_GET_SIZE(clearing.get()); i++) {
-      BorrowedRef<> mod = PyList_GET_ITEM(clearing.get(), i);
-      BorrowedRef<> dict = Ci_StrictModule_GetDict(mod);
+      PyObject* mod = PyList_GET_ITEM(clearing.get(), i);
+      PyObject* dict = Ci_StrictModule_GetDict(mod);
       PyDict_Clear(dict);
     }
   }
@@ -1480,7 +1480,7 @@ int _cinderx_exec_impl(PyObject* m) {
     } else {
       clear_name = "_clear_type_cache";
     }
-    BorrowedRef<> clear_type_cache = PySys_GetObject(clear_name);
+    PyObject* clear_type_cache = PySys_GetObject(clear_name);
     state->setSysClearCaches(clear_type_cache);
 
     // Replace sys._clear_type_cache with our clearing function

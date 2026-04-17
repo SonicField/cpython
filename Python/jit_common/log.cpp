@@ -20,14 +20,14 @@ void printPythonException() {
 #endif
 }
 
-std::string repr(BorrowedRef<> obj) {
+std::string repr(PyObject* obj) {
   jit::ThreadedCompileSerialize guard;
 
   PyObject *t, *v, *tb;
 
   PyErr_Fetch(&t, &v, &tb);
   auto p_str =
-      Ref<PyObject>::steal(PyObject_Repr(const_cast<PyObject*>(obj.get())));
+      Ref<PyObject>::steal(PyObject_Repr(const_cast<PyObject*>(obj)));
   PyErr_Restore(t, v, tb);
   if (p_str == nullptr) {
     return fmt::format(

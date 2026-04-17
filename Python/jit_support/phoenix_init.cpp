@@ -35,7 +35,7 @@ static int phoenix_dict_watcher(
         state != nullptr ? state->cacheManager() : nullptr;
     if (globalCaches == nullptr) return 0;
 
-    BorrowedRef<PyDictObject> dict{dict_obj};
+    PyDictObject* dict = (PyDictObject*)dict_obj;
     switch (event) {
         case PyDict_EVENT_ADDED:
         case PyDict_EVENT_MODIFIED:
@@ -49,7 +49,7 @@ static int phoenix_dict_watcher(
                    garbage collection. Non-interned keys are rare for
                    module globals (Python interns most identifiers). */
                 if (PyUnicode_CHECK_INTERNED(key_obj)) {
-                    BorrowedRef<PyUnicodeObject> key{key_obj};
+                    PyUnicodeObject* key = (PyUnicodeObject*)key_obj;
                     globalCaches->notifyDictUpdate(dict, key, new_value);
                 }
             }
@@ -291,7 +291,7 @@ static void phoenix_free(void* m) {
        4. Destruct ModuleState (placement-new'd, needs explicit dtor)
        5. Clear global pointer */
     for (auto func : state->registeredCompilationUnits()) {
-        auto* f = reinterpret_cast<PyFunctionObject*>(func.get());
+        auto* f = reinterpret_cast<PyFunctionObject*>(func);
         if (PyFunction_Check(f) && !isJitCompiled(f)) {
             f->vectorcall = Ci_PyFunction_Vectorcall;
         }

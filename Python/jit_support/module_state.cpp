@@ -46,7 +46,7 @@ int ModuleState::clear() {
   return 0;
 }
 
-void setModuleState(BorrowedRef<> mod) {
+void setModuleState(PyObject* mod) {
   auto state = reinterpret_cast<cinderx::ModuleState*>(PyModule_GetState(mod));
   s_cinderx_state = state;
   state->setModule(mod);
@@ -56,7 +56,7 @@ ModuleState* getModuleState() {
   return s_cinderx_state;
 }
 
-ModuleState* getModuleState(BorrowedRef<> mod) {
+ModuleState* getModuleState(PyObject* mod) {
   return reinterpret_cast<ModuleState*>(PyModule_GetState(mod));
 }
 
@@ -120,7 +120,7 @@ CiWatcherState& ModuleState::watcherState() {
   return watcher_state_;
 }
 
-jit::UnorderedSet<BorrowedRef<>>& ModuleState::registeredCompilationUnits() {
+jit::UnorderedSet<PyObject*>& ModuleState::registeredCompilationUnits() {
   return registered_compilation_units;
 }
 

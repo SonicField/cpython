@@ -27,7 +27,7 @@ Py_ssize_t code_extra_index = -1;
 
 namespace jit {
 static std::string fullnameImpl(PyObject* module, PyObject* qualname) {
-  auto safe_str = [](BorrowedRef<> str) {
+  auto safe_str = [](PyObject* str) {
     if (str == nullptr || !PyUnicode_Check(str)) {
       return "<invalid>";
     }
@@ -37,16 +37,16 @@ static std::string fullnameImpl(PyObject* module, PyObject* qualname) {
 }
 
 std::string codeFullname(
-    BorrowedRef<PyObject> module,
-    BorrowedRef<PyCodeObject> code) {
+    PyObject* module,
+    PyCodeObject* code) {
   return fullnameImpl(module, code->co_qualname);
 }
 
-std::string funcFullname(BorrowedRef<PyFunctionObject> func) {
+std::string funcFullname(PyFunctionObject* func) {
   return fullnameImpl(func->func_module, func->func_qualname);
 }
 
-PyObject* getVarnameTuple(BorrowedRef<PyCodeObject> code, int* idx) {
+PyObject* getVarnameTuple(PyCodeObject* code, int* idx) {
   if (*idx < code->co_nlocals) {
     return PyCode_GetVarnames(code);
   }
@@ -61,7 +61,7 @@ PyObject* getVarnameTuple(BorrowedRef<PyCodeObject> code, int* idx) {
   return PyCode_GetFreevars(code);
 }
 
-PyObject* getVarname(BorrowedRef<PyCodeObject> code, int idx) {
+PyObject* getVarname(PyCodeObject* code, int idx) {
 #if PY_VERSION_HEX >= 0x030C0000
   return PyTuple_GET_ITEM(code->co_localsplusnames, idx);
 #else
@@ -70,7 +70,7 @@ PyObject* getVarname(BorrowedRef<PyCodeObject> code, int idx) {
 #endif
 }
 
-uint32_t hashBytecode(BorrowedRef<PyCodeObject> code) {
+uint32_t hashBytecode(PyCodeObject* code) {
   uint32_t crc = crc32(0, nullptr, 0);
   PyObject* bc = PyCode_GetCode(code);
   if (!PyBytes_Check(bc)) {
@@ -86,7 +86,7 @@ uint32_t hashBytecode(BorrowedRef<PyCodeObject> code) {
   return crc32(crc, reinterpret_cast<unsigned char*>(buffer), len);
 }
 
-std::string codeQualname(BorrowedRef<PyCodeObject> code) {
+std::string codeQualname(PyCodeObject* code) {
   if (code->co_qualname != nullptr) {
     return unicodeAsString(code->co_qualname);
   }

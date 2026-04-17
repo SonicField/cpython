@@ -43,54 +43,54 @@ class AsyncLazyValueState : public IAsyncLazyValueState {
 
   bool init() override;
 
-  BorrowedRef<PyTypeObject> asyncLazyValueType() override {
+  PyTypeObject* asyncLazyValueType() override {
     return async_lazy_value_type_;
   }
 
-  BorrowedRef<PyTypeObject> asyncLazyValueComputeType() {
+  PyTypeObject* asyncLazyValueComputeType() {
     return async_lazy_value_compute_type_;
   }
 
-  BorrowedRef<PyTypeObject> awaitableValueType() {
+  PyTypeObject* awaitableValueType() {
     return awaitable_value_type_;
   }
 
-  BorrowedRef<PyTypeObject> futureType();
+  PyTypeObject* futureType();
 
-  BorrowedRef<PyTypeObject> methodTableRefType() {
+  PyTypeObject* methodTableRefType() {
     return _method_table_ref_type_;
   }
 
-  BorrowedRef<> getEventLoop();
+  PyObject* getEventLoop();
 
   PyMethodTableRef* lastUsedTaskTypeTableRef() {
     return last_used_task_type_table_ref_;
   }
 
-  void setLastUsedTaskTypeTableRef(BorrowedRef<PyMethodTableRef> tableref) {
+  void setLastUsedTaskTypeTableRef(PyMethodTableRef* tableref) {
     last_used_task_type_table_ref_ = tableref;
   }
 
-  BorrowedRef<PyTypeObject> lastUsedTaskType() {
+  PyTypeObject* lastUsedTaskType() {
     return last_used_task_type_;
   }
 
-  void setLastUsedTaskType(BorrowedRef<PyTypeObject> type) {
+  void setLastUsedTaskType(PyTypeObject* type) {
     last_used_task_type_ = type;
   }
 
-  BorrowedRef<PyObject> methodRefCallback() {
+  PyObject* methodRefCallback() {
     return methodref_callback_;
   }
 
-  BorrowedRef<> asyncioFutureBlocking();
-  BorrowedRef<PyTypeObject> cancalledError();
+  PyObject* asyncioFutureBlocking();
+  PyTypeObject* cancalledError();
 
-  BorrowedRef<PyGetSetDescrObject> futureSourceTraceback();
+  PyGetSetDescrObject* futureSourceTraceback();
 
   Ref<PyGetSetDescrObject> lookupFutureGetSet(const char* name);
 
-  BorrowedRef<PyMethodTableRef> futureTableRef();
+  PyMethodTableRef* futureTableRef();
 
  private:
   Ref<PyTypeObject> async_lazy_value_type_;
@@ -106,9 +106,9 @@ class AsyncLazyValueState : public IAsyncLazyValueState {
   Ref<PyMethodTableRef> future_table_ref_;
 
   // borrowed reference to the last task type that was created in create_task
-  BorrowedRef<PyTypeObject> last_used_task_type_;
+  PyTypeObject* last_used_task_type_;
   // method table for the last used task type
-  BorrowedRef<PyMethodTableRef> last_used_task_type_table_ref_;
+  PyMethodTableRef* last_used_task_type_table_ref_;
 };
 } // namespace cinderx
 

@@ -34,7 +34,7 @@ void printPythonException();
 // caution - this can end up executing arbitrary Python code. Always succeeds
 // but may return a description of an error in string e.g.
 // "<failed to get UTF8 from Python string>"
-std::string repr(BorrowedRef<> obj);
+std::string repr(PyObject* obj);
 
 #define JIT_LOG(...)                                           \
   {                                                            \

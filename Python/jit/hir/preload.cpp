@@ -29,9 +29,9 @@ static OwnedType resolve_type_descr(PyObject* descr) {
 
 static FieldInfo resolve_field_descr(PyTupleObject* descr) {
   int field_type;
-  Py_ssize_t offset = _PyClassLoader_ResolveFieldOffset(descr, &field_type);
+  Py_ssize_t offset = _PyClassLoader_ResolveFieldOffset((PyObject*)descr, &field_type);
 
-  JIT_CHECK(offset != -1, "failed to resolve field {}", repr(descr));
+  JIT_CHECK(offset != -1, "failed to resolve field {}", repr((PyObject*)descr));
 
   return {
       offset,
@@ -42,7 +42,7 @@ static FieldInfo resolve_field_descr(PyTupleObject* descr) {
 static void _fill_primitive_arg_types_helper(
     _PyTypedArgsInfo* prim_args_info,
     ArgToType& map) {
-  for (Py_ssize_t i = 0; i < Py_SIZE(prim_args_info.get()); i++) {
+  for (Py_ssize_t i = 0; i < Py_SIZE(prim_args_info); i++) {
     map.emplace(
         prim_args_info->tai_args[i].tai_argnum,
         prim_type_to_type(prim_args_info->tai_args[i].tai_primitive_type));
@@ -88,17 +88,17 @@ static std::unique_ptr<NativeTarget> resolve_native_target(
     PyObject* signature) {
   auto target = std::make_unique<NativeTarget>();
   void* raw_ptr = _PyClassloader_LookupSymbol(
-      PyTuple_GET_ITEM(native_descr.get(), 0),
-      PyTuple_GET_ITEM(native_descr.get(), 1));
+      PyTuple_GET_ITEM(native_descr, 0),
+      PyTuple_GET_ITEM(native_descr, 1));
 
   JIT_CHECK(
       raw_ptr != nullptr, "invalid address for native function: {}", raw_ptr);
 
   target->callable = raw_ptr;
 
-  Py_ssize_t siglen = PyTuple_GET_SIZE(signature.get());
+  Py_ssize_t siglen = PyTuple_GET_SIZE(signature);
   auto return_type_code = _PyClassLoader_ResolvePrimitiveType(
-      PyTuple_GET_ITEM(signature.get(), siglen - 1));
+      PyTuple_GET_ITEM(signature, siglen - 1));
   target->return_type = prim_type_to_type(return_type_code);
   JIT_DCHECK(
       target->return_type <= TCInt,
@@ -108,7 +108,7 @@ static std::unique_ptr<NativeTarget> resolve_native_target(
   ArgToType& primitive_arg_types = target->primitive_arg_types;
   for (Py_ssize_t i = 0; i < siglen - 1; i++) {
     int arg_type_code = _PyClassLoader_ResolvePrimitiveType(
-        PyTuple_GET_ITEM(signature.get(), i));
+        PyTuple_GET_ITEM(signature, i));
     Type typ = prim_type_to_type(arg_type_code);
     JIT_DCHECK(typ <= TCInt, "native function arg type must be a primitive");
 
@@ -393,8 +393,8 @@ bool Preloader::preload() {
       }
       case LOAD_FIELD:
       case STORE_FIELD: {
-        PyTupleObject* descr(constArg(bc_instr));
-        fields_.emplace(descr, resolve_field_descr(descr));
+        PyTupleObject* descr = (PyTupleObject*)constArg(bc_instr);
+        fields_.emplace((PyObject*)descr, resolve_field_descr(descr));
         break;
       }
       case LOAD_METHOD_STATIC:
@@ -481,7 +481,7 @@ bool Preloader::preloadStatic() {
           fullname(),
           local,
           i,
-          repr(checks));
+          repr((PyObject*)checks));
 #endif
     }
     OwnedType preloaded_type =

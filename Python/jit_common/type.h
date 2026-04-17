@@ -21,15 +21,15 @@ inline std::string typeFullname(PyTypeObject* type) {
 
 // Simulate _PyType_Lookup(), but in a way that should avoid any heap mutations
 // (caches, refcount operations, arbitrary code execution).
-inline BorrowedRef<> typeLookupSafe(
-    BorrowedRef<PyTypeObject> type,
-    BorrowedRef<> name) {
+inline PyObject* typeLookupSafe(
+    PyTypeObject* type,
+    PyObject* name) {
   return jit_type_lookup_safe(type, name);
 }
 
 // Attempt to ensure that the given type has a valid version tag, returning
 // true if successful.
-inline bool ensureVersionTag(BorrowedRef<PyTypeObject> type) {
+inline bool ensureVersionTag(PyTypeObject* type) {
   return jit_ensure_version_tag(type) != 0;
 }
 
