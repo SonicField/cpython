@@ -441,8 +441,8 @@ class Context : public IJitContext {
   }
 #endif
 
-  BorrowedRef<> zero() override;
-  BorrowedRef<> strBuildClass();
+  PyObject* zero() override;
+  PyObject* strBuildClass();
 
   void watchPendingTypes();
   void fixupFunctionEntryCachePostMultiThreadedCompile();

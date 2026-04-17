@@ -452,7 +452,7 @@ void Context::unwatchType(
   }
 }
 
-BorrowedRef<> Context::zero() {
+PyObject* Context::zero() {
   return zero_.get();
 }
 
