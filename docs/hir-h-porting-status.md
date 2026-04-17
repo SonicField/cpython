@@ -40,25 +40,34 @@
 - I4: `92b9b1e86a` + `762d7ddd74` — InsertBefore/After/unlink/link pure C
 - I5: `8fcac51fbc` — wire C++ Instr methods to pure C
 
-### Phase H: Header split (BLOCKED on full Fn field mapping)
+### Phase Fn additional:
+- Fn-prep-d: `4d0d73c9d3` — TypedArgument::pytype ThreadedRef → raw PyTypeObject*
+- Fn-prep-e: `dc003cf502` + `c66b7c7800` — typed_args std::vector → flat array
+
+### Phase H: Header split (COMPLETE — verified)
+- Zero .c files include hir.h — C headers form self-contained hierarchy
+- hir_instr_c.h includes frame_state.h only inside #ifdef __cplusplus
+- Split happened organically during Phases R-Fn
 
 ## Remaining Work (next session)
 
-1. **Opaque blob refinement**: Convert remaining Function opaque fields to real C:
-   - typed_args: std::vector<TypedArgument> → flat array (TypedArgument may be POD now)
-   - code_patchers: std::vector<unique_ptr<CodePatcher>> → opaque or flat array
+1. **Remaining opaque blobs** (3 in Function):
+   - code_patchers: std::vector<unique_ptr<CodePatcher>> — keep opaque (vtable)
    - InlineFunctionStats: contains UnorderedMap — keep opaque
    - compilation_phase_timer: unique_ptr — keep opaque (8 bytes)
 
-2. **Phase H (header split)**: Split hir.h into hir_c.h (pure C) + hir.h (C++ compat).
-   Requires Fn fully mapped (no opaque blobs ideally, or at least typed_args converted).
+2. **Next subsystem plan**: Scope codegen/LIR/compiler subsystems for Phase 3D
+   continuation. Theologian to produce systematic plan (same as hir.h approach).
 
-3. **ARM64 gate debt**: ~40+ commits unverified on ARM64. Needs Alex's Duo 2FA.
+3. **ARM64 gate debt**: ~46+ commits unverified on ARM64. Needs Alex's Duo 2FA.
+
+4. **Dead code cleanup**: lir/inliner.cpp deleted (was empty stub)
 
 ## Session Statistics
-- 41 commits pushed to SonicField/cpython
-- ALL 7 phases have verified implementations
+- 46 commits pushed to SonicField/cpython
+- ALL 7 phases COMPLETE with verified implementations
 - 9/9 Function C accessors with offsetof verification
+- typed_args + TypedArgument::pytype converted (2 opaque blobs eliminated)
 - Key infrastructure: RegisterMap → flat array, ThreadedRef → raw pointers,
   pure C set_block/insert/unlink, fullname → char*
 - Lessons learned:
