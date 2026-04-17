@@ -1308,11 +1308,11 @@ bool HIRBuilder::getSimpleExceptInfo(
   BCOffset except_body = bc.nextInstrOffset();
 
   // Resolve exception type at JIT compile time via preloader.
-  BorrowedRef<> exc_type = preloader_.global(name_idx);
+  PyObject* exc_type = preloader_.global(name_idx);
   if (exc_type == nullptr) {
     return false;
   }
-  if (!PyExceptionClass_Check(exc_type.get())) {
+  if (!PyExceptionClass_Check(exc_type)) {
     return false;
   }
 
@@ -3637,7 +3637,7 @@ bool HIRBuilder::emitInvokeFunction(
     const jit::BytecodeInstruction& bc_instr,
     CallFlags flags) {
   PyObject* arg = constArg(bc_instr);
-  BorrowedRef<> descr = PyTuple_GET_ITEM(arg, 0);
+  PyObject* descr = PyTuple_GET_ITEM(arg, 0);
   long nargs = PyLong_AsLong(PyTuple_GET_ITEM(arg, 1));
 
   const InvokeTarget& target = preloader_.invokeFunctionTarget(descr);
@@ -3717,14 +3717,14 @@ bool HIRBuilder::emitInvokeNative(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   PyObject* arg = constArg(bc_instr);
-  BorrowedRef<> native_target_descr = PyTuple_GET_ITEM(arg, 0);
+  PyObject* native_target_descr = PyTuple_GET_ITEM(arg, 0);
   const NativeTarget& target =
       preloader_.invokeNativeTarget(native_target_descr);
 
-  BorrowedRef<> signature = PyTuple_GET_ITEM(arg, 1);
+  PyObject* signature = PyTuple_GET_ITEM(arg, 1);
 
   // The last entry in the signature is the return type, so subtract 1
-  Py_ssize_t nargs = PyTuple_GET_SIZE(signature.get()) - 1;
+  Py_ssize_t nargs = PyTuple_GET_SIZE(signature) - 1;
 
   Register* out = temps_.AllocateStack();
   Type typ = target.return_type;
@@ -3760,7 +3760,7 @@ void HIRBuilder::emitLoadMethodStatic(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   PyObject* arg = constArg(bc_instr);
-  BorrowedRef<> descr = PyTuple_GET_ITEM(arg, 0);
+  PyObject* descr = PyTuple_GET_ITEM(arg, 0);
   bool is_classmethod = _PyClassLoader_IsClassMethodDescr(arg);
 
   const InvokeTarget& target = preloader_.invokeMethodTarget(descr);
@@ -3825,7 +3825,7 @@ bool HIRBuilder::emitInvokeMethod(
     const jit::BytecodeInstruction& bc_instr,
     bool is_awaited) {
   PyObject* arg = constArg(bc_instr);
-  BorrowedRef<> descr = PyTuple_GET_ITEM(arg, 0);
+  PyObject* descr = PyTuple_GET_ITEM(arg, 0);
   long nargs = PyLong_AsLong(PyTuple_GET_ITEM(arg, 1)) + 2; // thunk, self
 
   const InvokeTarget& target = preloader_.invokeMethodTarget(descr);
@@ -4160,7 +4160,7 @@ void HIRBuilder::emitLoadAttr(
           call->SetOperand(1, index_reg);
 
           // Deopt if value is NULL (attribute deleted)
-          BorrowedRef<> attr_name =
+          PyObject* attr_name =
               PyTuple_GET_ITEM(code_->co_names, name_idx);
           auto cf = tc.emitCheckField(
               result, result, attr_name, tc.frame);
@@ -4192,12 +4192,12 @@ void HIRBuilder::emitLoadAttr(
           // Root the type so it lives as long as the compiled code.
           // Without this, GC may collect the type during auto-compilation,
           // causing GuardType to compare against a freed pointer.
-          current_func_->env.addReference(BorrowedRef<>(
+          current_func_->env.addReference((PyObject*)(
               reinterpret_cast<PyObject*>(slot_type)));
           Type type = Type::fromTypeExact(slot_type);
           tc.emitGuardType(receiver, type, receiver);
 
-          BorrowedRef<> attr_name =
+          PyObject* attr_name =
               PyTuple_GET_ITEM(code_->co_names, name_idx);
 
           // Direct load at the slot byte offset.
@@ -4241,15 +4241,15 @@ void HIRBuilder::emitLoadAttr(
              PyDict_GET_SIZE(slot_type->tp_subclasses) == 0) &&
             PyType_HasFeature(slot_type, Py_TPFLAGS_MANAGED_DICT)) {
 
-          BorrowedRef<PyHeapTypeObject> ht(reinterpret_cast<PyHeapTypeObject*>(slot_type));
+          PyHeapTypeObject* ht = reinterpret_cast<PyHeapTypeObject*>(slot_type);
           if (ht->ht_cached_keys != nullptr) {
             // Root the type so it lives as long as the compiled code.
-            current_func_->env.addReference(BorrowedRef<>(
+            current_func_->env.addReference((PyObject*)(
                 reinterpret_cast<PyObject*>(slot_type)));
             Type type = Type::fromTypeExact(slot_type);
             tc.emitGuardType(receiver, type, receiver);
 
-            BorrowedRef<> attr_name =
+            PyObject* attr_name =
                 PyTuple_GET_ITEM(code_->co_names, name_idx);
 
             // Load PyDictOrValues from managed dict slot (offset -3).
@@ -4459,7 +4459,7 @@ void HIRBuilder::emitLoadDeref(
 
   tc.emitLoadCellItem(dst, src);
 
-  BorrowedRef<> name = getVarname(code_, idx);
+  PyObject* name = getVarname(code_, idx);
 #if PY_VERSION_HEX < 0x030C0000
   tc.emitCheckVar(dst, dst, name, tc.frame);
 #else
@@ -4509,7 +4509,7 @@ void HIRBuilder::emitLoadClass(
     const jit::BytecodeInstruction& bc_instr) {
   Register* tmp = temps_.AllocateStack();
   auto pytype = preloader_.pyType(constArg(bc_instr));
-  auto pytype_as_pyobj = BorrowedRef(pytype);
+  auto pytype_as_pyobj = (PyObject*)pytype;
   tc.emitLoadConst(tmp, Type::fromObject(pytype_as_pyobj));
   phx_ptr_arr_push(&tc.frame.stack, tmp);
 }
@@ -5083,14 +5083,14 @@ void HIRBuilder::emitLoadGlobal(
     if (!jit_get_config()->stable_frame) {
       return false;
     }
-    BorrowedRef<> value = preloader_.global(name_idx);
+    PyObject* value = preloader_.global(name_idx);
     if (value == nullptr) {
       return false;
     }
     tc.emitLoadGlobalCached(
         result, code_, preloader_.builtins(), preloader_.globals(), name_idx);
     auto guard_is = tc.emitGuardIs(result, value, result);
-    BorrowedRef<> name = PyTuple_GET_ITEM(code_->co_names, name_idx);
+    PyObject* name = PyTuple_GET_ITEM(code_->co_names, name_idx);
     guard_is->setDescr(fmt::format("LOAD_GLOBAL: {}", PyUnicode_AsUTF8(name)));
     return true;
   };
@@ -5187,7 +5187,7 @@ void HIRBuilder::emitBuildCheckedList(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   PyObject* arg = constArg(bc_instr);
-  BorrowedRef<> descr = PyTuple_GET_ITEM(arg, 0);
+  PyObject* descr = PyTuple_GET_ITEM(arg, 0);
   Py_ssize_t list_size = PyLong_AsLong(PyTuple_GET_ITEM(arg, 1));
 
   Type type = preloader_.type(descr);
@@ -5209,7 +5209,7 @@ void HIRBuilder::emitBuildCheckedMap(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   PyObject* arg = constArg(bc_instr);
-  BorrowedRef<> descr = PyTuple_GET_ITEM(arg, 0);
+  PyObject* descr = PyTuple_GET_ITEM(arg, 0);
   Py_ssize_t dict_size = PyLong_AsLong(PyTuple_GET_ITEM(arg, 1));
 
   Type type = preloader_.type(descr);
