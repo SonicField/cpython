@@ -36,7 +36,7 @@ static FieldInfo resolve_field_descr(BorrowedRef<PyTupleObject> descr) {
   return {
       offset,
       prim_type_to_type(field_type),
-      PyTuple_GET_ITEM(descr, PyTuple_GET_SIZE(descr) - 1)};
+      (PyUnicodeObject*)PyTuple_GET_ITEM(descr, PyTuple_GET_SIZE(descr) - 1)};
 }
 
 static void _fill_primitive_arg_types_helper(
@@ -214,7 +214,7 @@ std::unique_ptr<InvokeTarget> Preloader::resolve_target_descr(
   return target;
 }
 
-BorrowedRef<PyFunctionObject> InvokeTarget::func() const {
+PyFunctionObject* InvokeTarget::func() const {
   JIT_CHECK(is_function, "not a PyFunctionObject");
   return reinterpret_cast<PyFunctionObject*>(callable.get());
 }

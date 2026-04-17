@@ -96,9 +96,9 @@ class Preloader {
       PyFunctionObject* func,
       Ref<> reifier = nullptr) {
     return makePreloader(
-        func->func_code,
-        func->func_builtins,
-        func->func_globals,
+        (PyCodeObject*)func->func_code,
+        (PyDictObject*)func->func_builtins,
+        (PyDictObject*)func->func_globals,
         hir_annotation_index_from_function(func),
         funcFullname(func),
         std::move(reifier));
