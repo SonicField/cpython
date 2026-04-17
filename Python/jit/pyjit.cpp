@@ -1235,7 +1235,7 @@ hir::Preloader* preload(BorrowedRef<> unit) {
           code->co_qualname);
       return nullptr;
     }
-    BorrowedRef<PyFunctionObject>& outer_func = it->second;
+    PyFunctionObject*& outer_func = it->second;
     // Assuming the builtins + globals will always be a dictionary goes way back
     // in the JIT's history. I'm not sure what guarantees this though. Tread
     // carefully but try not to blow things up if this happens in production
@@ -2222,7 +2222,7 @@ PyObject* print_hir(PyObject* /* self */, PyObject* func) {
     return nullptr;
   }
 
-  CompiledFunction* compiled_func = jitCtx()->lookupFunc(func);
+  CompiledFunction* compiled_func = jitCtx()->lookupFunc((PyFunctionObject*)func);
   if (compiled_func == nullptr) {
     PyErr_SetString(PyExc_RuntimeError, "function is not jit compiled");
     return nullptr;
@@ -2242,7 +2242,7 @@ PyObject* disassemble(PyObject* /* self */, PyObject* func) {
     return nullptr;
   }
 
-  CompiledFunction* compiled_func = jitCtx()->lookupFunc(func);
+  CompiledFunction* compiled_func = jitCtx()->lookupFunc((PyFunctionObject*)func);
   if (compiled_func == nullptr) {
     PyErr_SetString(PyExc_RuntimeError, "function is not jit compiled");
     return nullptr;
@@ -2268,7 +2268,7 @@ PyObject* dump_elf(PyObject* /* self */, PyObject* arg) {
   std::vector<elf::CodeEntry> entries;
   for (BorrowedRef<PyFunctionObject> func : jitCtx()->compiledFuncs()) {
     BorrowedRef<PyCodeObject> code{func->func_code};
-    CompiledFunction* compiled_func = jitCtx()->lookupFunc(func);
+    CompiledFunction* compiled_func = jitCtx()->lookupFunc((PyFunctionObject*)func);
 
     elf::CodeEntry entry;
     entry.code = code;
@@ -2448,7 +2448,7 @@ PyObject* get_function_compilation_time(PyObject* /* self */, PyObject* arg) {
   }
 
   BorrowedRef<PyFunctionObject> func{arg};
-  CompiledFunction* compiled_func = jitCtx()->lookupFunc(func);
+  CompiledFunction* compiled_func = jitCtx()->lookupFunc((PyFunctionObject*)func);
   if (compiled_func == nullptr) {
     Py_RETURN_NONE;
   }
@@ -2463,7 +2463,7 @@ PyObject* get_inlined_functions_stats(PyObject* /* self */, PyObject* arg) {
     Py_RETURN_NONE;
   }
   BorrowedRef<PyFunctionObject> func{arg};
-  CompiledFunction* compiled_func = jitCtx()->lookupFunc(func);
+  CompiledFunction* compiled_func = jitCtx()->lookupFunc((PyFunctionObject*)func);
   if (compiled_func == nullptr) {
     Py_RETURN_NONE;
   }
@@ -2518,7 +2518,7 @@ PyObject* get_num_inlined_functions(PyObject* /* self */, PyObject* arg) {
     return PyLong_FromLong(0);
   }
   BorrowedRef<PyFunctionObject> func{arg};
-  CompiledFunction* compiled_func = jitCtx()->lookupFunc(func);
+  CompiledFunction* compiled_func = jitCtx()->lookupFunc((PyFunctionObject*)func);
   int size = compiled_func != nullptr
       ? compiled_func->inlinedFunctionsStats().num_inlined_functions
       : 0;
@@ -2530,7 +2530,7 @@ PyObject* get_function_hir_opcode_counts(PyObject* /* self */, PyObject* arg) {
     Py_RETURN_NONE;
   }
   BorrowedRef<PyFunctionObject> func{arg};
-  CompiledFunction* compiled_func = jitCtx()->lookupFunc(func);
+  CompiledFunction* compiled_func = jitCtx()->lookupFunc((PyFunctionObject*)func);
   if (compiled_func == nullptr) {
     Py_RETURN_NONE;
   }
@@ -2706,7 +2706,7 @@ PyObject* get_compiled_size(PyObject* /* self */, PyObject* func) {
   if (jitCtx() == nullptr) {
     return PyLong_FromLong(0);
   }
-  CompiledFunction* compiled_func = jitCtx()->lookupFunc(func);
+  CompiledFunction* compiled_func = jitCtx()->lookupFunc((PyFunctionObject*)func);
   int size = compiled_func != nullptr ? compiled_func->codeSize() : -1;
   return PyLong_FromLong(size);
 }
@@ -2715,7 +2715,7 @@ PyObject* get_compiled_stack_size(PyObject* /* self */, PyObject* func) {
   if (jitCtx() == nullptr) {
     return PyLong_FromLong(0);
   }
-  CompiledFunction* compiled_func = jitCtx()->lookupFunc(func);
+  CompiledFunction* compiled_func = jitCtx()->lookupFunc((PyFunctionObject*)func);
   int size = compiled_func != nullptr ? compiled_func->stackSize() : -1;
   return PyLong_FromLong(size);
 }
@@ -2724,7 +2724,7 @@ PyObject* get_compiled_spill_stack_size(PyObject* /* self */, PyObject* func) {
   if (jitCtx() == nullptr) {
     return PyLong_FromLong(0);
   }
-  CompiledFunction* compiled_func = jitCtx()->lookupFunc(func);
+  CompiledFunction* compiled_func = jitCtx()->lookupFunc((PyFunctionObject*)func);
   int size = compiled_func != nullptr ? compiled_func->spillStackSize() : -1;
   return PyLong_FromLong(size);
 }
