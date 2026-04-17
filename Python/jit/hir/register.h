@@ -5,8 +5,8 @@
 #include "cinderx/Jit/hir/type.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <ostream>
-#include <string>
 
 namespace jit::hir {
 
@@ -47,16 +47,15 @@ class Register {
     instr_ = instr;
   }
 
-  // A unique name for this value. This name has no connection to the original
-  // Python program.
-  const std::string& name() const {
-    if (name_.empty()) {
-      char buf[32];
-      std::snprintf(buf, sizeof(buf), "v%d", id_);
-      name_ = buf;
+  const char* name() const {
+    if (!name_) {
+      name_ = static_cast<char*>(malloc(32));
+      std::snprintf(name_, 32, "v%d", id_);
     }
     return name_;
   }
+
+  ~Register() { free(name_); }
 
  private:
   DISALLOW_COPY_AND_ASSIGN(Register);
@@ -64,7 +63,7 @@ class Register {
   Type type_{TTop};
   Instr* instr_{nullptr};
   int id_{-1};
-  mutable std::string name_;
+  mutable char* name_{nullptr};
 };
 
 // The refcount semantics of a value held in a Register.
