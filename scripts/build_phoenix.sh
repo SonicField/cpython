@@ -77,42 +77,7 @@ else
            "$BUILD_DIR/libcommon.a"
 fi
 
-# Step 2: Configure cmake with PHOENIX_ASM
-echo "--- Configuring cmake with PHOENIX_ASM=ON ---"
-mkdir -p "$BUILD_DIR"
-cd "$BUILD_DIR"
-# CRITICAL: --pydebug requires CMAKE_BUILD_TYPE=Debug so JIT_DCHECK is active.
-# RelWithDebInfo compiles out JIT_DCHECK even with configure --with-pydebug.
-CMAKE_BUILD_TYPE="RelWithDebInfo"
-EXTRA_CMAKE_FLAGS=""
-if [ "$PYDEBUG" -eq 1 ]; then
-    CMAKE_BUILD_TYPE="Debug"
-fi
-if [ "$ASAN" -eq 1 ]; then
-    EXTRA_CMAKE_FLAGS=" -fsanitize=address -fno-omit-frame-pointer"
-fi
-if ! cmake .. \
-    -DPHOENIX_ASM=ON \
-    -DCMAKE_CXX_FLAGS="-DPHOENIX_ASM${EXTRA_CMAKE_FLAGS}" \
-    -DCMAKE_C_FLAGS="-DPHOENIX_ASM${EXTRA_CMAKE_FLAGS}" \
-    -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
-    -DCMAKE_C_COMPILER="${PHOENIX_CC:-/opt/llvm/bin/clang}" \
-    -DCMAKE_CXX_COMPILER="${PHOENIX_CXX:-/opt/llvm/bin/clang++}"; then
-    echo "FAIL: cmake configuration failed"
-    exit 1
-fi
-
-# Step 3: Build JIT library
-echo "--- Building JIT library ---"
-cmake --build . -- -j"$JOBS"
-
-# Step 4: Create empty libasmjit.a stub (phoenix-asm replaces asmjit)
-# Always recreate — PGO's internal `make clean` deletes the stub
-mkdir -p "$BUILD_DIR/_deps/asmjit-build"
-AR_CMD=$(command -v llvm-ar 2>/dev/null || command -v ar)
-$AR_CMD rcs "$BUILD_DIR/_deps/asmjit-build/libasmjit.a"
-
-# Step 5: Configure CPython (hermetic — always reconfigure)
+# Step 2: Configure CPython (generates pyconfig.h needed by cmake) (hermetic — always reconfigure)
 # ARM64: no LTO (causes issues on aarch64 devgpu builds)
 # x86_64: LTO enabled for production performance
 echo "--- Configuring CPython ---"
@@ -146,6 +111,42 @@ else
         fi
     fi
 fi
+
+
+# Step 3: Configure cmake with PHOENIX_ASM
+echo "--- Configuring cmake with PHOENIX_ASM=ON ---"
+mkdir -p "$BUILD_DIR"
+cd "$BUILD_DIR"
+# CRITICAL: --pydebug requires CMAKE_BUILD_TYPE=Debug so JIT_DCHECK is active.
+# RelWithDebInfo compiles out JIT_DCHECK even with configure --with-pydebug.
+CMAKE_BUILD_TYPE="RelWithDebInfo"
+EXTRA_CMAKE_FLAGS=""
+if [ "$PYDEBUG" -eq 1 ]; then
+    CMAKE_BUILD_TYPE="Debug"
+fi
+if [ "$ASAN" -eq 1 ]; then
+    EXTRA_CMAKE_FLAGS=" -fsanitize=address -fno-omit-frame-pointer"
+fi
+if ! cmake .. \
+    -DPHOENIX_ASM=ON \
+    -DCMAKE_CXX_FLAGS="-DPHOENIX_ASM${EXTRA_CMAKE_FLAGS}" \
+    -DCMAKE_C_FLAGS="-DPHOENIX_ASM${EXTRA_CMAKE_FLAGS}" \
+    -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
+    -DCMAKE_C_COMPILER="${PHOENIX_CC:-/opt/llvm/bin/clang}" \
+    -DCMAKE_CXX_COMPILER="${PHOENIX_CXX:-/opt/llvm/bin/clang++}"; then
+    echo "FAIL: cmake configuration failed"
+    exit 1
+fi
+
+# Step 4: Build JIT library
+echo "--- Building JIT library ---"
+cmake --build . -- -j"$JOBS"
+
+# Step 5: Create empty libasmjit.a stub (phoenix-asm replaces asmjit)
+# Always recreate — PGO's internal `make clean` deletes the stub
+mkdir -p "$BUILD_DIR/_deps/asmjit-build"
+AR_CMD=$(command -v llvm-ar 2>/dev/null || command -v ar)
+$AR_CMD rcs "$BUILD_DIR/_deps/asmjit-build/libasmjit.a"
 
 # Step 6: Remove stale python binary and rebuild CPython
 echo "--- Building CPython ---"
