@@ -16,11 +16,19 @@ void phx_df_block_destroy(PhxDataFlowBlock *b) {
     phx_bv_destroy(&b->kill);
     phx_bv_destroy(&b->in);
     phx_bv_destroy(&b->out);
+    free(b->preds);
+    free(b->succs);
 }
 
 void phx_df_block_connect(PhxDataFlowBlock *from, PhxDataFlowBlock *to) {
-    JIT_CHECK_C(from->n_succs < DF_MAX_SUCCS, "too many successors");
-    JIT_CHECK_C(to->n_preds < DF_MAX_PREDS, "too many predecessors");
+    if (from->n_succs >= from->cap_succs) {
+        from->cap_succs = from->cap_succs ? from->cap_succs * 2 : 4;
+        from->succs = (PhxDataFlowBlock **)realloc(from->succs, from->cap_succs * sizeof(PhxDataFlowBlock *));
+    }
+    if (to->n_preds >= to->cap_preds) {
+        to->cap_preds = to->cap_preds ? to->cap_preds * 2 : 4;
+        to->preds = (PhxDataFlowBlock **)realloc(to->preds, to->cap_preds * sizeof(PhxDataFlowBlock *));
+    }
     from->succs[from->n_succs++] = to;
     to->preds[to->n_preds++] = from;
 }

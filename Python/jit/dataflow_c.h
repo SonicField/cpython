@@ -13,18 +13,17 @@
 extern "C" {
 #endif
 
-#define DF_MAX_PREDS 64
-#define DF_MAX_SUCCS 64
-
 typedef struct PhxDataFlowBlock {
     PhxBitVector gen;
     PhxBitVector kill;
     PhxBitVector in;
     PhxBitVector out;
-    struct PhxDataFlowBlock *preds[DF_MAX_PREDS];
+    struct PhxDataFlowBlock **preds;
     size_t n_preds;
-    struct PhxDataFlowBlock *succs[DF_MAX_SUCCS];
+    size_t cap_preds;
+    struct PhxDataFlowBlock **succs;
     size_t n_succs;
+    size_t cap_succs;
 } PhxDataFlowBlock;
 
 typedef struct {
