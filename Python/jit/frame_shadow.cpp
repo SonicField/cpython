@@ -173,8 +173,8 @@ Ref<PyFrameObject> createPyFrame(
 
 void insertPyFrameBefore(
     PyThreadState* tstate,
-    BorrowedRef<PyFrameObject> frame,
-    BorrowedRef<PyFrameObject> cursor) {
+    PyFrameObject* frame,
+    PyFrameObject* cursor) {
   if (cursor == nullptr) {
     // Insert frame at the top of the call stack
     Py_XINCREF(tstate->frame);
@@ -192,7 +192,7 @@ void insertPyFrameBefore(
 }
 
 void attachPyFrame(
-    BorrowedRef<PyFrameObject> py_frame,
+    PyFrameObject* py_frame,
     _PyShadowFrame* shadow_frame) {
   if (is_shadow_frame_for_gen(shadow_frame)) {
     // Transfer ownership of the new reference to frame to the generator
@@ -249,14 +249,14 @@ PyFrameState getPyFrameStateForJITGen(PyGenObject* gen) {
 //   - std::nullopt - Not inserted
 //
 // Consider using std::variant to represent the insertion position.
-BorrowedRef<PyFrameObject> materializePyFrame(
+PyFrameObject* materializePyFrame(
     PyThreadState* tstate,
     _PyShadowFrame* shadow_frame,
     BCOffset last_instr_offset,
-    std::optional<BorrowedRef<PyFrameObject>> cursor) {
+    std::optional<PyFrameObject*> cursor) {
   // Make sure a PyFrameObject exists at the correct location in the call
   // stack.
-  BorrowedRef<PyFrameObject> py_frame;
+  PyFrameObject* py_frame;
   if (_PyShadowFrame_GetPtrKind(shadow_frame) == PYSF_PYFRAME) {
     py_frame.reset(_PyShadowFrame_GetPyFrame(shadow_frame));
   } else {
@@ -436,10 +436,10 @@ UnitState getUnitState(_PyShadowFrame* shadow_frame) {
 // provided.
 //
 // Returns the PyFrameObject for the non-inlined shadow frame.
-BorrowedRef<PyFrameObject> materializePyFrames(
+PyFrameObject* materializePyFrames(
     PyThreadState* tstate,
     const UnitState& unit_state,
-    std::optional<BorrowedRef<PyFrameObject>> cursor) {
+    std::optional<PyFrameObject*> cursor) {
   for (auto it = unit_state.rbegin(); it != unit_state.rend(); ++it) {
     cursor = materializePyFrame(
         tstate, it->shadow_frame, it->loc.instr_offset, cursor);
@@ -448,7 +448,7 @@ BorrowedRef<PyFrameObject> materializePyFrames(
 }
 
 // Produces a PyFrameObject for the current shadow frame in the stack walk.
-using PyFrameMaterializer = std::function<BorrowedRef<PyFrameObject>(void)>;
+using PyFrameMaterializer = std::function<PyFrameObject*(void)>;
 
 // Called during stack walking for each item on the call stack. Returns false
 // to terminate stack walking.
@@ -456,14 +456,14 @@ using FrameHandler =
     std::function<bool(const CodeObjLoc&, PyFrameMaterializer)>;
 
 void doShadowStackWalk(PyThreadState* tstate, FrameHandler handler) {
-  BorrowedRef<PyFrameObject> prev_py_frame;
+  PyFrameObject* prev_py_frame;
   for (_PyShadowFrame* shadow_frame = tstate->shadow_frame;
        shadow_frame != nullptr;
        shadow_frame = shadow_frame->prev) {
     _PyShadowFrame_Owner owner = _PyShadowFrame_GetOwner(shadow_frame);
     switch (owner) {
       case PYSF_INTERP: {
-        BorrowedRef<PyFrameObject> py_frame =
+        PyFrameObject* py_frame =
             _PyShadowFrame_GetPyFrame(shadow_frame);
         auto materializer = [&]() { return py_frame; };
         if (!handler(CodeObjLoc(py_frame), materializer)) {
@@ -597,7 +597,7 @@ PyFrameObject* materializePyFrameForGen(
   // TASK(T116587512): Support inlined frames in generator objects
   JIT_CHECK(
       unit_state.size() == 1, "unexpected inlined frames found for generator");
-  std::optional<BorrowedRef<PyFrameObject>> cursor;
+  std::optional<PyFrameObject*> cursor;
   if (Ci_JITGenIsExecuting(gen) && !gen->gi_frame) {
     // Check if the generator's shadow frame is on the call stack. The generator
     // will be marked as running but will not be on the stack when it appears as
