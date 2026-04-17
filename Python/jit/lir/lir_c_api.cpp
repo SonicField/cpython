@@ -468,7 +468,7 @@ jit_environ_get_frame_mode(void* env_ptr) {
 extern "C" void*
 jit_hir_func_get_code(const void* hir_func) {
   auto* func = static_cast<const jit::hir::Function*>(hir_func);
-  return func->code.get();
+  return func->code;
 }
 
 extern "C" int
@@ -494,7 +494,7 @@ jit_hir_func_get_frame_mode(const void* hir_func) {
 extern "C" void*
 jit_hir_func_get_reifier(const void* hir_func) {
   auto* func = static_cast<const jit::hir::Function*>(hir_func);
-  return func->reifier.get();
+  return func->reifier;
 }
 
 /* ---- CodeRuntime accessors ---- */

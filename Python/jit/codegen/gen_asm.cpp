@@ -1405,7 +1405,7 @@ void* NativeGenerator::getVectorcallEntry() {
 
   env_.ctx = getContext();
   env_.code_rt = env_.ctx->allocateCodeRuntime(
-      func->code.get(), func->builtins.get(), func->globals.get());
+      func->code, func->builtins, func->globals);
 #if defined(ENABLE_LIGHTWEIGHT_FRAMES) && PY_VERSION_HEX >= 0x030E0000
   env_.code_rt->setReifier(func->reifier);
 #endif
@@ -1453,7 +1453,7 @@ void* NativeGenerator::getVectorcallEntry() {
 
 
   LinearScanAllocator lsalloc(
-      lir_func.get(), frame_asm_c_frame_header_size(GetFunction()->code.get()) + inline_stack_size_);
+      lir_func.get(), frame_asm_c_frame_header_size(GetFunction()->code) + inline_stack_size_);
 
   COMPILE_TIMER(
       GetFunction()->compilation_phase_timer,
