@@ -223,9 +223,9 @@ class Context : public IJitContext {
    * Gets the CompiledFunction for a given code/builtins/globals triplet.
    */
   CompiledFunction* lookupCode(
-      BorrowedRef<PyCodeObject> code,
-      BorrowedRef<PyDictObject> builtins,
-      BorrowedRef<PyDictObject> globals);
+      PyCodeObject* code,
+      PyDictObject* builtins,
+      PyDictObject* globals);
 
   /*
    * Looks up the CodeRuntime for a given function.
@@ -303,7 +303,7 @@ class Context : public IJitContext {
   void recordDeopt(
       CodeRuntime* code_runtime,
       std::size_t idx,
-      BorrowedRef<> guilty_value);
+      PyObject* guilty_value);
 
   // Get the stat object for a given deopt.  It will not exist if the deopt has
   // never been hit.
@@ -332,7 +332,7 @@ class Context : public IJitContext {
   // Ensure that this Context owns a reference to the given borrowed object,
   // keeping it alive for use by the compiled code. Make CodeRuntime a new
   // owner of the object.
-  void addReference(BorrowedRef<> obj);
+  void addReference(PyObject* obj);
 
   // Release any references this Context holds to Python objects.
   void releaseReferences();
@@ -342,7 +342,7 @@ class Context : public IJitContext {
   LoadTypeAttrCache* allocateLoadTypeAttrCache();
   LoadMethodCache* allocateLoadMethodCache();
   // Lookup-or-create: returns existing warm IC for (code, bc_offset) if available
-  LoadMethodCache* allocateLoadMethodCache(BorrowedRef<PyCodeObject> code, int bc_offset);
+  LoadMethodCache* allocateLoadMethodCache(PyCodeObject* code, int bc_offset);
   LoadModuleAttrCache* allocateLoadModuleAttrCache();
   LoadModuleMethodCache* allocateLoadModuleMethodCache();
   LoadTypeMethodCache* allocateLoadTypeMethodCache();
@@ -364,30 +364,30 @@ class Context : public IJitContext {
 
   // When type is modified or an instance of type has __class__ assigned to,
   // call patcher->maybePatch(new_ty).
-  void watchType(BorrowedRef<PyTypeObject> type, TypeDeoptPatcher* patcher);
-  void unwatchType(BorrowedRef<PyTypeObject> type, TypeDeoptPatcher* patcher);
+  void watchType(PyTypeObject* type, TypeDeoptPatcher* patcher);
+  void unwatchType(PyTypeObject* type, TypeDeoptPatcher* patcher);
 
   // Watch a module global for changes.  When the global (identified by
   // dict + key) changes from its expected value, the patcher fires.
   void watchGlobal(
-      BorrowedRef<PyDictObject> globals,
-      BorrowedRef<PyUnicodeObject> key,
+      PyDictObject* globals,
+      PyUnicodeObject* key,
       GlobalDeoptPatcher* patcher);
 
   // Unregister a GlobalDeoptPatcher.  Called from the patcher destructor
   // when a compiled function is destroyed (e.g., during recompilation)
   // to prevent dangling pointers in global_deopt_patchers_.
   void unwatchGlobal(
-      BorrowedRef<PyDictObject> globals,
-      BorrowedRef<PyUnicodeObject> key,
+      PyDictObject* globals,
+      PyUnicodeObject* key,
       GlobalDeoptPatcher* patcher);
 
   // Callback from GlobalCacheManager::notifyDictUpdate when a watched
   // global changes.
   void notifyGlobalModified(
-      BorrowedRef<PyDictObject> dict,
-      BorrowedRef<PyUnicodeObject> key,
-      BorrowedRef<> new_value);
+      PyDictObject* dict,
+      PyUnicodeObject* key,
+      PyObject* new_value);
 
   // Callback for when a type is modified or destroyed. lookup_type should be
   // the type that triggered the call (the type that's being
@@ -400,8 +400,8 @@ class Context : public IJitContext {
   // deopt patcher determines that the new type is still suitable for the
   // specialized code.
   void notifyTypeModified(
-      BorrowedRef<PyTypeObject> lookup_type,
-      BorrowedRef<PyTypeObject> new_type);
+      PyTypeObject* lookup_type,
+      PyTypeObject* new_type);
 
   // Checks to see if we've compiled a code but not yet created a
   // CompiledFunction object.
@@ -451,7 +451,7 @@ class Context : public IJitContext {
 
   // Map of all code objects to the functions that they were found in.
   // Needed for printing the name of the code object and for preloading.
-  UnorderedMap<BorrowedRef<PyCodeObject>, PyFunctionObject*>&
+  UnorderedMap<PyCodeObject*, PyFunctionObject*>&
   codeOuterFunctions() {
     return code_outer_funcs_;
   }
@@ -548,15 +548,15 @@ class Context : public IJitContext {
   std::unordered_set<ThreadedRef<PyObject>> references_;
   Builtins builtins_;
 
-  std::unordered_map<BorrowedRef<PyTypeObject>, std::vector<TypeDeoptPatcher*>>
+  std::unordered_map<PyTypeObject*, std::vector<TypeDeoptPatcher*>>
       type_deopt_patchers_;
 
   // Key: (dict, key_name) pair.  Value: list of patchers watching that global.
-  using GlobalWatchKey = std::pair<BorrowedRef<PyDictObject>, BorrowedRef<PyUnicodeObject>>;
+  using GlobalWatchKey = std::pair<PyDictObject*, PyUnicodeObject*>;
   struct GlobalWatchKeyHash {
     size_t operator()(const GlobalWatchKey& k) const {
-      return std::hash<PyObject*>{}(reinterpret_cast<PyObject*>(k.first.get()))
-           ^ (std::hash<PyObject*>{}(reinterpret_cast<PyObject*>(k.second.get())) << 1);
+      return std::hash<PyObject*>{}((PyObject*)k.first)
+           ^ (std::hash<PyObject*>{}((PyObject*)k.second) << 1);
     }
   };
   std::unordered_map<GlobalWatchKey, std::vector<GlobalDeoptPatcher*>, GlobalWatchKeyHash>
@@ -564,7 +564,7 @@ class Context : public IJitContext {
 
   Ref<> zero_;
   Ref<> str_build_class_;
-  std::unordered_set<BorrowedRef<PyTypeObject>> pending_watches_;
+  std::unordered_set<PyTypeObject*> pending_watches_;
 
   std::vector<hir::Type> common_constant_types_;
 
@@ -613,7 +613,7 @@ class Context : public IJitContext {
   std::atomic_size_t total_compile_time_ms_;
 
   // Map of all code objects to the functions that they were found in.
-  UnorderedMap<BorrowedRef<PyCodeObject>, PyFunctionObject*>
+  UnorderedMap<PyCodeObject*, PyFunctionObject*>
       code_outer_funcs_;
 };
 

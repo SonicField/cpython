@@ -153,7 +153,7 @@ Ref<> Context::pageInProfilerDependencies() {
   // the code to do so. There are probably more efficient ways of doing this
   // but perf isn't a major concern.
   for (auto& code_rt : code_runtimes_) {
-    BorrowedRef<> qualname = code_rt.frameState()->code()->co_qualname;
+    PyObject* qualname = code_rt.frameState()->code()->co_qualname;
     if (qualname == nullptr) {
       continue;
     }
@@ -191,7 +191,7 @@ void Context::clearFunctionEntryCache(PyFunctionObject* function) {
 // See comments in findFunctionEntryCache.
 void Context::fixupFunctionEntryCachePostMultiThreadedCompile() {
   for (auto& entry : function_entry_caches_) {
-    BorrowedRef<PyCodeObject> code{entry.first->func_code};
+    PyCodeObject* code = (PyCodeObject*)entry.first->func_code;
     if (entry.second.arg_info.get() == nullptr &&
         _PyClassLoader_HasPrimitiveArgs(code)) {
       entry.second.arg_info = Ref<_PyTypedArgsInfo>::steal(
@@ -216,7 +216,7 @@ _PyTypedArgsInfo* Context::findFunctionPrimitiveArgInfo(
 void Context::recordDeopt(
     CodeRuntime* code_runtime,
     std::size_t idx,
-    BorrowedRef<> guilty_value) {
+    PyObject* guilty_value) {
   DeoptStat& stat = deopt_stats_[code_runtime][idx];
   stat.count++;
   if (guilty_value != nullptr) {
@@ -350,7 +350,7 @@ void Context::clearGuardFailureCallback() {
   guard_failure_callback_ = nullptr;
 }
 
-void Context::addReference(BorrowedRef<> obj) {
+void Context::addReference(PyObject* obj) {
   // Serialize as we modify the ref-count to obj which may be widely accessible.
   ThreadedCompileSerialize guard;
   references_.emplace(ThreadedRef<>::create(obj));
@@ -381,7 +381,7 @@ LoadMethodCache* Context::allocateLoadMethodCache() {
 }
 
 LoadMethodCache* Context::allocateLoadMethodCache(
-    BorrowedRef<PyCodeObject> code, int bc_offset) {
+    PyCodeObject* code, int bc_offset) {
   auto key = std::make_pair(code, bc_offset);
   auto it = load_method_cache_map_.find(key);
   if (it != load_method_cache_map_.end()) {
@@ -419,7 +419,7 @@ const Builtins& Context::builtins() {
 }
 
 void Context::watchType(
-    BorrowedRef<PyTypeObject> type,
+    PyTypeObject* type,
     TypeDeoptPatcher* patcher) {
   ThreadedCompileSerialize guard;
   type_deopt_patchers_[type].emplace_back(patcher);
@@ -438,7 +438,7 @@ void Context::watchType(
 }
 
 void Context::unwatchType(
-    BorrowedRef<PyTypeObject> type,
+    PyTypeObject* type,
     TypeDeoptPatcher* patcher) {
   ThreadedCompileSerialize guard;
   auto it = type_deopt_patchers_.find(type);
@@ -471,8 +471,8 @@ void Context::watchPendingTypes() {
 }
 
 void Context::notifyTypeModified(
-    BorrowedRef<PyTypeObject> lookup_type,
-    BorrowedRef<PyTypeObject> new_type) {
+    PyTypeObject* lookup_type,
+    PyTypeObject* new_type) {
   notifyICsTypeChanged(lookup_type);
 
   ThreadedCompileSerialize guard;
@@ -497,16 +497,16 @@ void Context::notifyTypeModified(
 }
 
 void Context::watchGlobal(
-    BorrowedRef<PyDictObject> globals,
-    BorrowedRef<PyUnicodeObject> key,
+    PyDictObject* globals,
+    PyUnicodeObject* key,
     GlobalDeoptPatcher* patcher) {
   ThreadedCompileSerialize guard;
   global_deopt_patchers_[{globals, key}].emplace_back(patcher);
 }
 
 void Context::unwatchGlobal(
-    BorrowedRef<PyDictObject> globals,
-    BorrowedRef<PyUnicodeObject> key,
+    PyDictObject* globals,
+    PyUnicodeObject* key,
     GlobalDeoptPatcher* patcher) {
   ThreadedCompileSerialize guard;
   auto it = global_deopt_patchers_.find({globals, key});
@@ -521,9 +521,9 @@ void Context::unwatchGlobal(
 }
 
 void Context::notifyGlobalModified(
-    BorrowedRef<PyDictObject> dict,
-    BorrowedRef<PyUnicodeObject> key,
-    BorrowedRef<> new_value) {
+    PyDictObject* dict,
+    PyUnicodeObject* key,
+    PyObject* new_value) {
   ThreadedCompileSerialize guard;
   auto it = global_deopt_patchers_.find({dict, key});
   if (it == global_deopt_patchers_.end()) {
@@ -667,7 +667,10 @@ bool Context::isDeoptimized(PyFunctionObject* func) {
 }
 
 CompiledFunction* Context::lookupFunc(PyFunctionObject* func) {
-  return lookupCode(func->func_code, func->func_builtins, func->func_globals);
+  return lookupCode(
+      (PyCodeObject*)func->func_code,
+      (PyDictObject*)func->func_builtins,
+      (PyDictObject*)func->func_globals);
 }
 
 CodeRuntime* Context::lookupCodeRuntime(PyFunctionObject* func) {
@@ -721,11 +724,11 @@ void Context::funcDestroyed(PyFunctionObject* func) {
 }
 
 CompiledFunction* Context::lookupCode(
-    BorrowedRef<PyCodeObject> code,
-    BorrowedRef<PyDictObject> builtins,
-    BorrowedRef<PyDictObject> globals) {
+    PyCodeObject* code,
+    PyDictObject* builtins,
+    PyDictObject* globals) {
   ThreadedCompileSerialize guard;
-  auto it = compiled_codes_.find(CompilationKey{code, builtins, globals});
+  auto it = compiled_codes_.find(CompilationKey{(PyObject*)code, (PyObject*)builtins, (PyObject*)globals});
   return it == compiled_codes_.end() ? nullptr : it->second.get();
 }
 
