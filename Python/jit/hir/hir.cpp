@@ -1282,9 +1282,6 @@ Environment::~Environment() {
   // accessible.
   ThreadedCompileSerialize guard;
   references_.clear();
-}
-
-Environment::~Environment() {
   for (size_t i = 0; i < reg_count_; i++) {
     delete reg_data_[i];
   }
