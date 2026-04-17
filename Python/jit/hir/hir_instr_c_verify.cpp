@@ -7,6 +7,7 @@
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_basic_block_c.h"
 #include "cinderx/Jit/hir/hir.h"
+#include "cinderx/Jit/hir/cfg.h"
 
 #include <cassert>
 
@@ -43,6 +44,15 @@ struct HirRegisterLayoutVerifier {
     static_assert(offsetof(HirRegisterLayout, instr) == offsetof(Register, instr_));
     static_assert(offsetof(HirRegisterLayout, id) == offsetof(Register, id_));
     static_assert(offsetof(HirRegisterLayout, name) == offsetof(Register, name_));
+};
+
+/* Phase C1: CFG layout verification */
+static_assert(sizeof(HirCFG) == sizeof(CFG),
+    "HirCFG size mismatch with CFG");
+struct HirCFGLayoutVerifier {
+    static_assert(offsetof(HirCFG, entry_block) == offsetof(CFG, entry_block));
+    static_assert(offsetof(HirCFG, block_root) == offsetof(CFG, blocks));
+    static_assert(offsetof(HirCFG, next_block_id) == offsetof(CFG, next_block_id_));
 };
 
 /* ---- Per-field offsetof checks via friend struct ---- */

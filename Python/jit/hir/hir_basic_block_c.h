@@ -82,6 +82,15 @@ void *hir_bb_get_terminator(const HirBasicBlock *bb);
 void *hir_bb_entry_snapshot(const HirBasicBlock *bb);
 int hir_bb_is_trampoline(const HirBasicBlock *bb);
 
+/* ---- CFG C struct ---- */
+typedef struct HirCFG {
+    void *entry_block;                /* BasicBlock* */
+    HirIntrusiveListNode block_root;  /* sentinel for block list */
+    size_t block_node_offset;         /* offsetof(cfg_node) in BasicBlock */
+    int next_block_id;                /* next block ID to allocate */
+    int _cfg_pad0;                    /* alignment padding */
+} HirCFG;
+
 /* ---- Phi query (needs HirBasicBlock for block id) ---- */
 
 static inline size_t hir_phi_block_index(const void *phi, const HirBasicBlock *block) {

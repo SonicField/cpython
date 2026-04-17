@@ -4,6 +4,8 @@
 
 #include "cinderx/Jit/hir/hir.h"
 
+struct HirCFGLayoutVerifier;
+
 namespace jit::hir {
 
 class CFG {
@@ -62,6 +64,7 @@ class CFG {
 
  private:
   DISALLOW_COPY_AND_ASSIGN(CFG);
+  friend struct ::HirCFGLayoutVerifier;
 
   int next_block_id_{0};
 };
