@@ -2078,7 +2078,7 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
     phx_x86_jmp_label(as_->impl(), next_arg);
 
     if (check_index >= 0) {
-      long local = checks.at(check_index).locals_idx;
+      long local = checks[check_index].locals_idx;
       if (GetFunction()->numArgs() - defaulted_arg_count - 1 == local) {
         if (check_index == 0) {
           next_arg = setup_frame;
@@ -2099,7 +2099,7 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
   phx_builder_bind(as_->impl(), arg_labels[0]);
   for (Py_ssize_t i = GetFunction()->typed_args_count - 1; i >= 0; i--) {
     auto check_cursor = as_->cursor();
-    const TypedArgument& arg = checks.at(i);
+    const TypedArgument& arg = checks[i];
     env_.code_rt->addReference(BorrowedRef(arg.pytype));
     next_arg = arg_labels[GetFunction()->typed_args_count - i];
 
@@ -2172,7 +2172,7 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
     phx_a64_b(as_->impl(), next_arg);
 
     if (check_index >= 0) {
-      long local = checks.at(check_index).locals_idx;
+      long local = checks[check_index].locals_idx;
       if (GetFunction()->numArgs() - defaulted_arg_count - 1 == local) {
         if (check_index == 0) {
           next_arg = setup_frame;
@@ -2193,7 +2193,7 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
   phx_builder_bind(as_->impl(), arg_labels[0]);
   for (Py_ssize_t i = GetFunction()->typed_args_count - 1; i >= 0; i--) {
     auto check_cursor = as_->cursor();
-    const TypedArgument& arg = checks.at(i);
+    const TypedArgument& arg = checks[i];
     env_.code_rt->addReference(BorrowedRef(arg.pytype));
     next_arg = arg_labels[GetFunction()->typed_args_count - i];
 
