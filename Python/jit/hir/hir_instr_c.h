@@ -151,6 +151,37 @@ typedef struct HirRegisterLayout {
     char *name;        /* 8 bytes — malloc'd lazy name */
 } HirRegisterLayout;
 
+/* ---- Register C accessors ---- */
+
+static inline HirType hir_reg_type(const void *reg) {
+    return ((const HirRegisterLayout *)reg)->type;
+}
+
+static inline void hir_reg_set_type(void *reg, HirType type) {
+    ((HirRegisterLayout *)reg)->type = type;
+}
+
+static inline int hir_reg_id(const void *reg) {
+    return ((const HirRegisterLayout *)reg)->id;
+}
+
+static inline void *hir_reg_instr(const void *reg) {
+    return ((const HirRegisterLayout *)reg)->instr;
+}
+
+static inline void hir_reg_set_instr(void *reg, void *instr) {
+    ((HirRegisterLayout *)reg)->instr = instr;
+}
+
+static inline const char *hir_reg_name(const void *reg) {
+    HirRegisterLayout *r = (HirRegisterLayout *)reg;
+    if (!r->name) {
+        r->name = (char *)malloc(32);
+        snprintf(r->name, 32, "v%d", r->id);
+    }
+    return r->name;
+}
+
 /* ---- Base structs (standalone use) ----
  * Named HirInstrLayout / HirDeoptLayout to avoid collision with
  * the void* HirInstr typedef in hir_c_api.h.  C passes include
