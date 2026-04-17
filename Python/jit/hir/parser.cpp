@@ -892,7 +892,7 @@ HIRParser::parseInstr(std::string_view opcode, Register* dst, int bb_index) {
       expect(">");
       auto operand = ParseRegister();
       instruction = static_cast<Instr*>(
-          hir_c_create_check_var_reg(dst, operand, name.get(), nullptr));
+          hir_c_create_check_var_reg(dst, operand, name, nullptr));
       break;
     }
     case Opcode::kCheckSequenceBounds: {
