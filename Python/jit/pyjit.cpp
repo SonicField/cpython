@@ -308,7 +308,7 @@ static int compile_deferred_callback(void* arg) {
   assert(Py_REFCNT(func_obj) > 0 &&
          "compile_deferred_callback: dead function");
 
-  BorrowedRef<PyFunctionObject> func{func_obj};
+  PyFunctionObject* func = (PyFunctionObject*)func_obj;
 
   // Do not compile while the function has active frames on the Python
   // stack.  This happens for recursive functions (eval_breaker fires
@@ -1164,7 +1164,7 @@ bool isOverMaxCodeSize() {
 
 _PyJIT_Result compilePreloader(
     const hir::Preloader& preloader,
-    BorrowedRef<PyFunctionObject> func) {
+    PyFunctionObject* func) {
   if (isOverMaxCodeSize()) {
     return PYJIT_OVER_MAX_CODE_SIZE;
   }
@@ -1175,11 +1175,10 @@ _PyJIT_Result compilePreloader(
 // Convert a registered translation unit into a pair of a Python function and
 // its code object.  When the translation unit only refers to a code object
 // (e.g. it's a nested function), the function will be a nullptr.
-std::pair<BorrowedRef<PyFunctionObject>, BorrowedRef<PyCodeObject>> splitUnit(
-    BorrowedRef<> unit) {
+std::pair<PyFunctionObject*, PyCodeObject*> splitUnit(PyObject* unit) {
   if (PyFunction_Check(unit)) {
-    BorrowedRef<PyFunctionObject> func{unit};
-    BorrowedRef<PyCodeObject> code{func->func_code};
+    PyFunctionObject* func = (PyFunctionObject*)unit;
+    PyCodeObject* code = (PyCodeObject*)func->func_code;
     return {func, code};
   }
   JIT_CHECK(
@@ -1187,11 +1186,11 @@ std::pair<BorrowedRef<PyFunctionObject>, BorrowedRef<PyCodeObject>> splitUnit(
       "Translation units must be functions or code objects, got '{}'",
       Py_TYPE(unit)->tp_name);
 
-  BorrowedRef<PyCodeObject> code{unit};
+  PyCodeObject* code = (PyCodeObject*)unit;
   return {nullptr, code};
 }
 
-std::string unitFullname(BorrowedRef<> unit) {
+std::string unitFullname(PyObject* unit) {
   if (unit == nullptr) {
     return "<nullptr>";
   }
@@ -1203,7 +1202,7 @@ std::string unitFullname(BorrowedRef<> unit) {
   auto iter = jit_code_outer_funcs.find(code);
   if (iter == jit_code_outer_funcs.end()) {
     return fmt::format(
-        "<Unknown code object {}>", static_cast<void*>(code.get()));
+        "<Unknown code object {}>", static_cast<void*>(code));
   }
   return codeFullname(iter->second->func_module, code);
 }
@@ -1213,7 +1212,7 @@ std::string unitFullname(BorrowedRef<> unit) {
 //
 // Can potentially hit a Python exception, if so, will forward that along and
 // return nullptr.
-hir::Preloader* preload(BorrowedRef<> unit) {
+hir::Preloader* preload(PyObject* unit) {
   auto [func, code] = splitUnit(unit);
   if (hir::Preloader* existing = hir::preloaderManager().find(code)) {
     return existing;
@@ -1284,7 +1283,7 @@ hir::Preloader* preload(BorrowedRef<> unit) {
 // therefore it cannot raise a Python exception.
 //
 // Returns PYJIT_RESULT_NO_PRELOADER if no preloader is available.
-_PyJIT_Result tryCompilePreloaded(BorrowedRef<> unit) {
+_PyJIT_Result tryCompilePreloaded(PyObject* unit) {
   // func may be null here if we're just compiling a code object for a nested
   // function
   auto [func, code] = splitUnit(unit);
@@ -1890,7 +1889,7 @@ int compile_after_n_calls_impl(uint32_t calls) {
             s_funcs.push_back((PyObject*)func.get());
         });
     for (auto* f : s_funcs) {
-      scheduleJitCompile(BorrowedRef<PyFunctionObject>{f});
+      scheduleJitCompile((PyFunctionObject*)f);
     }
     s_funcs.clear();
   }
@@ -2339,7 +2338,7 @@ int rescheduleJitList() {
       }
     });
     for (auto* f : s_funcs) {
-      scheduleJitCompile(BorrowedRef<PyFunctionObject>{f});
+      scheduleJitCompile((PyFunctionObject*)f);
     }
     s_funcs.clear();
   }
@@ -3462,7 +3461,7 @@ _PyJIT_Result compile_func(BorrowedRef<PyFunctionObject> func) {
 
   // Collect a list of functions to compile.  If it's empty then there must have
   // been a Python error during preloading.
-  std::vector<BorrowedRef<PyFunctionObject>> targets = preloadFuncAndDeps(func);
+  std::vector<PyFunctionObject*> targets = preloadFuncAndDeps(func);
   if (targets.empty()) {
     JIT_CHECK(
         PyErr_Occurred(), "Expect a Python exception when preloading fails");
@@ -3480,7 +3479,7 @@ _PyJIT_Result compile_func(BorrowedRef<PyFunctionObject> func) {
   // preloader.
   _PyJIT_Result result = PYJIT_RESULT_UNKNOWN_ERROR;
 
-  for (BorrowedRef<PyFunctionObject> target : targets) {
+  for (PyFunctionObject* target : targets) {
     auto preloader = hir::preloaderManager().find(target);
     if (preloader == nullptr) {
       continue;
@@ -3626,7 +3625,7 @@ constexpr std::string_view getCpuArchName() {
 // Unregister a function and its nested code objects from jit_reg_units and
 // jit_code_outer_funcs. Called when a function is destroyed or its code object
 // is being replaced.
-void unregisterFunctionCodes(BorrowedRef<PyFunctionObject> func) {
+void unregisterFunctionCodes(PyFunctionObject* func) {
   if (!jitCtx()) {
     return;
   }
@@ -3638,12 +3637,12 @@ void unregisterFunctionCodes(BorrowedRef<PyFunctionObject> func) {
   auto& jit_reg_units = mod_state->registeredCompilationUnits();
   auto& jit_code_outer_funcs = jitCtx()->codeOuterFunctions();
 
-  BorrowedRef<PyCodeObject> top_code{func->func_code};
+  PyCodeObject* top_code = (PyCodeObject*)func->func_code;
   auto it = jit_code_outer_funcs.find(top_code);
   if (it != jit_code_outer_funcs.end() && it->second == func) {
     jit_code_outer_funcs.erase(it);
     PyObject* module = func->func_module;
-    BorrowedRef<> top_consts{top_code->co_consts};
+    PyObject* top_consts = top_code->co_consts;
     for (BorrowedRef<PyCodeObject> code : findNestedCodes(module, top_consts)) {
       jit_reg_units.erase(code);
       auto existing = jit_code_outer_funcs.find(code);
@@ -3656,10 +3655,10 @@ void unregisterFunctionCodes(BorrowedRef<PyFunctionObject> func) {
     }
   }
 
-  jit_reg_units.erase(func);
-  jit_reg_units.erase(top_code);
+  jit_reg_units.erase((PyObject*)func);
+  jit_reg_units.erase((PyObject*)top_code);
   if (handle_unit_deleted_during_preload != nullptr) {
-    handle_unit_deleted_during_preload(func.getObj());
+    handle_unit_deleted_during_preload((PyObject*)func);
   }
 }
 
@@ -3992,7 +3991,7 @@ bool shouldScheduleCompile(BorrowedRef<PyFunctionObject> func) {
       getConfig().compile_after_n_calls.has_value();
 }
 
-bool scheduleJitCompile(BorrowedRef<PyFunctionObject> func) {
+bool scheduleJitCompile(PyFunctionObject* func) {
   auto eligible = getCompilationEligibility(func);
   if (eligible == JitEligibility::Ineligible) {
     return false;
@@ -4075,7 +4074,7 @@ bool scheduleJitCompile(BorrowedRef<PyFunctionObject> func) {
   return true;
 }
 
-_PyJIT_Result compileFunction(BorrowedRef<PyFunctionObject> func) {
+_PyJIT_Result compileFunction(PyFunctionObject* func) {
   if (!isJitInitialized()) {
     return PYJIT_NOT_INITIALIZED;
   }
@@ -4087,33 +4086,33 @@ _PyJIT_Result compileFunction(BorrowedRef<PyFunctionObject> func) {
   }
 
   auto& jit_reg_units = cinderx::getModuleState()->registeredCompilationUnits();
-  jit_reg_units.erase(func);
+  jit_reg_units.erase((PyObject*)func);
   auto result = compile_func(func);
   return result;
 }
 
-std::vector<BorrowedRef<PyFunctionObject>> preloadFuncAndDeps(
-    BorrowedRef<PyFunctionObject> func,
+std::vector<PyFunctionObject*> preloadFuncAndDeps(
+    PyFunctionObject* func,
     bool forcePreload) {
   // Add one for the original function itself.
   size_t limit = getConfig().preload_dependent_limit + 1;
 
-  std::deque<BorrowedRef<PyFunctionObject>> worklist;
-  std::vector<BorrowedRef<PyFunctionObject>> result;
+  std::deque<PyFunctionObject*> worklist;
+  std::vector<PyFunctionObject*> result;
 
   // Track units that are deleted while preloading.
   std::unordered_set<PyObject*> deleted_units;
 
   worklist.push_back(func);
 
-  auto shouldPreload = [&](BorrowedRef<PyFunctionObject> f) {
+  auto shouldPreload = [&](PyFunctionObject* f) {
     return !isPreloaded(f) &&
         (forcePreload ||
          getCompilationEligibility(f) != JitEligibility::Ineligible);
   };
 
   while (worklist.size() > 0 && result.size() < limit) {
-    BorrowedRef<PyFunctionObject> f = worklist.front();
+    PyFunctionObject* f = worklist.front();
     worklist.pop_front();
 
     // This needs to be set every time before preload() is kicked off.
@@ -4122,7 +4121,7 @@ std::vector<BorrowedRef<PyFunctionObject>> preloadFuncAndDeps(
     handle_unit_deleted_during_preload = [&](PyObject* deleted_unit) {
       deleted_units.emplace(deleted_unit);
     };
-    hir::Preloader* preloader = preload(f);
+    hir::Preloader* preloader = preload((PyObject*)f);
     handle_unit_deleted_during_preload = nullptr;
 
     if (preloader == nullptr) {
@@ -4144,11 +4143,11 @@ std::vector<BorrowedRef<PyFunctionObject>> preloadFuncAndDeps(
 
     // Preload any used functions in case the JIT might want to inline them.
     for (const auto& [idx, name] : preloader->globalNames()) {
-      BorrowedRef<> obj = preloader->global(idx);
+      PyObject* obj = preloader->global(idx);
       if (!obj || !PyFunction_Check(obj)) {
         continue;
       }
-      BorrowedRef<PyFunctionObject> target_func = obj.get();
+      PyFunctionObject* target_func = (PyFunctionObject*)obj;
       if (shouldPreload(target_func)) {
         worklist.push_back(target_func);
       }
@@ -4159,7 +4158,7 @@ std::vector<BorrowedRef<PyFunctionObject>> preloadFuncAndDeps(
     // functions that the inliner may want to speculatively inline.
     // At Tier 1, ICs are cold so this loop finds nothing (correct).
     {
-      BorrowedRef<PyCodeObject> f_code{f->func_code};
+      PyCodeObject* f_code = (PyCodeObject*)f->func_code;
       jit::BytecodeInstructionBlock bc_block{f_code};
       for (const auto& bc_instr : bc_block) {
         // In 3.12+, LOAD_METHOD is merged into LOAD_ATTR with oparg & 1
@@ -4175,7 +4174,7 @@ std::vector<BorrowedRef<PyFunctionObject>> preloadFuncAndDeps(
               f_code, bc_off);
           for (const auto& entry : ic->entries()) {
             if (entry.value != nullptr && PyFunction_Check(entry.value)) {
-              BorrowedRef<PyFunctionObject> ic_func{entry.value};
+              PyFunctionObject* ic_func = (PyFunctionObject*)(PyObject*)entry.value;
               if (shouldPreload(ic_func)) {
                 worklist.push_back(ic_func);
               }
@@ -4192,8 +4191,8 @@ std::vector<BorrowedRef<PyFunctionObject>> preloadFuncAndDeps(
       std::remove_if(
           result.begin(),
           result.end(),
-          [&](BorrowedRef<PyFunctionObject> func) {
-            return deleted_units.contains(func.getObj()) ||
+          [&](PyFunctionObject* func) {
+            return deleted_units.contains((PyObject*)func) ||
                 deleted_units.contains(func->func_code);
           }),
       result.end());
@@ -4202,20 +4201,20 @@ std::vector<BorrowedRef<PyFunctionObject>> preloadFuncAndDeps(
   return result;
 }
 
-void codeDestroyed(BorrowedRef<PyCodeObject> code) {
+void codeDestroyed(PyCodeObject* code) {
   if (isJitUsable()) {
     auto mod_state = cinderx::getModuleState();
     auto& jit_reg_units = mod_state->registeredCompilationUnits();
     auto& jit_code_outer_funcs = jitCtx()->codeOuterFunctions();
-    jit_reg_units.erase(code.getObj());
+    jit_reg_units.erase((PyObject*)code);
     jit_code_outer_funcs.erase(code);
     if (handle_unit_deleted_during_preload != nullptr) {
-      handle_unit_deleted_during_preload(code.getObj());
+      handle_unit_deleted_during_preload((PyObject*)code);
     }
   }
 }
 
-void funcDestroyed(BorrowedRef<PyFunctionObject> func) {
+void funcDestroyed(PyFunctionObject* func) {
   auto mod_state = cinderx::getModuleState();
   if (!mod_state) {
     return;
@@ -4233,7 +4232,7 @@ void funcDestroyed(BorrowedRef<PyFunctionObject> func) {
   }
 }
 
-void funcModified(BorrowedRef<PyFunctionObject> func) {
+void funcModified(PyFunctionObject* func) {
   deoptFunc(func);
   // Clean up registrations for the old code object. At this point
   // func->func_code still refers to the old code. The caller will update
@@ -4242,19 +4241,19 @@ void funcModified(BorrowedRef<PyFunctionObject> func) {
   unregisterFunctionCodes(func);
 }
 
-void typeDestroyed(BorrowedRef<PyTypeObject> type) {
+void typeDestroyed(PyTypeObject* type) {
   if (CompilerContext<Compiler>* ctx = jitCtx()) {
     ctx->notifyTypeModified(type, nullptr);
   }
 }
 
-void typeModified(BorrowedRef<PyTypeObject> type) {
+void typeModified(PyTypeObject* type) {
   if (CompilerContext<Compiler>* ctx = jitCtx()) {
     ctx->notifyTypeModified(type, type);
   }
 }
 
-void typeNameModified(BorrowedRef<PyTypeObject> type) {
+void typeNameModified(PyTypeObject* type) {
   // We assume that this is a very rare case, and simply give up on tracking
   // the type if it happens.
   if (CompilerContext<Compiler>* ctx = jitCtx()) {
@@ -4265,7 +4264,7 @@ void typeNameModified(BorrowedRef<PyTypeObject> type) {
 _PyJIT_Result compilePreloaderImpl(
     jit::CompilerContext<Compiler>* jit_ctx,
     const hir::Preloader& preloader,
-    BorrowedRef<PyFunctionObject> func) {
+    PyFunctionObject* func) {
   // We are compiling the code stored in the preloader. Includes an optional
   // function if we have the function for which we're currently compiling. We
   // could just be compiling a code object for a nested function in which case

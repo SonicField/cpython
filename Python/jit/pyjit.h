@@ -47,7 +47,7 @@ void finalize();
  * Return true if the function was successfully scheduled for compilation, or if
  * it is already compiled.
  */
-bool scheduleJitCompile(BorrowedRef<PyFunctionObject> func);
+bool scheduleJitCompile(PyFunctionObject* func);
 
 /*
  * JIT compile func and patch its entry point.
@@ -56,7 +56,7 @@ bool scheduleJitCompile(BorrowedRef<PyFunctionObject> func);
  *
  * Returns PYJIT_RESULT_OK on success.
  */
-_PyJIT_Result compileFunction(BorrowedRef<PyFunctionObject> func);
+_PyJIT_Result compileFunction(PyFunctionObject* func);
 
 /*
  * Preload a function, along with any functions that it calls that we might want
@@ -69,26 +69,26 @@ _PyJIT_Result compileFunction(BorrowedRef<PyFunctionObject> func);
  * Return a list of preloaders that were created.  There should be at least one
  * preloader in the list, if it's empty then there was a preloading failure.
  */
-std::vector<BorrowedRef<PyFunctionObject>> preloadFuncAndDeps(
-    BorrowedRef<PyFunctionObject> func,
+std::vector<PyFunctionObject*> preloadFuncAndDeps(
+    PyFunctionObject* func,
     bool forcePreload = false);
 
 /*
  * Inform the JIT that a code, function, or type object is being modified or
  * destroyed.
  */
-void codeDestroyed(BorrowedRef<PyCodeObject> code);
-void funcDestroyed(BorrowedRef<PyFunctionObject> func);
-void funcModified(BorrowedRef<PyFunctionObject> func);
-void typeDestroyed(BorrowedRef<PyTypeObject> type);
-void typeModified(BorrowedRef<PyTypeObject> type);
-void typeNameModified(BorrowedRef<PyTypeObject> type);
+void codeDestroyed(PyCodeObject* code);
+void funcDestroyed(PyFunctionObject* func);
+void funcModified(PyFunctionObject* func);
+void typeDestroyed(PyTypeObject* type);
+void typeModified(PyTypeObject* type);
+void typeNameModified(PyTypeObject* type);
 
 // Exposed for unit tests
 _PyJIT_Result compilePreloaderImpl(
     jit::CompilerContext<Compiler>* jit_ctx,
     const hir::Preloader& preloader,
-    BorrowedRef<PyFunctionObject> func);
+    PyFunctionObject* func);
 
 } // namespace jit
 
