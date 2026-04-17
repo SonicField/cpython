@@ -201,3 +201,20 @@ void Function::sortBasicBlocks() {
 }
 
 } // namespace jit::lir
+
+/* C-callable wrapper for Function::copyFrom */
+extern "C" int lir_function_copy_from(
+    void* caller, const void* callee,
+    void* prev_bb, void* next_bb,
+    const void* origin,
+    int* out_begin, int* out_end) {
+  auto* c = static_cast<jit::lir::Function*>(caller);
+  auto result = c->copyFrom(
+      static_cast<const jit::lir::Function*>(callee),
+      static_cast<jit::lir::BasicBlock*>(prev_bb),
+      static_cast<jit::lir::BasicBlock*>(next_bb),
+      static_cast<const jit::hir::Instr*>(origin));
+  *out_begin = result.begin_bb;
+  *out_end = result.end_bb;
+  return 0;
+}

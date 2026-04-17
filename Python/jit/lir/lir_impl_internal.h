@@ -89,6 +89,15 @@ int lir_function_allocate_id(LirFunction *func);
 void lir_function_ensure_block_capacity(LirFunction *func, size_t needed);
 void lir_function_sort_blocks(LirFunction *func);
 
+/* From parser.cpp (extern C wrapper) */
+int lir_parser_parse(const char *text, void **out_func);
+
+/* From function.cpp (extern C wrapper) */
+int lir_function_copy_from(void *caller, const void *callee,
+                            void *prev_bb, void *next_bb,
+                            const void *origin,
+                            int *out_begin, int *out_end);
+
 /* From lir_c_api.h (blocksorter) */
 JitLirBlock *jit_lir_sort_blocks_rpo(
     JitLirBlock *blocks, size_t count, size_t *out_count);

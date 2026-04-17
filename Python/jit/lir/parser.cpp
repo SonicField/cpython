@@ -585,3 +585,16 @@ void Parser::fixUnknownIds() {
 }
 
 } // namespace jit::lir
+
+/* C-callable wrapper for Parser::parse */
+extern "C" int lir_parser_parse(const char* text, void** out_func) {
+  jit::lir::Parser parser;
+  try {
+    auto func = parser.parse(std::string(text));
+    *out_func = func.release();
+    return 0;
+  } catch (const jit::lir::ParserException&) {
+    *out_func = nullptr;
+    return -1;
+  }
+}
