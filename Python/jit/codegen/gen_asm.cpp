@@ -1356,7 +1356,7 @@ void* NativeGenerator::getVectorcallEntry() {
   // uses general purpose registers while available for non-floating
   // point values, and floating point values while available for fp
   // arguments.
-  const std::vector<TypedArgument>& checks = GetFunction()->typed_args;
+  const TypedArgument* checks = GetFunction()->typed_args_data;
 
   // gp_index starts at 1 because the first argument is reserved for the
   // function
@@ -1381,7 +1381,7 @@ void* NativeGenerator::getVectorcallEntry() {
 #endif
     };
 
-    if (check_index < checks.size() &&
+    if (check_index < GetFunction()->typed_args_count &&
         checks[check_index].locals_idx == static_cast<int>(i)) {
       if (checks[check_index].jit_type <= TCDouble) {
         if (fp_index < FP_ARGUMENT_REGS.size()) {
@@ -2049,9 +2049,9 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
   // This is complicated a bit by the fact that not every argument will have a
   // check, as we elide the dynamic ones. For that, we do bookkeeping and assign
   // all defaulted arg counts up to the next local to the same label.
-  const std::vector<TypedArgument>& checks = GetFunction()->typed_args;
+  const TypedArgument* checks = GetFunction()->typed_args_data;
   env_.static_arg_typecheck_failed_label = as_->newLabel();
-  if (!checks.size()) {
+  if (!GetFunction()->typed_args_count) {
     return;
   }
 
@@ -2068,7 +2068,7 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
   phx_builder_bind(as_->impl(), table_label);
   std::vector<Label> arg_labels;
   int defaulted_arg_count = 0;
-  Py_ssize_t check_index = checks.size() - 1;
+  Py_ssize_t check_index = GetFunction()->typed_args_count - 1;
   // Each check might be a label that hosts multiple arguments, as dynamic
   // arguments aren't checked. We need to account for this in our bookkeeping.
   auto next_arg = as_->newLabel();
@@ -2097,11 +2097,11 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
 
   as_->align(AlignMode::kCode, 8);
   phx_builder_bind(as_->impl(), arg_labels[0]);
-  for (Py_ssize_t i = checks.size() - 1; i >= 0; i--) {
+  for (Py_ssize_t i = GetFunction()->typed_args_count - 1; i >= 0; i--) {
     auto check_cursor = as_->cursor();
     const TypedArgument& arg = checks.at(i);
     env_.code_rt->addReference(BorrowedRef(arg.pytype));
-    next_arg = arg_labels[checks.size() - i];
+    next_arg = arg_labels[GetFunction()->typed_args_count - i];
 
     phx_x86_mov_rm(as_->impl(), x86::r8, x86::ptr(x86::rsi, arg.locals_idx * 8)); // load local
     phx_x86_mov_rm(as_->impl(),
@@ -2163,7 +2163,7 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
   phx_builder_bind(as_->impl(), table_label);
   std::vector<Label> arg_labels;
   int defaulted_arg_count = 0;
-  Py_ssize_t check_index = checks.size() - 1;
+  Py_ssize_t check_index = GetFunction()->typed_args_count - 1;
   // Each check might be a label that hosts multiple arguments, as dynamic
   // arguments aren't checked. We need to account for this in our bookkeeping.
   auto next_arg = as_->newLabel();
@@ -2191,11 +2191,11 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
 
   as_->align(AlignMode::kCode, 8);
   phx_builder_bind(as_->impl(), arg_labels[0]);
-  for (Py_ssize_t i = checks.size() - 1; i >= 0; i--) {
+  for (Py_ssize_t i = GetFunction()->typed_args_count - 1; i >= 0; i--) {
     auto check_cursor = as_->cursor();
     const TypedArgument& arg = checks.at(i);
     env_.code_rt->addReference(BorrowedRef(arg.pytype));
-    next_arg = arg_labels[checks.size() - i];
+    next_arg = arg_labels[GetFunction()->typed_args_count - i];
 
     phx_a64_ldr(as_->impl(),
         a64::x8,
@@ -2884,7 +2884,7 @@ void NativeGenerator::generateStaticEntryPoint(
   // Save incoming args across link call...
   size_t total_args = (size_t)GetFunction()->numArgs();
 
-  const std::vector<TypedArgument>& checks = GetFunction()->typed_args;
+  const TypedArgument* checks = GetFunction()->typed_args_data;
   std::vector<std::pair<const arch::Reg&, const arch::Reg&>> save_regs;
 
   if (linkFrameNeedsSpill()) {
@@ -2892,7 +2892,7 @@ void NativeGenerator::generateStaticEntryPoint(
     for (size_t i = 0, check_index = 0, arg_index = 0, fp_index = 0;
          i < total_args;
          i++) {
-      if (check_index < checks.size() &&
+      if (check_index < GetFunction()->typed_args_count &&
           checks[check_index].locals_idx == static_cast<int>(i)) {
         if (checks[check_index++].jit_type <= TCDouble &&
             fp_index < FP_ARGUMENT_REGS.size()) {
@@ -3014,7 +3014,7 @@ void NativeGenerator::generateStaticEntryPoint(
   // Save incoming args across link call...
   size_t total_args = (size_t)GetFunction()->numArgs();
 
-  const std::vector<TypedArgument>& checks = GetFunction()->typed_args;
+  const TypedArgument* checks = GetFunction()->typed_args_data;
   std::vector<std::pair<const arch::Reg&, const arch::Reg&>> save_regs;
 
   if (linkFrameNeedsSpill()) {
@@ -3022,7 +3022,7 @@ void NativeGenerator::generateStaticEntryPoint(
     for (size_t i = 0, check_index = 0, arg_index = 0, fp_index = 0;
          i < total_args;
          i++) {
-      if (check_index < checks.size() &&
+      if (check_index < GetFunction()->typed_args_count &&
           checks[check_index].locals_idx == static_cast<int>(i)) {
         if (checks[check_index++].jit_type <= TCDouble &&
             fp_index < FP_ARGUMENT_REGS.size()) {

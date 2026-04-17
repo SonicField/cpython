@@ -29,6 +29,10 @@ class Function {
     Py_XDECREF(reifier);
     reifier = nullptr;
     free(fullname);
+    for (size_t i = 0; i < typed_args_count; i++) {
+      typed_args_data[i].~TypedArgument();
+    }
+    free(typed_args_data);
   }
 
   PyCodeObject* code{nullptr};
@@ -62,9 +66,26 @@ class Function {
     InlineFailureStats failure_stats;
   } inline_function_stats;
 
-  // vector of {locals_idx, type, optional}
-  // in argument order, may have gaps for unchecked args
-  std::vector<TypedArgument> typed_args;
+  TypedArgument* typed_args_data{nullptr};
+  size_t typed_args_count{0};
+  size_t typed_args_capacity{0};
+
+  void typed_args_push(const TypedArgument& arg) {
+    if (typed_args_count == typed_args_capacity) {
+      size_t new_cap = typed_args_capacity ? typed_args_capacity * 2 : 4;
+      auto* new_data = static_cast<TypedArgument*>(
+          malloc(new_cap * sizeof(TypedArgument)));
+      for (size_t i = 0; i < typed_args_count; i++) {
+        new (&new_data[i]) TypedArgument(typed_args_data[i]);
+        typed_args_data[i].~TypedArgument();
+      }
+      free(typed_args_data);
+      typed_args_data = new_data;
+      typed_args_capacity = new_cap;
+    }
+    new (&typed_args_data[typed_args_count]) TypedArgument(arg);
+    typed_args_count++;
+  }
 
   // Return type
   Type return_type{TObject};
