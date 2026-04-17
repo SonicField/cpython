@@ -692,22 +692,10 @@ void hir_c_replace_uses_of(HirInstr instr, HirRegister orig, HirRegister replace
  * hir_c_set_bytecode_offset, hir_c_copy_bytecode_offset are already
  * defined as static inline in hir_instr_c.h — no extern C needed. */
 
-/* ---- Instr mutation API ---- */
-
-/* Set block pointer + update terminator edge from-pointers. */
-void hir_instr_set_block(void *instr, void *block);
-
-/* Insert instr before 'before' in its block's instruction list. */
-void hir_instr_insert_before(void *instr, void *before);
+/* ---- Instr mutation API (additions — insert_before/unlink/replace_with already above) ---- */
 
 /* Insert instr after 'after' in its block's instruction list. */
 void hir_instr_insert_after(void *instr, void *after);
-
-/* Unlink instr from its block (list removal + set_block(nullptr)). */
-void hir_instr_unlink(void *instr);
-
-/* Insert replacement before original, copy bytecodeOffset, unlink original. */
-void hir_instr_replace_with(void *original, void *replacement);
 
 /* Insert N instructions after original, copy bytecodeOffset, unlink original. */
 void hir_instr_expand_into(void *original, void **expansion, size_t count);

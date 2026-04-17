@@ -2249,26 +2249,10 @@ void hir_c_replace_uses_of(HirInstr instr, HirRegister orig, HirRegister replace
   as_instr(instr)->ReplaceUsesOf(as_reg(orig), as_reg(replacement));
 }
 
-/* ---- Instr mutation API ---- */
-
-void hir_instr_set_block(void *instr, void *block) {
-  as_instr(instr)->set_block(static_cast<BasicBlock*>(block));
-}
-
-void hir_instr_insert_before(void *instr, void *before) {
-  as_instr(instr)->InsertBefore(*as_instr(before));
-}
+/* ---- Instr mutation API (new additions only) ---- */
 
 void hir_instr_insert_after(void *instr, void *after) {
   as_instr(instr)->InsertAfter(*as_instr(after));
-}
-
-void hir_instr_unlink(void *instr) {
-  as_instr(instr)->unlink();
-}
-
-void hir_instr_replace_with(void *original, void *replacement) {
-  as_instr(original)->ReplaceWith(*as_instr(replacement));
 }
 
 void hir_instr_expand_into(void *original, void **expansion, size_t count) {
