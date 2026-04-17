@@ -152,6 +152,18 @@ typedef struct HirRegisterLayout {
     char *name;        /* 8 bytes — malloc'd lazy name */
 } HirRegisterLayout;
 
+/* ---- Environment C struct (must precede accessors) ---- */
+typedef struct HirEnvironment {
+    void **reg_data;               /* Register** flat array */
+    size_t reg_count;              /* number of slots (may have NULL gaps) */
+    size_t reg_capacity;           /* allocated capacity */
+    char references_opaque[56];    /* opaque: std::unordered_set<ThreadedRef<>> */
+    int next_register_id;
+    int next_load_type_attr_cache;
+    int next_load_type_method_cache;
+    int _env_pad0;
+} HirEnvironment;
+
 /* ---- Environment C accessors ---- */
 
 static inline void *hir_env_get_register(const void *env, int id) {
@@ -196,17 +208,7 @@ typedef struct HirFrameStateLayout {
     struct HirFrameStateLayout *parent; /* 8 bytes */
 } HirFrameStateLayout;
 
-/* ---- Environment C struct ---- */
-typedef struct HirEnvironment {
-    void **reg_data;               /* Register** flat array */
-    size_t reg_count;              /* number of slots (may have NULL gaps) */
-    size_t reg_capacity;           /* allocated capacity */
-    char references_opaque[56];    /* opaque: std::unordered_set<ThreadedRef<>> */
-    int next_register_id;
-    int next_load_type_attr_cache;
-    int next_load_type_method_cache;
-    int _env_pad0;
-} HirEnvironment;
+/* HirEnvironment struct defined above (before accessors) */
 
 /* ---- FrameState C accessors ---- */
 
