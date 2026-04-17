@@ -5,6 +5,7 @@
  */
 
 #include "cinderx/Jit/hir/hir_instr_c.h"
+#include "cinderx/Jit/hir/hir_basic_block_c.h"
 #include "cinderx/Jit/hir/hir.h"
 
 #include <cassert>
@@ -25,6 +26,13 @@ static_assert(sizeof(HirEdge) == sizeof(Edge),
 struct HirEdgeLayoutVerifier {
     static_assert(offsetof(HirEdge, from) == offsetof(Edge, from_));
     static_assert(offsetof(HirEdge, to) == offsetof(Edge, to_));
+};
+
+/* Phase H2: BasicBlock per-field offsetof checks */
+struct HirBasicBlockLayoutVerifier {
+    static_assert(offsetof(HirBasicBlock, instrs_) == offsetof(BasicBlock, instrs_));
+    static_assert(offsetof(HirBasicBlock, out_edges_) == offsetof(BasicBlock, out_edges_));
+    static_assert(offsetof(HirBasicBlock, in_edges_) == offsetof(BasicBlock, in_edges_));
 };
 
 /* ---- Per-field offsetof checks via friend struct ---- */
