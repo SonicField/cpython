@@ -3716,7 +3716,7 @@ constexpr unsigned long kThreadSafeFlagsMask = Py_TPFLAGS_BASETYPE;
 struct TypedArgument {
   TypedArgument(
       long locals_idx,
-      BorrowedRef<PyTypeObject> pytype,
+      PyTypeObject* pytype,
       int optional,
       int exact,
       Type jit_type);

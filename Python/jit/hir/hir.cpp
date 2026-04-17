@@ -1231,7 +1231,7 @@ const char* functionFieldName(FunctionAttr field) {
 
 TypedArgument::TypedArgument(
     long locals_idx,
-    BorrowedRef<PyTypeObject> pytype,
+    PyTypeObject* pytype,
     int optional,
     int exact,
     Type jit_type)
