@@ -21,6 +21,7 @@
 #include "cinderx/Jit/hir/cfg.h"
 #include "cinderx/Jit/hir/function.h"
 #include "cinderx/Jit/hir/instr_effects.h"
+#include "cinderx/Jit/hir/instr_effects_c.h"
 #include "cinderx/Jit/hir/pass.h"
 
 #include <cstring>
@@ -494,8 +495,8 @@ size_t hir_type_to_string(const HirType *type, char *buf, size_t bufsz,
 /* ---- Memory effects ---- */
 
 int hir_memory_effects_may_store(HirInstr instr) {
-  auto effects = memoryEffects(*as_instr(instr));
-  return static_cast<int>(effects.may_store.bits());
+  HirMemoryEffects effects = hir_memory_effects(instr);
+  return (int)effects.may_store;
 }
 
 /* ---- CFG / pass utilities ---- */
