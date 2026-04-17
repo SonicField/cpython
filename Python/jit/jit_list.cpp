@@ -74,7 +74,7 @@ bool JITList::parseLine(std::string_view line) {
   return addEntryCode(name, file, file_line);
 }
 
-bool JITList::addEntryFunc(BorrowedRef<> module_name, BorrowedRef<> qualname) {
+bool JITList::addEntryFunc(PyObject* module_name, PyObject* qualname) {
   JIT_DCHECK(
       !getThreadedCompileContext().compileRunning(),
       "unexpected multithreading");
@@ -109,9 +109,9 @@ bool JITList::addEntryFunc(
 }
 
 bool JITList::addEntryCode(
-    BorrowedRef<> name,
-    BorrowedRef<> file,
-    BorrowedRef<> line_no) {
+    PyObject* name,
+    PyObject* file,
+    PyObject* line_no) {
   JIT_DCHECK(
       !getThreadedCompileContext().compileRunning(),
       "unexpected multithreading");
@@ -172,8 +172,8 @@ bool JITList::addEntryCode(
   return addEntryCode(name_obj, basename_obj, line_no_obj);
 }
 
-int JITList::lookupFunc(BorrowedRef<PyFunctionObject> func) const {
-  BorrowedRef<PyCodeObject> code =
+int JITList::lookupFunc(PyFunctionObject* func) const {
+  PyCodeObject* code =
       reinterpret_cast<PyCodeObject*>(func->func_code);
   if (lookupCode(code) == 1) {
     return 1;
@@ -181,7 +181,7 @@ int JITList::lookupFunc(BorrowedRef<PyFunctionObject> func) const {
   return lookupName(func->func_module, func->func_qualname);
 }
 
-int JITList::lookupCode(BorrowedRef<PyCodeObject> code) const {
+int JITList::lookupCode(PyCodeObject* code) const {
   JIT_DCHECK(
       !getThreadedCompileContext().compileRunning(),
       "Unexpected multithreading");
@@ -193,11 +193,11 @@ int JITList::lookupCode(BorrowedRef<PyCodeObject> code) const {
     return 0;
   }
 
-  BorrowedRef<> file_set = PyDict_GetItemWithError(name_file_line_no_, name);
+  PyObject* file_set = PyDict_GetItemWithError(name_file_line_no_, name);
   if (file_set == nullptr) {
     return 0;
   }
-  BorrowedRef<> line_set = PyDict_GetItemWithError(file_set, file);
+  PyObject* line_set = PyDict_GetItemWithError(file_set, file);
   if (line_set == nullptr) {
     return 0;
   }
@@ -210,14 +210,14 @@ int JITList::lookupCode(BorrowedRef<PyCodeObject> code) const {
   return PySet_Contains(line_set, line_no);
 }
 
-int JITList::lookupName(BorrowedRef<> module_name, BorrowedRef<> qualname)
+int JITList::lookupName(PyObject* module_name, PyObject* qualname)
     const {
   if (module_name == nullptr) {
     return 0;
   }
 
   // Check for an exact module:qualname match.
-  BorrowedRef<> name_set = PyDict_GetItemWithError(qualnames_, module_name);
+  PyObject* name_set = PyDict_GetItemWithError(qualnames_, module_name);
   return name_set != nullptr ? PySet_Contains(name_set, qualname) : 0;
 }
 
@@ -247,7 +247,7 @@ std::unique_ptr<WildcardJITList> WildcardJITList::create() {
       new WildcardJITList(std::move(wildcard), std::move(qualnames)));
 }
 
-Ref<> JITList::pathBasename(BorrowedRef<> path) const {
+Ref<> JITList::pathBasename(PyObject* path) const {
   JIT_DCHECK(
       !getThreadedCompileContext().compileRunning(),
       "unexpected multithreading");
@@ -277,8 +277,8 @@ bool WildcardJITList::addEntryFunc(
 }
 
 int WildcardJITList::lookupName(
-    BorrowedRef<> module_name,
-    BorrowedRef<> qualname) const {
+    PyObject* module_name,
+    PyObject* qualname) const {
   // Check for an exact match
   if (int st = JITList::lookupName(module_name, qualname); st != 0) {
     return st;

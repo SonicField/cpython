@@ -65,7 +65,7 @@ struct FrameHeader {
 #endif
 
 // C++ wrapper — delegates to C implementation with config values.
-inline int frameHeaderSize(BorrowedRef<PyCodeObject> code) {
+inline int frameHeaderSize(PyCodeObject* code) {
   return jit_frame_header_size(
       code,
       jit_get_config()->frame_mode == JIT_FRAME_LIGHTWEIGHT ? 1 : 0,

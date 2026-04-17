@@ -40,9 +40,9 @@ class JITList : public IJITList {
   //
   // Returns 1, 0, -1 if the function was found, not found, or an error
   // occurred, respectively.
-  int lookupFunc(BorrowedRef<PyFunctionObject> function) const override;
-  int lookupCode(BorrowedRef<PyCodeObject> code) const override;
-  virtual int lookupName(BorrowedRef<> module_name, BorrowedRef<> qualname)
+  int lookupFunc(PyFunctionObject* function) const override;
+  int lookupCode(PyCodeObject* code) const override;
+  virtual int lookupName(PyObject* module_name, PyObject* qualname)
       const override;
 
   // Return a new reference to the dictionary used for matching elements in the
@@ -55,7 +55,7 @@ class JITList : public IJITList {
         name_file_line_no_(std::move(name_file_line_no)) {}
 
   // Add a function's name to the JIT list. Return true on success.
-  bool addEntryFunc(BorrowedRef<> module_name, BorrowedRef<> qualname);
+  bool addEntryFunc(PyObject* module_name, PyObject* qualname);
   virtual bool addEntryFunc(
       std::string_view module_name,
       std::string_view qualname);
@@ -63,13 +63,13 @@ class JITList : public IJITList {
  private:
   // Add a code object's name to the JIT list. Return true on success.
   bool
-  addEntryCode(BorrowedRef<> name, BorrowedRef<> file, BorrowedRef<> line_no);
+  addEntryCode(PyObject* name, PyObject* file, PyObject* line_no);
   bool addEntryCode(
       std::string_view name,
       std::string_view file,
       std::string_view line_no);
 
-  Ref<> pathBasename(BorrowedRef<> path) const;
+  Ref<> pathBasename(PyObject* path) const;
 
   // Dict of module name to set of qualnames.
   Ref<> qualnames_;
@@ -113,7 +113,7 @@ class WildcardJITList : public JITList {
  public:
   static std::unique_ptr<WildcardJITList> create();
 
-  int lookupName(BorrowedRef<> mod, BorrowedRef<> qualname) const override;
+  int lookupName(PyObject* mod, PyObject* qualname) const override;
 
  protected:
   WildcardJITList(Ref<> wildcard, Ref<> qualnames)

@@ -16,15 +16,15 @@ class IJitContext {
   virtual ~IJitContext() = default;
 
   virtual CodeRuntime* lookupCodeRuntime(
-      BorrowedRef<PyFunctionObject> func) = 0;
+      PyFunctionObject* func) = 0;
 
-  virtual BorrowedRef<> zero() = 0;
+  virtual PyObject* zero() = 0;
 
   // Return whether this context has compiled the given function.
-  virtual bool didCompile(BorrowedRef<PyFunctionObject> /*func*/) { return false; }
+  virtual bool didCompile(PyFunctionObject* /*func*/) { return false; }
 
   // Return whether a compiled function is currently deoptimized.
-  virtual bool isDeoptimized(BorrowedRef<PyFunctionObject> /*func*/) { return false; }
+  virtual bool isDeoptimized(PyFunctionObject* /*func*/) { return false; }
 };
 
 } // namespace jit

@@ -19,9 +19,9 @@ class IJITList {
   virtual bool parseLine(std::string_view line) = 0;
   virtual void parseFile(const char* filename) = 0;
 
-  virtual int lookupFunc(BorrowedRef<PyFunctionObject> function) const = 0;
-  virtual int lookupCode(BorrowedRef<PyCodeObject> code) const = 0;
-  virtual int lookupName(BorrowedRef<> module_name, BorrowedRef<> qualname)
+  virtual int lookupFunc(PyFunctionObject* function) const = 0;
+  virtual int lookupCode(PyCodeObject* code) const = 0;
+  virtual int lookupName(PyObject* module_name, PyObject* qualname)
       const = 0;
 
   virtual Ref<> getList() const = 0;
