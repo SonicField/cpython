@@ -167,7 +167,7 @@ class Function {
       return fs != nullptr ? fs->code : nullptr;
     }
     const FrameState* fs = instr.getDominatingFrameState();
-    return fs == nullptr ? code : fs->code;
+    return fs == nullptr ? BorrowedRef<PyCodeObject>(code) : fs->code;
   }
 
   PyObject* reifier{nullptr};
