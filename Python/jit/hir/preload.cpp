@@ -271,7 +271,7 @@ bool Preloader::canCacheGlobals() const {
   return hasOnlyUnicodeKeys(builtins_) && hasOnlyUnicodeKeys(globals_);
 }
 
-BorrowedRef<> Preloader::global(int name_idx) const {
+PyObject* Preloader::global(int name_idx) const {
   BorrowedRef<> name = map_get(global_names_, name_idx, nullptr);
   if (name != nullptr && canCacheGlobals()) {
     return *getGlobalCache(name);
@@ -305,7 +305,7 @@ std::unique_ptr<Function> Preloader::makeFunction() const {
   return irfunc;
 }
 
-BorrowedRef<> Preloader::constArg(BytecodeInstruction& bc_instr) const {
+PyObject* Preloader::constArg(BytecodeInstruction& bc_instr) const {
   return PyTuple_GET_ITEM(code_->co_consts, bc_instr.oparg());
 }
 
