@@ -197,6 +197,28 @@ typedef struct HirFunctionLayout {
     char opaque[328]; /* sizeof(Function) == 41 * kPointerSize */
 } HirFunctionLayout;
 
+/* ---- Function C accessors (cast into opaque blob at known offsets) ---- */
+
+static inline void *hir_func_code(const void *func) {
+    return ((void**)func)[0]; /* code is first field */
+}
+
+static inline void *hir_func_builtins(const void *func) {
+    return ((void**)func)[1]; /* builtins is second field */
+}
+
+static inline void *hir_func_globals(const void *func) {
+    return ((void**)func)[2]; /* globals is third field */
+}
+
+static inline void *hir_func_prim_args_info(const void *func) {
+    return ((void**)func)[3]; /* prim_args_info is fourth field */
+}
+
+static inline const char *hir_func_fullname(const void *func) {
+    return ((const char**)func)[4]; /* fullname is fifth field */
+}
+
 /* ---- FrameState C struct ---- */
 typedef struct HirFrameStateLayout {
     ssize_t cur_instr_offs;           /* 8 bytes — BCOffset */

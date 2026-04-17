@@ -81,9 +81,15 @@ struct HirEnvironmentLayoutVerifier {
     static_assert(offsetof(HirEnvironment, next_load_type_method_cache) == offsetof(Environment, next_load_type_method_cache_));
 };
 
-/* Phase Fn1: Function layout verification (opaque blob, sizeof only) */
+/* Phase Fn1: Function layout verification */
 static_assert(sizeof(HirFunctionLayout) == sizeof(Function),
     "HirFunctionLayout size mismatch with Function");
+/* Fn2: verify first 5 fields are at pointer-stride offsets */
+static_assert(offsetof(Function, code) == 0 * sizeof(void*));
+static_assert(offsetof(Function, builtins) == 1 * sizeof(void*));
+static_assert(offsetof(Function, globals) == 2 * sizeof(void*));
+static_assert(offsetof(Function, prim_args_info) == 3 * sizeof(void*));
+static_assert(offsetof(Function, fullname) == 4 * sizeof(void*));
 
 /* ---- Per-field offsetof checks via friend struct ---- */
 struct HirInstrLayoutVerifier {
