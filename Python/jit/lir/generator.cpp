@@ -1998,13 +1998,13 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
             "function calls");
         ThreadedCompileSerialize guard;
         auto instr = static_cast<const LoadGlobalCached*>(&i);
-        PyObject* globals = instr->globals();
+        PyObject* globals = (PyObject*)instr->globals();
         JIT_CHECK(
             PyDict_CheckExact(globals),
             "Globals should be a dict, but is actually a {}",
             Py_TYPE(globals)->tp_name);
         env_->code_rt->addReference(globals);
-        PyObject* builtins = instr->builtins();
+        PyObject* builtins = (PyObject*)instr->builtins();
         JIT_CHECK(
             PyDict_CheckExact(builtins),
             "Builtins should be a dict, but is actually a {}",
@@ -2924,9 +2924,9 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         // Set code object data
         BorrowedRef<PyCodeObject> code = instr->code();
         env_->code_rt->addReference(code.getObj());
-        PyObject* globals = instr->globals();
+        PyObject* globals = (PyObject*)instr->globals();
         env_->code_rt->addReference(globals);
-        PyObject* builtins = instr->builtins();
+        PyObject* builtins = (PyObject*)instr->builtins();
         env_->code_rt->addReference(builtins);
         PyObject* func = instr->func();
         env_->code_rt->addReference(func);
