@@ -35,10 +35,15 @@ if [ "$JOBS" -gt 64 ]; then
     JOBS=64
 fi
 
+PHOENIX_CC="${PHOENIX_CC:-/opt/llvm/bin/clang}"
+PHOENIX_CXX="${PHOENIX_CXX:-/opt/llvm/bin/clang++}"
+
 echo "=== Phoenix JIT Clean Build ==="
 echo "CPython root: $CPYTHON_ROOT"
 echo "Build dir: $BUILD_DIR"
 echo "Architecture: $ARCH"
+echo "C compiler: $PHOENIX_CC ($($PHOENIX_CC --version 2>&1 | head -1))"
+echo "C++ compiler: $PHOENIX_CXX ($($PHOENIX_CXX --version 2>&1 | head -1))"
 echo "Jobs: $JOBS"
 [ "$CLEAN" -eq 1 ] && echo "Mode: CLEAN (full cmake cache removal)"
 [ "$PYDEBUG" -eq 1 ] && echo "Mode: PYDEBUG (assertions enabled)"
@@ -91,8 +96,8 @@ if ! cmake .. \
     -DCMAKE_CXX_FLAGS="-DPHOENIX_ASM${EXTRA_CMAKE_FLAGS}" \
     -DCMAKE_C_FLAGS="-DPHOENIX_ASM${EXTRA_CMAKE_FLAGS}" \
     -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
-    -DCMAKE_C_COMPILER=clang \
-    -DCMAKE_CXX_COMPILER=clang++; then
+    -DCMAKE_C_COMPILER="${PHOENIX_CC:-/opt/llvm/bin/clang}" \
+    -DCMAKE_CXX_COMPILER="${PHOENIX_CXX:-/opt/llvm/bin/clang++}"; then
     echo "FAIL: cmake configuration failed"
     exit 1
 fi
@@ -122,20 +127,20 @@ if [ "$ASAN" -eq 1 ]; then
 fi
 if [ "$ARCH" = "aarch64" ]; then
     echo "ARM64 detected — configuring without LTO"
-    if ! CC=clang CXX=clang++ ./configure $PYDEBUG_FLAG $ASAN_FLAG --without-lto; then
+    if ! CC="${PHOENIX_CC:-/opt/llvm/bin/clang}" CXX="${PHOENIX_CXX:-/opt/llvm/bin/clang++}" ./configure $PYDEBUG_FLAG $ASAN_FLAG --without-lto; then
         echo "FAIL: configure failed"
         exit 1
     fi
 else
     if [ "$PYDEBUG" -eq 1 ]; then
         echo "x86_64 detected — configuring without LTO (pydebug)"
-        if ! CC=clang CXX=clang++ ./configure $PYDEBUG_FLAG $ASAN_FLAG --without-lto; then
+        if ! CC="${PHOENIX_CC:-/opt/llvm/bin/clang}" CXX="${PHOENIX_CXX:-/opt/llvm/bin/clang++}" ./configure $PYDEBUG_FLAG $ASAN_FLAG --without-lto; then
             echo "FAIL: configure failed"
             exit 1
         fi
     else
         echo "x86_64 detected — configuring with LTO"
-        if ! CC=clang CXX=clang++ ./configure $PYDEBUG_FLAG $ASAN_FLAG --with-lto; then
+        if ! CC="${PHOENIX_CC:-/opt/llvm/bin/clang}" CXX="${PHOENIX_CXX:-/opt/llvm/bin/clang++}" ./configure $PYDEBUG_FLAG $ASAN_FLAG --with-lto; then
             echo "FAIL: configure failed"
             exit 1
         fi
