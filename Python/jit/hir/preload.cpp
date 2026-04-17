@@ -124,7 +124,7 @@ thread_local PreloaderManager* tls_manager = nullptr;
 } // namespace
 
 std::unique_ptr<InvokeTarget> Preloader::resolve_target_descr(
-    BorrowedRef<> descr,
+    PyObject* descr,
     int opcode) {
   auto target = std::make_unique<InvokeTarget>();
   PyObject* container;
@@ -219,37 +219,37 @@ PyFunctionObject* InvokeTarget::func() const {
   return reinterpret_cast<PyFunctionObject*>(callable.get());
 }
 
-Type Preloader::type(BorrowedRef<> descr) const {
+Type Preloader::type(PyObject* descr) const {
   return preloadedType(descr).toHir();
 }
 
-int Preloader::primitiveTypecode(BorrowedRef<> descr) const {
+int Preloader::primitiveTypecode(PyObject* descr) const {
   return _PyClassLoader_GetTypeCode(pyType(descr));
 }
 
-BorrowedRef<PyTypeObject> Preloader::pyType(BorrowedRef<> descr) const {
+PyTypeObject* Preloader::pyType(PyObject* descr) const {
   auto const& preloader_type = preloadedType(descr);
   JIT_CHECK(!preloader_type.optional, "unexpected optional type");
   return preloader_type.type;
 }
 
-const OwnedType& Preloader::preloadedType(BorrowedRef<> descr) const {
+const OwnedType& Preloader::preloadedType(PyObject* descr) const {
   return map_get(types_, descr);
 }
 
-const FieldInfo& Preloader::fieldInfo(BorrowedRef<> descr) const {
+const FieldInfo& Preloader::fieldInfo(PyObject* descr) const {
   return map_get(fields_, descr);
 }
 
-const InvokeTarget& Preloader::invokeFunctionTarget(BorrowedRef<> descr) const {
+const InvokeTarget& Preloader::invokeFunctionTarget(PyObject* descr) const {
   return *(map_get(func_targets_, descr));
 }
 
-const InvokeTarget& Preloader::invokeMethodTarget(BorrowedRef<> descr) const {
+const InvokeTarget& Preloader::invokeMethodTarget(PyObject* descr) const {
   return *(map_get(meth_targets_, descr));
 }
 
-const NativeTarget& Preloader::invokeNativeTarget(BorrowedRef<> target) const {
+const NativeTarget& Preloader::invokeNativeTarget(PyObject* target) const {
   return *(map_get(native_targets_, target));
 }
 

@@ -127,16 +127,16 @@ class Preloader {
     return success ? std::move(preloader) : nullptr;
   }
 
-  Type type(BorrowedRef<> descr) const;
-  int primitiveTypecode(BorrowedRef<> descr) const;
-  BorrowedRef<PyTypeObject> pyType(BorrowedRef<> descr) const;
-  const OwnedType& preloadedType(BorrowedRef<> descr) const;
+  Type type(PyObject* descr) const;
+  int primitiveTypecode(PyObject* descr) const;
+  PyTypeObject* pyType(PyObject* descr) const;
+  const OwnedType& preloadedType(PyObject* descr) const;
 
-  const FieldInfo& fieldInfo(BorrowedRef<> descr) const;
+  const FieldInfo& fieldInfo(PyObject* descr) const;
 
-  const InvokeTarget& invokeFunctionTarget(BorrowedRef<> descr) const;
-  const InvokeTarget& invokeMethodTarget(BorrowedRef<> descr) const;
-  const NativeTarget& invokeNativeTarget(BorrowedRef<> target) const;
+  const InvokeTarget& invokeFunctionTarget(PyObject* descr) const;
+  const InvokeTarget& invokeMethodTarget(PyObject* descr) const;
+  const NativeTarget& invokeNativeTarget(PyObject* target) const;
 
   const InvokeTargetMap& invokeFunctionTargets() const {
     return func_targets_;
@@ -194,7 +194,7 @@ class Preloader {
   }
 
   std::unique_ptr<InvokeTarget> resolve_target_descr(
-      BorrowedRef<> descr,
+      PyObject* descr,
       int opcode);
 
   PyObject* reifier() const {
