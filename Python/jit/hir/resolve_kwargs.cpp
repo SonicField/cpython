@@ -32,8 +32,8 @@ bool resolveVectorCallKwargs(VectorCall* call) {
     return false;
   }
 
-  BorrowedRef<PyFunctionObject> callee{hir_type_object_spec(&target_hir)};
-  BorrowedRef<PyCodeObject> code{callee->func_code};
+  PyFunctionObject* callee = (PyFunctionObject*)hir_type_object_spec(&target_hir);
+  PyCodeObject* code = (PyCodeObject*)callee->func_code;
 
   // Skip callees with **kwargs or *args — cannot resolve statically.
   if (code->co_flags & (CO_VARKEYWORDS | CO_VARARGS)) {
@@ -164,8 +164,8 @@ bool resolveCallMethodKwargs(CallMethod* call) {
     return false;
   }
 
-  BorrowedRef<PyFunctionObject> callee{hir_type_object_spec(&target_hir2)};
-  BorrowedRef<PyCodeObject> code{callee->func_code};
+  PyFunctionObject* callee = (PyFunctionObject*)hir_type_object_spec(&target_hir2);
+  PyCodeObject* code = (PyCodeObject*)callee->func_code;
 
   if (code->co_flags & (CO_VARKEYWORDS | CO_VARARGS)) {
     return false;

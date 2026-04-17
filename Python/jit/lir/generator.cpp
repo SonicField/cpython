@@ -1496,7 +1496,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         Instruction* name = getNameFromIdx(bbb, instr);
         auto cache_entry = load_type_method_caches_.at(instr->cache_id());
         if (jit_get_config()->collect_attr_cache_stats) {
-          BorrowedRef<PyCodeObject> code = instr->frameState()->code;
+          PyCodeObject* code = instr->frameState()->code;
           cache_entry->initCacheStats(
               PyUnicode_AsUTF8(code->co_filename),
               PyUnicode_AsUTF8(code->co_name));
@@ -1553,7 +1553,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         auto cache = getContext()->allocateLoadMethodCache(
             i.asDeoptBase()->frameState()->code, i.bytecodeOffset().value());
         if (jit_get_config()->collect_attr_cache_stats) {
-          BorrowedRef<PyCodeObject> code = i.asDeoptBase()->frameState()->code;
+          PyCodeObject* code = i.asDeoptBase()->frameState()->code;
           cache->initCacheStats(
               PyUnicode_AsUTF8(code->co_filename),
               PyUnicode_AsUTF8(code->co_name));

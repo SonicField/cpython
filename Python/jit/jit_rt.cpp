@@ -589,14 +589,14 @@ PyObject* JITRT_ReportStaticArgTypecheckErrors(
     PyObject** args,
     size_t nargsf,
     PyObject* /* kwnames */) {
-  BorrowedRef<PyFunctionObject> func{func_obj};
-  BorrowedRef<PyCodeObject> code{func->func_code};
+  PyFunctionObject* func = (PyFunctionObject*)func_obj;
+  PyCodeObject* code = (PyCodeObject*)func->func_code;
   auto interpVectorcall = getInterpretedVectorcall(func);
   int nkwonly = code->co_kwonlyargcount;
   if (code == nullptr || nkwonly == 0) {
     // We explicitly pass in nullptr for kwnames as the default arg count can
     // be smuggled in to this function in place of kwnames.
-    return interpVectorcall(func, args, nargsf, nullptr);
+    return interpVectorcall((PyObject*)func, args, nargsf, nullptr);
   }
   // This function is called after we've successfully bound all
   // arguments. However, we want to use the interpreter to construct the
@@ -617,7 +617,7 @@ PyObject* JITRT_ReportStaticArgTypecheckErrors(
     nargs -= 1;
   }
   Py_ssize_t flags = vectorcall_flags(nargsf);
-  return interpVectorcall(func, args, nargs | flags, new_kwnames);
+  return interpVectorcall((PyObject*)func, args, nargs | flags, new_kwnames);
 }
 
 #if PY_VERSION_HEX < 0x030C0000
@@ -837,8 +837,8 @@ JITRT_UnlinkGenFrameAndReturnGenDataFooter(PyThreadState* tstate) {
 
   frame->previous = nullptr;
 
-  BorrowedRef<PyGenObject> base_gen = _PyGen_GetGeneratorFromFrame(frame);
-  jit::JitGenObject* gen = jit::JitGenObject::cast(base_gen.get());
+  PyGenObject* base_gen = _PyGen_GetGeneratorFromFrame(frame);
+  jit::JitGenObject* gen = jit::JitGenObject::cast(base_gen);
   return {gen, gen->genDataFooter()};
 }
 
@@ -1207,7 +1207,7 @@ static inline PyObject* super_lookup_method_or_attr(
     if (super_instance == nullptr) {
       return nullptr;
     }
-    BorrowedRef<> result = PyObject_GetAttr(super_instance, name);
+    PyObject* result = PyObject_GetAttr(super_instance, name);
     if (meth_found) {
       *meth_found = 0;
     }
@@ -1758,7 +1758,7 @@ JITRT_GenSendRes JITRT_GenSend(
 
 #if PY_VERSION_HEX >= 0x030C0000 && defined(ENABLE_GENERATOR_AWAITER)
   if (_PyFrame_GetCode(frame)->co_flags & (CO_COROUTINE | CO_ASYNC_GENERATOR)) {
-    BorrowedRef<PyGenObject> base_gen = _PyGen_GetGeneratorFromFrame(frame);
+    PyGenObject* base_gen = _PyGen_GetGeneratorFromFrame(frame);
     Ci_PyAwaitable_SetAwaiter(gen, base_gen);
   }
 #endif

@@ -30,13 +30,13 @@ struct MethodInvoke {
 
 #if PY_VERSION_HEX >= 0x030C0000
 
-BorrowedRef<> immutableMultithreadedTypeLookup(
-    BorrowedRef<PyTypeObject> type,
-    BorrowedRef<> name) {
-  BorrowedRef<> mro = type->tp_mro;
-  for (Py_ssize_t i = 0; i < PyTuple_GET_SIZE(mro.get()); i++) {
+PyObject* immutableMultithreadedTypeLookup(
+    PyTypeObject* type,
+    PyObject* name) {
+  PyObject* mro = type->tp_mro;
+  for (Py_ssize_t i = 0; i < PyTuple_GET_SIZE(mro); i++) {
     PyTypeObject* mro_type =
-        reinterpret_cast<PyTypeObject*>(PyTuple_GET_ITEM(mro.get(), i));
+        reinterpret_cast<PyTypeObject*>(PyTuple_GET_ITEM(mro, i));
     if (PyType_HasFeature(mro_type, _Py_TPFLAGS_STATIC_BUILTIN)) {
       auto& builtins = cinderx::getModuleState()->builtinMembers();
 
@@ -55,7 +55,7 @@ BorrowedRef<> immutableMultithreadedTypeLookup(
       return nullptr;
     }
 
-    BorrowedRef<> method_obj =
+    PyObject* method_obj =
         PyDict_GetItemWithError(_PyType_GetDict(mro_type), name);
     if (method_obj != nullptr) {
       return method_obj;
@@ -68,7 +68,7 @@ BorrowedRef<> immutableMultithreadedTypeLookup(
 
 // Gets a directly invokable method object from a JIT Type. This only succeeds
 // if we know the type can be directly invoked.
-BorrowedRef<> getMethodObjectFromType(Type receiver_type, BorrowedRef<> name) {
+PyObject* getMethodObjectFromType(Type receiver_type, PyObject* name) {
   // This is a list of common builtin types whose methods cannot be overwritten
   // from managed code and for which looking up the methods is guaranteed to
   // not do anything "weird" that needs to happen at runtime, like make a
@@ -125,7 +125,7 @@ BorrowedRef<> getMethodObjectFromType(Type receiver_type, BorrowedRef<> name) {
     return nullptr;
   }
 
-  BorrowedRef<> method_obj = nullptr;
+  PyObject* method_obj = nullptr;
   // In 3.12 we can't do PyType_Lookup because for built-in types it needs
   // access to the current runtime, and in multi-threaded compile we don't
   // have it. So we instead have a cache of all of the builtin types that we
@@ -163,7 +163,7 @@ bool tryEliminateLoadMethod(Function& irfunc, MethodInvoke& invoke) {
 
   Register* receiver = invoke.load_method->receiver();
   Type receiver_type = receiver->type();
-  BorrowedRef<> method_obj = getMethodObjectFromType(receiver_type, name);
+  PyObject* method_obj = getMethodObjectFromType(receiver_type, name);
   if (method_obj == nullptr) {
     // No such method. Let the LoadMethod fail at runtime. _PyType_Lookup does
     // not raise an exception.
@@ -176,7 +176,7 @@ bool tryEliminateLoadMethod(Function& irfunc, MethodInvoke& invoke) {
   }
   Register* method_reg = invoke.load_method->output();
   auto load_const = static_cast<Instr*>(hir_c_create_load_const(
-      method_reg, Type::toHirType(Type::fromObject(irfunc.env.addReference(method_obj.get())))));
+      method_reg, Type::toHirType(Type::fromObject(irfunc.env.addReference(method_obj)))));
   auto call_static = static_cast<VectorCall*>(hir_c_create_vectorcall_fs_reg(
       invoke.call_method->NumOperands(),
       invoke.call_method->output(),

@@ -111,8 +111,8 @@ int jitgen_traverse(PyObject* obj, visitproc visit, void* arg) {
     if (jit_get_config()->frame_mode == JIT_FRAME_LIGHTWEIGHT &&
         jit_gen->gi_frame_state < FRAME_CLEARED) {
       _PyInterpreterFrame* frame = generatorFrame(jit_gen);
-      BorrowedRef<PyFunctionObject> func = jitFrameGetFunction(frame);
-      Py_VISIT(func.get());
+      PyFunctionObject* func = jitFrameGetFunction(frame);
+      Py_VISIT(func);
     }
 #endif
   }
@@ -795,8 +795,8 @@ bool deopt_jit_gen(PyObject* obj) {
 void init_jit_genobject_type() {
   using namespace std::literals;
   // Copy base type functions
-  BorrowedRef<PyTypeObject> gen_type = cinderx::getModuleState()->genType();
-  BorrowedRef<PyTypeObject> coro_type = cinderx::getModuleState()->coroType();
+  PyTypeObject* gen_type = cinderx::getModuleState()->genType();
+  PyTypeObject* coro_type = cinderx::getModuleState()->coroType();
 
   gen_type->tp_repr = PyGen_Type.tp_repr;
 

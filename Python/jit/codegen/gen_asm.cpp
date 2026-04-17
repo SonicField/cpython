@@ -139,7 +139,7 @@ void RestoreOriginalGeneratorFramePointer(arch::Builder* as) {
 #endif
 }
 
-void raiseUnboundLocalError(BorrowedRef<> name) {
+void raiseUnboundLocalError(PyObject* name) {
   // name is converted into a `char*` in format_exc_check_arg
 
   const char* msg = PY_VERSION_HEX >= 0x030C0000
@@ -151,7 +151,7 @@ void raiseUnboundLocalError(BorrowedRef<> name) {
       _PyThreadState_GET(), PyExc_UnboundLocalError, msg, name);
 }
 
-void raiseUnboundFreevarError(BorrowedRef<> name) {
+void raiseUnboundFreevarError(PyObject* name) {
   // name is converted into a `char*` in format_exc_check_arg
 
   const char* msg = PY_VERSION_HEX >= 0x030C0000
@@ -163,7 +163,7 @@ void raiseUnboundFreevarError(BorrowedRef<> name) {
   _PyEval_FormatExcCheckArg(_PyThreadState_GET(), PyExc_NameError, msg, name);
 }
 
-void raiseAttributeError(BorrowedRef<> receiver, BorrowedRef<> name) {
+void raiseAttributeError(PyObject* receiver, PyObject* name) {
   PyErr_Format(
       PyExc_AttributeError,
       "'%.50s' object has no attribute '%U'",
@@ -268,8 +268,8 @@ CiPyFrameObjType* prepareForDeopt(
   releaseRefs(deopt_meta, mem);
 #if PY_VERSION_HEX >= 0x030C0000
   if (_PyFrame_GetCode(frame)->co_flags & kCoFlagsAnyGenerator) {
-    BorrowedRef<PyGenObject> base_gen = _PyGen_GetGeneratorFromFrame(frame);
-    JitGenObject* gen = JitGenObject::cast(base_gen.get());
+    PyGenObject* base_gen = _PyGen_GetGeneratorFromFrame(frame);
+    JitGenObject* gen = JitGenObject::cast(base_gen);
     JIT_CHECK(gen != nullptr, "Not a JIT generator");
     deopt_jit_gen_object_only(gen);
   }
@@ -3536,7 +3536,7 @@ void NativeGenerator::generateArgcountCheckPrologue(
     Label correct_arg_count,
     Label correct_args_entry) {
 #if defined(CINDER_X86_64)
-  BorrowedRef<PyCodeObject> code = GetFunction()->code;
+  PyCodeObject* code = GetFunction()->code;
 
   Label arg_check = as_->newLabel();
   bool have_varargs = code->co_flags & (CO_VARARGS | CO_VARKEYWORDS);
@@ -3589,7 +3589,7 @@ void NativeGenerator::generateArgcountCheckPrologue(
         "Check if called with correct argcount", arg_check_cursor);
   }
 #elif defined(CINDER_AARCH64)
-  BorrowedRef<PyCodeObject> code = GetFunction()->code;
+  PyCodeObject* code = GetFunction()->code;
 
   Label arg_check = as_->newLabel();
   bool have_varargs = code->co_flags & (CO_VARARGS | CO_VARKEYWORDS);

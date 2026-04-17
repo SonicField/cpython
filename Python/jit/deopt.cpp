@@ -126,7 +126,7 @@ static void reifyLocalsplus(
   Ci_STACK_TYPE* localsplus = &frame->localsplus[0];
 #endif
 
-  BorrowedRef<PyCodeObject> code = frameCode(frame);
+  PyCodeObject* code = frameCode(frame);
   int free_offset = numLocalsplus(code) - numFreevars(code);
   // Local variables are not initialized in the frame
   for (std::size_t i = 0; i < free_offset && i < frame_meta.localsplus.size();
@@ -322,7 +322,7 @@ static void reifyFrameImpl(
     bool forced_deopt,
     const uint64_t* regs) {
 #if PY_VERSION_HEX >= 0x030E0000
-  BorrowedRef<PyCodeObject> code_obj = frameCode(frame);
+  PyCodeObject* code_obj = frameCode(frame);
 #ifdef Py_GIL_DISABLED
   PyThreadState* tstate = _PyThreadState_GET();
   frame->instr_ptr = _PyEval_GetExecutableCode(tstate, _PyFrame_GetCode(frame));

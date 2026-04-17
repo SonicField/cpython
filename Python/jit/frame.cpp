@@ -389,7 +389,7 @@ void jitFramePopulateFrame([[maybe_unused]] _PyInterpreterFrame* frame) {
     JIT_DCHECK(func != nullptr, "should have a func for inlined functions");
   }
 
-  BorrowedRef<PyCodeObject> code = frameCode(frame);
+  PyCodeObject* code = frameCode(frame);
   frame->f_builtins = func->func_builtins;
   frame->f_globals = func->func_globals;
   frame->f_locals = nullptr;
@@ -643,7 +643,7 @@ void jitFrameClearExceptCode(_PyInterpreterFrame* frame) {
   }
 
   // Otherwise only clear things that we've initialized.
-  BorrowedRef<PyCodeObject> code = frameCode(frame);
+  PyCodeObject* code = frameCode(frame);
   int free_offset = code->co_nlocalsplus - numFreevars(code);
   for (int i = free_offset; i < code->co_nlocalsplus; i++) {
     Ci_STACK_CLEAR(frame->localsplus[i]);
