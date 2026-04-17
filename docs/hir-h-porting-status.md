@@ -63,10 +63,26 @@
 
 4. **Dead code cleanup**: lir/inliner.cpp deleted (was empty stub)
 
+## Phase I-1 BorrowedRef Elimination Progress
+- hir.h: 25/27 eliminated (2 Environment::addReference kept)
+- frame_state.h: ZERO BorrowedRef
+- function.h: ZERO BorrowedRef
+- preload.h: 18/30 eliminated, 12 remaining (method params that cascade to builder.cpp)
+- 1 unpushed commit (5062ac3696 — preload.h batch 2, gatekeeper PASS, build blocked by clang ICE)
+
+## Next Subsystem Plan
+- Theologian's plan saved to docs/phase3d-next-subsystem-plan.md
+- Phase I (infrastructure): BorrowedRef elimination → Logging C API → Container replacements
+- Phase II (leaf algorithms): instr_effects.cpp, type.cpp, annotations.cpp
+- Phases III-V: LIR → HIR passes → Codegen/top-level
+
 ## Session Statistics
-- 46 commits pushed to SonicField/cpython
-- ALL 7 phases COMPLETE with verified implementations
+- 66 commits pushed to SonicField/cpython
+- ALL 7 hir.h phases COMPLETE with verified implementations
 - 9/9 Function C accessors with offsetof verification
+- TypedArgument + typed_args converted (2 opaque blobs eliminated)
+- ThreadedRef eliminated from Function + TypedArgument + FrameState
+- BorrowedRef eliminated from hir.h (25/27), frame_state.h, function.h
 - typed_args + TypedArgument::pytype converted (2 opaque blobs eliminated)
 - Key infrastructure: RegisterMap → flat array, ThreadedRef → raw pointers,
   pure C set_block/insert/unlink, fullname → char*
