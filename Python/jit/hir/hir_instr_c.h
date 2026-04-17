@@ -765,6 +765,31 @@ static inline size_t hir_c_num_edges(const void *instr) {
     return 0;
 }
 
+static inline HirEdge *hir_c_edge_at(void *instr, size_t i) {
+    int op = hir_c_opcode(instr);
+    if (op == HIR_OP_Branch) {
+        return &((HirBranch *)instr)->edge;
+    }
+    if (op == HIR_OP_CondBranch ||
+        op == HIR_OP_CondBranchIterNotDone ||
+        op == HIR_OP_CondBranchCheckType) {
+        HirCondBranchInstr *cb = (HirCondBranchInstr *)instr;
+        return i == 0 ? &cb->true_edge : &cb->false_edge;
+    }
+    return NULL;
+}
+
+static inline void hir_c_set_block(void *instr, void *block) {
+    ((HirInstrLayout *)instr)->block = block;
+    if (hir_instr_info_is_terminator(hir_c_opcode(instr))) {
+        size_t n = hir_c_num_edges(instr);
+        for (size_t i = 0; i < n; i++) {
+            HirEdge *e = hir_c_edge_at(instr, i);
+            hir_edge_set_from(e, (HirBasicBlock *)block);
+        }
+    }
+}
+
 static inline void *hir_c_successor(const void *instr, size_t i) {
     int op = hir_c_opcode(instr);
     if (op == HIR_OP_Branch) {
