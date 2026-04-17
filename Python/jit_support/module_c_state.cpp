@@ -43,7 +43,7 @@ Ci_GetGlobalCache(PyObject* builtins, PyObject* globals, PyObject* key) {
       Py_TYPE(key)->tp_name);
 
   return cinderx::getModuleState()->cacheManager()->getGlobalCache(
-      builtins, globals, key);
+      (PyDictObject*)builtins, (PyDictObject*)globals, (PyUnicodeObject*)key);
 }
 
 PyObject** Ci_GetDictCache(PyObject* dict, PyObject* key) {
