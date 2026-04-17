@@ -19,14 +19,14 @@ namespace jit {
 struct GlobalCacheKey {
   // builtins and globals are weak references; the invalidation code is
   // responsible for erasing any relevant keys when a dict is freed.
-  BorrowedRef<PyDictObject> builtins;
-  BorrowedRef<PyDictObject> globals;
+  PyDictObject* builtins;
+  PyDictObject* globals;
   Ref<PyUnicodeObject> name;
 
   GlobalCacheKey(
-      BorrowedRef<PyDictObject> builtins,
-      BorrowedRef<PyDictObject> globals,
-      BorrowedRef<PyUnicodeObject> name);
+      PyDictObject* builtins,
+      PyDictObject* globals,
+      PyUnicodeObject* name);
 
   ~GlobalCacheKey();
 
@@ -80,25 +80,25 @@ class GlobalCacheManager : public IGlobalCacheManager {
   // in which case the dictionaries need to be consulted.  This will return
   // nullptr if the required tracking cannot be initialized.
   PyObject** getGlobalCache(
-      BorrowedRef<PyDictObject> builtins,
-      BorrowedRef<PyDictObject> globals,
-      BorrowedRef<PyUnicodeObject> key) override;
+      PyDictObject* builtins,
+      PyDictObject* globals,
+      PyUnicodeObject* key) override;
 
   // Called when the value at a key is modified (value will contain the new
   // value) or deleted (value will be nullptr).
   void notifyDictUpdate(
-      BorrowedRef<PyDictObject> dict,
-      BorrowedRef<PyUnicodeObject> key,
-      BorrowedRef<> value) override;
+      PyDictObject* dict,
+      PyUnicodeObject* key,
+      PyObject* value) override;
 
   // Called when a dict is cleared, rather than sending individual notifications
   // for every key. The dict is still in a watched state, and further callbacks
   // for it will be invoked as appropriate.
-  void notifyDictClear(BorrowedRef<PyDictObject> dict) override;
+  void notifyDictClear(PyDictObject* dict) override;
 
   // Called when a dict has changed in a way that is incompatible with watching,
   // or is about to be freed.  No more callbacks will be invoked for this dict.
-  void notifyDictUnwatch(BorrowedRef<PyDictObject> dict) override;
+  void notifyDictUnwatch(PyDictObject* dict) override;
 
   // Clear internal caches for global values.  This may cause a degradation of
   // performance and is intended for detecting memory leaks and general cleanup.
@@ -106,28 +106,28 @@ class GlobalCacheManager : public IGlobalCacheManager {
 
  private:
   GlobalCache findGlobalCache(
-      BorrowedRef<PyDictObject> builtins,
-      BorrowedRef<PyDictObject> globals,
-      BorrowedRef<PyUnicodeObject> key);
+      PyDictObject* builtins,
+      PyDictObject* globals,
+      PyUnicodeObject* key);
 
   // Check if a given key of a dict is watched by the given cache.
   bool isWatchedDictKey(
-      BorrowedRef<PyDictObject> dict,
-      BorrowedRef<PyUnicodeObject> key,
+      PyDictObject* dict,
+      PyUnicodeObject* key,
       GlobalCache cache);
 
   // Watch the given key of the given dict. updateCache() will be called when
   // the key's value in the dict is changed or removed.  disableCache() will be
   // called if the dict becomes unwatchable.
   void watchDictKey(
-      BorrowedRef<PyDictObject> dict,
-      BorrowedRef<PyUnicodeObject> key,
+      PyDictObject* dict,
+      PyUnicodeObject* key,
       GlobalCache cache);
 
   // Unsubscribe from the given key of the given dict.
   void unwatchDictKey(
-      BorrowedRef<PyDictObject> dict,
-      BorrowedRef<PyUnicodeObject> key,
+      PyDictObject* dict,
+      PyUnicodeObject* key,
       GlobalCache cache);
 
   // Initialize a global value cache. Subscribe to both globals and builtins
@@ -141,8 +141,8 @@ class GlobalCacheManager : public IGlobalCacheManager {
   // caller is responsible for safely disabling any such caches.
   [[nodiscard]] bool updateCache(
       GlobalCache cache,
-      BorrowedRef<PyDictObject> dict,
-      BorrowedRef<> new_value);
+      PyDictObject* dict,
+      PyObject* new_value);
 
   // Forget given cache(s). Note that for now, this only removes bookkeeping,
   // each cache is not freed from the arena and may still be reachable from
@@ -159,8 +159,8 @@ class GlobalCacheManager : public IGlobalCacheManager {
   // Two-level map keeping track of which global value caches are subscribed to
   // which keys in which dicts.
   std::unordered_map<
-      BorrowedRef<PyDictObject>,
-      std::unordered_map<BorrowedRef<PyUnicodeObject>, std::set<GlobalCache>>>
+      PyDictObject*,
+      std::unordered_map<PyUnicodeObject*, std::set<GlobalCache>>>
       watch_map_;
 };
 

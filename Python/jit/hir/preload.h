@@ -214,9 +214,9 @@ class Preloader {
   bool isModuleCodeObject() const;
 
   explicit Preloader(
-      BorrowedRef<PyCodeObject> code,
-      BorrowedRef<PyDictObject> builtins,
-      BorrowedRef<PyDictObject> globals,
+      PyCodeObject* code,
+      PyDictObject* builtins,
+      PyDictObject* globals,
       HirAnnotationIndex* annotations,
       const std::string& fullname,
       Ref<> reifier)

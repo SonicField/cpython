@@ -20,16 +20,16 @@
 namespace jit {
 
 GlobalCacheKey::GlobalCacheKey(
-    BorrowedRef<PyDictObject> builtins,
-    BorrowedRef<PyDictObject> globals,
-    BorrowedRef<PyUnicodeObject> name)
+    PyDictObject* builtins,
+    PyDictObject* globals,
+    PyUnicodeObject* name)
     : builtins{builtins}, globals{globals} {
   ThreadedCompileSerialize guard;
   JIT_CHECK(
-      PyUnicode_CHECK_INTERNED(name.get()),
+      PyUnicode_CHECK_INTERNED(name),
       "Global cache names must be interned; they'll be compared by pointer "
       "value");
-  this->name = Ref<>::create(name);
+  this->name = Ref<PyUnicodeObject>::create(name);
 }
 
 GlobalCacheKey::~GlobalCacheKey() {
@@ -38,9 +38,10 @@ GlobalCacheKey::~GlobalCacheKey() {
 }
 
 std::size_t GlobalCacheKeyHash::operator()(const GlobalCacheKey& key) const {
-  std::hash<PyObject*> hasher;
   return combineHash(
-      hasher(key.builtins), hasher(key.globals), hasher(key.name));
+      std::hash<PyDictObject*>{}(key.builtins),
+      std::hash<PyDictObject*>{}(key.globals),
+      std::hash<PyUnicodeObject*>{}(key.name.get()));
 }
 
 GlobalCache::GlobalCache(GlobalCacheMap::value_type* pair) : pair_(pair) {}
@@ -70,9 +71,9 @@ GlobalCacheManager::~GlobalCacheManager() {
 }
 
 GlobalCache GlobalCacheManager::findGlobalCache(
-    BorrowedRef<PyDictObject> builtins,
-    BorrowedRef<PyDictObject> globals,
-    BorrowedRef<PyUnicodeObject> key) {
+    PyDictObject* builtins,
+    PyDictObject* globals,
+    PyUnicodeObject* key) {
   auto result = map_.emplace(
       std::piecewise_construct,
       std::forward_as_tuple(builtins, globals, key),
@@ -88,9 +89,9 @@ GlobalCache GlobalCacheManager::findGlobalCache(
 }
 
 PyObject** GlobalCacheManager::getGlobalCache(
-    BorrowedRef<PyDictObject> builtins,
-    BorrowedRef<PyDictObject> globals,
-    BorrowedRef<PyUnicodeObject> key) {
+    PyDictObject* builtins,
+    PyDictObject* globals,
+    PyUnicodeObject* key) {
   try {
     auto cache = findGlobalCache(builtins, globals, key);
     return cache.valuePtr();
@@ -100,11 +101,11 @@ PyObject** GlobalCacheManager::getGlobalCache(
 }
 
 void GlobalCacheManager::notifyDictUpdate(
-    BorrowedRef<PyDictObject> dict,
-    BorrowedRef<PyUnicodeObject> key,
-    BorrowedRef<> value) {
+    PyDictObject* dict,
+    PyUnicodeObject* key,
+    PyObject* value) {
   JIT_CHECK(
-      PyUnicode_CHECK_INTERNED(key.get()),
+      PyUnicode_CHECK_INTERNED(key),
       "Dict key must be interned as it'll be compared by pointer value");
 
   auto dict_it = watch_map_.find(dict);
@@ -130,7 +131,7 @@ void GlobalCacheManager::notifyDictUpdate(
   getContext()->notifyGlobalModified(dict, key, value);
 }
 
-void GlobalCacheManager::notifyDictClear(BorrowedRef<PyDictObject> dict) {
+void GlobalCacheManager::notifyDictClear(PyDictObject* dict) {
   auto dict_it = watch_map_.find(dict);
   // Something else in Cinderx could be watching this dict. Return early if no
   // matchers were registered.
@@ -148,7 +149,7 @@ void GlobalCacheManager::notifyDictClear(BorrowedRef<PyDictObject> dict) {
   disableCaches(to_disable);
 }
 
-void GlobalCacheManager::notifyDictUnwatch(BorrowedRef<PyDictObject> dict) {
+void GlobalCacheManager::notifyDictUnwatch(PyDictObject* dict) {
   auto dict_it = watch_map_.find(dict);
   // Something else in Cinderx could be watching this dict. Return early if no
   // matchers were registered.
@@ -158,8 +159,8 @@ void GlobalCacheManager::notifyDictUnwatch(BorrowedRef<PyDictObject> dict) {
   for (auto& pair : dict_it->second) {
     for (auto cache : pair.second) {
       // Unsubscribe from the corresponding globals/builtins dict if needed.
-      PyObject* globals = cache.key().globals;
-      PyObject* builtins = cache.key().builtins;
+      PyDictObject* globals = cache.key().globals;
+      PyDictObject* builtins = cache.key().builtins;
       if (globals != builtins) {
         if (dict == globals) {
           // when shutting down builtins goes away and we won't be
@@ -180,7 +181,7 @@ void GlobalCacheManager::notifyDictUnwatch(BorrowedRef<PyDictObject> dict) {
 }
 
 void GlobalCacheManager::clear() {
-  std::vector<PyObject*> keys;
+  std::vector<PyDictObject*> keys;
   for (auto& pair : watch_map_) {
     keys.push_back(pair.first);
   }
@@ -190,14 +191,14 @@ void GlobalCacheManager::clear() {
     // so we need to make sure each dictionary is still being watched
     if (dict_it != watch_map_.end()) {
       notifyDictUnwatch(dict);
-      Ci_Watchers_UnwatchDict(dict);
+      Ci_Watchers_UnwatchDict((PyObject*)dict);
     }
   }
 }
 
 bool GlobalCacheManager::isWatchedDictKey(
-    BorrowedRef<PyDictObject> dict,
-    BorrowedRef<PyUnicodeObject> key,
+    PyDictObject* dict,
+    PyUnicodeObject* key,
     GlobalCache cache) {
   auto dict_it = watch_map_.find(dict);
   if (dict_it == watch_map_.end()) {
@@ -212,20 +213,20 @@ bool GlobalCacheManager::isWatchedDictKey(
 }
 
 void GlobalCacheManager::watchDictKey(
-    BorrowedRef<PyDictObject> dict,
-    BorrowedRef<PyUnicodeObject> key,
+    PyDictObject* dict,
+    PyUnicodeObject* key,
     GlobalCache cache) {
   auto& watchers = watch_map_[dict][key];
   bool inserted = watchers.emplace(cache).second;
   JIT_CHECK(inserted, "cache was already watching key");
   JIT_CHECK(
-      Ci_Watchers_WatchDict(dict) == 0,
+      Ci_Watchers_WatchDict((PyObject*)dict) == 0,
       "Failed to watch globals or builtins dict");
 }
 
 void GlobalCacheManager::unwatchDictKey(
-    BorrowedRef<PyDictObject> dict,
-    BorrowedRef<PyUnicodeObject> key,
+    PyDictObject* dict,
+    PyUnicodeObject* key,
     GlobalCache cache) {
   auto dict_it = watch_map_.find(dict);
   JIT_CHECK(dict_it != watch_map_.end(), "dict has no watchers");
@@ -241,7 +242,7 @@ void GlobalCacheManager::unwatchDictKey(
     if (dict_keys.empty()) {
       watch_map_.erase(dict_it);
       JIT_CHECK(
-          Ci_Watchers_UnwatchDict(dict) == 0,
+          Ci_Watchers_UnwatchDict((PyObject*)dict) == 0,
           "Failed to unwatch globals or builtins dictionary");
     }
   }
@@ -250,12 +251,12 @@ void GlobalCacheManager::unwatchDictKey(
 void GlobalCacheManager::initCache(GlobalCache cache) {
   cache.init(arena_.allocate());
 
-  BorrowedRef<PyDictObject> globals = cache.key().globals;
-  BorrowedRef<PyDictObject> builtins = cache.key().builtins;
-  BorrowedRef<PyUnicodeObject> key = cache.key().name;
+  PyDictObject* globals = cache.key().globals;
+  PyDictObject* builtins = cache.key().builtins;
+  PyUnicodeObject* key = cache.key().name;
 
   JIT_DCHECK(
-      hasOnlyUnicodeKeys(globals),
+      hasOnlyUnicodeKeys((PyObject*)globals),
       "Should have already checked that globals dict was watchable");
 
   // We want to try and only watch builtins if this is really a builtin.  So we
@@ -267,7 +268,7 @@ void GlobalCacheManager::initCache(GlobalCache cache) {
 
   // We don't need to immediately watch builtins if the value is found in
   // globals.
-  if ([[maybe_unused]] PyObject* globals_value = PyDict_GetItem(globals, key)) {
+  if ([[maybe_unused]] PyObject* globals_value = PyDict_GetItem((PyObject*)globals, (PyObject*)key)) {
     // The dict getitem could have triggered a lazy import with side effects
     // that unwatched the dict.
 #ifdef ENABLE_LAZY_IMPORTS
@@ -281,8 +282,8 @@ void GlobalCacheManager::initCache(GlobalCache cache) {
 
   // The getitem on globals might have had side effects and made this dict
   // unwatchable, so it needs to be checked again.
-  if (hasOnlyUnicodeKeys(builtins)) {
-    *cache.valuePtr() = PyDict_GetItem(builtins, key);
+  if (hasOnlyUnicodeKeys((PyObject*)builtins)) {
+    *cache.valuePtr() = PyDict_GetItem((PyObject*)builtins, (PyObject*)key);
     if (globals != builtins) {
       watchDictKey(builtins, key, cache);
     }
@@ -291,25 +292,25 @@ void GlobalCacheManager::initCache(GlobalCache cache) {
 
 bool GlobalCacheManager::updateCache(
     GlobalCache cache,
-    BorrowedRef<PyDictObject> dict,
-    BorrowedRef<> new_value) {
+    PyDictObject* dict,
+    PyObject* new_value) {
   if (new_value && PyLazyImport_CheckExact(new_value)) {
     return true;
   }
 
-  BorrowedRef<PyDictObject> globals = cache.key().globals;
-  BorrowedRef<PyDictObject> builtins = cache.key().builtins;
-  BorrowedRef<PyUnicodeObject> name = cache.key().name;
+  PyDictObject* globals = cache.key().globals;
+  PyDictObject* builtins = cache.key().builtins;
+  PyUnicodeObject* name = cache.key().name;
 
   if (dict == globals) {
     if (new_value == nullptr && globals != builtins) {
-      if (!hasOnlyUnicodeKeys(builtins)) {
+      if (!hasOnlyUnicodeKeys((PyObject*)builtins)) {
         // builtins is no longer watchable. Mark this cache for disabling.
         return true;
       }
 
       // Fall back to the builtin (which may also be null).
-      *cache.valuePtr() = PyDict_GetItem(builtins, name);
+      *cache.valuePtr() = PyDict_GetItem((PyObject*)builtins, (PyObject*)name);
 
       // it changed, and it changed from something to nothing, so
       // we weren't watching builtins and need to start now.
@@ -321,9 +322,9 @@ bool GlobalCacheManager::updateCache(
     }
   } else {
     JIT_CHECK(dict == builtins, "Unexpected dict");
-    JIT_CHECK(hasOnlyUnicodeKeys(globals), "Bad globals dict");
+    JIT_CHECK(hasOnlyUnicodeKeys((PyObject*)globals), "Bad globals dict");
     // Check if this value is shadowed.
-    PyObject* globals_value = PyDict_GetItem(globals, name);
+    PyObject* globals_value = PyDict_GetItem((PyObject*)globals, (PyObject*)name);
     if (globals_value == nullptr) {
       *cache.valuePtr() = new_value;
     }
@@ -339,8 +340,8 @@ void GlobalCacheManager::disableCache(GlobalCache cache) {
 
 void GlobalCacheManager::disableCaches(const std::vector<GlobalCache>& caches) {
   for (GlobalCache cache : caches) {
-    BorrowedRef<PyDictObject> dict = cache.key().globals;
-    BorrowedRef<PyUnicodeObject> name = cache.key().name;
+    PyDictObject* dict = cache.key().globals;
+    PyUnicodeObject* name = cache.key().name;
     disableCache(cache);
     unwatchDictKey(dict, name, cache);
   }
