@@ -6668,7 +6668,7 @@ ExecutionBlock HIRBuilder::popBlock(CFG& cfg, TranslationContext& tc) {
   return tc.frame.block_stack.pop();
 }
 
-BorrowedRef<> HIRBuilder::constArg(const BytecodeInstruction& bc_instr) {
+PyObject* HIRBuilder::constArg(const BytecodeInstruction& bc_instr) {
   return PyTuple_GET_ITEM(code_->co_consts, bc_instr.oparg());
 }
 
