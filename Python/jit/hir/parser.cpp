@@ -1269,7 +1269,7 @@ std::unique_ptr<Function> HIRParser::ParseHIR(const char* hir) {
 
   auto hir_func = std::make_unique<Function>();
   env_ = &hir_func->env;
-  hir_func->fullname = GetNextToken();
+  hir_func->fullname = strdup(GetNextToken().c_str());
 
   expect("{");
 

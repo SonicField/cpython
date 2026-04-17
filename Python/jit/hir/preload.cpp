@@ -283,7 +283,7 @@ std::unique_ptr<Function> Preloader::makeFunction() const {
   // We touch refcounts of Python objects here, so must serialize
   ThreadedCompileSerialize guard;
   auto irfunc = std::make_unique<Function>();
-  irfunc->fullname = fullname_;
+  irfunc->fullname = strdup(fullname_.c_str());
   irfunc->setCode(code_);
   irfunc->builtins.reset(builtins_);
   irfunc->globals.reset(globals_);

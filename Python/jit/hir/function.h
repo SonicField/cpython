@@ -22,6 +22,7 @@ class Function {
     builtins.reset();
     globals.reset();
     prim_args_info.reset();
+    free(fullname);
   }
 
   ThreadedRef<PyCodeObject> code;
@@ -31,8 +32,7 @@ class Function {
   // for primitive args only, null if there are none
   ThreadedRef<_PyTypedArgsInfo> prim_args_info;
 
-  // Fully-qualified name of the function
-  std::string fullname;
+  char* fullname{nullptr};
 
   // Does this function need its PyFunctionObject* at runtime?
   // (This is always the case in 3.12 as it is used to quickly access the
@@ -181,7 +181,7 @@ inline OpcodeCounts count_opcodes(const Function& func) {
 }
 
 #ifndef _LIBCPP_VERSION
-static_assert(sizeof(Function) == 44 * kPointerSize);
+static_assert(sizeof(Function) == 41 * kPointerSize);
 static_assert(sizeof(CFG) == 5 * kPointerSize);
 /* Edge→C: BasicBlock shrank — unordered_set (7 ptrs each) → PhxEdgePtrArray
  * (3 ptrs each). 20 - (2×7) + (2×3) = 12. Verify after first successful build. */

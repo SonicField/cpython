@@ -121,7 +121,7 @@ void Compiler::runPasses(
   runPass(jit::hir::RefcountInsertion{}, irfunc, callback);
 
   if (jit_get_config()->dump_hir_stats) {
-    hir_stats_run(&irfunc, irfunc.fullname.c_str());
+    hir_stats_run(&irfunc, irfunc.fullname);
   }
 
   runPassIf(
