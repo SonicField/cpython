@@ -19,17 +19,17 @@
 namespace jit::hir {
 
 using ArgToType = std::map<long, Type>;
-using GlobalNamesMap = std::unordered_map<int, BorrowedRef<>>;
+using GlobalNamesMap = std::unordered_map<int, PyObject*>;
 
 struct FieldInfo {
   Py_ssize_t offset;
   Type type;
-  BorrowedRef<PyUnicodeObject> name;
+  PyUnicodeObject* name;
 };
 
 // The target of an INVOKE_FUNCTION or INVOKE_METHOD
 struct InvokeTarget {
-  BorrowedRef<PyFunctionObject> func() const;
+  PyFunctionObject* func() const;
 
   // Vector-callable Python object
   Ref<> callable;
@@ -93,7 +93,7 @@ class Preloader {
   }
 
   static std::unique_ptr<Preloader> makePreloader(
-      BorrowedRef<PyFunctionObject> func,
+      PyFunctionObject* func,
       Ref<> reifier = nullptr) {
     return makePreloader(
         func->func_code,
@@ -105,9 +105,9 @@ class Preloader {
   }
 
   static std::unique_ptr<Preloader> makePreloader(
-      BorrowedRef<PyCodeObject> code,
-      BorrowedRef<PyDictObject> builtins,
-      BorrowedRef<PyDictObject> globals,
+      PyCodeObject* code,
+      PyDictObject* builtins,
+      PyDictObject* globals,
       HirAnnotationIndex* annotations,
       const std::string& fullname,
       Ref<> reifier = nullptr) {
