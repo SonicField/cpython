@@ -300,8 +300,8 @@ PyObject* framereifier_tpcall(PyObject*, PyObject* args, PyObject*) {
   jitFramePopulateFrame(frame);
   updatePrevInstr(frame);
 
-  BorrowedRef<PyFunctionObject> func = hasRtfsFunction(frame)
-      ? jitFrameGetRtfs(frame)->func()
+  PyFunctionObject* func = hasRtfsFunction(frame)
+      ? (PyFunctionObject*)jitFrameGetRtfs(frame)->func()
       : jitFrameGetFunction(frame);
   return Py_NewRef(func);
 }
@@ -347,8 +347,8 @@ PyObject* jitFrameReifierVectorcall(
   jitFramePopulateFrame(frame);
   updatePrevInstr(frame);
 
-  BorrowedRef<PyFunctionObject> func = hasRtfsFunction(frame)
-      ? jitFrameGetRtfs(frame)->func()
+  PyFunctionObject* func = hasRtfsFunction(frame)
+      ? (PyFunctionObject*)jitFrameGetRtfs(frame)->func()
       : jitFrameGetFunction(frame);
   return Py_NewRef(func);
 }
@@ -441,7 +441,7 @@ void jitFrameRemoveReifier(_PyInterpreterFrame* frame) {
   if (!hasRtfsFunction(frame)) {
     // ownership is transferred
     if (jitFrameGetFunction(frame) != nullptr) {
-      setFrameFunction(frame, jitFrameGetFunction(frame));
+      setFrameFunction(frame, (PyObject*)jitFrameGetFunction(frame));
       jitFrameGetHeader(frame)->rtfs = JIT_FRAME_INITIALIZED;
     }
   } else {
@@ -502,7 +502,7 @@ void jitFrameSetFunction(_PyInterpreterFrame* frame, PyFunctionObject* func) {
 
 PyFunctionObject* jitFrameGetFunction(_PyInterpreterFrame* frame) {
   if constexpr (PY_VERSION_HEX >= 0x030E0000) {
-    return frameFunction(frame);
+    return (PyFunctionObject*)frameFunction(frame);
   }
   return reinterpret_cast<PyFunctionObject*>(
       jitFrameGetHeader(frame)->rtfs & ~JIT_FRAME_MASK);

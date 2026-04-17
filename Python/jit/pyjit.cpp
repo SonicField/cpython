@@ -1224,7 +1224,7 @@ hir::Preloader* preload(BorrowedRef<> unit) {
   std::unique_ptr<hir::Preloader> preloader;
   if (func != nullptr) {
     preloader =
-        hir::Preloader::makePreloader(func, makeFrameReifier(func->func_code));
+        hir::Preloader::makePreloader(func, makeFrameReifier((PyCodeObject*)func->func_code));
   } else {
     auto& jit_code_outer_funcs = jitCtx()->codeOuterFunctions();
     auto it = jit_code_outer_funcs.find(code);
