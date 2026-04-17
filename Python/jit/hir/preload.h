@@ -220,9 +220,9 @@ class Preloader {
       HirAnnotationIndex* annotations,
       const std::string& fullname,
       Ref<> reifier)
-      : code_(Ref<>::create(code)),
-        builtins_(Ref<>::create(builtins)),
-        globals_(Ref<>::create(globals)),
+      : code_(Ref<PyCodeObject>::create(code)),
+        builtins_(Ref<PyDictObject>::create(builtins)),
+        globals_(Ref<PyDictObject>::create(globals)),
         annotations_(annotations),
         fullname_(fullname),
         reifier_(std::move(reifier)) {
