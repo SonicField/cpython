@@ -135,7 +135,7 @@ Context::Context()
 
 void Context::mlockProfilerDependencies() {
   for (auto& codert : code_runtimes_) {
-    PyCodeObject* code = codert.frameState()->code().get();
+    PyCodeObject* code = codert.frameState()->code();
     ::mlock(code, sizeof(PyCodeObject));
     ::mlock(code->co_qualname, Py_SIZE(code->co_qualname));
   }
@@ -285,7 +285,7 @@ void Context::deoptBackoffSuppressFunctions(CodeRuntime* code_runtime) {
     }
     JIT_LOG("Deopt backoff: detaching JIT from {}", name);
     removeCompiledFunc(func);
-    func->vectorcall = getInterpretedVectorcall(func.get());
+    func->vectorcall = getInterpretedVectorcall(func);
     addDeoptedFunc(func);
   }
 }
@@ -382,7 +382,7 @@ LoadMethodCache* Context::allocateLoadMethodCache() {
 
 LoadMethodCache* Context::allocateLoadMethodCache(
     BorrowedRef<PyCodeObject> code, int bc_offset) {
-  auto key = std::make_pair(code.get(), bc_offset);
+  auto key = std::make_pair(code, bc_offset);
   auto it = load_method_cache_map_.find(key);
   if (it != load_method_cache_map_.end()) {
     return it->second;  // Return existing warm IC
@@ -456,7 +456,7 @@ PyObject* Context::zero() {
   return zero_.get();
 }
 
-BorrowedRef<> Context::strBuildClass() {
+PyObject* Context::strBuildClass() {
   return str_build_class_.get();
 }
 
