@@ -88,7 +88,7 @@ const char* deoptReasonName(DeoptReason reason) {
   JIT_ABORT("Invalid DeoptReason {}", static_cast<int>(reason));
 }
 
-BorrowedRef<> MemoryView::readBorrowed(const LiveValue& value) const {
+PyObject* MemoryView::readBorrowed(const LiveValue& value) const {
   JIT_CHECK(
       value.value_kind == jit::hir::ValueKind::kObject,
       "cannot materialize a borrowed primitive value");
@@ -193,7 +193,7 @@ static void reifyStack(
 }
 
 Ref<> profileDeopt(const DeoptMetadata& meta, const MemoryView& mem) {
-  BorrowedRef<PyCodeObject> code = meta.innermostFrame().code;
+  PyCodeObject* code = meta.innermostFrame().code;
   BCOffset bc_off = meta.innermostFrame().cause_instr_idx;
 
   // Bytecode offset will be negative if the interpreter wants to resume

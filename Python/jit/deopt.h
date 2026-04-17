@@ -116,7 +116,7 @@ struct DeoptFrameMetadata {
 struct DeoptMetadata {
   // The name index of the unbound local or attribute, if we are deopting
   // because of an undefined value.
-  BorrowedRef<> eh_name;
+  PyObject* eh_name;
 
   // All live values
   FrozenList<LiveValue> live_values;
@@ -138,7 +138,7 @@ struct DeoptMetadata {
   // Why we are de-opting
   DeoptReason reason{DeoptReason::kUnhandledException};
 
-  BorrowedRef<PyCodeObject> code() const {
+  PyCodeObject* code() const {
     return innermostFrame().code;
   }
 
@@ -240,7 +240,7 @@ void reifyGeneratorFrame(
 struct MemoryView {
   const uint64_t* regs;
 
-  BorrowedRef<> readBorrowed(const LiveValue& value) const;
+  PyObject* readBorrowed(const LiveValue& value) const;
   Ref<> readOwned(const LiveValue& value) const;
 
  private:
