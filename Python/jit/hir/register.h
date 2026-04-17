@@ -8,6 +8,8 @@
 #include <cstdlib>
 #include <ostream>
 
+struct HirRegisterLayoutVerifier;
+
 namespace jit::hir {
 
 class Instr;
@@ -59,6 +61,7 @@ class Register {
 
  private:
   DISALLOW_COPY_AND_ASSIGN(Register);
+  friend struct ::HirRegisterLayoutVerifier;
 
   Type type_{TTop};
   Instr* instr_{nullptr};

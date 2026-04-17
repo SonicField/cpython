@@ -142,6 +142,15 @@ typedef struct {
     HIR_DEOPT_NAMEIDX_FIELDS;       \
     uint8_t no_args_in_super_call
 
+/* ---- Register C struct ---- */
+typedef struct HirRegisterLayout {
+    HirType type;      /* 16 bytes — matches Type binary layout */
+    void *instr;       /* 8 bytes — defining Instr* */
+    int id;            /* 4 bytes */
+    int _pad0;         /* 4 bytes — alignment */
+    char *name;        /* 8 bytes — malloc'd lazy name */
+} HirRegisterLayout;
+
 /* ---- Base structs (standalone use) ----
  * Named HirInstrLayout / HirDeoptLayout to avoid collision with
  * the void* HirInstr typedef in hir_c_api.h.  C passes include

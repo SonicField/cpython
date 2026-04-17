@@ -35,6 +35,16 @@ struct HirBasicBlockLayoutVerifier {
     static_assert(offsetof(HirBasicBlock, in_edges_) == offsetof(BasicBlock, in_edges_));
 };
 
+/* Phase R1b: Register layout verification */
+static_assert(sizeof(HirRegisterLayout) == sizeof(Register),
+    "HirRegisterLayout size mismatch with Register");
+struct HirRegisterLayoutVerifier {
+    static_assert(offsetof(HirRegisterLayout, type) == offsetof(Register, type_));
+    static_assert(offsetof(HirRegisterLayout, instr) == offsetof(Register, instr_));
+    static_assert(offsetof(HirRegisterLayout, id) == offsetof(Register, id_));
+    static_assert(offsetof(HirRegisterLayout, name) == offsetof(Register, name_));
+};
+
 /* ---- Per-field offsetof checks via friend struct ---- */
 struct HirInstrLayoutVerifier {
     /* HirInstr vs Instr */
