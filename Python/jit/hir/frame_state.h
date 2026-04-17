@@ -104,9 +104,9 @@ struct PhxExecBlockArray {
 struct FrameState {
   FrameState() = default;
   FrameState(
-      BorrowedRef<PyCodeObject> code,
-      BorrowedRef<PyDictObject> globals,
-      BorrowedRef<PyDictObject> builtins,
+      PyCodeObject* code,
+      PyDictObject* globals,
+      PyDictObject* builtins,
       FrameState* parent)
       : code(code), globals(globals), builtins(builtins), parent(parent) {
     JIT_DCHECK(this != parent, "FrameStates should not be self-referential");
