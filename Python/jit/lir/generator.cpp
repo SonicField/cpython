@@ -2928,7 +2928,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         env_->code_rt->addReference(globals);
         PyObject* builtins = (PyObject*)instr->builtins();
         env_->code_rt->addReference(builtins);
-        PyObject* func = instr->func();
+        PyObject* func = (PyObject*)instr->func();
         env_->code_rt->addReference(func);
         RuntimeFrameState* rtfs = env_->code_rt->allocateRuntimeFrameState(
             code, builtins, globals, func);
@@ -3247,7 +3247,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
 #endif
         auto code = instr.matchingBegin()->code();
 #if PY_VERSION_HEX >= 0x030E0000
-        auto reifier = inline_code_to_reifier_.at(code.get());
+        auto reifier = inline_code_to_reifier_.at(code);
         Instruction* reifier_reg =
             bbb.appendInstr(OutVReg{}, Instruction::kMove, reifier.get());
         MakeDecref(
@@ -3269,9 +3269,9 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         }
 #endif
 #else
-        if (!_Py_IsImmortal(code.get())) {
+        if (!_Py_IsImmortal(code)) {
           Instruction* code_reg =
-              bbb.appendInstr(OutVReg{}, Instruction::kMove, code.get());
+              bbb.appendInstr(OutVReg{}, Instruction::kMove, code);
           MakeDecref(
               bbb, code_reg, std::optional<destructor>(PyCode_Type.tp_dealloc));
         }
