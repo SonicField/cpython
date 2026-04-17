@@ -29,13 +29,13 @@ struct SplitMutator {
   PyObject* getAttrSlowPath(
       PyObject* obj,
       PyObject* name,
-      BorrowedRef<PyDictObject> dict);
+      PyDictObject* dict);
   int setAttrInline(PyObject* obj, PyObject* name, PyObject* value);
   PyObject* getAttrInlineKnownOffset(PyObject* obj, PyObject* name);
   int setAttrInlineKnownOffset(PyObject* obj, PyObject* name, PyObject* value);
 #endif
-  bool canInsertToSplitDict(BorrowedRef<PyDictObject> dict, BorrowedRef<> name);
-  bool ensureValueOffset(BorrowedRef<> name);
+  bool canInsertToSplitDict(PyDictObject* dict, PyObject* name);
+  bool ensureValueOffset(PyObject* name);
 
 #if PY_VERSION_HEX < 0x030C0000
   uint32_t dict_offset;
@@ -59,7 +59,7 @@ struct DataDescrMutator {
   PyObject* getAttr(PyObject* obj);
   int setAttr(PyObject* obj, PyObject* value);
 
-  BorrowedRef<> descr;
+  PyObject* descr;
 };
 
 // Mutator for a member descriptor
@@ -75,7 +75,7 @@ struct DescrOrClassVarMutator {
   PyObject* getAttr(PyObject* obj, PyObject* name);
   int setAttr(PyObject* obj, PyObject* name, PyObject* value);
 
-  BorrowedRef<> descr;
+  PyObject* descr;
   uint keys_version;
 };
 
@@ -148,10 +148,10 @@ class AttributeCache {
 
   AttributeMutator* findEmptyEntry();
 
-  void fill(BorrowedRef<PyTypeObject> type, BorrowedRef<> name);
+  void fill(PyTypeObject* type, PyObject* name);
 
   void
-  fill(BorrowedRef<PyTypeObject> type, BorrowedRef<> name, BorrowedRef<> descr);
+  fill(PyTypeObject* type, PyObject* name, PyObject* descr);
 
   // Fast-path fields for inline slot access in JIT-generated code.
   // Populated by fill() when a MemberDescr entry is detected.
@@ -237,12 +237,12 @@ class LoadTypeAttrCache {
   PyTypeObject** typeAddr();
   PyObject** valueAddr();
 
-  void typeChanged(BorrowedRef<PyTypeObject> type);
+  void typeChanged(PyTypeObject* type);
 
  private:
-  PyObject* invokeSlowPath(BorrowedRef<> obj, BorrowedRef<> name);
+  PyObject* invokeSlowPath(PyObject* obj, PyObject* name);
 
-  void fill(BorrowedRef<PyTypeObject> type, BorrowedRef<> value);
+  void fill(PyTypeObject* type, PyObject* value);
   void reset();
 
   // Cached type and value, stored as raw pointers so codegen can access them by
@@ -278,20 +278,20 @@ struct CacheStats {
 class LoadMethodCache {
  public:
   struct Entry {
-    BorrowedRef<PyTypeObject> type;
-    BorrowedRef<> value;
+    PyTypeObject* type;
+    PyObject* value;
 #if PY_VERSION_HEX >= 0x030C0000
     uint keys_version;
 #endif
 
-    bool isValidKeysVersion(BorrowedRef<> obj);
+    bool isValidKeysVersion(PyObject* obj);
   };
 
   ~LoadMethodCache();
 
   static LoadMethodResult
-  lookupHelper(LoadMethodCache* cache, BorrowedRef<> obj, BorrowedRef<> name);
-  LoadMethodResult lookup(BorrowedRef<> obj, BorrowedRef<> name);
+  lookupHelper(LoadMethodCache* cache, PyObject* obj, PyObject* name);
+  LoadMethodResult lookup(PyObject* obj, PyObject* name);
   void typeChanged(PyTypeObject* type);
 
   void initCacheStats(const char* filename, const char* method_name);
@@ -302,9 +302,9 @@ class LoadMethodCache {
   const std::array<Entry, 4>& entries() const { return entries_; }
 
  private:
-  LoadMethodResult lookupSlowPath(BorrowedRef<> obj, BorrowedRef<> name);
+  LoadMethodResult lookupSlowPath(PyObject* obj, PyObject* name);
   void
-  fill(BorrowedRef<PyTypeObject> type, BorrowedRef<> value, BorrowedRef<> name);
+  fill(PyTypeObject* type, PyObject* value, PyObject* name);
 
   std::array<Entry, 4> entries_;
   std::unique_ptr<CacheStats> cache_stats_;
@@ -333,15 +333,15 @@ class LoadTypeMethodCache {
       LoadTypeMethodCache* cache,
       PyObject* obj);
 
-  LoadMethodResult lookup(BorrowedRef<PyTypeObject> obj, BorrowedRef<> name);
+  LoadMethodResult lookup(PyTypeObject* obj, PyObject* name);
 
   // Get the address of the cached type object.
   PyTypeObject** typeAddr();
 
   // Get the cached method value.
-  BorrowedRef<> value();
+  PyObject* value();
 
-  void typeChanged(BorrowedRef<PyTypeObject> type);
+  void typeChanged(PyTypeObject* type);
 
   void initCacheStats(const char* filename, const char* method_name);
   void clearCacheStats();
@@ -349,12 +349,12 @@ class LoadTypeMethodCache {
 
  private:
   void
-  fill(BorrowedRef<PyTypeObject> type, BorrowedRef<> value, bool is_bound_meth);
+  fill(PyTypeObject* type, PyObject* value, bool is_bound_meth);
 
   // Borrowed, but uses a raw pointer as typeAddr() will return the address of
   // this field for codegen purposes.
   PyTypeObject* type_;
-  BorrowedRef<> value_;
+  PyObject* value_;
   std::unique_ptr<CacheStats> cache_stats_;
   bool is_unbound_meth_;
 };
@@ -364,23 +364,23 @@ class LoadModuleAttrCache {
  public:
   static PyObject* lookupHelper(
       LoadModuleAttrCache* cache,
-      BorrowedRef<> obj,
-      BorrowedRef<> name);
-  PyObject* lookup(BorrowedRef<> obj, BorrowedRef<> name);
+      PyObject* obj,
+      PyObject* name);
+  PyObject* lookup(PyObject* obj, PyObject* name);
 
  private:
-  PyObject* lookupSlowPath(BorrowedRef<> obj, BorrowedRef<> name);
+  PyObject* lookupSlowPath(PyObject* obj, PyObject* name);
   void
-  fill(BorrowedRef<> obj, BorrowedRef<> value, ci_dict_version_tag_t version);
+  fill(PyObject* obj, PyObject* value, ci_dict_version_tag_t version);
 
   // This corresponds to module __dict__'s version which allows us
   // to correctly invalidate the cache whenever the dictionary changes.
-  BorrowedRef<> module_;
+  PyObject* module_;
 #if PY_VERSION_HEX >= 0x030E0000
   PyObject** cache_;
 #else
   ci_dict_version_tag_t version_{0};
-  BorrowedRef<> value_;
+  PyObject* value_;
 #endif
 };
 
@@ -388,12 +388,12 @@ class LoadModuleMethodCache {
  public:
   static LoadMethodResult lookupHelper(
       LoadModuleMethodCache* cache,
-      BorrowedRef<> obj,
-      BorrowedRef<> name);
-  LoadMethodResult lookup(BorrowedRef<> obj, BorrowedRef<> name);
-  BorrowedRef<> moduleObj();
+      PyObject* obj,
+      PyObject* name);
+  LoadMethodResult lookup(PyObject* obj, PyObject* name);
+  PyObject* moduleObj();
 #if PY_VERSION_HEX < 0x030E0000
-  BorrowedRef<> value();
+  PyObject* value();
 #else
   PyObject** cache() {
     return cache_;
@@ -401,21 +401,21 @@ class LoadModuleMethodCache {
 #endif
 
  private:
-  LoadMethodResult lookupSlowPath(BorrowedRef<> obj, BorrowedRef<> name);
+  LoadMethodResult lookupSlowPath(PyObject* obj, PyObject* name);
 
   // This corresponds to module __dict__'s version which allows us
   // to correctly invalidate the cache whenever the dictionary changes.
-  BorrowedRef<> module_obj_;
+  PyObject* module_obj_;
 #if PY_VERSION_HEX >= 0x030E0000
   PyObject** cache_;
 #else
   ci_dict_version_tag_t module_version_{0};
-  BorrowedRef<> value_;
+  PyObject* value_;
 #endif
 };
 
 // Invalidate all load/store attr caches for type
-void notifyICsTypeChanged(BorrowedRef<PyTypeObject> type);
+void notifyICsTypeChanged(PyTypeObject* type);
 
 } // namespace jit
 
