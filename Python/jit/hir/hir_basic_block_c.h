@@ -142,16 +142,25 @@ static inline size_t hir_phi_block_index(const void *phi, const HirBasicBlock *b
     return lo;
 }
 
-/* ---- Instr mutation: pure C (needs HirBasicBlock + hir_edge_set_from) ---- */
+/* ---- Instr set_block (needs HirBasicBlock + hir_edge_set_from) ---- */
 
-/* link: assert block==NULL, then set_block */
+static inline void hir_c_set_block(void *instr, void *block) {
+    ((HirInstrLayout *)instr)->block = block;
+    if (hir_instr_info_is_terminator(hir_c_opcode(instr))) {
+        size_t n = hir_c_num_edges(instr);
+        for (size_t i = 0; i < n; i++) {
+            HirEdge *e = hir_c_edge_at(instr, i);
+            hir_edge_set_from(e, (HirBasicBlock *)block);
+        }
+    }
+}
+
+/* ---- Instr mutation: pure C ---- */
+
 static inline void hir_c_link(void *instr, void *block) {
-    HirInstrLayout *il = (HirInstrLayout *)instr;
-    (void)il; /* block_ must be NULL — caller's responsibility */
     hir_c_set_block(instr, block);
 }
 
-/* unlink: remove from intrusive list, set_block(NULL) */
 static inline void hir_c_unlink(void *instr, const HirBasicBlock *bb) {
     HirIntrusiveListNode *node =
         (HirIntrusiveListNode *)((char *)instr + bb->instrs_.node_member_offset_);
@@ -162,7 +171,6 @@ static inline void hir_c_unlink(void *instr, const HirBasicBlock *bb) {
     hir_c_set_block(instr, NULL);
 }
 
-/* insert_before: insert instr before 'before', link to before's block */
 static inline void hir_c_insert_before_pure(void *instr, void *before, const HirBasicBlock *bb) {
     HirIntrusiveListNode *node =
         (HirIntrusiveListNode *)((char *)instr + bb->instrs_.node_member_offset_);
@@ -176,7 +184,6 @@ static inline void hir_c_insert_before_pure(void *instr, void *before, const Hir
     hir_c_link(instr, (void *)bb);
 }
 
-/* insert_after: insert instr after 'after', link to after's block */
 static inline void hir_c_insert_after_pure(void *instr, void *after, const HirBasicBlock *bb) {
     HirIntrusiveListNode *node =
         (HirIntrusiveListNode *)((char *)instr + bb->instrs_.node_member_offset_);
@@ -188,19 +195,6 @@ static inline void hir_c_insert_after_pure(void *instr, void *after, const HirBa
     node->next_ = next;
     next->prev_ = node;
     hir_c_link(instr, (void *)bb);
-}
-
-/* ---- Instr set_block (needs HirBasicBlock + hir_edge_set_from) ---- */
-
-static inline void hir_c_set_block(void *instr, void *block) {
-    ((HirInstrLayout *)instr)->block = block;
-    if (hir_instr_info_is_terminator(hir_c_opcode(instr))) {
-        size_t n = hir_c_num_edges(instr);
-        for (size_t i = 0; i < n; i++) {
-            HirEdge *e = hir_c_edge_at(instr, i);
-            hir_edge_set_from(e, (HirBasicBlock *)block);
-        }
-    }
 }
 
 #ifdef __cplusplus
