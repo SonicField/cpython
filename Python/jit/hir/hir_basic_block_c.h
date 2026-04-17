@@ -91,6 +91,42 @@ typedef struct HirCFG {
     int _cfg_pad0;                    /* alignment padding */
 } HirCFG;
 
+/* ---- CFG block list operations ---- */
+
+static inline HirBasicBlock *hir_cfg_first_block(const HirCFG *cfg) {
+    const HirIntrusiveListNode *s = &cfg->block_root;
+    if (s->next_ == s) return NULL;
+    return (HirBasicBlock *)((char *)s->next_ - cfg->block_node_offset);
+}
+
+static inline HirBasicBlock *hir_cfg_next_block(const HirCFG *cfg, const HirBasicBlock *bb) {
+    const HirIntrusiveListNode *node =
+        (const HirIntrusiveListNode *)((const char *)bb + cfg->block_node_offset);
+    if (node->next_ == &cfg->block_root) return NULL;
+    return (HirBasicBlock *)((char *)node->next_ - cfg->block_node_offset);
+}
+
+static inline void hir_cfg_insert_block(HirCFG *cfg, HirBasicBlock *bb) {
+    HirIntrusiveListNode *node =
+        (HirIntrusiveListNode *)((char *)bb + cfg->block_node_offset);
+    HirIntrusiveListNode *s = (HirIntrusiveListNode *)&cfg->block_root;
+    HirIntrusiveListNode *prev = s->prev_;
+    prev->next_ = node;
+    node->prev_ = prev;
+    node->next_ = s;
+    s->prev_ = node;
+}
+
+static inline void hir_cfg_remove_block(HirCFG *cfg, HirBasicBlock *bb) {
+    HirIntrusiveListNode *node =
+        (HirIntrusiveListNode *)((char *)bb + cfg->block_node_offset);
+    node->prev_->next_ = node->next_;
+    node->next_->prev_ = node->prev_;
+    node->prev_ = node;
+    node->next_ = node;
+    (void)cfg;
+}
+
 /* ---- Phi query (needs HirBasicBlock for block id) ---- */
 
 static inline size_t hir_phi_block_index(const void *phi, const HirBasicBlock *block) {
