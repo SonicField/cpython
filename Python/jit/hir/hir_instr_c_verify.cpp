@@ -9,6 +9,7 @@
 #include "cinderx/Jit/hir/hir.h"
 #include "cinderx/Jit/hir/cfg.h"
 #include "cinderx/Jit/hir/frame_state.h"
+#include "cinderx/Jit/hir/function.h"
 
 #include <cassert>
 
@@ -79,6 +80,10 @@ struct HirEnvironmentLayoutVerifier {
     static_assert(offsetof(HirEnvironment, next_load_type_attr_cache) == offsetof(Environment, next_load_type_attr_cache_));
     static_assert(offsetof(HirEnvironment, next_load_type_method_cache) == offsetof(Environment, next_load_type_method_cache_));
 };
+
+/* Phase Fn1: Function layout verification (opaque blob, sizeof only) */
+static_assert(sizeof(HirFunctionLayout) == sizeof(Function),
+    "HirFunctionLayout size mismatch with Function");
 
 /* ---- Per-field offsetof checks via friend struct ---- */
 struct HirInstrLayoutVerifier {

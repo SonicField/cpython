@@ -192,6 +192,11 @@ static inline int hir_env_num_load_type_method_caches(const void *env) {
     return ((const HirEnvironment *)env)->next_load_type_method_cache;
 }
 
+/* ---- Function C struct (opaque blob with offsetof-verified field access) ---- */
+typedef struct HirFunctionLayout {
+    char opaque[328]; /* sizeof(Function) == 41 * kPointerSize */
+} HirFunctionLayout;
+
 /* ---- FrameState C struct ---- */
 typedef struct HirFrameStateLayout {
     ssize_t cur_instr_offs;           /* 8 bytes — BCOffset */
