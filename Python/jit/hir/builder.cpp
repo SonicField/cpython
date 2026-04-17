@@ -3637,8 +3637,8 @@ bool HIRBuilder::emitInvokeFunction(
     const jit::BytecodeInstruction& bc_instr,
     CallFlags flags) {
   PyObject* arg = constArg(bc_instr);
-  BorrowedRef<> descr = PyTuple_GET_ITEM(arg.get(), 0);
-  long nargs = PyLong_AsLong(PyTuple_GET_ITEM(arg.get(), 1));
+  BorrowedRef<> descr = PyTuple_GET_ITEM(arg, 0);
+  long nargs = PyLong_AsLong(PyTuple_GET_ITEM(arg, 1));
 
   const InvokeTarget& target = preloader_.invokeFunctionTarget(descr);
 
@@ -3717,11 +3717,11 @@ bool HIRBuilder::emitInvokeNative(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   PyObject* arg = constArg(bc_instr);
-  BorrowedRef<> native_target_descr = PyTuple_GET_ITEM(arg.get(), 0);
+  BorrowedRef<> native_target_descr = PyTuple_GET_ITEM(arg, 0);
   const NativeTarget& target =
       preloader_.invokeNativeTarget(native_target_descr);
 
-  BorrowedRef<> signature = PyTuple_GET_ITEM(arg.get(), 1);
+  BorrowedRef<> signature = PyTuple_GET_ITEM(arg, 1);
 
   // The last entry in the signature is the return type, so subtract 1
   Py_ssize_t nargs = PyTuple_GET_SIZE(signature.get()) - 1;
@@ -3760,8 +3760,8 @@ void HIRBuilder::emitLoadMethodStatic(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   PyObject* arg = constArg(bc_instr);
-  BorrowedRef<> descr = PyTuple_GET_ITEM(arg.get(), 0);
-  bool is_classmethod = _PyClassLoader_IsClassMethodDescr(arg.get());
+  BorrowedRef<> descr = PyTuple_GET_ITEM(arg, 0);
+  bool is_classmethod = _PyClassLoader_IsClassMethodDescr(arg);
 
   const InvokeTarget& target = preloader_.invokeMethodTarget(descr);
 
@@ -3825,8 +3825,8 @@ bool HIRBuilder::emitInvokeMethod(
     const jit::BytecodeInstruction& bc_instr,
     bool is_awaited) {
   PyObject* arg = constArg(bc_instr);
-  BorrowedRef<> descr = PyTuple_GET_ITEM(arg.get(), 0);
-  long nargs = PyLong_AsLong(PyTuple_GET_ITEM(arg.get(), 1)) + 2; // thunk, self
+  BorrowedRef<> descr = PyTuple_GET_ITEM(arg, 0);
+  long nargs = PyLong_AsLong(PyTuple_GET_ITEM(arg, 1)) + 2; // thunk, self
 
   const InvokeTarget& target = preloader_.invokeMethodTarget(descr);
 
@@ -5187,8 +5187,8 @@ void HIRBuilder::emitBuildCheckedList(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   PyObject* arg = constArg(bc_instr);
-  BorrowedRef<> descr = PyTuple_GET_ITEM(arg.get(), 0);
-  Py_ssize_t list_size = PyLong_AsLong(PyTuple_GET_ITEM(arg.get(), 1));
+  BorrowedRef<> descr = PyTuple_GET_ITEM(arg, 0);
+  Py_ssize_t list_size = PyLong_AsLong(PyTuple_GET_ITEM(arg, 1));
 
   Type type = preloader_.type(descr);
   JIT_CHECK(
@@ -5209,8 +5209,8 @@ void HIRBuilder::emitBuildCheckedMap(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   PyObject* arg = constArg(bc_instr);
-  BorrowedRef<> descr = PyTuple_GET_ITEM(arg.get(), 0);
-  Py_ssize_t dict_size = PyLong_AsLong(PyTuple_GET_ITEM(arg.get(), 1));
+  BorrowedRef<> descr = PyTuple_GET_ITEM(arg, 0);
+  Py_ssize_t dict_size = PyLong_AsLong(PyTuple_GET_ITEM(arg, 1));
 
   Type type = preloader_.type(descr);
   JIT_CHECK(
