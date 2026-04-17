@@ -184,7 +184,7 @@ void** Context::findFunctionEntryCache(PyFunctionObject* function) {
   return result.first->second.ptr;
 }
 
-void Context::clearFunctionEntryCache(BorrowedRef<PyFunctionObject> function) {
+void Context::clearFunctionEntryCache(PyFunctionObject* function) {
   function_entry_caches_.erase(function);
 }
 
@@ -258,7 +258,7 @@ void Context::recordDeopt(
 void Context::deoptBackoffSuppressFunctions(CodeRuntime* code_runtime) {
   // Collect functions using this CodeRuntime. Must collect first because
   // removeCompiledFunc modifies compiled_funcs_ (iterator invalidation).
-  std::vector<BorrowedRef<PyFunctionObject>> to_deopt;
+  std::vector<PyFunctionObject*> to_deopt;
   for (auto func : compiled_funcs_) {
     if (CompiledFunction* compiled = lookupFunc(func)) {
       if (compiled->runtime() == code_runtime) {
@@ -560,7 +560,7 @@ void Context::finalizeMultiThreadedCompile() {
 }
 
 void Context::finalizeFunc(
-    BorrowedRef<PyFunctionObject> func,
+    PyFunctionObject* func,
     const CompiledFunction& compiled) {
   ThreadedCompileSerialize guard;
   if (!addCompiledFunc(func)) {
@@ -580,7 +580,7 @@ void Context::finalizeFunc(
 }
 
 void Context::codeCompiled(
-    BorrowedRef<PyFunctionObject> func,
+    PyFunctionObject* func,
     CompilationKey& key,
     CompiledFunctionData&& compiled_func) {
   addCompileTime(compiled_func.compile_time);
@@ -653,24 +653,24 @@ void jitgen_data_free(PyGenObject* gen) {
 }
 #endif // PY_VERSION_HEX < 0x030C0000
 
-void Context::forgetCode(BorrowedRef<PyFunctionObject> func) {
+void Context::forgetCode(PyFunctionObject* func) {
   compiled_codes_.erase(CompilationKey{func});
 }
 
-bool Context::didCompile(BorrowedRef<PyFunctionObject> func) {
+bool Context::didCompile(PyFunctionObject* func) {
   ThreadedCompileSerialize guard;
   return compiled_funcs_.contains(func);
 }
 
-bool Context::isDeoptimized(BorrowedRef<PyFunctionObject> func) {
+bool Context::isDeoptimized(PyFunctionObject* func) {
   return deopted_funcs_.count(func) > 0;
 }
 
-CompiledFunction* Context::lookupFunc(BorrowedRef<PyFunctionObject> func) {
+CompiledFunction* Context::lookupFunc(PyFunctionObject* func) {
   return lookupCode(func->func_code, func->func_builtins, func->func_globals);
 }
 
-CodeRuntime* Context::lookupCodeRuntime(BorrowedRef<PyFunctionObject> func) {
+CodeRuntime* Context::lookupCodeRuntime(PyFunctionObject* func) {
   CompiledFunction* compiled = lookupFunc(func);
   if (compiled == nullptr) {
     return nullptr;
@@ -683,11 +683,11 @@ Context::compiledCodes() const {
   return compiled_codes_;
 }
 
-const UnorderedSet<BorrowedRef<PyFunctionObject>>& Context::compiledFuncs() {
+const UnorderedSet<PyFunctionObject*>& Context::compiledFuncs() {
   return compiled_funcs_;
 }
 
-const UnorderedSet<BorrowedRef<PyFunctionObject>>& Context::deoptedFuncs() {
+const UnorderedSet<PyFunctionObject*>& Context::deoptedFuncs() {
   return deopted_funcs_;
 }
 
@@ -712,7 +712,7 @@ void Context::clearCache() {
   compiled_codes_.clear();
 }
 
-void Context::funcDestroyed(BorrowedRef<PyFunctionObject> func) {
+void Context::funcDestroyed(PyFunctionObject* func) {
   compiled_funcs_.erase(func);
   deopted_funcs_.erase(func);
 
@@ -729,19 +729,19 @@ CompiledFunction* Context::lookupCode(
   return it == compiled_codes_.end() ? nullptr : it->second.get();
 }
 
-void Context::addDeoptedFunc(BorrowedRef<PyFunctionObject> func) {
+void Context::addDeoptedFunc(PyFunctionObject* func) {
   deopted_funcs_.emplace(func);
 }
 
-void Context::removeDeoptedFunc(BorrowedRef<PyFunctionObject> func) {
+void Context::removeDeoptedFunc(PyFunctionObject* func) {
   deopted_funcs_.erase(func);
 }
 
-bool Context::addCompiledFunc(BorrowedRef<PyFunctionObject> func) {
+bool Context::addCompiledFunc(PyFunctionObject* func) {
   return compiled_funcs_.emplace(func).second;
 }
 
-bool Context::removeCompiledFunc(BorrowedRef<PyFunctionObject> func) {
+bool Context::removeCompiledFunc(PyFunctionObject* func) {
   return compiled_funcs_.erase(func) == 1;
 }
 
@@ -754,7 +754,7 @@ void Context::removeActiveCompile(CompilationKey& key) {
 }
 
 CompiledFunction* Context::makeCompiledFunction(
-    BorrowedRef<PyFunctionObject> func,
+    PyFunctionObject* func,
     const CompilationKey& key,
     CompiledFunctionData&& compiled_func) {
   auto compiled = std::make_unique<CompiledFunction>(std::move(compiled_func));
@@ -822,7 +822,7 @@ void AotContext::registerFunc(const elf::Note& note) {
 }
 
 const AotContext::FuncState* AotContext::lookupFuncState(
-    BorrowedRef<PyFunctionObject> func) {
+    PyFunctionObject* func) {
   std::string name = funcFullname(func);
   auto it = funcs_.find(name);
   return it != funcs_.end() ? &it->second : nullptr;

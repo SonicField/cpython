@@ -112,7 +112,7 @@ struct CompilationKey {
   PyObject* builtins;
   PyObject* globals;
 
-  explicit CompilationKey(BorrowedRef<PyFunctionObject> func)
+  explicit CompilationKey(PyFunctionObject* func)
       : code{func->func_code},
         builtins{func->func_builtins},
         globals{func->func_globals} {}
@@ -149,17 +149,17 @@ class Context : public IJitContext {
    * function. If the JIT is re-enabled the function can be re-initialized to
    * the JITed form.
    */
-  void addDeoptedFunc(BorrowedRef<PyFunctionObject> func);
+  void addDeoptedFunc(PyFunctionObject* func);
 
   /*
    * Removes a function from the deopted functions set.
    */
-  void removeDeoptedFunc(BorrowedRef<PyFunctionObject> func);
+  void removeDeoptedFunc(PyFunctionObject* func);
 
   /*
    * Fully remove all effects of compilation from a function.
    */
-  void uncompile(BorrowedRef<PyFunctionObject> func);
+  void uncompile(PyFunctionObject* func);
 
   /*
    * Adds a record indicating that the specified function is currently being
@@ -178,7 +178,7 @@ class Context : public IJitContext {
    * The compiled code can then be shared amongst compatible functions.
    */
   CompiledFunction* makeCompiledFunction(
-      BorrowedRef<PyFunctionObject> func,
+      PyFunctionObject* func,
       const CompilationKey& key,
       CompiledFunctionData&& compiled_func);
 
@@ -187,14 +187,14 @@ class Context : public IJitContext {
    * function's entrypoint.
    */
   void finalizeFunc(
-      BorrowedRef<PyFunctionObject> func,
+      PyFunctionObject* func,
       const CompiledFunction& compiled);
 
   /*
    * Adds a compiled function to the Context. Returns false if the function was
    * previously added.
    */
-  bool addCompiledFunc(BorrowedRef<PyFunctionObject> func);
+  bool addCompiledFunc(PyFunctionObject* func);
 
   /*
    * Removes a function from the set of functions that are known to be compiled.
@@ -202,22 +202,22 @@ class Context : public IJitContext {
    *
    * Returns true if the function was removed.
    */
-  bool removeCompiledFunc(BorrowedRef<PyFunctionObject> func);
+  bool removeCompiledFunc(PyFunctionObject* func);
 
   /*
    * Return whether or not this context compiled the supplied function.
    */
-  bool didCompile(BorrowedRef<PyFunctionObject> func) override;
-  bool isDeoptimized(BorrowedRef<PyFunctionObject> func) override;
+  bool didCompile(PyFunctionObject* func) override;
+  bool isDeoptimized(PyFunctionObject* func) override;
 
   /*
    * Remove the specified code object from the known compiled codes.
    */
-  void forgetCode(BorrowedRef<PyFunctionObject> func);
+  void forgetCode(PyFunctionObject* func);
   /*
    * Look up the compiled function object for a given Python function object.
    */
-  CompiledFunction* lookupFunc(BorrowedRef<PyFunctionObject> func);
+  CompiledFunction* lookupFunc(PyFunctionObject* func);
 
   /*
    * Gets the CompiledFunction for a given code/builtins/globals triplet.
@@ -230,7 +230,7 @@ class Context : public IJitContext {
   /*
    * Looks up the CodeRuntime for a given function.
    */
-  CodeRuntime* lookupCodeRuntime(BorrowedRef<PyFunctionObject> func);
+  CodeRuntime* lookupCodeRuntime(PyFunctionObject* func);
 
   /*
    * Get the map of all compiled code objects, keyed by their address and also
@@ -242,13 +242,13 @@ class Context : public IJitContext {
   /*
    * Get a range over all function objects that have been compiled.
    */
-  const UnorderedSet<BorrowedRef<PyFunctionObject>>& compiledFuncs();
+  const UnorderedSet<PyFunctionObject*>& compiledFuncs();
 
   /*
    * Get a range over all function objects that have been compiled and since
    * deopted.
    */
-  const UnorderedSet<BorrowedRef<PyFunctionObject>>& deoptedFuncs();
+  const UnorderedSet<PyFunctionObject*>& deoptedFuncs();
 
   /*
    * Get the total time spent compiling functions thus far.
@@ -275,7 +275,7 @@ class Context : public IJitContext {
   /*
    * Callbacks invoked by the runtime when a PyFunctionObject is destroyed.
    */
-  void funcDestroyed(BorrowedRef<PyFunctionObject> func);
+  void funcDestroyed(PyFunctionObject* func);
 
   // Methods moved from Runtime class
 
@@ -289,7 +289,7 @@ class Context : public IJitContext {
   // Find a cache for the indirect static entry point for a function.
   void** findFunctionEntryCache(PyFunctionObject* function);
 
-  void clearFunctionEntryCache(BorrowedRef<PyFunctionObject> function);
+  void clearFunctionEntryCache(PyFunctionObject* function);
 
   // Checks to see if we already have an entry for indirect static entry point
   bool hasFunctionEntryCache(PyFunctionObject* function) const;
@@ -414,7 +414,7 @@ class Context : public IJitContext {
   // CompiledFunctionData will be preserved until the multi-threaded compile can
   // finalize things.
   void codeCompiled(
-      BorrowedRef<PyFunctionObject> func,
+      PyFunctionObject* func,
       CompilationKey& key,
       CompiledFunctionData&& compiled_func);
 
@@ -451,7 +451,7 @@ class Context : public IJitContext {
 
   // Map of all code objects to the functions that they were found in.
   // Needed for printing the name of the code object and for preloading.
-  UnorderedMap<BorrowedRef<PyCodeObject>, BorrowedRef<PyFunctionObject>>&
+  UnorderedMap<BorrowedRef<PyCodeObject>, PyFunctionObject*>&
   codeOuterFunctions() {
     return code_outer_funcs_;
   }
@@ -570,7 +570,7 @@ class Context : public IJitContext {
 
  private:
   /* Deopts a function but doesn't touch deopted_funcs_. */
-  bool deoptFuncImpl(BorrowedRef<PyFunctionObject> func);
+  bool deoptFuncImpl(PyFunctionObject* func);
 
   /*
    * Map of all compiled code objects, keyed by their address and also their
@@ -580,10 +580,10 @@ class Context : public IJitContext {
       compiled_codes_;
 
   /* Set of which functions have JIT-compiled entrypoints. */
-  UnorderedSet<BorrowedRef<PyFunctionObject>> compiled_funcs_;
+  UnorderedSet<PyFunctionObject*> compiled_funcs_;
 
   /* Set of which functions were JIT-compiled but have since been deopted. */
-  UnorderedSet<BorrowedRef<PyFunctionObject>> deopted_funcs_;
+  UnorderedSet<PyFunctionObject*> deopted_funcs_;
 
   /*
    * Set of compilations that are currently active, across all threads.
@@ -613,7 +613,7 @@ class Context : public IJitContext {
   std::atomic_size_t total_compile_time_ms_;
 
   // Map of all code objects to the functions that they were found in.
-  UnorderedMap<BorrowedRef<PyCodeObject>, BorrowedRef<PyFunctionObject>>
+  UnorderedMap<BorrowedRef<PyCodeObject>, PyFunctionObject*>
       code_outer_funcs_;
 };
 
@@ -638,7 +638,7 @@ class AotContext {
  public:
   struct FuncState {
     elf::CodeNoteData note;
-    BorrowedRef<PyFunctionObject> func;
+    PyFunctionObject* func;
     std::span<const std::byte> compiled_code;
 
     vectorcallfunc normalEntry() const {
@@ -663,7 +663,7 @@ class AotContext {
   void registerFunc(const elf::Note& note);
 
   /* Look up the state associated with a given Python function. */
-  const FuncState* lookupFuncState(BorrowedRef<PyFunctionObject> func);
+  const FuncState* lookupFuncState(PyFunctionObject* func);
 
  private:
   // The handle to the AOT bundle created by dlopen().
