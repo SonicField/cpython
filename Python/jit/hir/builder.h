@@ -485,7 +485,7 @@ class HIRBuilder {
       TranslationContext& tc,
       const BytecodeInstruction& bc_instr);
 
-  BorrowedRef<> constArg(const jit::BytecodeInstruction& bc_instr);
+  PyObject* constArg(const jit::BytecodeInstruction& bc_instr);
 
   ExecutionBlock popBlock(CFG& cfg, TranslationContext& tc);
   void insertRunPeriodicActivitesForLoop(CFG& cfg, BasicBlock* loop_header);
@@ -547,7 +547,7 @@ class HIRBuilder {
 
   void advancePastYieldInstr(TranslationContext& tc);
 
-  BorrowedRef<PyCodeObject> code_;
+  PyCodeObject* code_;
   BlockMap block_map_;
 
   // Parsed exception table entries from co_exceptiontable (Layer 1).

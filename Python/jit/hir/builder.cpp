@@ -3636,7 +3636,7 @@ bool HIRBuilder::emitInvokeFunction(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr,
     CallFlags flags) {
-  BorrowedRef<> arg = constArg(bc_instr);
+  PyObject* arg = constArg(bc_instr);
   BorrowedRef<> descr = PyTuple_GET_ITEM(arg.get(), 0);
   long nargs = PyLong_AsLong(PyTuple_GET_ITEM(arg.get(), 1));
 
@@ -3716,7 +3716,7 @@ bool HIRBuilder::emitInvokeFunction(
 bool HIRBuilder::emitInvokeNative(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  BorrowedRef<> arg = constArg(bc_instr);
+  PyObject* arg = constArg(bc_instr);
   BorrowedRef<> native_target_descr = PyTuple_GET_ITEM(arg.get(), 0);
   const NativeTarget& target =
       preloader_.invokeNativeTarget(native_target_descr);
@@ -3759,7 +3759,7 @@ void HIRBuilder::emitInvokeMethodVectorCall(
 void HIRBuilder::emitLoadMethodStatic(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  BorrowedRef<> arg = constArg(bc_instr);
+  PyObject* arg = constArg(bc_instr);
   BorrowedRef<> descr = PyTuple_GET_ITEM(arg.get(), 0);
   bool is_classmethod = _PyClassLoader_IsClassMethodDescr(arg.get());
 
@@ -3824,7 +3824,7 @@ bool HIRBuilder::emitInvokeMethod(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr,
     bool is_awaited) {
-  BorrowedRef<> arg = constArg(bc_instr);
+  PyObject* arg = constArg(bc_instr);
   BorrowedRef<> descr = PyTuple_GET_ITEM(arg.get(), 0);
   long nargs = PyLong_AsLong(PyTuple_GET_ITEM(arg.get(), 1)) + 2; // thunk, self
 
@@ -5186,7 +5186,7 @@ void HIRBuilder::emitListToTuple(TranslationContext& tc) {
 void HIRBuilder::emitBuildCheckedList(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  BorrowedRef<> arg = constArg(bc_instr);
+  PyObject* arg = constArg(bc_instr);
   BorrowedRef<> descr = PyTuple_GET_ITEM(arg.get(), 0);
   Py_ssize_t list_size = PyLong_AsLong(PyTuple_GET_ITEM(arg.get(), 1));
 
@@ -5208,7 +5208,7 @@ void HIRBuilder::emitBuildCheckedList(
 void HIRBuilder::emitBuildCheckedMap(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  BorrowedRef<> arg = constArg(bc_instr);
+  PyObject* arg = constArg(bc_instr);
   BorrowedRef<> descr = PyTuple_GET_ITEM(arg.get(), 0);
   Py_ssize_t dict_size = PyLong_AsLong(PyTuple_GET_ITEM(arg.get(), 1));
 
