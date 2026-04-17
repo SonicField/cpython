@@ -202,23 +202,15 @@ BasicBlock* Edge::to() const {
 }
 
 void Edge::set_from(BasicBlock* new_from) {
-  if (from_) {
-    phx_edge_arr_erase(&from_->out_edges_, reinterpret_cast<const HirEdge*>(this));
-  }
-  if (new_from) {
-    phx_edge_arr_insert(&new_from->out_edges_, reinterpret_cast<const HirEdge*>(this));
-  }
-  from_ = new_from;
+  hir_edge_set_from(
+      reinterpret_cast<HirEdge*>(this),
+      reinterpret_cast<HirBasicBlock*>(new_from));
 }
 
 void Edge::set_to(BasicBlock* new_to) {
-  if (to_) {
-    phx_edge_arr_erase(&to_->in_edges_, reinterpret_cast<const HirEdge*>(this));
-  }
-  if (new_to) {
-    phx_edge_arr_insert(&new_to->in_edges_, reinterpret_cast<const HirEdge*>(this));
-  }
-  to_ = new_to;
+  hir_edge_set_to(
+      reinterpret_cast<HirEdge*>(this),
+      reinterpret_cast<HirBasicBlock*>(new_to));
 }
 
 void* Instr::allocate(std::size_t fixed_size, std::size_t num_operands) {
