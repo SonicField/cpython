@@ -1612,9 +1612,9 @@ PyObject* __attribute__((noinline)) LoadModuleAttrCache::lookupSlowPath(
 
   if (value != nullptr) {
 #if PY_VERSION_HEX >= 0x030E0000
-    PyObject* dict = getModuleDict(object);
+    PyDictObject* dict = getModuleDict(object);
     PyUnicodeObject* uname = (PyUnicodeObject*)name;
-    if (hasOnlyUnicodeKeys(dict)) {
+    if (hasOnlyUnicodeKeys((PyObject*)dict)) {
       cache_ = cinderx::getModuleState()->cacheManager()->getGlobalCache(
           dict, dict, uname);
     }
