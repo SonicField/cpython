@@ -606,6 +606,14 @@ autogen_c_translateTst(void *env, const LirInstruction *instr) {
         phx_a64_lsl(pb, A64_SCRATCH_0_W, w0, shift);
         phx_a64_lsl(pb, A64_SCRATCH_1_W, w1, shift);
         phx_a64_tst_rr(pb, A64_SCRATCH_0_W, A64_SCRATCH_1_W);
+    } else if (instr->opcode_ == JIT_LIR_OP_TEST32) {
+        /* Test32 must use 32-bit (Wn) registers to check bit 31 (sign flag).
+         * operand_to_gp returns Xn for kObject data type, which would check
+         * bit 63 instead — wrong for immortal refcount detection (PEP 683:
+         * _Py_IMMORTAL_REFCNT = 0xFFFFFFFF has bit 31 set but bit 63 clear). */
+        int reg0 = lir_operand_get_phy_register(opnd0).loc;
+        int reg1 = lir_operand_get_phy_register(opnd1).loc;
+        phx_a64_tst_rr(pb, PHX_REG_GP(reg0, 4), PHX_REG_GP(reg1, 4));
     } else {
         phx_a64_tst_rr(pb, operand_to_gp(opnd0), operand_to_gp(opnd1));
     }
