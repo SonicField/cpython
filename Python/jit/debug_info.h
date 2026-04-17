@@ -30,7 +30,7 @@ class Instr;
 
 // A location in a code object
 struct CodeObjLoc {
-  explicit CodeObjLoc(BorrowedRef<PyFrameObject> frame)
+  explicit CodeObjLoc(PyFrameObject* frame)
       : code{Ref<PyCodeObject>::steal(PyFrame_GetCode(frame))} {
     instr_offset = BCIndex{
 #if PY_VERSION_HEX < 0x030B0000
@@ -41,10 +41,10 @@ struct CodeObjLoc {
     };
   }
 
-  CodeObjLoc(BorrowedRef<PyCodeObject> code, BCOffset instr_offset)
+  CodeObjLoc(PyCodeObject* code, BCOffset instr_offset)
       : code{code}, instr_offset{instr_offset} {}
 
-  BorrowedRef<PyCodeObject> code;
+  PyCodeObject* code;
 
   // Bytecode offset. A value less than 0 indicates the position is unknown.
   BCOffset instr_offset{-1};
@@ -169,7 +169,7 @@ class DebugInfo {
   }
 
   // All the code objects in the unit
-  std::vector<BorrowedRef<PyCodeObject>> code_objs_;
+  std::vector<PyCodeObject*> code_objs_;
 
   // The locations of all the inline sites in the unit.
   std::vector<LocNode> inlined_calls_;

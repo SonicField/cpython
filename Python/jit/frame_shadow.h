@@ -17,7 +17,7 @@ namespace jit {
 // tstate.
 //
 // Returns a borrowed reference to top of the Python stack (tstate->frame).
-BorrowedRef<PyFrameObject> materializeShadowCallStack(PyThreadState* tstate);
+PyFrameObject* materializeShadowCallStack(PyThreadState* tstate);
 
 // Materialize a Python frame for the top-most frame for tstate, with the
 // expectation that this frame will immediately either be unwound or resumed in
@@ -31,7 +31,7 @@ Ref<PyFrameObject> materializePyFrameForDeopt(PyThreadState* tstate);
 //
 // This returns nullptr if gen is completed or a borrowed reference to its
 // PyFrameObject otherwise.
-BorrowedRef<PyFrameObject> materializePyFrameForGen(
+PyFrameObject* materializePyFrameForGen(
     PyThreadState* tstate,
     PyGenObject* gen);
 

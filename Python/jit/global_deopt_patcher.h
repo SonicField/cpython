@@ -18,7 +18,7 @@ class GlobalDeoptPatcher : public JumpPatcher {
  public:
   GlobalDeoptPatcher(
       PyDictObject* globals,
-      BorrowedRef<PyUnicodeObject> key_name,
+      PyUnicodeObject* key_name,
       PyObject* expected_value)
       : globals_{globals} {
     ThreadedCompileSerialize guard;

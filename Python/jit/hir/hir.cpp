@@ -1344,16 +1344,16 @@ Register* Environment::addRegister(std::unique_ptr<Register> reg) {
   return reg_data_[id];
 }
 
-BorrowedRef<> Environment::addReference(BorrowedRef<> obj) {
+PyObject* Environment::addReference(PyObject* obj) {
   // Serialize as we modify the ref-count to obj which may be widely accessible.
   ThreadedCompileSerialize guard;
   return references_.emplace(ThreadedRef<>::create(obj)).first->get();
 }
 
-BorrowedRef<> Environment::addReference(Ref<> obj) {
-  // ThreadedRef cannot steal from Ref, so have to go through BorrowedRef and
-  // accept the extra increfs and decrefs.
-  return addReference(BorrowedRef<>{obj});
+PyObject* Environment::addReference(Ref<> obj) {
+  // ThreadedRef cannot steal from Ref, so have to go through the raw pointer
+  // overload and accept the extra increfs and decrefs.
+  return addReference((PyObject*)obj);
 }
 
 const Environment::ReferenceSet& Environment::references() const {

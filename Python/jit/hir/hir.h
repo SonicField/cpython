@@ -3665,8 +3665,8 @@ class Environment {
   // Only intended to be used in tests and parsing code.
   Register* addRegister(std::unique_ptr<Register> reg);
 
-  BorrowedRef<> addReference(BorrowedRef<> obj);
-  BorrowedRef<> addReference(Ref<> obj);
+  PyObject* addReference(PyObject* obj);
+  PyObject* addReference(Ref<> obj);
 
   const ReferenceSet& references() const;
 

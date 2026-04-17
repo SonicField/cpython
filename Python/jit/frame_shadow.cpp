@@ -575,7 +575,7 @@ Ref<PyFrameObject> materializePyFrameForDeopt(PyThreadState* tstate) {
   return Ref<PyFrameObject>::steal(tstate->frame);
 }
 
-BorrowedRef<PyFrameObject> materializeShadowCallStack(PyThreadState* tstate) {
+PyFrameObject* materializeShadowCallStack(PyThreadState* tstate) {
   walkShadowStack(
       tstate, [](const CodeObjLoc&, PyFrameMaterializer makePyFrame) {
         makePyFrame();
@@ -584,7 +584,7 @@ BorrowedRef<PyFrameObject> materializeShadowCallStack(PyThreadState* tstate) {
   return tstate->frame;
 }
 
-BorrowedRef<PyFrameObject> materializePyFrameForGen(
+PyFrameObject* materializePyFrameForGen(
     PyThreadState* tstate,
     PyGenObject* gen) {
   auto gen_footer = reinterpret_cast<GenDataFooter*>(gen->gi_jit_data);
