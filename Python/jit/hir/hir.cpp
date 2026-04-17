@@ -3,6 +3,7 @@
 #include "cinderx/Jit/hir/hir.h"
 
 #include "cinderx/Common/log.h"
+#include "cinderx/Jit/hir/hir_basic_block_c.h"
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_instr_info_c.h"
 #include "cinderx/Jit/hir/hir_operand_types_c.h"
@@ -12,6 +13,20 @@
 #include <cstring>
 
 namespace jit::hir {
+
+// Phase H1a: Cross-validate HirBasicBlock C struct against C++ BasicBlock.
+static_assert(sizeof(HirBasicBlock) == sizeof(BasicBlock),
+    "HirBasicBlock and BasicBlock size mismatch");
+static_assert(offsetof(HirBasicBlock, id) == offsetof(BasicBlock, id),
+    "HirBasicBlock.id offset mismatch");
+static_assert(offsetof(HirBasicBlock, cfg_node) == offsetof(BasicBlock, cfg_node),
+    "HirBasicBlock.cfg_node offset mismatch");
+// IntrusiveListNode layout validation
+static_assert(sizeof(HirIntrusiveListNode) == sizeof(IntrusiveListNode),
+    "HirIntrusiveListNode size mismatch");
+// Instr::List layout validation
+static_assert(sizeof(HirInstrList) == sizeof(Instr::List),
+    "HirInstrList size mismatch");
 
 // T2-C3: GetOperandType dispatch.
 // 164/168 opcodes use the C operand-type table (hir_operand_types_c.c).
