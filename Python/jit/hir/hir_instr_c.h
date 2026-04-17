@@ -1173,6 +1173,30 @@ static inline int hir_c_is_replayable(const void *instr) {
     return hir_instr_info_is_replayable(hir_c_opcode(instr));
 }
 
+/* ==== Phi query functions (no BasicBlock dependency) ==== */
+
+static inline size_t hir_phi_num_blocks(const void *phi) {
+    return ((const HirPhi *)phi)->bb_count;
+}
+
+static inline void *hir_phi_block_at(const void *phi, size_t i) {
+    return ((const HirPhi *)phi)->bb_data[i];
+}
+
+static inline void *hir_phi_is_trivial(const void *phi) {
+    void *out = hir_c_output(phi);
+    void *val = NULL;
+    size_t n = hir_c_num_operands(phi);
+    for (size_t i = 0; i < n; i++) {
+        void *reg = hir_c_get_operand(phi, i);
+        if (reg != out && reg != val) {
+            if (val != NULL) return NULL;
+            val = reg;
+        }
+    }
+    return val;
+}
+
 /* ==== visitUses — C implementation with C++ delegation ====
  * Iterates operand array in pure C. Delegates Snapshot/DeoptBase
  * extension uses (frame_state, live_regs, guilty_reg) to C++ bridge.

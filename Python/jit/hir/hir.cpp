@@ -181,13 +181,8 @@ void Phi::setArgs(const std::unordered_map<BasicBlock*, Register*>& args) {
 }
 
 std::size_t Phi::blockIndex(const BasicBlock* block) const {
-  auto it = std::lower_bound(
-      basic_blocks_.begin(), basic_blocks_.end(), block, [](auto b1, auto b2) {
-        return b1->id < b2->id;
-      });
-  JIT_DCHECK(it != basic_blocks_.end(), "Bad CFG");
-  JIT_DCHECK(*it == block, "Bad CFG");
-  return std::distance(basic_blocks_.begin(), it);
+  return hir_phi_block_index(this,
+      reinterpret_cast<const HirBasicBlock*>(block));
 }
 
 Edge::Edge(const Edge& other) {

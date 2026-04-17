@@ -82,6 +82,21 @@ void *hir_bb_get_terminator(const HirBasicBlock *bb);
 void *hir_bb_entry_snapshot(const HirBasicBlock *bb);
 int hir_bb_is_trampoline(const HirBasicBlock *bb);
 
+/* ---- Phi query (needs HirBasicBlock for block id) ---- */
+
+static inline size_t hir_phi_block_index(const void *phi, const HirBasicBlock *block) {
+    const HirPhi *p = (const HirPhi *)phi;
+    const int target_id = block->id;
+    size_t lo = 0, hi = p->bb_count;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        int mid_id = ((const HirBasicBlock *)p->bb_data[mid])->id;
+        if (mid_id < target_id) lo = mid + 1;
+        else hi = mid;
+    }
+    return lo;
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

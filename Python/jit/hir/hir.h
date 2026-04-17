@@ -1178,20 +1178,8 @@ class INSTR_CLASS(Phi, (TTop), HasOutput, Operands<>) {
     return phi;
   }
 
-  // A trivial phi merges its output with only one other value.
   Register* isTrivial() const {
-    Register* out = output();
-    Register* val = nullptr;
-    for (std::size_t i = 0; i < NumOperands(); i++) {
-      Register* reg = GetOperand(i);
-      if (reg != out && reg != val) {
-        if (val != nullptr) {
-          return nullptr;
-        }
-        val = reg;
-      }
-    }
-    return val;
+    return static_cast<Register*>(hir_phi_is_trivial(this));
   }
 
   // Return the index of the given predecessor in basic_blocks.
