@@ -2122,7 +2122,7 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
       // entry that will be object but the code gen is a little bit simpler
       // if we include it.
       Label arg_loop = as_->newLabel();
-      phx_x86_mov_ri(as_->impl(), x86::r10, (int64_t)reinterpret_cast<uint64_t>(arg.pytype.get()));
+      phx_x86_mov_ri(as_->impl(), x86::r10, (int64_t)reinterpret_cast<uint64_t>(arg.pytype));
 
       // PyObject *r8 = r8->tp_mro;
       phx_x86_mov_rm(as_->impl(), x86::r8, x86::ptr(x86::r8, offsetof(PyTypeObject, tp_mro)));
@@ -2227,7 +2227,7 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
       // entry that will be object but the code gen is a little bit simpler
       // if we include it.
       Label arg_loop = as_->newLabel();
-      phx_a64_mov_ri(as_->impl(), a64::x10, reinterpret_cast<uint64_t>(arg.pytype.get()));
+      phx_a64_mov_ri(as_->impl(), a64::x10, reinterpret_cast<uint64_t>(arg.pytype));
 
       // PyObject *r8 = r8->tp_mro;
       phx_a64_ldr(as_->impl(),

@@ -1240,13 +1240,15 @@ TypedArgument::TypedArgument(
       exact(exact),
       jit_type(jit_type) {
   ThreadedCompileSerialize guard;
-  this->pytype = ThreadedRef<PyTypeObject>::create(pytype);
+  this->pytype = pytype;
+  Py_XINCREF(this->pytype);
   thread_safe_flags = pytype->tp_flags & kThreadSafeFlagsMask;
 }
 
 TypedArgument::~TypedArgument() {
   ThreadedCompileSerialize guard;
-  pytype.reset();
+  Py_XDECREF(pytype);
+  pytype = nullptr;
 }
 
 TypedArgument::TypedArgument(const TypedArgument& other)
@@ -1256,11 +1258,22 @@ TypedArgument::TypedArgument(const TypedArgument& other)
       jit_type(other.jit_type),
       thread_safe_flags(other.thread_safe_flags) {
   ThreadedCompileSerialize guard;
-  pytype = ThreadedRef<PyTypeObject>::create(other.pytype);
+  pytype = other.pytype;
+  Py_XINCREF(pytype);
 }
 
 TypedArgument& TypedArgument::operator=(const TypedArgument& other) {
-  new (this) TypedArgument{other};
+  if (this != &other) {
+    ThreadedCompileSerialize guard;
+    Py_XDECREF(pytype);
+    locals_idx = other.locals_idx;
+    pytype = other.pytype;
+    Py_XINCREF(pytype);
+    optional = other.optional;
+    exact = other.exact;
+    jit_type = other.jit_type;
+    thread_safe_flags = other.thread_safe_flags;
+  }
   return *this;
 }
 
