@@ -12,6 +12,16 @@
 #include <algorithm>
 #include <cstring>
 
+// Phase H2: BB field offsetof checks (global namespace for friend access)
+struct HirBasicBlockLayoutVerifier {
+    static_assert(offsetof(HirBasicBlock, instrs_) ==
+        offsetof(jit::hir::BasicBlock, instrs_));
+    static_assert(offsetof(HirBasicBlock, out_edges_) ==
+        offsetof(jit::hir::BasicBlock, out_edges_));
+    static_assert(offsetof(HirBasicBlock, in_edges_) ==
+        offsetof(jit::hir::BasicBlock, in_edges_));
+};
+
 namespace jit::hir {
 
 // Phase H1a: Cross-validate HirBasicBlock C struct against C++ BasicBlock.
@@ -27,12 +37,6 @@ static_assert(sizeof(HirIntrusiveListNode) == sizeof(IntrusiveListNode),
 // Instr::List layout validation
 static_assert(sizeof(HirInstrList) == sizeof(Instr::List),
     "HirInstrList size mismatch");
-// Phase H2: Missing offsetof checks for BB fields (via friend struct)
-struct HirBasicBlockLayoutVerifier {
-    static_assert(offsetof(HirBasicBlock, instrs_) == offsetof(BasicBlock, instrs_));
-    static_assert(offsetof(HirBasicBlock, out_edges_) == offsetof(BasicBlock, out_edges_));
-    static_assert(offsetof(HirBasicBlock, in_edges_) == offsetof(BasicBlock, in_edges_));
-};
 
 // T2-C3: GetOperandType dispatch.
 // 164/168 opcodes use the C operand-type table (hir_operand_types_c.c).
