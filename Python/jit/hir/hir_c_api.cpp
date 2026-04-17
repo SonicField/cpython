@@ -189,6 +189,10 @@ HirBasicBlock hir_cfg_blocks_next(HirCFG cfg, HirBasicBlock block) {
 
 /* ---- BasicBlock ---- */
 
+int hir_block_id(HirBasicBlock block) {
+  return as_block(block)->id;
+}
+
 int hir_block_empty(HirBasicBlock block) {
   return as_block(block)->empty() ? 1 : 0;
 }

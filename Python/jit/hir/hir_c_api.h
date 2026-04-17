@@ -59,6 +59,7 @@ HirBasicBlock hir_cfg_blocks_next(HirCFG cfg, HirBasicBlock block);
 /* ---- BasicBlock accessors ---- */
 
 int hir_block_empty(HirBasicBlock block);
+int hir_block_id(HirBasicBlock block);
 
 /* Instruction iteration within a block.
  * hir_block_first returns first instr (or NULL if empty).
