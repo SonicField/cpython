@@ -1649,3 +1649,36 @@ std::ostream& operator<<(std::ostream& out, const LiveInterval& rhs) {
 }
 
 } // namespace jit::lir
+
+/* ---- Extern C wrappers for LinearScanAllocator ---- */
+
+extern "C" void* lir_regalloc_create(void* func, int reserved_stack_space) {
+  return new jit::lir::LinearScanAllocator(
+      static_cast<jit::lir::Function*>(func), reserved_stack_space);
+}
+
+extern "C" void lir_regalloc_run(void* handle) {
+  static_cast<jit::lir::LinearScanAllocator*>(handle)->run();
+}
+
+extern "C" int lir_regalloc_get_frame_size(void* handle) {
+  return static_cast<jit::lir::LinearScanAllocator*>(handle)->getFrameSize();
+}
+
+extern "C" uint64_t lir_regalloc_get_changed_regs(void* handle) {
+  auto regs = static_cast<jit::lir::LinearScanAllocator*>(handle)
+      ->getChangedRegs();
+  uint64_t result;
+  static_assert(sizeof(regs) <= sizeof(result), "PhyRegisterSet too large");
+  memcpy(&result, &regs, sizeof(regs));
+  return result;
+}
+
+extern "C" int lir_regalloc_initial_yield_spill_size(void* handle) {
+  return static_cast<jit::lir::LinearScanAllocator*>(handle)
+      ->initialYieldSpillSize();
+}
+
+extern "C" void lir_regalloc_free(void* handle) {
+  delete static_cast<jit::lir::LinearScanAllocator*>(handle);
+}

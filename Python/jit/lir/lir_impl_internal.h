@@ -89,6 +89,14 @@ int lir_function_allocate_id(LirFunction *func);
 void lir_function_ensure_block_capacity(LirFunction *func, size_t needed);
 void lir_function_sort_blocks(LirFunction *func);
 
+/* From regalloc.cpp (extern C wrappers) */
+void *lir_regalloc_create(void *func, int reserved_stack_space);
+void lir_regalloc_run(void *handle);
+int lir_regalloc_get_frame_size(void *handle);
+uint64_t lir_regalloc_get_changed_regs(void *handle);
+int lir_regalloc_initial_yield_spill_size(void *handle);
+void lir_regalloc_free(void *handle);
+
 /* From parser.cpp (extern C wrapper) */
 int lir_parser_parse(const char *text, void **out_func);
 
