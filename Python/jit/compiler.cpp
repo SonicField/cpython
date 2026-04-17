@@ -135,7 +135,7 @@ void Compiler::runPasses(
 }
 
 std::optional<CompiledFunctionData> Compiler::Compile(
-    BorrowedRef<PyFunctionObject> func) {
+    PyFunctionObject* func) {
   JIT_CHECK(PyFunction_Check(func), "Expected PyFunctionObject");
   JIT_CHECK(
       !getThreadedCompileContext().compileRunning(),

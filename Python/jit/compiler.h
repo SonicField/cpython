@@ -59,7 +59,7 @@ class Compiler {
   // Convenience wrapper to create and compile a preloader from a
   // PyFunctionObject.
   std::optional<CompiledFunctionData> Compile(
-      BorrowedRef<PyFunctionObject> func);
+      PyFunctionObject* func);
 
   // Runs all the compiler passes on the HIR function.
   static void runPasses(hir::Function&, PassConfig config);
