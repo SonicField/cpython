@@ -35,8 +35,8 @@ if [ "$JOBS" -gt 64 ]; then
     JOBS=64
 fi
 
-PHOENIX_CC="${PHOENIX_CC:-/opt/llvm/bin/clang}"
-PHOENIX_CXX="${PHOENIX_CXX:-/opt/llvm/bin/clang++}"
+PHOENIX_CC="${PHOENIX_CC:-clang}"
+PHOENIX_CXX="${PHOENIX_CXX:-clang++}"
 
 echo "=== Phoenix JIT Clean Build ==="
 echo "CPython root: $CPYTHON_ROOT"
@@ -92,20 +92,20 @@ if [ "$ASAN" -eq 1 ]; then
 fi
 if [ "$ARCH" = "aarch64" ]; then
     echo "ARM64 detected — configuring without LTO"
-    if ! CC="${PHOENIX_CC:-/opt/llvm/bin/clang}" CXX="${PHOENIX_CXX:-/opt/llvm/bin/clang++}" ./configure $PYDEBUG_FLAG $ASAN_FLAG --without-lto; then
+    if ! CC="$PHOENIX_CC" CXX="$PHOENIX_CXX" ./configure $PYDEBUG_FLAG $ASAN_FLAG --without-lto; then
         echo "FAIL: configure failed"
         exit 1
     fi
 else
     if [ "$PYDEBUG" -eq 1 ]; then
         echo "x86_64 detected — configuring without LTO (pydebug)"
-        if ! CC="${PHOENIX_CC:-/opt/llvm/bin/clang}" CXX="${PHOENIX_CXX:-/opt/llvm/bin/clang++}" ./configure $PYDEBUG_FLAG $ASAN_FLAG --without-lto; then
+        if ! CC="$PHOENIX_CC" CXX="$PHOENIX_CXX" ./configure $PYDEBUG_FLAG $ASAN_FLAG --without-lto; then
             echo "FAIL: configure failed"
             exit 1
         fi
     else
         echo "x86_64 detected — configuring with LTO"
-        if ! CC="${PHOENIX_CC:-/opt/llvm/bin/clang}" CXX="${PHOENIX_CXX:-/opt/llvm/bin/clang++}" LDFLAGS='-fuse-ld=lld' ./configure $PYDEBUG_FLAG $ASAN_FLAG --with-lto; then
+        if ! CC="$PHOENIX_CC" CXX="$PHOENIX_CXX" ./configure $PYDEBUG_FLAG $ASAN_FLAG --with-lto; then
             echo "FAIL: configure failed"
             exit 1
         fi
@@ -132,8 +132,8 @@ if ! cmake .. \
     -DCMAKE_CXX_FLAGS="-DPHOENIX_ASM${EXTRA_CMAKE_FLAGS}" \
     -DCMAKE_C_FLAGS="-DPHOENIX_ASM${EXTRA_CMAKE_FLAGS}" \
     -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
-    -DCMAKE_C_COMPILER="${PHOENIX_CC:-/opt/llvm/bin/clang}" \
-    -DCMAKE_CXX_COMPILER="${PHOENIX_CXX:-/opt/llvm/bin/clang++}"; then
+    -DCMAKE_C_COMPILER="$PHOENIX_CC" \
+    -DCMAKE_CXX_COMPILER="$PHOENIX_CXX"; then
     echo "FAIL: cmake configuration failed"
     exit 1
 fi
