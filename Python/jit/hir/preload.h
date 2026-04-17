@@ -151,19 +151,19 @@ class Preloader {
   Type checkArgType(long local_idx) const;
 
   // get value for global at given name index
-  PyObject* global(int name_idx) const;
+  BorrowedRef<> global(int name_idx) const;
 
   std::unique_ptr<Function> makeFunction() const;
 
-  PyCodeObject* code() const {
+  BorrowedRef<PyCodeObject> code() const {
     return code_;
   }
 
-  PyDictObject* globals() const {
+  BorrowedRef<PyDictObject> globals() const {
     return globals_;
   }
 
-  PyDictObject* builtins() const {
+  BorrowedRef<PyDictObject> builtins() const {
     return builtins_;
   }
 
@@ -197,13 +197,13 @@ class Preloader {
       BorrowedRef<> descr,
       int opcode);
 
-  PyObject* reifier() const {
+  BorrowedRef<> reifier() const {
     return reifier_;
   }
 
  private:
-  PyObject* constArg(BytecodeInstruction& bc_instr) const;
-  PyObject** getGlobalCache(PyObject* name) const;
+  BorrowedRef<> constArg(BytecodeInstruction& bc_instr) const;
+  PyObject** getGlobalCache(BorrowedRef<> name) const;
   bool canCacheGlobals() const;
   bool preload();
 
@@ -214,9 +214,9 @@ class Preloader {
   bool isModuleCodeObject() const;
 
   explicit Preloader(
-      BorrowedRef<PyCodeObject> code,  // keep BorrowedRef — clang 21 ICE on raw PyCodeObject*
-      PyDictObject* builtins,
-      PyDictObject* globals,
+      BorrowedRef<PyCodeObject> code,
+      BorrowedRef<PyDictObject> builtins,
+      BorrowedRef<PyDictObject> globals,
       HirAnnotationIndex* annotations,
       const std::string& fullname,
       Ref<> reifier)
