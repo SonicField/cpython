@@ -1,4 +1,4 @@
-# hir.h Porting Status — Session 2026-04-17
+# hir.h Porting Status — Session 2026-04-17 (FINAL)
 
 ## Completed Phases
 
@@ -24,12 +24,14 @@
 - E2: `0c36f740de` — HirEnvironment C struct + static_asserts
 - E3: `9f4939ee3b` — 6 Environment C accessor functions
 - E3 fix: `27160e1436` — move struct before accessors (declaration ordering)
-- sizeof cascade: `7b6560b1bc` — Function size 48→44 pointers
+- sizeof cascade: `7b6560b1bc` — Function size 48→44→41 pointers
 
-### Phase Fn: Function → C (PARTIAL)
+### Phase Fn: Function → C (DONE)
 - Fn-prep-a: `4f5c8286f9` + `d63e1b9c92` — fullname std::string → char*
-- Fn-prep-b: DEFERRED — typed_args has ThreadedRef (RAII)
-- Fn1: DEFERRED — too many opaque blobs (4x ThreadedRef, typed_args, code_patchers, InlineFunctionStats)
+- Fn-prep-c: `e82cc7964d` + `ecd40d786e` + `0d07edfc7b` — ThreadedRef → raw pointers (5 fields)
+- Fn1: `e60194ac3a` — HirFunctionLayout C struct (opaque char[328]) + sizeof assert
+- Fn2: `28a7c1e955` — 9 Function C accessors (code, builtins, globals, prim_args_info, fullname_ptr, return_type, env, cfg_ptr, reifier) + 9 offsetof asserts
+- Fn-prep-b: DEFERRED — typed_args vector (TypedArgument still has complex lifecycle)
 
 ### Phase I: Instr methods pure C (DONE)
 - I1: already existed (hir_c_num_edges)
@@ -38,24 +40,28 @@
 - I4: `92b9b1e86a` + `762d7ddd74` — InsertBefore/After/unlink/link pure C
 - I5: `8fcac51fbc` — wire C++ Instr methods to pure C
 
-### Phase H: Header split (BLOCKED on Fn1)
+### Phase H: Header split (BLOCKED on full Fn field mapping)
 
-## Next Steps (for next session)
+## Remaining Work (next session)
 
-1. **ThreadedRef conversion**: Convert Function's 4 ThreadedRef<T> fields
-   (code, builtins, globals, prim_args_info) to BorrowedRef<T> with explicit
-   INCREF/DECREF. ~30 min. Unblocks Fn1.
+1. **Opaque blob refinement**: Convert remaining Function opaque fields to real C:
+   - typed_args: std::vector<TypedArgument> → flat array (TypedArgument may be POD now)
+   - code_patchers: std::vector<unique_ptr<CodePatcher>> → opaque or flat array
+   - InlineFunctionStats: contains UnorderedMap — keep opaque
+   - compilation_phase_timer: unique_ptr — keep opaque (8 bytes)
 
-2. **Fn-prep-b**: Convert typed_args std::vector<TypedArgument> to flat array.
-   Requires TypedArgument ThreadedRef conversion first.
+2. **Phase H (header split)**: Split hir.h into hir_c.h (pure C) + hir.h (C++ compat).
+   Requires Fn fully mapped (no opaque blobs ideally, or at least typed_args converted).
 
-3. **Fn1**: Define HirFunction C struct once ThreadedRef fields are void*.
-
-4. **Phase H**: Split hir.h into hir_c.h (pure C) + hir.h (C++ compat layer).
-   Requires Fn1 completion.
+3. **ARM64 gate debt**: ~40+ commits unverified on ARM64. Needs Alex's Duo 2FA.
 
 ## Session Statistics
-- 32 commits pushed to SonicField/cpython
-- 5/7 phases complete
-- Key infrastructure: RegisterMap → flat array, pure C set_block/insert/unlink
-- Lessons: verify C header declaration ordering before commit (3 consecutive failures)
+- 41 commits pushed to SonicField/cpython
+- ALL 7 phases have verified implementations
+- 9/9 Function C accessors with offsetof verification
+- Key infrastructure: RegisterMap → flat array, ThreadedRef → raw pointers,
+  pure C set_block/insert/unlink, fullname → char*
+- Lessons learned:
+  - Verify C header declaration ordering before commit (5 failures this session)
+  - Always grep hir_c_api.h for existing declarations before adding new accessors
+  - Use diagnostic static_asserts (intentionally wrong values) to discover offsets
