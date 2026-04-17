@@ -499,6 +499,10 @@ int hir_memory_effects_may_store(HirInstr instr) {
   return (int)effects.may_store;
 }
 
+int hir_has_arbitrary_execution_c(HirInstr instr) {
+  return hir_has_arbitrary_execution(instr);
+}
+
 /* ---- CFG / pass utilities ---- */
 
 int hir_remove_trampoline_blocks(HirCFG cfg) {
