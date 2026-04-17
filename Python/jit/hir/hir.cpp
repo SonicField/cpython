@@ -981,6 +981,9 @@ Instr* BasicBlock::pop_front() {
 
 void BasicBlock::insert(Instr* instr, Instr::List::iterator it) {
   if (it == instrs_.end()) {
+    if (instr->bytecodeOffset() == -1 && it != instrs_.begin()) {
+      instr->setBytecodeOffset(std::prev(it)->bytecodeOffset());
+    }
     Append(instr);
     return;
   }
