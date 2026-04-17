@@ -122,8 +122,8 @@ class Function {
   }
 
   // Set code and a number of other members that are derived from it.
-  void setCode(BorrowedRef<PyCodeObject> code_2) {
-    Py_XINCREF(code_2.get());
+  void setCode(PyCodeObject* code_2) {
+    Py_XINCREF(code_2);
     Py_XDECREF(this->code);
     this->code = code_2;
     uses_runtime_func = usesRuntimeFunc(code_2);
@@ -174,7 +174,7 @@ class Function {
   // functions that cannot deopt, we will have to do something different.
   //
   // The instruction must be part of this function.
-  BorrowedRef<PyCodeObject> codeFor(const Instr& instr) const {
+  PyCodeObject* codeFor(const Instr& instr) const {
     if (instr.IsBeginInlinedFunction()) {
       auto bif = static_cast<const BeginInlinedFunction*>(&instr);
       return bif->func()->func_code;
@@ -188,7 +188,7 @@ class Function {
       return fs != nullptr ? fs->code : nullptr;
     }
     const FrameState* fs = instr.getDominatingFrameState();
-    return fs == nullptr ? BorrowedRef<PyCodeObject>(code) : fs->code;
+    return fs == nullptr ? code : fs->code;
   }
 
   PyObject* reifier{nullptr};

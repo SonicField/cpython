@@ -262,9 +262,9 @@ struct FrameState {
   PhxPtrArray stack{};
   // FrameState→C step 2c: was BlockStack (jit::Stack<ExecutionBlock>).
   PhxExecBlockArray block_stack{};
-  BorrowedRef<PyCodeObject> code;
-  BorrowedRef<PyDictObject> globals;
-  BorrowedRef<PyDictObject> builtins;
+  PyCodeObject* code{nullptr};
+  PyDictObject* globals{nullptr};
+  PyDictObject* builtins{nullptr};
 
   // Points to the FrameState, if any, into which this was inlined. Used to
   // construct the metadata needed to reify PyFrameObjects for inlined

@@ -116,7 +116,7 @@ void InsertUpdatePrevInstr::Run([[maybe_unused]] Function& func) {
           }
         } else {
           auto& cur_bc_idx_to_line = code_bc_idx_map.at(
-              parent == nullptr ? BorrowedRef<PyCodeObject>(func.code) : parent->code());
+              parent == nullptr ? func.code : (PyCodeObject*)parent->code());
           int cur_line_no =
               cur_bc_idx_to_line.lineNoFor(instr.bytecodeOffset());
           if (cur_line_no != prev_emitted_lno_or_bc) {
@@ -157,7 +157,7 @@ void InsertUpdatePrevInstr::Run([[maybe_unused]] Function& func) {
         // - 1 to the first instruction to indicate that the frame is now
         // complete.
         if (!inited_once && instr.IsLoadEvalBreaker()) {
-          auto target_code = parent == nullptr ? BorrowedRef<PyCodeObject>(func.code) : parent->code();
+          PyCodeObject* target_code = parent == nullptr ? func.code : (PyCodeObject*)parent->code();
           auto& cur_bc_idx_to_line = code_bc_idx_map.at(target_code);
           int line_no = cur_bc_idx_to_line.lineNoFor(
               BCIndex(target_code->_co_firsttraceable));
