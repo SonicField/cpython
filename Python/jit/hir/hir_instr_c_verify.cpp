@@ -90,6 +90,11 @@ static_assert(offsetof(Function, builtins) == 1 * sizeof(void*));
 static_assert(offsetof(Function, globals) == 2 * sizeof(void*));
 static_assert(offsetof(Function, prim_args_info) == 3 * sizeof(void*));
 static_assert(offsetof(Function, fullname) == 4 * sizeof(void*));
+/* Fn2b: remaining field offsets (discovered via diagnostic build) */
+static_assert(offsetof(Function, return_type) == 128);
+static_assert(offsetof(Function, env) == 152);
+static_assert(offsetof(Function, cfg) == 248);
+static_assert(offsetof(Function, reifier) == 320);
 
 /* ---- Per-field offsetof checks via friend struct ---- */
 struct HirInstrLayoutVerifier {

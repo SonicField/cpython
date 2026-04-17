@@ -219,6 +219,22 @@ static inline const char *hir_func_fullname_ptr(const void *func) {
     return ((const char**)func)[4]; /* fullname is fifth field */
 }
 
+static inline HirType hir_func_return_type(const void *func) {
+    return *(const HirType *)((const char *)func + 128);
+}
+
+static inline HirEnvironment *hir_func_env(void *func) {
+    return (HirEnvironment *)((char *)func + 152);
+}
+
+static inline void *hir_func_cfg_ptr(void *func) {
+    return (void *)((char *)func + 248);
+}
+
+static inline void *hir_func_reifier(const void *func) {
+    return *(void **)((const char *)func + 320);
+}
+
 /* ---- FrameState C struct ---- */
 typedef struct HirFrameStateLayout {
     ssize_t cur_instr_offs;           /* 8 bytes — BCOffset */
