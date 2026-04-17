@@ -2772,7 +2772,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
               OutVReg{},
               Instruction::kMove,
               // TASK(T140174965): This should be MemImm.
-              Imm{reinterpret_cast<uint64_t>(obj.get()), OperandBase::kObject});
+              Imm{reinterpret_cast<uint64_t>(obj), OperandBase::kObject});
         } else {
           globals = bbb.appendInstr(
               OutVReg{},
