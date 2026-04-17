@@ -168,6 +168,55 @@ typedef struct HirFrameStateLayout {
     struct HirFrameStateLayout *parent; /* 8 bytes */
 } HirFrameStateLayout;
 
+/* ---- FrameState C accessors ---- */
+
+static inline ssize_t hir_fs_cur_instr_offs(const void *fs) {
+    return ((const HirFrameStateLayout *)fs)->cur_instr_offs;
+}
+
+static inline int hir_fs_nlocals(const void *fs) {
+    return ((const HirFrameStateLayout *)fs)->nlocals;
+}
+
+static inline void *hir_fs_code(const void *fs) {
+    return ((const HirFrameStateLayout *)fs)->code;
+}
+
+static inline void *hir_fs_globals(const void *fs) {
+    return ((const HirFrameStateLayout *)fs)->globals;
+}
+
+static inline void *hir_fs_builtins(const void *fs) {
+    return ((const HirFrameStateLayout *)fs)->builtins;
+}
+
+static inline void *hir_fs_parent(const void *fs) {
+    return ((const HirFrameStateLayout *)fs)->parent;
+}
+
+static inline size_t hir_fs_stack_size(const void *fs) {
+    return ((const HirFrameStateLayout *)fs)->stack.count;
+}
+
+static inline void *hir_fs_stack_at(const void *fs, size_t i) {
+    return ((const HirFrameStateLayout *)fs)->stack.data[i];
+}
+
+static inline size_t hir_fs_localsplus_count(const void *fs) {
+    return ((const HirFrameStateLayout *)fs)->localsplus.count;
+}
+
+static inline void *hir_fs_localsplus_at(const void *fs, size_t i) {
+    return ((const HirFrameStateLayout *)fs)->localsplus.data[i];
+}
+
+static inline size_t hir_fs_inline_depth(const void *fs) {
+    int depth = -1;
+    const HirFrameStateLayout *f = (const HirFrameStateLayout *)fs;
+    while (f) { depth++; f = f->parent; }
+    return (size_t)depth;
+}
+
 /* ---- Register C accessors ---- */
 
 static inline HirType hir_reg_type(const void *reg) {
