@@ -956,15 +956,9 @@ Instr* BasicBlock::Append(Instr* instr) {
 
 void BasicBlock::retargetPreds(BasicBlock* target) {
   JIT_CHECK(target != this, "Can't retarget to self");
-  // Snapshot: set_to modifies in_edges_ (swap-and-pop erase), so we
-  // can't iterate the live array while mutating it.
-  size_t n = in_edges_.count;
-  const HirEdge** snapshot = static_cast<const HirEdge**>(
-      alloca(n * sizeof(const HirEdge*)));
-  memcpy(snapshot, in_edges_.data, n * sizeof(const HirEdge*));
-  for (size_t i = 0; i < n; i++) {
-    const_cast<Edge*>(reinterpret_cast<const Edge*>(snapshot[i]))->set_to(target);
-  }
+  hir_bb_retarget_preds(
+      reinterpret_cast<HirBasicBlock*>(this),
+      reinterpret_cast<HirBasicBlock*>(target));
 }
 
 void BasicBlock::push_front(Instr* instr) {

@@ -134,6 +134,20 @@ hir_edge_destroy(HirEdge *edge) {
     hir_edge_set_to(edge, NULL);
 }
 
+/* ---- retargetPreds ---- */
+
+void
+hir_bb_retarget_preds(HirBasicBlock *bb, HirBasicBlock *target) {
+    /* Snapshot: set_to modifies in_edges_ (swap-and-pop erase), so we
+     * can't iterate the live array while mutating it. */
+    size_t n = bb->in_edges_.count;
+    const HirEdge **snapshot = (const HirEdge **)alloca(n * sizeof(const HirEdge *));
+    memcpy(snapshot, bb->in_edges_.data, n * sizeof(const HirEdge *));
+    for (size_t i = 0; i < n; i++) {
+        hir_edge_set_to((HirEdge *)snapshot[i], target);
+    }
+}
+
 /* ---- Instruction list mutation ---- */
 
 void *

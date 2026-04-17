@@ -62,6 +62,10 @@ size_t hir_bb_out_edges_count(const HirBasicBlock *bb);
 const HirEdge *hir_bb_in_edge(const HirBasicBlock *bb, size_t i);
 const HirEdge *hir_bb_out_edge(const HirBasicBlock *bb, size_t i);
 
+/* ---- Edge-aware operations ---- */
+
+void hir_bb_retarget_preds(HirBasicBlock *bb, HirBasicBlock *target);
+
 /* ---- Instruction list operations ---- */
 
 int hir_bb_empty(const HirBasicBlock *bb);
