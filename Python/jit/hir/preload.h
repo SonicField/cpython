@@ -151,19 +151,19 @@ class Preloader {
   Type checkArgType(long local_idx) const;
 
   // get value for global at given name index
-  BorrowedRef<> global(int name_idx) const;
+  PyObject* global(int name_idx) const;
 
   std::unique_ptr<Function> makeFunction() const;
 
-  BorrowedRef<PyCodeObject> code() const {
+  PyCodeObject* code() const {
     return code_;
   }
 
-  BorrowedRef<PyDictObject> globals() const {
+  PyDictObject* globals() const {
     return globals_;
   }
 
-  BorrowedRef<PyDictObject> builtins() const {
+  PyDictObject* builtins() const {
     return builtins_;
   }
 
@@ -197,13 +197,13 @@ class Preloader {
       BorrowedRef<> descr,
       int opcode);
 
-  BorrowedRef<> reifier() const {
+  PyObject* reifier() const {
     return reifier_;
   }
 
  private:
-  BorrowedRef<> constArg(BytecodeInstruction& bc_instr) const;
-  PyObject** getGlobalCache(BorrowedRef<> name) const;
+  PyObject* constArg(BytecodeInstruction& bc_instr) const;
+  PyObject** getGlobalCache(PyObject* name) const;
   bool canCacheGlobals() const;
   bool preload();
 
