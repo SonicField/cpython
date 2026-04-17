@@ -1269,7 +1269,10 @@ std::unique_ptr<Function> HIRParser::ParseHIR(const char* hir) {
 
   auto hir_func = std::make_unique<Function>();
   env_ = &hir_func->env;
-  hir_func->fullname = strdup(GetNextToken().c_str());
+  auto token = GetNextToken();
+  hir_func->fullname = static_cast<char*>(malloc(token.size() + 1));
+  memcpy(hir_func->fullname, token.data(), token.size());
+  hir_func->fullname[token.size()] = '\0';
 
   expect("{");
 

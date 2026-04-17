@@ -152,7 +152,7 @@ HirCFG hir_func_cfg(HirFunction func) {
 }
 
 const char *hir_func_fullname(HirFunction func) {
-  return as_func(func)->fullname.c_str();
+  return as_func(func)->fullname ? as_func(func)->fullname : "";
 }
 
 HirRegister hir_func_alloc_register(HirFunction func) {
