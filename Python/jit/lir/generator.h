@@ -54,7 +54,7 @@ class LIRGenerator {
   std::vector<LoadTypeAttrCache*> load_type_attr_caches_;
   std::vector<LoadTypeMethodCache*> load_type_method_caches_;
 #if PY_VERSION_HEX >= 0x030E0000
-  std::unordered_map<BorrowedRef<PyCodeObject>, BorrowedRef<>>
+  std::unordered_map<PyCodeObject*, PyObject*>
       inline_code_to_reifier_;
 #endif
 

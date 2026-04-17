@@ -2922,8 +2922,8 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
 #if PY_VERSION_HEX < 0x030C0000 || defined(ENABLE_LIGHTWEIGHT_FRAMES)
         auto instr = static_cast<const BeginInlinedFunction*>(&i);
         // Set code object data
-        BorrowedRef<PyCodeObject> code = instr->code();
-        env_->code_rt->addReference(code.getObj());
+        PyCodeObject* code = instr->code();
+        env_->code_rt->addReference((PyObject*)code);
         PyObject* globals = (PyObject*)instr->globals();
         env_->code_rt->addReference(globals);
         PyObject* builtins = (PyObject*)instr->builtins();
@@ -2931,7 +2931,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         PyObject* func = (PyObject*)instr->func();
         env_->code_rt->addReference(func);
         RuntimeFrameState* rtfs = env_->code_rt->allocateRuntimeFrameState(
-            code, builtins, globals, func);
+            code, (PyDictObject*)builtins, (PyDictObject*)globals, (PyFunctionObject*)func);
         // TASK(T109706798): Support calling from generators and inlining
         // generators.
         //
@@ -3004,20 +3004,20 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         // Store code
 #if PY_VERSION_HEX >= 0x030E0000
         // Store frame helper as f_executable
-        BorrowedRef<> frame_reifier;
+        PyObject* frame_reifier;
         auto existing_reifier = inline_code_to_reifier_.find(code);
         if (existing_reifier == inline_code_to_reifier_.end()) {
           frame_reifier = instr->reifier();
           env_->code_rt->addReference(frame_reifier);
-          inline_code_to_reifier_.emplace(code, frame_reifier.get());
+          inline_code_to_reifier_.emplace(code, frame_reifier);
         } else {
           frame_reifier = existing_reifier->second;
         }
         Instruction* code_reg =
-            bbb.appendInstr(OutVReg{}, Instruction::kMove, frame_reifier.get());
+            bbb.appendInstr(OutVReg{}, Instruction::kMove, frame_reifier);
 #else
         Instruction* code_reg =
-            bbb.appendInstr(OutVReg{}, Instruction::kMove, code.get());
+            bbb.appendInstr(OutVReg{}, Instruction::kMove, code);
 #endif
         bbb.appendInstr(
             OutInd{callee_frame, FRAME_EXECUTABLE_OFFSET},
@@ -3076,10 +3076,10 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
             Imm{0});
 
         // Store prev_instr
-        _Py_CODEUNIT* frame_code = _PyCode_CODE(code.get());
+        _Py_CODEUNIT* frame_code = _PyCode_CODE(code);
 #else
         // Store prev_instr
-        _Py_CODEUNIT* frame_code = _PyCode_CODE(code.get()) - 1;
+        _Py_CODEUNIT* frame_code = _PyCode_CODE(code) - 1;
 #endif
 
         Instruction* codeunit_reg =
@@ -3109,7 +3109,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
             Imm{static_cast<uint8_t>(FRAME_OWNED_BY_THREAD),
                 OperandBase::k8bit});
 #if PY_VERSION_HEX < 0x030E0000
-        if (!_Py_IsImmortal(code.get()))
+        if (!_Py_IsImmortal((PyObject*)code))
 #endif
         {
           MakeIncref(bbb, code_reg, false);
@@ -3247,9 +3247,9 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
 #endif
         auto code = instr.matchingBegin()->code();
 #if PY_VERSION_HEX >= 0x030E0000
-        auto reifier = inline_code_to_reifier_.at(code);
+        PyObject* reifier = inline_code_to_reifier_.at(code);
         Instruction* reifier_reg =
-            bbb.appendInstr(OutVReg{}, Instruction::kMove, reifier.get());
+            bbb.appendInstr(OutVReg{}, Instruction::kMove, reifier);
         MakeDecref(
             bbb,
             reifier_reg,
@@ -3686,12 +3686,12 @@ Instruction* LIRGenerator::getNameFromIdx(
         instr->name_idx());
   }
 
-  BorrowedRef<PyUnicodeObject> name = instr->name();
+  PyUnicodeObject* name = instr->name();
   return bbb.appendInstr(
       OutVReg{},
       Instruction::kMove,
       // TASK(T140174965): This should be MemImm.
-      Imm{reinterpret_cast<uint64_t>(name.get()), OperandBase::kObject});
+      Imm{reinterpret_cast<uint64_t>(name), OperandBase::kObject});
 }
 
 Instruction* LIRGenerator::getInlinedFrame(

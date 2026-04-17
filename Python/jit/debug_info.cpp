@@ -17,9 +17,9 @@ namespace jit {
 namespace {
 
 struct Activation {
-  Activation(BorrowedRef<PyCodeObject> c, const jit::hir::FrameState* cfs)
+  Activation(PyCodeObject* c, const jit::hir::FrameState* cfs)
       : code_obj(c), caller_frame_state(cfs) {}
-  BorrowedRef<PyCodeObject> code_obj;
+  PyCodeObject* code_obj;
   const jit::hir::FrameState* caller_frame_state;
 };
 
@@ -99,7 +99,7 @@ void DebugInfo::resolvePending(
 
 void DebugInfo::addUnitCallStack(
     uintptr_t addr,
-    BorrowedRef<PyCodeObject> code,
+    PyCodeObject* code,
     BCOffset bc_off,
     const jit::hir::FrameState* caller_frame_state) {
   uint16_t caller_id = getCallerID(caller_frame_state);

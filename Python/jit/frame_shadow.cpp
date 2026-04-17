@@ -49,7 +49,7 @@ bool is_shadow_frame_for_gen(_PyShadowFrame* shadow_frame) {
 
 Ref<> getModuleName(_PyShadowFrame* shadow_frame) {
   RuntimeFrameState rtfs = runtimeFrameStateFromShadowFrame(shadow_frame);
-  BorrowedRef<> globals = rtfs.globals();
+  PyObject* globals = (PyObject*)rtfs.globals();
   JIT_CHECK(
       globals != nullptr,
       "Shadow frame {} with kind {} has null globals",
@@ -160,9 +160,9 @@ Ref<PyFrameObject> createPyFrame(
       "Unexpected generator in inline shadow frame");
 
   PyFrameConstructor py_frame_ctor = {};
-  py_frame_ctor.fc_globals = rtfs.globals();
-  py_frame_ctor.fc_builtins = rtfs.builtins();
-  py_frame_ctor.fc_code = rtfs.code();
+  py_frame_ctor.fc_globals = (PyObject*)rtfs.globals();
+  py_frame_ctor.fc_builtins = (PyObject*)rtfs.builtins();
+  py_frame_ctor.fc_code = (PyObject*)rtfs.code();
   Ref<PyFrameObject> py_frame = Ref<PyFrameObject>::steal(
       _PyFrame_New_NoTrack(tstate, &py_frame_ctor, nullptr));
   PyObject_GC_Track(py_frame);
@@ -627,10 +627,9 @@ RuntimeFrameState runtimeFrameStateFromShadowFrame(
   _PyShadowFrame_PtrKind kind = _PyShadowFrame_GetPtrKind(shadow_frame);
   switch (kind) {
     case PYSF_PYFRAME: {
-      BorrowedRef<PyFrameObject> frame =
-          static_cast<PyFrameObject*>(shadow_ptr);
+      PyFrameObject* frame = static_cast<PyFrameObject*>(shadow_ptr);
       return RuntimeFrameState{
-          frame->f_code, frame->f_builtins, frame->f_globals};
+          frame->f_code, (PyDictObject*)frame->f_builtins, (PyDictObject*)frame->f_globals};
     }
     case PYSF_CODE_RT:
       return *static_cast<jit::CodeRuntime*>(shadow_ptr)->frameState();
@@ -651,7 +650,7 @@ RuntimeFrameState runtimeFrameStateFromThreadState(PyThreadState* tstate) {
   }
   PyFrameObject* frame = tstate->frame;
   JIT_CHECK(frame != nullptr, "Do not have a shadow frame or a Python frame");
-  return RuntimeFrameState{frame->f_code, frame->f_builtins, frame->f_globals};
+  return RuntimeFrameState{frame->f_code, (PyDictObject*)frame->f_builtins, (PyDictObject*)frame->f_globals};
 }
 
 } // namespace jit

@@ -29,7 +29,7 @@ struct FrameAndLoc {
 using UnitState = std::vector<FrameAndLoc>;
 
 CodeRuntime* getCodeRuntime(_PyInterpreterFrame* frame) {
-  BorrowedRef<PyFunctionObject> func;
+  PyFunctionObject* func;
   if (hasRtfsFunction(frame)) {
     auto rtfs = jitFrameGetRtfs(frame);
     JIT_DCHECK(rtfs != nullptr, "RuntimeFrameState should have a function");
@@ -660,7 +660,7 @@ void jitFrameClearExceptCode(_PyInterpreterFrame* frame) {
 RuntimeFrameState runtimeFrameStateFromThreadState(PyThreadState* tstate) {
   _PyInterpreterFrame* frame = currentFrame(tstate);
   return RuntimeFrameState{
-      frameCode(frame), frame->f_builtins, frame->f_globals};
+      frameCode(frame), (PyDictObject*)frame->f_builtins, (PyDictObject*)frame->f_globals};
 }
 
 } // namespace jit

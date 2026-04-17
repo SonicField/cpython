@@ -45,26 +45,26 @@ class alignas(16) RuntimeFrameState {
   }
 
   RuntimeFrameState(
-      BorrowedRef<PyCodeObject> code,
-      BorrowedRef<PyDictObject> builtins,
-      BorrowedRef<PyDictObject> globals,
-      BorrowedRef<PyFunctionObject> func = nullptr)
+      PyCodeObject* code,
+      PyDictObject* builtins,
+      PyDictObject* globals,
+      PyFunctionObject* func = nullptr)
       : code_{code}, builtins_{builtins}, globals_{globals}, func_{func} {}
 
   bool isGen() const { return code()->co_flags & kCoFlagsAnyGenerator; }
-  BorrowedRef<PyCodeObject> code() const { return code_; }
-  BorrowedRef<PyDictObject> builtins() const { return builtins_; }
-  BorrowedRef<PyDictObject> globals() const { return globals_; }
-  BorrowedRef<PyFunctionObject> func() const { return func_; }
+  PyCodeObject* code() const { return code_; }
+  PyDictObject* builtins() const { return builtins_; }
+  PyDictObject* globals() const { return globals_; }
+  PyFunctionObject* func() const { return func_; }
 
  private:
   // All fields are owned by the CodeRuntime that owns this RuntimeFrameState.
 
-  BorrowedRef<PyCodeObject> code_;
-  BorrowedRef<PyDictObject> builtins_;
-  BorrowedRef<PyDictObject> globals_;
+  PyCodeObject* code_;
+  PyDictObject* builtins_;
+  PyDictObject* globals_;
   // The function is only set for inlined frames.
-  BorrowedRef<PyFunctionObject> func_;
+  PyFunctionObject* func_;
 };
 
 // Runtime data for a PyCodeObject object, containing caches and any other data
@@ -82,20 +82,20 @@ class alignas(16) CodeRuntime {
     return CodeRuntime::frameStateOffset() + RuntimeFrameState::codeOffset();
   }
 
-  explicit CodeRuntime(BorrowedRef<PyFunctionObject> func)
+  explicit CodeRuntime(PyFunctionObject* func)
       : CodeRuntime{
-            BorrowedRef<PyCodeObject>{func->func_code},
-            func->func_builtins,
-            func->func_globals} {}
+            (PyCodeObject*)func->func_code,
+            (PyDictObject*)func->func_builtins,
+            (PyDictObject*)func->func_globals} {}
 
   CodeRuntime(
-      BorrowedRef<PyCodeObject> code,
-      BorrowedRef<PyDictObject> builtins,
-      BorrowedRef<PyDictObject> globals)
+      PyCodeObject* code,
+      PyDictObject* builtins,
+      PyDictObject* globals)
       : frame_state_{code, builtins, globals} {
-    addReference(code);
-    addReference(builtins);
-    addReference(globals);
+    addReference((PyObject*)code);
+    addReference((PyObject*)builtins);
+    addReference((PyObject*)globals);
   }
 
   template <typename... Args>
@@ -109,7 +109,7 @@ class alignas(16) CodeRuntime {
   // Ensure that this CodeRuntime owns a reference to the given borrowed
   // object, keeping it alive for use by the compiled code. Make CodeRuntime a
   // new owner of the object.
-  void addReference(BorrowedRef<> obj) {
+  void addReference(PyObject* obj) {
     ThreadedCompileSerialize guard;
     references_.emplace(ThreadedRef<>::create(obj));
   }
@@ -155,15 +155,15 @@ class alignas(16) CodeRuntime {
   DebugInfo* debugInfo() { return &debug_info_; }
 
 #if PY_VERSION_HEX >= 0x030E0000 && defined(ENABLE_LIGHTWEIGHT_FRAMES)
-  void setReifier(BorrowedRef<> reifier) {
+  void setReifier(PyObject* reifier) {
     ThreadedCompileSerialize guard;
     reifier_ = ThreadedRef<>::create(reifier);
   }
-  BorrowedRef<> reifier() {
+  PyObject* reifier() {
     return reifier_;
   }
 #else
-  BorrowedRef<> reifier() {
+  PyObject* reifier() {
     return nullptr;
   }
 #endif

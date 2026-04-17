@@ -2100,7 +2100,7 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
   for (Py_ssize_t i = GetFunction()->typed_args_count - 1; i >= 0; i--) {
     auto check_cursor = as_->cursor();
     const TypedArgument& arg = checks[i];
-    env_.code_rt->addReference(BorrowedRef(arg.pytype));
+    env_.code_rt->addReference((PyObject*)arg.pytype);
     next_arg = arg_labels[GetFunction()->typed_args_count - i];
 
     phx_x86_mov_rm(as_->impl(), x86::r8, x86::ptr(x86::rsi, arg.locals_idx * 8)); // load local
@@ -2194,7 +2194,7 @@ void NativeGenerator::generateStaticMethodTypeChecks(Label setup_frame) {
   for (Py_ssize_t i = GetFunction()->typed_args_count - 1; i >= 0; i--) {
     auto check_cursor = as_->cursor();
     const TypedArgument& arg = checks[i];
-    env_.code_rt->addReference(BorrowedRef(arg.pytype));
+    env_.code_rt->addReference((PyObject*)arg.pytype);
     next_arg = arg_labels[GetFunction()->typed_args_count - i];
 
     phx_a64_ldr(as_->impl(),
@@ -3361,18 +3361,18 @@ void NativeGenerator::generatePrimitiveArgsPrologue() {
   // primitives we need to unbox them.  We usually get to avoid this by doing
   // direct invokes from JITed code.
 #if defined(CINDER_X86_64)
-  BorrowedRef<_PyTypedArgsInfo> info = func_->prim_args_info;
-  env_.code_rt->addReference(info);
-  phx_x86_mov_ri(as_->impl(), x86::r8, (int64_t)reinterpret_cast<uint64_t>(info.get()));
+  _PyTypedArgsInfo* info = func_->prim_args_info;
+  env_.code_rt->addReference((PyObject*)info);
+  phx_x86_mov_ri(as_->impl(), x86::r8, (int64_t)reinterpret_cast<uint64_t>(info));
   auto helper = func_->returnsPrimitiveDouble()
       ? reinterpret_cast<uint64_t>(JITRT_CallStaticallyWithPrimitiveSignatureFP)
       : reinterpret_cast<uint64_t>(JITRT_CallStaticallyWithPrimitiveSignature);
   phx_x86_mov_ri(as_->impl(), PHX_R11, (int64_t)helper);
   phx_x86_call_r(as_->impl(), PHX_R11);
 #elif defined(CINDER_AARCH64)
-  BorrowedRef<_PyTypedArgsInfo> info = func_->prim_args_info;
-  env_.code_rt->addReference(info);
-  phx_a64_mov_ri(as_->impl(), arch::reg_scratch_0, reinterpret_cast<uint64_t>(info.get()));
+  _PyTypedArgsInfo* info = func_->prim_args_info;
+  env_.code_rt->addReference((PyObject*)info);
+  phx_a64_mov_ri(as_->impl(), arch::reg_scratch_0, reinterpret_cast<uint64_t>(info));
   if (func_->returnsPrimitiveDouble()) {
     phx_a64_mov_ri(as_->impl(),
         arch::reg_scratch_br, (uint64_t)(uintptr_t)JITRT_CallStaticallyWithPrimitiveSignatureFP);

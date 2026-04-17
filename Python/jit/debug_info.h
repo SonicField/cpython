@@ -144,12 +144,12 @@ class DebugInfo {
   // bc_off) appears in an inlined function.
   void addUnitCallStack(
       uintptr_t addr,
-      BorrowedRef<PyCodeObject> code,
+      PyCodeObject* code,
       BCOffset bc_off,
       const jit::hir::FrameState* caller_frame_state);
 
   // Get or assign an id for codeobj
-  uint16_t getCodeObjID(BorrowedRef<PyCodeObject> code_obj) {
+  uint16_t getCodeObjID(PyCodeObject* code_obj) {
     for (uint16_t i = 0; i < code_objs_.size(); i++) {
       if (code_objs_[i] == code_obj) {
         return i;

@@ -760,7 +760,7 @@ JITRT_AllocateAndLinkGenAndInterpreterFrame(
       PyCode_Check(func->func_code),
       "Non-code object for JIT function: {}",
       jit::repr(reinterpret_cast<PyObject*>(func)));
-  BorrowedRef<PyCodeObject> co{func->func_code};
+  PyCodeObject* co = (PyCodeObject*)func->func_code;
   JIT_DCHECK(co == code_rt->frameState()->code(), "Code object mismatch");
 
   PyThreadState* tstate = PyThreadState_GET();
@@ -929,12 +929,12 @@ PyObject* JITRT_LoadGlobalFromThreadState(
     PyThreadState* tstate,
     PyObject* name) {
   jit::RuntimeFrameState rtfs = jit::runtimeFrameStateFromThreadState(tstate);
-  return JITRT_LoadGlobal(rtfs.globals(), rtfs.builtins(), name);
+  return JITRT_LoadGlobal((PyObject*)rtfs.globals(), (PyObject*)rtfs.builtins(), name);
 }
 
 PyObject* JITRT_LoadGlobalsDict(PyThreadState* tstate) {
   jit::RuntimeFrameState rtfs = jit::runtimeFrameStateFromThreadState(tstate);
-  return rtfs.globals();
+  return (PyObject*)rtfs.globals();
 }
 
 PyObject* JITRT_LoadFunctionIndirect(PyObject** func, PyObject* descr) {
@@ -1647,8 +1647,8 @@ static inline PyObject* make_gen_object(
     PyFrameObject* f = allocateFrame(
         tstate,
         code,
-        code_rt->frameState()->builtins(),
-        code_rt->frameState()->globals());
+        (PyObject*)code_rt->frameState()->builtins(),
+        (PyObject*)code_rt->frameState()->globals());
     // This clearing of f_back only when returning a generator matches
     // CPython's generator handling in _PyEval_EvalCodeWithName; it also avoids
     // keeping the parent frame alive longer than necessary if the caller

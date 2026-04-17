@@ -3784,7 +3784,7 @@ PyObject* _PyJIT_GetGlobals(PyThreadState* tstate) {
         static_cast<void*>(tstate->frame));
     return nullptr;
   }
-  return runtimeFrameStateFromThreadState(tstate).globals();
+  return (PyObject*)runtimeFrameStateFromThreadState(tstate).globals();
 }
 
 PyObject* _PyJIT_GetBuiltins(PyThreadState* tstate) {
@@ -3795,7 +3795,7 @@ PyObject* _PyJIT_GetBuiltins(PyThreadState* tstate) {
         static_cast<void*>(tstate->frame));
     return tstate->interp->builtins;
   }
-  return runtimeFrameStateFromThreadState(tstate).builtins();
+  return (PyObject*)runtimeFrameStateFromThreadState(tstate).builtins();
 }
 
 PyFrameObject* _PyJIT_GetFrame(PyThreadState* tstate) {
@@ -4136,7 +4136,7 @@ std::vector<BorrowedRef<PyFunctionObject>> preloadFuncAndDeps(
       if (!target->is_function || !target->is_statically_typed) {
         continue;
       }
-      BorrowedRef<PyFunctionObject> target_func = target->func();
+      PyFunctionObject* target_func = target->func();
       if (shouldPreload(target_func)) {
         worklist.push_back(target_func);
       }

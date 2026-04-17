@@ -225,7 +225,7 @@ void Context::recordDeopt(
   /* Log deopt event — use defensive access since code objects may be
    * partially destroyed during some deopt scenarios */
   if (code_runtime && code_runtime->frameState()) {
-    BorrowedRef<PyCodeObject> log_code = code_runtime->frameState()->code();
+    PyCodeObject* log_code = code_runtime->frameState()->code();
     const char *name = (log_code && log_code->co_qualname)
         ? PyUnicode_AsUTF8(log_code->co_qualname) : NULL;
     const char *reason = guilty_value ? Py_TYPE(guilty_value)->tp_name : "guard";
@@ -242,7 +242,7 @@ void Context::recordDeopt(
   auto& count = deopt_backoff_counts_[code_runtime];
   count++;
   if (count == kDeoptBackoffThreshold) {
-    BorrowedRef<PyCodeObject> code = code_runtime->frameState()->code();
+    PyCodeObject* code = code_runtime->frameState()->code();
     JIT_LOG(
         "Deopt backoff: {} reached {} guard failures, suppressing",
         PyUnicode_AsUTF8(code->co_qualname),
