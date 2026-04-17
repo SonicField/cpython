@@ -14,15 +14,15 @@ namespace jit {
 // the change to the type happens after PyType_Modified() is called).
 class TypeDeoptPatcher : public JumpPatcher {
  public:
-  explicit TypeDeoptPatcher(BorrowedRef<PyTypeObject> type) : type_{type} {}
+  explicit TypeDeoptPatcher(PyTypeObject* type) : type_{type} {}
   virtual ~TypeDeoptPatcher();
 
-  virtual bool maybePatch(BorrowedRef<PyTypeObject>) {
+  virtual bool maybePatch(PyTypeObject*) {
     patch();
     return true;
   }
 
-  BorrowedRef<PyTypeObject> type() const { return type_; }
+  PyTypeObject* type() const { return type_; }
 
  protected:
   void onUnpatch() override {
@@ -33,7 +33,7 @@ class TypeDeoptPatcher : public JumpPatcher {
 
   // The type being watched.  It outlives this object because this object will
   // be cleaned up by a type watcher notification.
-  BorrowedRef<PyTypeObject> type_;
+  PyTypeObject* type_;
 };
 
 // Patch a DeoptPatchpoint when the given PyTypeObject no longer has the given
@@ -41,11 +41,11 @@ class TypeDeoptPatcher : public JumpPatcher {
 class TypeAttrDeoptPatcher : public TypeDeoptPatcher {
  public:
   TypeAttrDeoptPatcher(
-      BorrowedRef<PyTypeObject> type,
-      BorrowedRef<PyUnicodeObject> attr_name,
-      BorrowedRef<> target_object);
+      PyTypeObject* type,
+      PyUnicodeObject* attr_name,
+      PyObject* target_object);
 
-  bool maybePatch(BorrowedRef<PyTypeObject> new_ty) override;
+  bool maybePatch(PyTypeObject* new_ty) override;
 
  private:
   void onPatch() override;
@@ -57,11 +57,11 @@ class TypeAttrDeoptPatcher : public TypeDeoptPatcher {
 class SplitDictDeoptPatcher : public TypeDeoptPatcher {
  public:
   SplitDictDeoptPatcher(
-      BorrowedRef<PyTypeObject> type,
-      BorrowedRef<PyUnicodeObject> attr_name,
+      PyTypeObject* type,
+      PyUnicodeObject* attr_name,
       PyDictKeysObject* keys);
 
-  bool maybePatch(BorrowedRef<PyTypeObject> new_ty) override;
+  bool maybePatch(PyTypeObject* new_ty) override;
 
  private:
   void onPatch() override;

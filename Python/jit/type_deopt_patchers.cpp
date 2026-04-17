@@ -14,16 +14,16 @@ TypeDeoptPatcher::~TypeDeoptPatcher() {
 }
 
 TypeAttrDeoptPatcher::TypeAttrDeoptPatcher(
-    BorrowedRef<PyTypeObject> type,
-    BorrowedRef<PyUnicodeObject> attr_name,
-    BorrowedRef<> target_object)
+    PyTypeObject* type,
+    PyUnicodeObject* attr_name,
+    PyObject* target_object)
     : TypeDeoptPatcher{type} {
   ThreadedCompileSerialize guard;
   attr_name_.reset(attr_name);
   target_object_.reset(target_object);
 }
 
-bool TypeAttrDeoptPatcher::maybePatch(BorrowedRef<PyTypeObject> new_ty) {
+bool TypeAttrDeoptPatcher::maybePatch(PyTypeObject* new_ty) {
   bool should_patch = jit_type_attr_patcher_maybe_patch(
       type_, new_ty, (PyObject*)attr_name_.get(), target_object_.get());
   if (should_patch) {
@@ -38,15 +38,15 @@ void TypeAttrDeoptPatcher::onPatch() {
 }
 
 SplitDictDeoptPatcher::SplitDictDeoptPatcher(
-    BorrowedRef<PyTypeObject> type,
-    BorrowedRef<PyUnicodeObject> attr_name,
+    PyTypeObject* type,
+    PyUnicodeObject* attr_name,
     PyDictKeysObject* keys)
     : TypeDeoptPatcher{type}, keys_{keys} {
   ThreadedCompileSerialize guard;
   attr_name_.reset(attr_name);
 }
 
-bool SplitDictDeoptPatcher::maybePatch(BorrowedRef<PyTypeObject> new_ty) {
+bool SplitDictDeoptPatcher::maybePatch(PyTypeObject* new_ty) {
   bool should_patch = jit_split_dict_patcher_maybe_patch(
       type_, new_ty, (PyObject*)attr_name_.get(), keys_);
   if (should_patch) {

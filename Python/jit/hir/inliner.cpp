@@ -627,9 +627,9 @@ void InlineFunctionCalls::Run(Function& irfunc) {
             !_PyClassLoader_IsImmutable(reinterpret_cast<PyObject*>(mono_type))) {
           PyObject* func_obj_raw = reinterpret_cast<PyObject*>(call.func.get());
           auto* patcher = irfunc.allocateCodePatcher<TypeAttrDeoptPatcher>(
-              BorrowedRef<PyTypeObject>{mono_type},
-              BorrowedRef<PyUnicodeObject>{attr_name},
-              BorrowedRef<>{func_obj_raw});
+              mono_type,
+              (PyUnicodeObject*)attr_name,
+              func_obj_raw);
           auto* patchpoint = static_cast<DeoptPatchpoint*>(hir_c_create_deopt_patchpoint(patcher));
           patchpoint->copyBytecodeOffset(*target_def);
           auto cloned_fs = std::make_unique<FrameState>(*fs);
