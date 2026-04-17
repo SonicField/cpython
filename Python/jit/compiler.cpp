@@ -183,7 +183,7 @@ std::optional<CompiledFunctionData> Compiler::Compile(
     return std::nullopt;
   }
 
-  PyObject* builtins = preloader.builtins();
+  PyObject* builtins = (PyObject*)preloader.builtins();
   if (!PyDict_CheckExact(builtins)) {
     JIT_DLOG(
         "Refusing to compile {}: builtins is a {:.200}, not a dict",

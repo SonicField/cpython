@@ -257,7 +257,7 @@ Type Preloader::checkArgType(long local_idx) const {
   return map_get(check_arg_types_, local_idx, TObject);
 }
 
-PyObject** Preloader::getGlobalCache(BorrowedRef<> name_obj) const {
+PyObject** Preloader::getGlobalCache(PyObject* name_obj) const {
   JIT_DCHECK(
       canCacheGlobals(),
       "trying to get a globals cache with unwatchable builtins and/or globals");
