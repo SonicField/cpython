@@ -36,6 +36,10 @@ void *phx_dom_dominated_get(const PhxDominatorState *state, int block_id, size_t
 /* Free the dominator analysis state. */
 void phx_dom_destroy(PhxDominatorState *state);
 
+/* Differential verification: compare C dominator results against C++.
+ * Returns 1 if all immediate dominators match, 0 if any mismatch. */
+int phx_dom_verify(HirFunction func, const PhxDominatorState *c_state);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

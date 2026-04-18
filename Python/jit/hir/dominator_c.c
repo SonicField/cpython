@@ -135,6 +135,10 @@ PhxDominatorState *phx_dom_create(HirFunction func) {
 cleanup:
     PyMem_RawFree(rpo);
     PyMem_RawFree(rpo_index);
+
+    JIT_DCHECK_C(phx_dom_verify(func, state),
+                 "C DominatorAnalysis diverges from C++");
+
     return state;
 }
 
