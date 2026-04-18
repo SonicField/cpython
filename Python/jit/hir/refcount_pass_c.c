@@ -124,6 +124,7 @@ void phx_rc_kill_register(PhxRefcountEnv *env, PhxRegState *rstate,
 
 /* Forward declarations */
 extern void *hir_chase_assign(void *reg);
+extern void *phx_rc_model_reg(void *reg);
 extern int hir_liveness_is_last_use(const void *state, void *instr, void *reg);
 extern int hir_liveness_is_live_in(const void *state, const void *block, void *reg);
 extern void hir_liveness_foreach_live_in(
@@ -131,7 +132,7 @@ extern void hir_liveness_foreach_live_in(
     void (*func)(void *reg, void *ctx), void *ctx);
 
 static void *model_reg_rc(void *reg) {
-    return hir_chase_assign(reg);
+    return phx_rc_model_reg(reg);
 }
 
 /* Deep-copy state into env->live_regs and re-initialize borrow support. */

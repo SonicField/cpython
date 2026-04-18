@@ -96,4 +96,9 @@ int phx_rc_merge_verify(const PhxRegState *c_dst, const PhxRegState *c_from,
   return 1;
 }
 
+void *phx_rc_model_reg(void *reg) {
+  return modelReg(static_cast<Register*>(reg));
+}
+
+
 } /* extern "C" */
