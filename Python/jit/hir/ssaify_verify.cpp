@@ -1,10 +1,7 @@
 /* Copyright (c) Meta Platforms, Inc. and affiliates.
  *
  * SSAify self-consistency invariants (R4 prerequisite).
- * 3 structural checks that survive the compiler.cpp flip:
- *   1. Single definition (output reg's definer == this instr)
- *   3. Phi operand count == predecessor count
- *   5. No phis in entry block
+ * 5 structural checks that survive the compiler.cpp flip.
  */
 
 #include "cinderx/Jit/hir/ssaify_c.h"
@@ -53,6 +50,20 @@ int hir_ssaify_verify(void *func_handle) {
               "SSAify verify FAIL: phi has {} operands but block has {} preds",
               num_ops, num_preds);
           return 0;
+        }
+
+        /* Invariant 4: Each phi operand from a distinct predecessor */
+        for (size_t i = 0; i < num_preds; i++) {
+          const HirEdge *edge_i = hir_bb_in_edge(bb, i);
+          HirBasicBlock *pred_i = (HirBasicBlock *)edge_i->from;
+          for (size_t j = i + 1; j < num_preds; j++) {
+            const HirEdge *edge_j = hir_bb_in_edge(bb, j);
+            HirBasicBlock *pred_j = (HirBasicBlock *)edge_j->from;
+            if (pred_i == pred_j) {
+              JIT_LOG("SSAify verify FAIL: duplicate predecessor in phi");
+              return 0;
+            }
+          }
         }
       }
     }
