@@ -15,8 +15,9 @@ extern "C" {
 
 int phx_rc_is_uncounted(void *reg) {
   auto* r = static_cast<Register*>(reg);
-  auto reg_type = r->type();
-  return !(reg_type <= TMortalObject);
+  HirType h_reg = Type::toHirType(r->type());
+  HirType h_mortal = Type::toHirType(TMortalObject);
+  return !hir_type_could_be(&h_reg, &h_mortal);
 }
 
 int phx_rc_reg_is_object(void *reg) {
