@@ -1,24 +1,63 @@
 /* Copyright (c) Meta Platforms, Inc. and affiliates.
  *
- * SSAify verification note:
- *
- * SSAify is a DESTRUCTIVE pass — it modifies the function in place.
- * Differential C vs C++ comparison requires cloning the function
- * (not currently supported). Instead, SSAify correctness is verified
- * by the existing checkFunc JIT_DCHECK in compiler.cpp, which runs
- * after every pass and validates SSA properties (every use dominated
- * by definition, every register has one definition, valid CFG).
- *
- * This file exists as a placeholder for future self-consistency
- * invariant checks per theologian's post-flip validation strategy.
+ * SSAify self-consistency invariants (R4 prerequisite).
+ * 3 structural checks that survive the compiler.cpp flip:
+ *   1. Single definition (output reg's definer == this instr)
+ *   3. Phi operand count == predecessor count
+ *   5. No phis in entry block
  */
 
 #include "cinderx/Jit/hir/ssaify_c.h"
+#include "cinderx/Jit/hir/hir_basic_block_c.h"
+#include "cinderx/Jit/hir/hir_instr_c.h"
+#include "cinderx/Common/log.h"
+
+extern "C" void *hir_func_cfg(void *);
+extern "C" void *hir_reg_instr(void *);
 
 extern "C" {
 
 int hir_ssaify_verify(void *func_handle) {
-  (void)func_handle;
+  HirCFG *cfg = (HirCFG *)hir_func_cfg(func_handle);
+  HirBasicBlock *entry = (HirBasicBlock *)cfg->entry_block;
+
+  /* Invariant 5: No phis in entry block */
+  void *first = hir_bb_first_instr(entry);
+  if (first && hir_c_is_phi(first)) {
+    JIT_LOG("SSAify verify FAIL: entry block has phi");
+    return 0;
+  }
+
+  for (HirBasicBlock *bb = hir_cfg_first_block(cfg); bb;
+       bb = hir_cfg_next_block(cfg, bb)) {
+    size_t num_preds = hir_bb_in_edges_count(bb);
+
+    for (void *instr = hir_bb_first_instr(bb); instr;
+         instr = hir_bb_next_instr(bb, instr)) {
+      /* Invariant 1: Every output register has exactly one definition */
+      void *output = hir_c_output(instr);
+      if (output) {
+        void *def_instr = hir_reg_instr(output);
+        if (def_instr != instr) {
+          JIT_LOG("SSAify verify FAIL: register has wrong defining instr");
+          return 0;
+        }
+      }
+
+      if (hir_c_is_phi(instr)) {
+        size_t num_ops = hir_c_num_operands(instr);
+
+        /* Invariant 3: Phi operand count == predecessor count */
+        if (num_ops != num_preds) {
+          JIT_LOG(
+              "SSAify verify FAIL: phi has {} operands but block has {} preds",
+              num_ops, num_preds);
+          return 0;
+        }
+      }
+    }
+  }
+
   return 1;
 }
 
