@@ -141,6 +141,7 @@ void phx_rc_kill_register(PhxRefcountEnv *env, PhxRegState *rstate,
 /* Forward declarations */
 extern void *hir_chase_assign(void *reg);
 extern void *phx_rc_model_reg(void *reg);
+extern int phx_rc_liveness_is_live_in(void *func, void *block, void *reg);
 extern int hir_liveness_is_last_use(const void *state, void *instr, void *reg);
 extern int hir_liveness_is_live_in(const void *state, const void *block, void *reg);
 extern void hir_liveness_foreach_live_in(
@@ -537,7 +538,7 @@ void phx_rc_use_simple_in_state(PhxRefcountEnv *env, void *block) {
         PhxRegState *rstate = &env->live_regs.values[i];
         for (int ci = phx_rs_num_copies(rstate) - 1; ci >= 0; ci--) {
             void *reg = phx_rs_copy(rstate, ci);
-            if (!hir_liveness_is_live_in(env->liveness_state, block, reg)) {
+            if (!phx_rc_liveness_is_live_in(env->func, block, reg)) {
                 if (n_dying >= cap_dying) {
                     cap_dying = cap_dying ? cap_dying * 2 : 16;
                     dying = (void **)PyMem_RawRealloc(dying,
