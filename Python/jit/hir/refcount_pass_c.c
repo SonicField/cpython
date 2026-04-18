@@ -461,6 +461,7 @@ void phx_rc_initialize_in_state(
         /* Clear the auto-added copy (model) since we'll add copies manually */
         phx_rs_kill_copy(rs, model);
 
+        if (!pred_state || pred_state->capacity == 0) continue;
         const PhxRegState *pred_rs = phx_sm_get(pred_state, model);
         if (!pred_rs) continue;
 
@@ -566,10 +567,15 @@ void phx_rc_update_in_state(PhxRefcountEnv *env, void *block) {
         return;
     }
 
+    /* Pre-allocate block state BEFORE collecting pred pointers,
+     * to prevent realloc from invalidating pred state pointers. */
+    PhxBlockState *bstate = phx_rc_env_block_state(env, block);
+
     size_t n_preds = 0;
     PhxPredState *preds = phx_rc_collect_pred_states(env, block, &n_preds);
 
-    PhxBlockState *bstate = phx_rc_env_block_state(env, block);
+    /* Re-fetch after collectPredStates (no realloc since block already allocated) */
+    bstate = phx_rc_env_block_state(env, block);
     PhxStateMap *in_state = &bstate->in;
 
     /* First visit: initialize in-state */
