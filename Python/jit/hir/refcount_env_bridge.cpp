@@ -22,4 +22,17 @@ int phx_rc_reg_is_object(void *reg) {
   return r->type() <= TObject ? 1 : 0;
 }
 
+int phx_rc_condbranch_check_type_is_wait_handle(void *instr) {
+  auto* cond = static_cast<CondBranchCheckType*>(static_cast<Instr*>(instr));
+  return cond->type() == TWaitHandle ? 1 : 0;
+}
+
+int phx_rc_is_passthrough(void *instr) {
+  return isPassthrough(*static_cast<Instr*>(instr)) ? 1 : 0;
+}
+
+int phx_rc_is_guard_is(void *instr) {
+  return static_cast<Instr*>(instr)->IsGuardIs() ? 1 : 0;
+}
+
 } /* extern "C" */

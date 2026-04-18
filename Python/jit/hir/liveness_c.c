@@ -373,6 +373,31 @@ int hir_liveness_is_last_use(
     return phx_bv_get_bit(&e->regs, idx);
 }
 
+int hir_liveness_is_live_in(
+    const HirLivenessState *state, const void *block, HirRegister reg)
+{
+    const HirBasicBlock *bb = (const HirBasicBlock *)block;
+    if (bb->id < 0 || bb->id > state->max_block_id) return 0;
+    size_t bi = state->block_id_to_idx[bb->id];
+    const PhxDataFlowBlock *dfb = &state->df_blocks[bi];
+
+    int rid = hir_reg_id(reg);
+    if (rid < 0 || (size_t)rid > state->analyzer.max_obj_id) return 0;
+    size_t idx = state->analyzer.obj_id_to_index[rid];
+    return phx_bv_get_bit(&dfb->in, idx);
+}
+
+void hir_liveness_foreach_live_in(
+    const HirLivenessState *state, const void *block,
+    void (*func)(void *reg, void *ctx), void *ctx)
+{
+    const HirBasicBlock *bb = (const HirBasicBlock *)block;
+    if (bb->id < 0 || bb->id > state->max_block_id) return;
+    size_t bi = state->block_id_to_idx[bb->id];
+    const PhxDataFlowBlock *dfb = &state->df_blocks[bi];
+    phx_df_for_each_in(&state->analyzer, dfb, func, ctx);
+}
+
 void hir_liveness_destroy(HirLivenessState *state) {
     lu_destroy(&state->last_uses);
     for (size_t i = 0; i < state->n_cfg_blocks; i++) {

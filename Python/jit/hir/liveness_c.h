@@ -26,6 +26,18 @@ int hir_liveness_is_last_use(
 /* Free the liveness analysis state. */
 void hir_liveness_destroy(HirLivenessState *state);
 
+/* Check if a register is live-in to a basic block.
+ * block must be a BasicBlock* from the function used to create state. */
+int hir_liveness_is_live_in(
+    const HirLivenessState *state, const void *block, HirRegister reg);
+
+/* Iterate all registers live-in to a basic block.
+ * Calls func(reg, ctx) for each live-in register. */
+typedef void (*HirLivenessPerRegFunc)(void *reg, void *ctx);
+void hir_liveness_foreach_live_in(
+    const HirLivenessState *state, const void *block,
+    HirLivenessPerRegFunc func, void *ctx);
+
 /* Differential verification: compare C liveness results against C++.
  * Returns 1 if all last-use results match, 0 if any mismatch.
  * Logs mismatches via JIT_LOG. Safe to call in release builds. */

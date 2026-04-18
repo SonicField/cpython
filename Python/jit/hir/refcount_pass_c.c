@@ -123,6 +123,10 @@ void phx_rc_kill_register(PhxRefcountEnv *env, PhxRegState *rstate,
 /* Forward declarations */
 extern void *hir_chase_assign(void *reg);
 extern int hir_liveness_is_last_use(const void *state, void *instr, void *reg);
+extern int hir_liveness_is_live_in(const void *state, const void *block, void *reg);
+extern void hir_liveness_foreach_live_in(
+    const void *state, const void *block,
+    void (*func)(void *reg, void *ctx), void *ctx);
 
 static void *model_reg_rc(void *reg) {
     return hir_chase_assign(reg);
@@ -191,4 +195,408 @@ void phx_rc_kill_registers(PhxRefcountEnv *env, void **regs, size_t n_regs,
     }
 
     PyMem_RawFree(rcs);
+}
+
+/* ---- R3b-2: Phi handling + block entry ---- */
+
+extern int phx_rc_condbranch_check_type_is_wait_handle(void *instr);
+
+/* collectPredStates: collect predecessor out-states, sorted by block ID. */
+PhxPredState *phx_rc_collect_pred_states(
+    PhxRefcountEnv *env, void *block, size_t *n_preds)
+{
+    const HirBasicBlock *bb = (const HirBasicBlock *)block;
+    size_t n_in = hir_bb_in_edges_count(bb);
+    PhxPredState *preds = (PhxPredState *)PyMem_RawMalloc(
+        n_in * sizeof(PhxPredState));
+    size_t count = 0;
+
+    for (size_t i = 0; i < n_in; i++) {
+        const HirEdge *edge = hir_bb_in_edge(bb, i);
+        void *pred = edge->from;
+        PhxBlockState *bs = NULL;
+        for (size_t j = 0; j < env->n_block_states; j++) {
+            if (env->block_keys[j] == pred) {
+                bs = &env->block_states[j];
+                break;
+            }
+        }
+        if (!bs) continue;
+        preds[count].block = pred;
+        preds[count].state = &bs->out;
+        count++;
+    }
+
+    /* Sort by block ID */
+    for (size_t i = 1; i < count; i++) {
+        PhxPredState tmp = preds[i];
+        size_t j = i;
+        while (j > 0 &&
+               hir_bb_id((const HirBasicBlock *)preds[j-1].block) >
+               hir_bb_id((const HirBasicBlock *)tmp.block)) {
+            preds[j] = preds[j-1];
+            j--;
+        }
+        preds[j] = tmp;
+    }
+
+    *n_preds = count;
+    return preds;
+}
+
+/* isLiveIn: check if reg is live-in to block.
+ * Phi outputs are NOT live-in to the block they're defined in. */
+int phx_rc_is_live_in(void *block, void *reg, const PhxStateMap *in_state) {
+    void *instr = hir_reg_instr_ptr(reg);
+    if (instr && hir_c_is_phi(instr) &&
+        hir_c_block(instr) == block) {
+        return 0;
+    }
+    void *model = model_reg_rc(reg);
+    return phx_sm_contains(in_state, model);
+}
+
+/* collectPhiInputs: collect predecessor inputs for a phi instruction.
+ * Relies on preds being sorted by block ID (same order as phi->basic_blocks). */
+PhxPhiInput *phx_rc_collect_phi_inputs(
+    const PhxPredState *preds, size_t n_preds,
+    const void *phi, size_t *n_inputs)
+{
+    PhxPhiInput *inputs = (PhxPhiInput *)PyMem_RawMalloc(
+        n_preds * sizeof(PhxPhiInput));
+    size_t count = 0;
+    size_t pred_idx = 0;
+
+    size_t n_phi_blocks = hir_phi_num_blocks(phi);
+    for (size_t phi_idx = 0; pred_idx < n_preds && phi_idx < n_phi_blocks;
+         phi_idx++) {
+        void *phi_block = hir_phi_block_at(phi, phi_idx);
+        if (phi_block != preds[pred_idx].block) {
+            continue;
+        }
+        void *input_reg = hir_c_get_operand((void *)phi, phi_idx);
+        const PhxRegState *rs = phx_sm_get(preds[pred_idx].state, input_reg);
+        JIT_DCHECK_C(rs != NULL, "Phi input not found in pred state");
+        inputs[count].block = preds[pred_idx].block;
+        inputs[count].rstate = rs;
+        count++;
+        pred_idx++;
+    }
+
+    JIT_DCHECK_C(count > 0, "Processing block with no visited predecessors");
+    *n_inputs = count;
+    return inputs;
+}
+
+/* processPhis: inspect phi inputs and decide merged state for phi outputs.
+ * Returns PhxPhiSupport with dead input info and forwarding map. */
+PhxPhiSupport phx_rc_process_phis(
+    PhxRefcountEnv *env, void *block,
+    const PhxPredState *preds, size_t n_preds,
+    PhxStateMap *in_state)
+{
+    PhxPhiSupport support;
+    phx_bs_init(&support.dead, env->num_support_bits);
+    support.forward_keys = NULL;
+    support.forward_vals = NULL;
+    support.n_forwards = 0;
+    support.cap_forwards = 0;
+
+    const HirBasicBlock *bb = (const HirBasicBlock *)block;
+    void *instr = hir_bb_first_instr(bb);
+
+    while (instr && hir_c_is_phi(instr)) {
+        void *output = hir_c_output(instr);
+        PhxRegState *rstate = phx_sm_get(in_state, output);
+        JIT_DCHECK_C(rstate != NULL, "Phi output not in in_state");
+
+        if (phx_rc_is_uncounted(output) || rstate->kind == PHX_REF_OWNED) {
+            instr = hir_bb_next_instr(bb, instr);
+            continue;
+        }
+
+        size_t n_inputs = 0;
+        PhxPhiInput *inputs = phx_rc_collect_phi_inputs(
+            preds, n_preds, instr, &n_inputs);
+
+        int promote_output = 0;
+        for (size_t i = 0; i < n_inputs; i++) {
+            void *model = inputs[i].rstate->model;
+            if (!phx_rc_is_live_in(block, model, in_state) &&
+                inputs[i].rstate->kind == PHX_REF_OWNED) {
+                promote_output = 1;
+
+                int model_bit = phx_rc_env_reg_bit(env, model);
+                JIT_DCHECK_C(model_bit >= 0, "Dead owned phi input has no bit");
+                phx_bs_add_bit(&support.dead, (size_t)model_bit);
+
+                /* Add/update forwarding entry */
+                size_t fi;
+                int found = 0;
+                for (fi = 0; fi < support.n_forwards; fi++) {
+                    if (support.forward_keys[fi] == (size_t)model_bit) {
+                        found = 1;
+                        break;
+                    }
+                }
+                if (!found) {
+                    if (support.n_forwards >= support.cap_forwards) {
+                        support.cap_forwards = support.cap_forwards
+                            ? support.cap_forwards * 2 : 4;
+                        support.forward_keys = (size_t *)PyMem_RawRealloc(
+                            support.forward_keys,
+                            support.cap_forwards * sizeof(size_t));
+                        support.forward_vals = (PhxBorrowSupport *)PyMem_RawRealloc(
+                            support.forward_vals,
+                            support.cap_forwards * sizeof(PhxBorrowSupport));
+                    }
+                    fi = support.n_forwards++;
+                    support.forward_keys[fi] = (size_t)model_bit;
+                    phx_bs_init(&support.forward_vals[fi],
+                                env->num_support_bits);
+                }
+                int output_bit = phx_rc_env_reg_bit(env, output);
+                JIT_DCHECK_C(output_bit >= 0, "Phi output has no bit");
+                phx_bs_add_bit(&support.forward_vals[fi], (size_t)output_bit);
+            }
+        }
+
+        if (promote_output) {
+            phx_rs_set_owned(rstate);
+            PyMem_RawFree(inputs);
+            instr = hir_bb_next_instr(bb, instr);
+            continue;
+        }
+
+        /* Otherwise: borrowed from owned inputs + support of borrowed inputs */
+        phx_rs_set_borrowed(rstate, env->num_support_bits);
+        for (size_t i = 0; i < n_inputs; i++) {
+            if (inputs[i].rstate->kind == PHX_REF_OWNED) {
+                int bit = phx_rc_env_reg_bit(env,
+                    inputs[i].rstate->model);
+                if (bit >= 0) {
+                    phx_bs_add_bit(&rstate->support, (size_t)bit);
+                }
+            } else if (inputs[i].rstate->kind == PHX_REF_BORROWED) {
+                phx_bs_add_bs(&rstate->support, &inputs[i].rstate->support);
+            }
+        }
+
+        PyMem_RawFree(inputs);
+        instr = hir_bb_next_instr(bb, instr);
+    }
+
+    return support;
+}
+
+void phx_rc_phi_support_destroy(PhxPhiSupport *ps) {
+    phx_bs_destroy(&ps->dead);
+    for (size_t i = 0; i < ps->n_forwards; i++) {
+        phx_bs_destroy(&ps->forward_vals[i]);
+    }
+    PyMem_RawFree(ps->forward_keys);
+    PyMem_RawFree(ps->forward_vals);
+}
+
+/* initializeInState: first-visit setup for multi-predecessor block in-state.
+ * Populates in_state with live-in registers and phi outputs. */
+
+typedef struct {
+    void **regs;
+    size_t count;
+    size_t cap;
+} RegCollector;
+
+static void init_in_state_collect_reg(void *reg, void *ctx_raw) {
+    RegCollector *c = (RegCollector *)ctx_raw;
+    if (c->count >= c->cap) {
+        c->cap = c->cap ? c->cap * 2 : 32;
+        c->regs = (void **)PyMem_RawRealloc(c->regs,
+            c->cap * sizeof(void *));
+    }
+    c->regs[c->count++] = reg;
+}
+
+void phx_rc_initialize_in_state(
+    void *block, PhxStateMap *in_state,
+    PhxRefcountEnv *env, const PhxStateMap *pred_state)
+{
+    const HirBasicBlock *bb = (const HirBasicBlock *)block;
+
+    RegCollector collector = {NULL, 0, 0};
+    hir_liveness_foreach_live_in(env->liveness_state, block,
+                                  init_in_state_collect_reg, &collector);
+
+    for (size_t i = 0; i < collector.count; i++) {
+        void *current = collector.regs[i];
+        void *model = model_reg_rc(current);
+        PhxRegState *existing = phx_sm_get(in_state, model);
+        if (existing) continue;
+
+        PhxRegState *rs = phx_sm_get_or_create(in_state, model);
+        /* Clear the auto-added copy (model) since we'll add copies manually */
+        phx_rs_kill_copy(rs, model);
+
+        const PhxRegState *pred_rs = phx_sm_get(pred_state, model);
+        if (!pred_rs) continue;
+
+        for (int ci = 0, cn = phx_rs_num_copies(pred_rs); ci < cn; ci++) {
+            void *copy = phx_rs_copy(pred_rs, ci);
+            if (hir_liveness_is_live_in(env->liveness_state, block, copy)) {
+                phx_rs_add_copy(rs, copy);
+            }
+        }
+    }
+
+    PyMem_RawFree(collector.regs);
+
+    /* Add phi outputs */
+    void *instr = hir_bb_first_instr(bb);
+    while (instr && hir_c_is_phi(instr)) {
+        void *output = hir_c_output(instr);
+        PhxRegState *rs = phx_sm_get_or_create(in_state, output);
+        (void)rs;
+        instr = hir_bb_next_instr(bb, instr);
+    }
+}
+
+/* useSimpleInState: compute and activate in-state for ≤1 predecessor blocks. */
+void phx_rc_use_simple_in_state(PhxRefcountEnv *env, void *block) {
+    const HirBasicBlock *bb = (const HirBasicBlock *)block;
+    size_t n_in = hir_bb_in_edges_count(bb);
+
+    if (n_in == 0) {
+        PhxStateMap empty;
+        phx_sm_init(&empty);
+        phx_rc_use_in_state(env, &empty);
+        return;
+    }
+
+    JIT_DCHECK_C(n_in == 1, "Only blocks with <= 1 predecessors are supported");
+    void *first_instr = hir_bb_first_instr(bb);
+    JIT_DCHECK_C(!first_instr || !hir_c_is_phi(first_instr),
+                 "Phis in a single-predecessor block are unsupported");
+
+    const HirEdge *in_edge = hir_bb_in_edge(bb, 0);
+    void *pred = in_edge->from;
+    PhxBlockState *bs = phx_rc_env_block_state(env, pred);
+    phx_rc_use_in_state(env, &bs->out);
+
+    /* Adjust for CondBranch in predecessor */
+    void *term = hir_bb_last_instr((const HirBasicBlock *)pred);
+    int32_t op = hir_c_opcode(term);
+    if (op == HIR_OP_CondBranch || op == HIR_OP_CondBranchIterNotDone) {
+        void *false_bb = hir_c_condbranch_false_target(term);
+        if (block == false_bb) {
+            void *reg = hir_c_get_operand(term, 0);
+            PhxRegState *rs = phx_sm_get(&env->live_regs, reg);
+            if (rs) phx_rs_set_uncounted(rs);
+        }
+    } else if (op == HIR_OP_CondBranchCheckType) {
+        if (phx_rc_condbranch_check_type_is_wait_handle(term)) {
+            void *true_bb = hir_c_condbranch_true_target(term);
+            if (block == true_bb) {
+                void *reg = hir_c_get_operand(term, 0);
+                PhxRegState *rs = phx_sm_get(&env->live_regs, reg);
+                if (rs) phx_rs_set_uncounted(rs);
+            }
+        }
+    }
+
+    /* Kill registers that die across the edge */
+    void **dying = NULL;
+    size_t n_dying = 0, cap_dying = 0;
+
+    for (size_t i = 0; i < env->live_regs.capacity; i++) {
+        if (!env->live_regs.keys[i]) continue;
+        PhxRegState *rstate = &env->live_regs.values[i];
+        for (int ci = phx_rs_num_copies(rstate) - 1; ci >= 0; ci--) {
+            void *reg = phx_rs_copy(rstate, ci);
+            if (!hir_liveness_is_live_in(env->liveness_state, block, reg)) {
+                if (n_dying >= cap_dying) {
+                    cap_dying = cap_dying ? cap_dying * 2 : 16;
+                    dying = (void **)PyMem_RawRealloc(dying,
+                        cap_dying * sizeof(void *));
+                }
+                dying[n_dying++] = reg;
+            }
+        }
+    }
+
+    if (n_dying > 0) {
+        phx_rc_kill_registers(env, dying, n_dying,
+                              hir_bb_first_instr(bb));
+    }
+    PyMem_RawFree(dying);
+}
+
+/* updateInState: orchestrate in-state computation for multi-predecessor blocks. */
+void phx_rc_update_in_state(PhxRefcountEnv *env, void *block) {
+    const HirBasicBlock *bb = (const HirBasicBlock *)block;
+
+    if (hir_bb_in_edges_count(bb) <= 1) {
+        phx_rc_use_simple_in_state(env, block);
+        return;
+    }
+
+    size_t n_preds = 0;
+    PhxPredState *preds = phx_rc_collect_pred_states(env, block, &n_preds);
+
+    PhxBlockState *bstate = phx_rc_env_block_state(env, block);
+    PhxStateMap *in_state = &bstate->in;
+
+    /* First visit: initialize in-state */
+    int first_visit = phx_sm_empty(in_state);
+    if (first_visit && n_preds > 0) {
+        phx_rc_initialize_in_state(block, in_state, env, preds[0].state);
+    }
+
+    /* Process phis */
+    PhxPhiSupport phi_support = phx_rc_process_phis(
+        env, block, preds, n_preds, in_state);
+
+    /* Merge predecessor states for non-phi live-in values */
+    for (size_t i = 0; i < in_state->capacity; i++) {
+        if (!in_state->keys[i]) continue;
+        PhxRegState *rstate = &in_state->values[i];
+        void *model = rstate->model;
+
+        if (phx_rc_is_uncounted(phx_rs_current(rstate)) ||
+            rstate->kind == PHX_REF_OWNED) {
+            continue;
+        }
+
+        /* Skip phi outputs defined in this block */
+        void *model_instr = hir_reg_instr_ptr(model);
+        if (model_instr && hir_c_is_phi(model_instr) &&
+            hir_c_block(model_instr) == block) {
+            continue;
+        }
+
+        for (size_t pi = 0; pi < n_preds; pi++) {
+            const PhxRegState *pred_rs = phx_sm_get(preds[pi].state, model);
+            if (pred_rs) {
+                phx_rs_merge(rstate, pred_rs);
+                if (rstate->kind == PHX_REF_OWNED) break;
+            }
+        }
+
+        /* If borrowed from now-dead phi inputs, forward to phi outputs */
+        if (rstate->kind == PHX_REF_BORROWED &&
+            phx_bs_intersects_bs(&rstate->support, &phi_support.dead)) {
+            for (size_t fi = 0; fi < phi_support.n_forwards; fi++) {
+                if (phx_bs_intersects_bit(&rstate->support,
+                                           phi_support.forward_keys[fi])) {
+                    phx_bs_remove_bit(&rstate->support,
+                                      phi_support.forward_keys[fi]);
+                    phx_bs_add_bs(&rstate->support,
+                                  &phi_support.forward_vals[fi]);
+                }
+            }
+        }
+    }
+
+    phx_rc_use_in_state(env, in_state);
+    phx_rc_phi_support_destroy(&phi_support);
+    PyMem_RawFree(preds);
 }
