@@ -30,6 +30,13 @@ void phx_rc_invalidate_bs_bit(PhxRefcountEnv *env, void *cursor, size_t bit);
 void phx_rc_kill_register(PhxRefcountEnv *env, PhxRegState *rstate,
                           void *copy, void *cursor);
 
+/* Copy state into env and re-initialize borrow support tracking. */
+void phx_rc_use_in_state(PhxRefcountEnv *env, const PhxStateMap *state);
+
+/* Kill registers sorted: borrowed first, then by model ID. */
+void phx_rc_kill_registers(PhxRefcountEnv *env, void **regs, size_t n_regs,
+                           void *cursor);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

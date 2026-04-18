@@ -117,3 +117,78 @@ void phx_rc_kill_register(PhxRefcountEnv *env, PhxRegState *rstate,
 
     phx_sm_erase(&env->live_regs, model);
 }
+
+/* ---- R3b-1: State initialization ---- */
+
+/* Forward declarations */
+extern void *hir_chase_assign(void *reg);
+extern int hir_liveness_is_last_use(const void *state, void *instr, void *reg);
+
+static void *model_reg_rc(void *reg) {
+    return hir_chase_assign(reg);
+}
+
+/* Copy state into env and re-initialize borrow support tracking. */
+void phx_rc_use_in_state(PhxRefcountEnv *env, const PhxStateMap *state) {
+    phx_sm_destroy(&env->live_regs);
+    env->live_regs = *state;
+    /* Re-init the destination (source is shallow-moved) */
+    phx_sm_init((PhxStateMap *)state);
+
+    phx_bs_init(&env->borrow_support, env->num_support_bits);
+    env->n_borrowed = 0;
+
+    for (size_t i = 0; i < env->live_regs.capacity; i++) {
+        if (env->live_regs.keys[i]) {
+            phx_rc_register_borrow_support(env, &env->live_regs.values[i]);
+        }
+    }
+}
+
+/* Kill registers sorted: borrowed first (to avoid unnecessary promotions),
+ * then by model register ID within each group. */
+void phx_rc_kill_registers(PhxRefcountEnv *env, void **regs, size_t n_regs,
+                           void *cursor) {
+    if (n_regs == 0) return;
+
+    typedef struct { void *copy; PhxRegState *rstate; } RegCopy;
+    RegCopy *rcs = (RegCopy *)PyMem_RawMalloc(n_regs * sizeof(RegCopy));
+
+    size_t n_rcs = 0;
+    for (size_t i = 0; i < n_regs; i++) {
+        void *model = model_reg_rc(regs[i]);
+        PhxRegState *rs = phx_sm_get(&env->live_regs, model);
+        if (rs) {
+            rcs[n_rcs].copy = regs[i];
+            rcs[n_rcs].rstate = rs;
+            n_rcs++;
+        }
+    }
+
+    /* Sort: borrowed before owned, then by model register ID */
+    for (size_t i = 1; i < n_rcs; i++) {
+        RegCopy tmp = rcs[i];
+        size_t j = i;
+        while (j > 0) {
+            int a_bor = (rcs[j-1].rstate->kind == PHX_REF_BORROWED) ? 1 : 0;
+            int b_bor = (tmp.rstate->kind == PHX_REF_BORROWED) ? 1 : 0;
+            int swap = 0;
+            if (b_bor && !a_bor) swap = 1;
+            else if (a_bor == b_bor) {
+                int a_id = hir_reg_id(rcs[j-1].rstate->model);
+                int b_id = hir_reg_id(tmp.rstate->model);
+                if (b_id < a_id) swap = 1;
+            }
+            if (!swap) break;
+            rcs[j] = rcs[j-1];
+            j--;
+        }
+        rcs[j] = tmp;
+    }
+
+    for (size_t i = 0; i < n_rcs; i++) {
+        phx_rc_kill_register(env, rcs[i].rstate, rcs[i].copy, cursor);
+    }
+
+    PyMem_RawFree(rcs);
+}
