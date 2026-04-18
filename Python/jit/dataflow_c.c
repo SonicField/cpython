@@ -169,15 +169,19 @@ void phx_df_run(PhxDataFlowAnalyzer *a, int forward) {
         }
 
         int changed = !phx_bv_equal(&new_in, in_bv);
-        phx_bv_copy(in_bv, &new_in);
+        /* In-place update: reset+OR avoids phx_bv_copy allocation leak */
+        phx_bv_reset_all(in_bv);
+        phx_bv_or_assign(in_bv, &new_in);
 
         /* new_out = gen | (in - kill) */
-        phx_bv_copy(&new_out, in_bv);
+        phx_bv_reset_all(&new_out);
+        phx_bv_or_assign(&new_out, in_bv);
         phx_bv_sub_assign(&new_out, &block->kill);
         phx_bv_or_assign(&new_out, &block->gen);
 
         changed |= !phx_bv_equal(&new_out, out_bv);
-        phx_bv_copy(out_bv, &new_out);
+        phx_bv_reset_all(out_bv);
+        phx_bv_or_assign(out_bv, &new_out);
 
         if (changed) {
             /* Grow worklist if needed before appending successors */
