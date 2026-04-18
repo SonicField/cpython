@@ -62,8 +62,9 @@ typedef struct {
     size_t n_deferred;
     size_t cap_deferred;
 
-    /* Sorted array of borrowed RegState* (by model register id) */
-    PhxRegState **borrowed_regs;
+    /* Borrowed model register keys (void* keys into live_regs, not value ptrs).
+     * Value pointers go stale on sm_grow — store keys and look up on demand. */
+    void **borrowed_regs;
     size_t n_borrowed;
     size_t cap_borrowed;
 } PhxRefcountEnv;

@@ -58,13 +58,12 @@ void phx_rc_register_borrow_support(PhxRefcountEnv *env, PhxRegState *rstate) {
     if (rstate->kind != PHX_REF_BORROWED || phx_bs_empty(&rstate->support))
         return;
     phx_bs_add_bs(&env->borrow_support, &rstate->support);
-    /* Add to borrowed_regs sorted array */
     if (env->n_borrowed >= env->cap_borrowed) {
         env->cap_borrowed = env->cap_borrowed ? env->cap_borrowed * 2 : 8;
-        env->borrowed_regs = (PhxRegState **)PyMem_RawRealloc(
-            env->borrowed_regs, env->cap_borrowed * sizeof(PhxRegState *));
+        env->borrowed_regs = (void **)PyMem_RawRealloc(
+            env->borrowed_regs, env->cap_borrowed * sizeof(void *));
     }
-    env->borrowed_regs[env->n_borrowed++] = rstate;
+    env->borrowed_regs[env->n_borrowed++] = rstate->model;
 }
 
 static void invalidate_bs_impl(PhxRefcountEnv *env, void *cursor,
@@ -76,7 +75,9 @@ static void invalidate_bs_impl(PhxRefcountEnv *env, void *cursor,
 
     size_t dst = 0;
     for (size_t i = 0; i < env->n_borrowed; i++) {
-        PhxRegState *rstate = env->borrowed_regs[i];
+        void *model = env->borrowed_regs[i];
+        PhxRegState *rstate = phx_sm_get(&env->live_regs, model);
+        if (!rstate) continue;
         int intersects = by_acls
             ? phx_bs_intersects_acls(&rstate->support, acls_bits)
             : phx_bs_intersects_bit(&rstate->support, bit);
@@ -86,7 +87,7 @@ static void invalidate_bs_impl(PhxRefcountEnv *env, void *cursor,
                 phx_rc_insert_incref(env, phx_rs_current(rstate), cursor);
             }
         } else {
-            env->borrowed_regs[dst++] = rstate;
+            env->borrowed_regs[dst++] = model;
         }
     }
     env->n_borrowed = dst;
@@ -123,11 +124,11 @@ void phx_rc_kill_register(PhxRefcountEnv *env, PhxRegState *rstate,
         }
     }
 
-    /* Remove from borrowed_regs */
+    /* Remove from borrowed_regs (keyed by model) */
     for (size_t i = 0; i < env->n_borrowed; i++) {
-        if (env->borrowed_regs[i] == rstate) {
+        if (env->borrowed_regs[i] == model) {
             memmove(&env->borrowed_regs[i], &env->borrowed_regs[i + 1],
-                    (env->n_borrowed - i - 1) * sizeof(PhxRegState *));
+                    (env->n_borrowed - i - 1) * sizeof(void *));
             env->n_borrowed--;
             break;
         }
