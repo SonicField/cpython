@@ -38,6 +38,12 @@ fi
 PHOENIX_CC="${PHOENIX_CC:-clang}"
 PHOENIX_CXX="${PHOENIX_CXX:-clang++}"
 
+# gcc-toolset-15 workaround: force clang to use gcc 11 headers/libs
+GCC_INSTALL_FLAG=""
+if [ -d /usr/lib/gcc/x86_64-redhat-linux/11 ] && [ "" != "aarch64" ]; then
+    GCC_INSTALL_FLAG="--gcc-install-dir=/usr/lib/gcc/x86_64-redhat-linux/11"
+fi
+
 echo "=== Phoenix JIT Clean Build ==="
 echo "CPython root: $CPYTHON_ROOT"
 echo "Build dir: $BUILD_DIR"
@@ -106,20 +112,20 @@ if [ "$ASAN" -eq 1 ]; then
 fi
 if [ "$ARCH" = "aarch64" ]; then
     echo "ARM64 detected — configuring without LTO"
-    if ! CC="$PHOENIX_CC" CXX="$PHOENIX_CXX" ./configure $PYDEBUG_FLAG $ASAN_FLAG --without-lto; then
+    if ! CC="$PHOENIX_CC $GCC_INSTALL_FLAG" CXX="$PHOENIX_CXX $GCC_INSTALL_FLAG" ./configure $PYDEBUG_FLAG $ASAN_FLAG --without-lto; then
         echo "FAIL: configure failed"
         exit 1
     fi
 else
     if [ "$PYDEBUG" -eq 1 ]; then
         echo "x86_64 detected — configuring without LTO (pydebug)"
-        if ! CC="$PHOENIX_CC" CXX="$PHOENIX_CXX" ./configure $PYDEBUG_FLAG $ASAN_FLAG --without-lto; then
+        if ! CC="$PHOENIX_CC $GCC_INSTALL_FLAG" CXX="$PHOENIX_CXX $GCC_INSTALL_FLAG" ./configure $PYDEBUG_FLAG $ASAN_FLAG --without-lto; then
             echo "FAIL: configure failed"
             exit 1
         fi
     else
         echo "x86_64 detected — configuring with LTO"
-        if ! CC="$PHOENIX_CC" CXX="$PHOENIX_CXX" ./configure $PYDEBUG_FLAG $ASAN_FLAG --with-lto; then
+        if ! CC="$PHOENIX_CC $GCC_INSTALL_FLAG" CXX="$PHOENIX_CXX $GCC_INSTALL_FLAG" ./configure $PYDEBUG_FLAG $ASAN_FLAG --with-lto; then
             echo "FAIL: configure failed"
             exit 1
         fi
@@ -143,8 +149,8 @@ if [ "$ASAN" -eq 1 ]; then
 fi
 if ! cmake .. \
     -DPHOENIX_ASM=ON \
-    -DCMAKE_CXX_FLAGS="-DPHOENIX_ASM${EXTRA_CMAKE_FLAGS}" \
-    -DCMAKE_C_FLAGS="-DPHOENIX_ASM${EXTRA_CMAKE_FLAGS}" \
+    -DCMAKE_CXX_FLAGS="-DPHOENIX_ASM ${GCC_INSTALL_FLAG}${EXTRA_CMAKE_FLAGS}" \
+    -DCMAKE_C_FLAGS="-DPHOENIX_ASM ${GCC_INSTALL_FLAG}${EXTRA_CMAKE_FLAGS}" \
     -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
     -DCMAKE_C_COMPILER="$PHOENIX_CC" \
     -DCMAKE_CXX_COMPILER="$PHOENIX_CXX"; then

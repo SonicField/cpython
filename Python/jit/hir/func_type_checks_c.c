@@ -14,14 +14,14 @@
 #include <stdio.h>
 
 static int is_single_cint(HirType h) {
-    return hir_type_is_subtype(h, HIR_TYPE_CINT8) ||
-        hir_type_is_subtype(h, HIR_TYPE_CUINT8) ||
-        hir_type_is_subtype(h, HIR_TYPE_CINT16) ||
-        hir_type_is_subtype(h, HIR_TYPE_CUINT16) ||
-        hir_type_is_subtype(h, HIR_TYPE_CINT32) ||
-        hir_type_is_subtype(h, HIR_TYPE_CUINT32) ||
-        hir_type_is_subtype(h, HIR_TYPE_CINT64) ||
-        hir_type_is_subtype(h, HIR_TYPE_CUINT64);
+    return hir_type_is_subtype(h, (HirType)HIR_TYPE_CINT8) ||
+        hir_type_is_subtype(h, (HirType)HIR_TYPE_CUINT8) ||
+        hir_type_is_subtype(h, (HirType)HIR_TYPE_CINT16) ||
+        hir_type_is_subtype(h, (HirType)HIR_TYPE_CUINT16) ||
+        hir_type_is_subtype(h, (HirType)HIR_TYPE_CINT32) ||
+        hir_type_is_subtype(h, (HirType)HIR_TYPE_CUINT32) ||
+        hir_type_is_subtype(h, (HirType)HIR_TYPE_CINT64) ||
+        hir_type_is_subtype(h, (HirType)HIR_TYPE_CUINT64);
 }
 
 static int register_type_matches(HirType op_hir, HirOperandType expected) {
@@ -29,30 +29,30 @@ static int register_type_matches(HirType op_hir, HirOperandType expected) {
     case HIR_CONSTRAINT_kType:
         return hir_type_is_subtype(op_hir, expected.type);
     case HIR_CONSTRAINT_kTupleExactOrCPtr:
-        return hir_type_is_subtype(op_hir, HIR_TYPE_TUPLEEXACT) ||
-            hir_type_is_subtype(op_hir, HIR_TYPE_CPTR);
+        return hir_type_is_subtype(op_hir, (HirType)HIR_TYPE_TUPLEEXACT) ||
+            hir_type_is_subtype(op_hir, (HirType)HIR_TYPE_CPTR);
     case HIR_CONSTRAINT_kListOrChkList:
-        return hir_type_is_subtype(op_hir, HIR_TYPE_LIST) ||
+        return hir_type_is_subtype(op_hir, (HirType)HIR_TYPE_LIST) ||
             (hir_type_has_type_spec(&op_hir) &&
              Ci_CheckedList_TypeCheck(hir_type_type_spec(&op_hir)));
     case HIR_CONSTRAINT_kDictOrChkDict:
-        return hir_type_is_subtype(op_hir, HIR_TYPE_DICT) ||
+        return hir_type_is_subtype(op_hir, (HirType)HIR_TYPE_DICT) ||
             (hir_type_has_type_spec(&op_hir) &&
              Ci_CheckedDict_TypeCheck(hir_type_type_spec(&op_hir)));
     case HIR_CONSTRAINT_kOptObjectOrCIntOrCBool:
-        return hir_type_is_subtype(op_hir, HIR_TYPE_OPTOBJECT) ||
-            hir_type_is_subtype(op_hir, HIR_TYPE_CINT) ||
-            hir_type_is_subtype(op_hir, HIR_TYPE_CBOOL);
+        return hir_type_is_subtype(op_hir, (HirType)HIR_TYPE_OPTOBJECT) ||
+            hir_type_is_subtype(op_hir, (HirType)HIR_TYPE_CINT) ||
+            hir_type_is_subtype(op_hir, (HirType)HIR_TYPE_CBOOL);
     case HIR_CONSTRAINT_kOptObjectOrCInt:
-        return hir_type_is_subtype(op_hir, HIR_TYPE_OPTOBJECT) ||
-            hir_type_is_subtype(op_hir, HIR_TYPE_CINT);
+        return hir_type_is_subtype(op_hir, (HirType)HIR_TYPE_OPTOBJECT) ||
+            hir_type_is_subtype(op_hir, (HirType)HIR_TYPE_CINT);
     case HIR_CONSTRAINT_kMatchAllAsCInt:
         return is_single_cint(op_hir);
     case HIR_CONSTRAINT_kMatchAllAsPrimitive:
         return is_single_cint(op_hir) ||
-            hir_type_is_subtype(op_hir, HIR_TYPE_CBOOL) ||
-            hir_type_is_subtype(op_hir, HIR_TYPE_CDOUBLE) ||
-            hir_type_is_subtype(op_hir, HIR_TYPE_CPTR);
+            hir_type_is_subtype(op_hir, (HirType)HIR_TYPE_CBOOL) ||
+            hir_type_is_subtype(op_hir, (HirType)HIR_TYPE_CDOUBLE) ||
+            hir_type_is_subtype(op_hir, (HirType)HIR_TYPE_CPTR);
     }
     JIT_ABORT_C("unknown constraint %d", expected.kind);
 }
@@ -89,7 +89,7 @@ int hir_func_type_checks(HirFunction func) {
 
             if (n_ops > 1 &&
                 operands_must_match(hir_c_get_operand_type(instr, 0))) {
-                HirType join = HIR_TYPE_BOTTOM;
+                HirType join = (HirType)HIR_TYPE_BOTTOM;
                 for (size_t i = 0; i < n_ops; i++) {
                     HirRegister op = hir_c_get_operand(instr, i);
                     join = hir_type_union(join, hir_register_type(op));

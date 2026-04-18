@@ -56,10 +56,10 @@ void phx_df_add_object(PhxDataFlowAnalyzer *a, void *obj, size_t obj_id) {
     a->index_to_obj[idx] = obj;
     for (size_t i = 0; i < a->n_blocks; i++) {
         PhxDataFlowBlock *b = a->blocks[i];
-        phx_bv_resize(&b->gen, a->num_bits);
-        phx_bv_resize(&b->kill, a->num_bits);
-        phx_bv_resize(&b->in, a->num_bits);
-        phx_bv_resize(&b->out, a->num_bits);
+        phx_bv_init(&b->gen, a->num_bits);
+        phx_bv_init(&b->kill, a->num_bits);
+        phx_bv_init(&b->in, a->num_bits);
+        phx_bv_init(&b->out, a->num_bits);
     }
 }
 
@@ -69,10 +69,10 @@ void phx_df_add_block(PhxDataFlowAnalyzer *a, PhxDataFlowBlock *b) {
         a->blocks = (PhxDataFlowBlock **)realloc(a->blocks, a->capacity * sizeof(PhxDataFlowBlock *));
     }
     a->blocks[a->n_blocks++] = b;
-    phx_bv_resize(&b->gen, a->num_bits);
-    phx_bv_resize(&b->kill, a->num_bits);
-    phx_bv_resize(&b->in, a->num_bits);
-    phx_bv_resize(&b->out, a->num_bits);
+    phx_bv_init(&b->gen, a->num_bits);
+    phx_bv_init(&b->kill, a->num_bits);
+    phx_bv_init(&b->in, a->num_bits);
+    phx_bv_init(&b->out, a->num_bits);
 }
 
 void phx_df_set_entry(PhxDataFlowAnalyzer *a, PhxDataFlowBlock *b) {
@@ -86,29 +86,29 @@ void phx_df_set_exit(PhxDataFlowAnalyzer *a, PhxDataFlowBlock *b) {
 void phx_df_set_gen_bit(PhxDataFlowAnalyzer *a, PhxDataFlowBlock *b, void *obj, size_t obj_id) {
     (void)obj;
     size_t idx = a->obj_id_to_index[obj_id];
-    phx_bv_set(&b->gen, idx);
+    phx_bv_set_bit(&b->gen, idx, 1);
 }
 
 void phx_df_set_kill_bit(PhxDataFlowAnalyzer *a, PhxDataFlowBlock *b, void *obj, size_t obj_id) {
     (void)obj;
     size_t idx = a->obj_id_to_index[obj_id];
-    phx_bv_set(&b->kill, idx);
+    phx_bv_set_bit(&b->kill, idx, 1);
 }
 
 int phx_df_get_in_bit(const PhxDataFlowAnalyzer *a, const PhxDataFlowBlock *b, size_t obj_id) {
     size_t idx = a->obj_id_to_index[obj_id];
-    return phx_bv_get(&b->in, idx);
+    return phx_bv_get_bit(&b->in, idx);
 }
 
 int phx_df_get_out_bit(const PhxDataFlowAnalyzer *a, const PhxDataFlowBlock *b, size_t obj_id) {
     size_t idx = a->obj_id_to_index[obj_id];
-    return phx_bv_get(&b->out, idx);
+    return phx_bv_get_bit(&b->out, idx);
 }
 
 void phx_df_for_each_in(const PhxDataFlowAnalyzer *a, const PhxDataFlowBlock *b,
                          PhxDfPerObjFunc func, void *ctx) {
     for (size_t i = 0; i < a->num_bits; i++) {
-        if (phx_bv_get(&b->in, i)) {
+        if (phx_bv_get_bit(&b->in, i)) {
             func(a->index_to_obj[i], ctx);
         }
     }
@@ -117,7 +117,7 @@ void phx_df_for_each_in(const PhxDataFlowAnalyzer *a, const PhxDataFlowBlock *b,
 void phx_df_for_each_out(const PhxDataFlowAnalyzer *a, const PhxDataFlowBlock *b,
                           PhxDfPerObjFunc func, void *ctx) {
     for (size_t i = 0; i < a->num_bits; i++) {
-        if (phx_bv_get(&b->out, i)) {
+        if (phx_bv_get_bit(&b->out, i)) {
             func(a->index_to_obj[i], ctx);
         }
     }
@@ -149,10 +149,10 @@ void phx_df_run(PhxDataFlowAnalyzer *a, int forward) {
         PhxBitVector *in_bv = forward ? &block->in : &block->out;
         PhxBitVector *out_bv = forward ? &block->out : &block->in;
 
-        phx_bv_clear_all(&new_in, a->num_bits);
+        phx_bv_reset_all(&new_in);
         for (size_t i = 0; i < n_pred; i++) {
             PhxBitVector *p_out = forward ? &pred_arr[i]->out : &pred_arr[i]->in;
-            phx_bv_or(&new_in, p_out);
+            phx_bv_or_assign(&new_in, p_out);
         }
 
         int changed = !phx_bv_equal(&new_in, in_bv);
@@ -160,8 +160,8 @@ void phx_df_run(PhxDataFlowAnalyzer *a, int forward) {
 
         /* new_out = gen | (in - kill) */
         phx_bv_copy(&new_out, in_bv);
-        phx_bv_andnot(&new_out, &block->kill);
-        phx_bv_or(&new_out, &block->gen);
+        phx_bv_sub_assign(&new_out, &block->kill);
+        phx_bv_or_assign(&new_out, &block->gen);
 
         changed |= !phx_bv_equal(&new_out, out_bv);
         phx_bv_copy(out_bv, &new_out);
