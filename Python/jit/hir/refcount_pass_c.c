@@ -464,7 +464,7 @@ void phx_rc_initialize_in_state(
 
         for (int ci = 0, cn = phx_rs_num_copies(pred_rs); ci < cn; ci++) {
             void *copy = phx_rs_copy(pred_rs, ci);
-            if (hir_liveness_is_live_in(env->liveness_state, block, copy)) {
+            if (phx_rc_liveness_is_live_in(env->func, block, copy)) {
                 phx_rs_add_copy(rs, copy);
             }
         }
