@@ -40,8 +40,8 @@ int hir_liveness_verify(HirFunction func_handle, const HirLivenessState *c_state
 
         if (c_result != cpp_result) {
           JIT_LOG(
-              "Liveness mismatch: instr {} reg {} in bb {} of {}: C={} C++={}",
-              instr, reg->name(), block.id, func->fullname,
+              "Liveness mismatch: {} reg {} in bb {} of {}: C={} C++={}",
+              instr.opname(), reg->name(), block.id, func->fullname,
               c_result, cpp_result);
           mismatches++;
         }
