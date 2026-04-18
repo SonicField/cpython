@@ -117,6 +117,17 @@ void phx_rc_process_instr(PhxRefcountEnv *env, void *instr);
 /* Fill deopt live regs from the current live_regs state (C++ bridge). */
 void phx_rc_fill_deopt_live_regs(const PhxStateMap *live_regs, void *instr);
 
+/* ---- R3b-4: exitBlock + main pass ---- */
+
+/* Reconcile edge state when leaving a block with one successor.
+ * Inserts Increfs to transition from out-state to successor's in-state. */
+void phx_rc_exit_block(PhxRefcountEnv *env, void *block, const void *out_edge);
+
+/* Run the C refcount analysis+mutation pass on a function.
+ * Assumes PhiElimination, bindGuards, splitCriticalEdges already done.
+ * Does NOT call removeTrampolineBlocks or optimizeLongDecrefRuns. */
+void phx_rc_run(PhxRefcountEnv *env);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

@@ -7,6 +7,7 @@
 #include "cinderx/Jit/hir/refcount_pass_c.h"
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_basic_block_c.h"
+#include "cinderx/Jit/hir/hir_cfg_rpo_c.h"
 #include "cinderx/Jit/hir/instr_effects_c.h"
 #include "cinderx/Common/jit_log_c.h"
 #include "Python.h"
@@ -809,4 +810,252 @@ void phx_rc_process_instr(PhxRefcountEnv *env, void *instr) {
         phx_rc_kill_registers(env, dying, n_dying, next_instr);
     }
     PyMem_RawFree(dying);
+}
+
+/* ---- R3b-4: exitBlock + main pass ---- */
+
+/* exitBlock: reconcile edge state, insert Increfs for transition. */
+void phx_rc_exit_block(PhxRefcountEnv *env, void *block, const void *out_edge) {
+    const HirEdge *edge = (const HirEdge *)out_edge;
+    void *succ = edge->to;
+    const HirBasicBlock *succ_bb = (const HirBasicBlock *)succ;
+
+    if (hir_bb_in_edges_count(succ_bb) == 1) return;
+
+    PhxBlockState *succ_bs = NULL;
+    for (size_t i = 0; i < env->n_block_states; i++) {
+        if (env->block_keys[i] == succ) {
+            succ_bs = &env->block_states[i];
+            break;
+        }
+    }
+    if (!succ_bs) return;
+    const PhxStateMap *to_regs = &succ_bs->in;
+
+    typedef struct { void *reg; int count; } RegIncref;
+    RegIncref *increfs_arr = NULL;
+    size_t n_increfs = 0, cap_increfs = 0;
+
+    for (size_t i = 0; i < env->live_regs.capacity; i++) {
+        if (!env->live_regs.keys[i]) continue;
+        void *model = env->live_regs.keys[i];
+        const PhxRegState *from_rstate = &env->live_regs.values[i];
+
+        if (from_rstate->kind == PHX_REF_UNCOUNTED) continue;
+
+        int to_owned = 0;
+        if (phx_rc_is_live_in(succ, model, to_regs)) {
+            const PhxRegState *to_rs = phx_sm_get(to_regs, model);
+            if (to_rs && to_rs->kind == PHX_REF_OWNED) to_owned = 1;
+        }
+
+        int inc_count = to_owned - (from_rstate->kind == PHX_REF_OWNED ? 1 : 0);
+
+        /* Add incref for each owned phi output this value feeds */
+        size_t phi_count = 0;
+        const PhxPhiUseEntry *phi_entries = phx_rc_env_phi_uses(
+            env, model, block, &phi_count);
+        for (size_t pi = 0; pi < phi_count; pi++) {
+            const PhxRegState *phi_rs = phx_sm_get(to_regs,
+                phi_entries[pi].phi_output);
+            if (phi_rs && phi_rs->kind == PHX_REF_OWNED) {
+                inc_count++;
+            }
+        }
+
+        if (inc_count > 0) {
+            if (n_increfs >= cap_increfs) {
+                cap_increfs = cap_increfs ? cap_increfs * 2 : 8;
+                increfs_arr = (RegIncref *)PyMem_RawRealloc(
+                    increfs_arr, cap_increfs * sizeof(RegIncref));
+            }
+            increfs_arr[n_increfs].reg = phx_rs_current(from_rstate);
+            increfs_arr[n_increfs].count = inc_count;
+            n_increfs++;
+        } else {
+            JIT_DCHECK_C(inc_count == 0, "Invalid state transition in exitBlock");
+        }
+    }
+
+    /* Sort by register ID */
+    for (size_t i = 1; i < n_increfs; i++) {
+        RegIncref tmp = increfs_arr[i];
+        size_t j = i;
+        while (j > 0 &&
+               hir_reg_id(increfs_arr[j-1].reg) > hir_reg_id(tmp.reg)) {
+            increfs_arr[j] = increfs_arr[j-1];
+            j--;
+        }
+        increfs_arr[j] = tmp;
+    }
+
+    const HirBasicBlock *bb = (const HirBasicBlock *)block;
+    void *cursor = hir_bb_last_instr(bb);
+    for (size_t i = 0; i < n_increfs; i++) {
+        for (int c = 0; c < increfs_arr[i].count; c++) {
+            phx_rc_insert_incref(env, increfs_arr[i].reg, cursor);
+        }
+    }
+
+    PyMem_RawFree(increfs_arr);
+}
+
+/* ---- Simple worklist (FIFO queue with dedup) ---- */
+
+typedef struct {
+    void **queue;
+    size_t head;
+    size_t tail;
+    size_t capacity;
+    void **set_keys;
+    size_t set_count;
+    size_t set_cap;
+} PhxWorklist;
+
+static void wl_init(PhxWorklist *wl, size_t cap) {
+    wl->queue = (void **)PyMem_RawMalloc(cap * sizeof(void *));
+    wl->head = 0;
+    wl->tail = 0;
+    wl->capacity = cap;
+    wl->set_keys = (void **)PyMem_RawCalloc(cap, sizeof(void *));
+    wl->set_count = 0;
+    wl->set_cap = cap;
+}
+
+static void wl_destroy(PhxWorklist *wl) {
+    PyMem_RawFree(wl->queue);
+    PyMem_RawFree(wl->set_keys);
+}
+
+static int wl_empty(const PhxWorklist *wl) {
+    return wl->head == wl->tail;
+}
+
+static int wl_set_contains(const PhxWorklist *wl, void *item) {
+    for (size_t i = 0; i < wl->set_count; i++) {
+        if (wl->set_keys[i] == item) return 1;
+    }
+    return 0;
+}
+
+static void wl_set_add(PhxWorklist *wl, void *item) {
+    if (wl->set_count >= wl->set_cap) {
+        wl->set_cap *= 2;
+        wl->set_keys = (void **)PyMem_RawRealloc(
+            wl->set_keys, wl->set_cap * sizeof(void *));
+    }
+    wl->set_keys[wl->set_count++] = item;
+}
+
+static void wl_set_remove(PhxWorklist *wl, void *item) {
+    for (size_t i = 0; i < wl->set_count; i++) {
+        if (wl->set_keys[i] == item) {
+            wl->set_keys[i] = wl->set_keys[--wl->set_count];
+            return;
+        }
+    }
+}
+
+static void wl_push(PhxWorklist *wl, void *item) {
+    if (wl_set_contains(wl, item)) return;
+    if (wl->tail >= wl->capacity) {
+        wl->capacity *= 2;
+        wl->queue = (void **)PyMem_RawRealloc(
+            wl->queue, wl->capacity * sizeof(void *));
+    }
+    wl->queue[wl->tail++] = item;
+    wl_set_add(wl, item);
+}
+
+static void *wl_front(const PhxWorklist *wl) {
+    return wl->queue[wl->head];
+}
+
+static void wl_pop(PhxWorklist *wl) {
+    void *item = wl->queue[wl->head++];
+    wl_set_remove(wl, item);
+}
+
+/* ---- Main pass ---- */
+
+void phx_rc_run(PhxRefcountEnv *env) {
+    HirCFG *cfg = (HirCFG *)hir_func_cfg_ptr(env->func);
+
+    /* Get RPO traversal */
+    size_t rpo_cap = 64;
+    void **rpo_blocks = (void **)PyMem_RawMalloc(rpo_cap * sizeof(void *));
+    size_t n_rpo = hir_cfg_get_rpo_c(cfg, rpo_blocks, rpo_cap);
+    if (n_rpo > rpo_cap) {
+        rpo_cap = n_rpo;
+        rpo_blocks = (void **)PyMem_RawRealloc(
+            rpo_blocks, rpo_cap * sizeof(void *));
+        hir_cfg_get_rpo_c(cfg, rpo_blocks, rpo_cap);
+    }
+
+    /* Analysis phase: fixed-point iteration */
+    PhxWorklist worklist;
+    wl_init(&worklist, n_rpo * 2);
+    for (size_t i = 0; i < n_rpo; i++) {
+        wl_push(&worklist, rpo_blocks[i]);
+    }
+
+    while (!wl_empty(&worklist)) {
+        void *block = wl_front(&worklist);
+        wl_pop(&worklist);
+
+        phx_rc_update_in_state(env, block);
+
+        const HirBasicBlock *bb = (const HirBasicBlock *)block;
+        void *instr = hir_bb_first_instr(bb);
+        while (instr) {
+            void *next = hir_bb_next_instr(bb, instr);
+            phx_rc_process_instr(env, instr);
+            instr = next;
+        }
+
+        PhxBlockState *bstate = phx_rc_env_block_state(env, block);
+        if (!phx_sm_equal(&env->live_regs, &bstate->out)) {
+            phx_sm_destroy(&bstate->out);
+            bstate->out = env->live_regs;
+            phx_sm_init(&env->live_regs);
+
+            size_t n_out = hir_bb_out_edges_count(bb);
+            for (size_t ei = 0; ei < n_out; ei++) {
+                const HirEdge *edge = hir_bb_out_edge(bb, ei);
+                wl_push(&worklist, edge->to);
+            }
+        }
+    }
+
+    wl_destroy(&worklist);
+
+    /* Mutation phase */
+    env->mutate = 1;
+    for (size_t bi = 0; bi < n_rpo; bi++) {
+        void *block = rpo_blocks[bi];
+        const HirBasicBlock *bb = (const HirBasicBlock *)block;
+
+        void *first_instr = hir_bb_first_instr(bb);
+
+        if (hir_bb_in_edges_count(bb) <= 1) {
+            phx_rc_use_simple_in_state(env, block);
+        } else {
+            PhxBlockState *bstate = phx_rc_env_block_state(env, block);
+            phx_rc_use_in_state(env, &bstate->in);
+        }
+
+        void *instr = first_instr;
+        while (instr) {
+            void *next = hir_bb_next_instr(bb, instr);
+            phx_rc_process_instr(env, instr);
+            instr = next;
+        }
+
+        if (hir_bb_out_edges_count(bb) == 1) {
+            const HirEdge *out_edge = hir_bb_out_edge(bb, 0);
+            phx_rc_exit_block(env, block, out_edge);
+        }
+    }
+
+    PyMem_RawFree(rpo_blocks);
 }
