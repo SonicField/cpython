@@ -126,7 +126,9 @@ void phx_df_for_each_out(const PhxDataFlowAnalyzer *a, const PhxDataFlowBlock *b
 }
 
 void phx_df_run(PhxDataFlowAnalyzer *a, int forward) {
-    PhxDataFlowBlock *skip = forward ? a->entry : a->exit_block;
+    /* Forward: skip exit (boundary out values don't change).
+     * Backward: skip entry (boundary in values don't change). */
+    PhxDataFlowBlock *skip = forward ? a->exit_block : a->entry;
 
     size_t wl_cap = a->n_blocks < 16 ? 16 : a->n_blocks;
     PhxDataFlowBlock **worklist = (PhxDataFlowBlock **)PyMem_RawMalloc(wl_cap * sizeof(PhxDataFlowBlock *));
