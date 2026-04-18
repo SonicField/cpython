@@ -7,7 +7,6 @@
 #include "cinderx/Jit/hir/refcount_structs_c.h"
 #include "cinderx/Jit/hir/hir.h"
 #include "cinderx/Jit/hir/type.h"
-#include "cinderx/Jit/hir/analysis.h"
 #include "cinderx/Jit/deopt.h"
 
 using namespace jit::hir;
@@ -102,19 +101,5 @@ void *phx_rc_model_reg(void *reg) {
   return modelReg(static_cast<Register*>(reg));
 }
 
-static LivenessAnalysis* g_cpp_liveness = nullptr;
-static Function* g_cpp_liveness_func = nullptr;
-
-int phx_rc_liveness_is_live_in(void *func_ptr, void *block, void *reg) {
-  auto* func = static_cast<Function*>(func_ptr);
-  if (g_cpp_liveness_func != func) {
-    delete g_cpp_liveness;
-    g_cpp_liveness = new LivenessAnalysis(*func);
-    g_cpp_liveness->Run();
-    g_cpp_liveness_func = func;
-  }
-  auto live_in = g_cpp_liveness->GetIn(static_cast<BasicBlock*>(block));
-  return live_in.count(static_cast<Register*>(reg)) ? 1 : 0;
-}
 
 } /* extern "C" */
