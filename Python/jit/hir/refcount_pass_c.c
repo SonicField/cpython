@@ -12,7 +12,6 @@
 #include "cinderx/Common/jit_log_c.h"
 #include "Python.h"
 
-#include <stdio.h>
 #include <string.h>
 
 /* AliasClass bits for managed heap (AManagedHeapAny) */
@@ -644,12 +643,13 @@ void phx_rc_steal_inputs(PhxRefcountEnv *env, void *instr,
     for (size_t i = 0; i < n_ops; i++) {
         if (!(stolen_mask & ((uint64_t)1 << i))) continue;
 
-        void *reg = model_reg_rc(hir_c_get_operand(instr, i));
+        void *raw_reg = hir_c_get_operand(instr, i);
+        void *reg = model_reg_rc(raw_reg);
         PhxRegState *rstate = phx_sm_get(&env->live_regs, reg);
         if (!rstate) continue;
 
         int is_dying = hir_liveness_is_last_use(
-            env->liveness_state, instr, reg);
+            env->liveness_state, instr, raw_reg);
 
         if (rstate->kind == PHX_REF_OWNED && is_dying) {
             int32_t op = hir_c_opcode(instr);
@@ -660,9 +660,9 @@ void phx_rc_steal_inputs(PhxRefcountEnv *env, void *instr,
                 op == HIR_OP_InitialYield) {
                 HirDeoptLayout *deopt = hir_c_as_deopt_mut(instr);
                 if (deopt && deopt->frame_state &&
-                    phx_rc_is_in_frame_state(deopt->frame_state, reg)) {
+                    phx_rc_is_in_frame_state(deopt->frame_state, raw_reg)) {
                     if (env->mutate) {
-                        phx_rc_insert_incref(env, reg, instr);
+                        phx_rc_insert_incref(env, raw_reg, instr);
                         continue;
                     }
                 }
@@ -672,7 +672,7 @@ void phx_rc_steal_inputs(PhxRefcountEnv *env, void *instr,
         }
 
         if (env->mutate && rstate->kind != PHX_REF_UNCOUNTED) {
-            phx_rc_insert_incref(env, reg, instr);
+            phx_rc_insert_incref(env, raw_reg, instr);
         }
     }
 }
