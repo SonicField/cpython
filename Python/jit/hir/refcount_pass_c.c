@@ -12,7 +12,15 @@
 #include "cinderx/Common/jit_log_c.h"
 #include "Python.h"
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+static int g_c_rc_log = -1;
+static int c_rc_log_enabled(void) {
+    if (g_c_rc_log < 0) g_c_rc_log = getenv("RC_DIFF") != NULL;
+    return g_c_rc_log;
+}
 
 /* AliasClass bits for managed heap (AManagedHeapAny) */
 #define ALIAS_MANAGED_HEAP_ANY 0x3FC
@@ -21,6 +29,10 @@
 extern int phx_rc_reg_is_object(void *reg);
 
 void phx_rc_insert_incref(PhxRefcountEnv *env, void *reg, void *cursor) {
+    if (env->mutate && c_rc_log_enabled()) {
+        const HirBasicBlock *blk = (const HirBasicBlock *)((HirInstrLayout *)cursor)->block;
+        fprintf(stderr, "C +ref v%d bb%d\n", hir_reg_id(reg), hir_bb_id(blk));
+    }
     void *incref = phx_rc_reg_is_object(reg)
         ? hir_c_create_incref(reg)
         : hir_c_create_xincref(reg);
@@ -30,6 +42,10 @@ void phx_rc_insert_incref(PhxRefcountEnv *env, void *reg, void *cursor) {
 }
 
 void phx_rc_insert_decref(PhxRefcountEnv *env, void *reg, void *cursor) {
+    if (env->mutate && c_rc_log_enabled()) {
+        const HirBasicBlock *blk = (const HirBasicBlock *)((HirInstrLayout *)cursor)->block;
+        fprintf(stderr, "C -ref v%d bb%d\n", hir_reg_id(reg), hir_bb_id(blk));
+    }
     void *decref = phx_rc_reg_is_object(reg)
         ? hir_c_create_decref(reg)
         : hir_c_create_xdecref(reg);

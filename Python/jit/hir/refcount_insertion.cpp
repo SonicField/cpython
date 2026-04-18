@@ -490,9 +490,18 @@ bool isUncounted(const Register* reg) {
 }
 
 // Insert an Incref of `reg` before `cursor`.
+static int g_cpp_rc_log = -1;
+static int cpp_rc_log_enabled() {
+  if (g_cpp_rc_log < 0) g_cpp_rc_log = getenv("RC_DIFF") != nullptr;
+  return g_cpp_rc_log;
+}
+
 void insertIncref(Env& env, Register* reg, Instr& cursor) {
   JIT_DCHECK(env.mutate, "Attempt to insert incref with mutate == false");
   JIT_DCHECK(!isUncounted(reg), "Attempt to incref an uncounted value");
+  if (cpp_rc_log_enabled()) {
+    fprintf(stderr, "CPP +ref v%d bb%d\n", reg->id(), cursor.block()->id);
+  }
   Instr* incref;
   if (reg->type() <= TObject) {
     incref = static_cast<Instr*>(hir_c_create_incref(reg));
@@ -512,6 +521,9 @@ void insertIncref(Env& env, Register* reg, Instr& cursor) {
 void insertDecref(Env& env, Register* reg, Instr& cursor) {
   JIT_DCHECK(env.mutate, "Attempt to insert decref with mutate == false");
   JIT_DCHECK(!isUncounted(reg), "Attempt to decref an uncounted value");
+  if (cpp_rc_log_enabled()) {
+    fprintf(stderr, "CPP -ref v%d bb%d\n", reg->id(), cursor.block()->id);
+  }
   Instr* decref;
   if (reg->type() <= TObject) {
     decref = static_cast<Instr*>(hir_c_create_decref(reg));
@@ -1305,12 +1317,14 @@ void RefcountInsertion::Run(Function& func) {
   bindGuards(func);
   func.cfg.splitCriticalEdges();
 
-  PhxRefcountEnv *c_env = phx_rc_env_create(static_cast<void*>(&func));
-  phx_rc_run(c_env);
-  phx_rc_env_destroy(c_env);
-  removeTrampolineBlocks(&func.cfg);
-  optimizeLongDecrefRuns(func);
-  return;
+  if (!getenv("RC_USE_CPP")) {
+    PhxRefcountEnv *c_env = phx_rc_env_create(static_cast<void*>(&func));
+    phx_rc_run(c_env);
+    phx_rc_env_destroy(c_env);
+    removeTrampolineBlocks(&func.cfg);
+    optimizeLongDecrefRuns(func);
+    return;
+  }
 
   TRACE(
       "Starting refcount insertion for '{}':\n{}",
