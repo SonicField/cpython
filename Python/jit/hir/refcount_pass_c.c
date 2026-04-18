@@ -458,8 +458,11 @@ void phx_rc_initialize_in_state(
     void *instr = hir_bb_first_instr(bb);
     while (instr && hir_c_is_phi(instr)) {
         void *output = hir_c_output(instr);
+        int already_present = phx_sm_contains(in_state, output);
         PhxRegState *rs = phx_sm_get_or_create(in_state, output);
         (void)rs;
+        JIT_DCHECK_C(!already_present,
+                     "Phi output register shouldn't exist in map yet");
         instr = hir_bb_next_instr(bb, instr);
     }
 }
@@ -691,7 +694,9 @@ void phx_rc_process_output(PhxRefcountEnv *env, void *instr,
         return;
     }
 
+    int was_present = phx_sm_contains(&env->live_regs, output);
     PhxRegState *rstate = phx_sm_get_or_create(&env->live_regs, output);
+    JIT_DCHECK_C(!was_present, "Register already defined in processOutput");
     if (phx_rc_is_uncounted(output)) {
         /* Already uncounted by default */
     } else if (effects->borrows_output) {
@@ -753,9 +758,11 @@ void phx_rc_process_instr(PhxRefcountEnv *env, void *instr) {
     }
 
     if (hir_c_is_phi(instr)) {
-        /* Phi: collect deferred deaths, kill after last phi in block */
+        /* Phi: collect deferred deaths, kill after last phi in block.
+         * Only the output can die at a phi (operands belong to predecessors). */
         void *output = hir_c_output(instr);
-        if (output && is_dying_reg(env, instr, output)) {
+        int output_dying = output && is_dying_reg(env, instr, output);
+        if (output_dying) {
             if (env->n_deferred >= env->cap_deferred) {
                 env->cap_deferred = env->cap_deferred
                     ? env->cap_deferred * 2 : 8;
@@ -790,6 +797,12 @@ void phx_rc_process_instr(PhxRefcountEnv *env, void *instr) {
     if (op == HIR_OP_Return) {
         JIT_DCHECK_C(phx_sm_size(&env->live_regs) == 1,
                      "Unexpected live value(s) at Return");
+        void *ret_op = hir_c_get_operand(instr, 0);
+        PhxRegState *ret_rs = phx_sm_get(&env->live_regs, ret_op);
+        JIT_DCHECK_C(ret_rs && phx_rs_num_copies(ret_rs) == 1,
+                     "Return should have exactly one copy");
+        JIT_DCHECK_C(!ret_rs || ret_rs->kind != PHX_REF_OWNED,
+                     "Return operand should not be owned at exit");
         return;
     }
 
