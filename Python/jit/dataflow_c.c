@@ -49,6 +49,8 @@ void phx_df_destroy(PhxDataFlowAnalyzer *a) {
 }
 
 void phx_df_add_object(PhxDataFlowAnalyzer *a, void *obj, size_t obj_id) {
+    JIT_CHECK_C(a->n_blocks == 0,
+                "phx_df_add_object: must add all objects before blocks");
     size_t idx = a->num_bits;
     a->obj_id_to_index[obj_id] = idx;
     a->num_bits++;
