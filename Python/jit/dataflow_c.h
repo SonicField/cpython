@@ -54,6 +54,11 @@ int phx_df_get_in_bit(const PhxDataFlowAnalyzer *a, const PhxDataFlowBlock *b, s
 int phx_df_get_out_bit(const PhxDataFlowAnalyzer *a, const PhxDataFlowBlock *b, size_t obj_id);
 void phx_df_run(PhxDataFlowAnalyzer *a, int forward);
 
+/* Extended: meet_and=1 uses AND (intersection) for combining predecessors,
+ * init_out_ones=1 initializes all out bitvectors to all-1s before solving.
+ * Needed for definite assignment analysis. */
+void phx_df_run_ex(PhxDataFlowAnalyzer *a, int forward, int meet_and, int init_out_ones);
+
 typedef void (*PhxDfPerObjFunc)(void *obj, void *ctx);
 void phx_df_for_each_in(const PhxDataFlowAnalyzer *a, const PhxDataFlowBlock *b,
                          PhxDfPerObjFunc func, void *ctx);

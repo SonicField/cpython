@@ -126,9 +126,20 @@ void phx_df_for_each_out(const PhxDataFlowAnalyzer *a, const PhxDataFlowBlock *b
 }
 
 void phx_df_run(PhxDataFlowAnalyzer *a, int forward) {
+    phx_df_run_ex(a, forward, 0, 0);
+}
+
+void phx_df_run_ex(PhxDataFlowAnalyzer *a, int forward, int meet_and, int init_out_ones) {
     /* Forward: skip exit (boundary out values don't change).
      * Backward: skip entry (boundary in values don't change). */
     PhxDataFlowBlock *skip = forward ? a->exit_block : a->entry;
+
+    if (init_out_ones) {
+        for (size_t i = 0; i < a->n_blocks; i++) {
+            PhxBitVector *out = forward ? &a->blocks[i]->out : &a->blocks[i]->in;
+            phx_bv_fill(out, 1);
+        }
+    }
 
     size_t wl_cap = a->n_blocks < 16 ? 16 : a->n_blocks;
     PhxDataFlowBlock **worklist = (PhxDataFlowBlock **)PyMem_RawMalloc(wl_cap * sizeof(PhxDataFlowBlock *));
@@ -162,14 +173,25 @@ void phx_df_run(PhxDataFlowAnalyzer *a, int forward) {
         PhxBitVector *in_bv = forward ? &block->in : &block->out;
         PhxBitVector *out_bv = forward ? &block->out : &block->in;
 
-        phx_bv_reset_all(&new_in);
-        for (size_t i = 0; i < n_pred; i++) {
-            PhxBitVector *p_out = forward ? &pred_arr[i]->out : &pred_arr[i]->in;
-            phx_bv_or_assign(&new_in, p_out);
+        if (n_pred == 0) {
+            phx_bv_reset_all(&new_in);
+        } else if (meet_and) {
+            PhxBitVector *p0_out = forward ? &pred_arr[0]->out : &pred_arr[0]->in;
+            phx_bv_reset_all(&new_in);
+            phx_bv_or_assign(&new_in, p0_out);
+            for (size_t i = 1; i < n_pred; i++) {
+                PhxBitVector *p_out = forward ? &pred_arr[i]->out : &pred_arr[i]->in;
+                phx_bv_and_assign(&new_in, p_out);
+            }
+        } else {
+            phx_bv_reset_all(&new_in);
+            for (size_t i = 0; i < n_pred; i++) {
+                PhxBitVector *p_out = forward ? &pred_arr[i]->out : &pred_arr[i]->in;
+                phx_bv_or_assign(&new_in, p_out);
+            }
         }
 
         int changed = !phx_bv_equal(&new_in, in_bv);
-        /* In-place update: reset+OR avoids phx_bv_copy allocation leak */
         phx_bv_reset_all(in_bv);
         phx_bv_or_assign(in_bv, &new_in);
 
