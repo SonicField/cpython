@@ -499,12 +499,27 @@ size_t hir_type_to_string(const HirType *type, char *buf, size_t bufsz,
 /* ---- Memory effects ---- */
 
 int hir_memory_effects_may_store(HirInstr instr) {
-  HirMemoryEffects effects = hir_memory_effects(instr);
-  return (int)effects.may_store;
+  HirMemoryEffects c_effects = hir_memory_effects(instr);
+  auto cpp_effects = memoryEffects(*as_instr(instr));
+  JIT_DCHECK(
+      (int)c_effects.may_store == static_cast<int>(cpp_effects.may_store.bits()),
+      "instr_effects C/C++ may_store mismatch for opcode {}",
+      static_cast<int>(as_instr(instr)->opcode()));
+  JIT_DCHECK(
+      (int)c_effects.borrows_output == cpp_effects.borrows_output,
+      "instr_effects C/C++ borrows_output mismatch for opcode {}",
+      static_cast<int>(as_instr(instr)->opcode()));
+  return (int)c_effects.may_store;
 }
 
 int hir_has_arbitrary_execution_c(HirInstr instr) {
-  return hir_has_arbitrary_execution(instr);
+  int c_result = hir_has_arbitrary_execution(instr);
+  bool cpp_result = hasArbitraryExecution(*as_instr(instr));
+  JIT_DCHECK(
+      c_result == (int)cpp_result,
+      "hasArbitraryExecution C/C++ mismatch for opcode {}",
+      static_cast<int>(as_instr(instr)->opcode()));
+  return c_result;
 }
 
 /* ---- CFG / pass utilities ---- */
