@@ -126,7 +126,8 @@ void phx_df_for_each_out(const PhxDataFlowAnalyzer *a, const PhxDataFlowBlock *b
 void phx_df_run(PhxDataFlowAnalyzer *a, int forward) {
     PhxDataFlowBlock *skip = forward ? a->entry : a->exit_block;
 
-    PhxDataFlowBlock **worklist = (PhxDataFlowBlock **)PyMem_RawMalloc(a->n_blocks * sizeof(PhxDataFlowBlock *));
+    size_t wl_capacity = a->n_blocks * 4;
+    PhxDataFlowBlock **worklist = (PhxDataFlowBlock **)PyMem_RawMalloc(wl_capacity * sizeof(PhxDataFlowBlock *));
     size_t wl_head = 0, wl_tail = 0;
 
     for (size_t i = 0; i < a->n_blocks; i++) {
@@ -169,7 +170,7 @@ void phx_df_run(PhxDataFlowAnalyzer *a, int forward) {
         if (changed) {
             for (size_t i = 0; i < n_succ; i++) {
                 worklist[wl_tail++] = succ_arr[i];
-                if (wl_tail >= a->n_blocks * 4) {
+                if (wl_tail >= wl_capacity) {
                     /* Compact worklist if it grows too large */
                     size_t remaining = wl_tail - wl_head;
                     memmove(worklist, worklist + wl_head, remaining * sizeof(PhxDataFlowBlock *));
