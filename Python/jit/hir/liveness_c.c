@@ -4,12 +4,21 @@
  * Uses PhxDataFlowAnalyzer from dataflow_c.h for backward liveness analysis.
  */
 
-#include "cinderx/Jit/hir/liveness_c.h"
+/* Avoid including liveness_c.h here — it pulls in hir_c_api.h which
+ * defines HirBasicBlock/HirCFG as void*, conflicting with the struct
+ * definitions in hir_basic_block_c.h that we need for direct access. */
 #include "cinderx/Jit/dataflow_c.h"
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_basic_block_c.h"
 #include "cinderx/Common/jit_log_c.h"
 #include "Python.h"
+
+typedef void* HirFunction;
+typedef void* HirInstr;
+typedef void* HirRegister;
+
+typedef struct HirLivenessState HirLivenessState;
+int hir_liveness_verify(HirFunction func, const HirLivenessState *c_state);
 
 #include <string.h>
 
