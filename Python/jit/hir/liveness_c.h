@@ -26,6 +26,11 @@ int hir_liveness_is_last_use(
 /* Free the liveness analysis state. */
 void hir_liveness_destroy(HirLivenessState *state);
 
+/* Differential verification: compare C liveness results against C++.
+ * Returns 1 if all last-use results match, 0 if any mismatch.
+ * Logs mismatches via JIT_LOG. Safe to call in release builds. */
+int hir_liveness_verify(HirFunction func, const HirLivenessState *c_state);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

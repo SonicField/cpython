@@ -4,8 +4,8 @@
  */
 #include "cinderx/Jit/dataflow_c.h"
 #include "cinderx/Common/jit_log_c.h"
+#include "Python.h"
 #include <string.h>
-#include <stdlib.h>
 
 void phx_df_block_init(PhxDataFlowBlock *b) {
     memset(b, 0, sizeof(*b));
@@ -16,18 +16,18 @@ void phx_df_block_destroy(PhxDataFlowBlock *b) {
     phx_bv_destroy(&b->kill);
     phx_bv_destroy(&b->in);
     phx_bv_destroy(&b->out);
-    free(b->preds);
-    free(b->succs);
+    PyMem_RawFree(b->preds);
+    PyMem_RawFree(b->succs);
 }
 
 void phx_df_block_connect(PhxDataFlowBlock *from, PhxDataFlowBlock *to) {
     if (from->n_succs >= from->cap_succs) {
         from->cap_succs = from->cap_succs ? from->cap_succs * 2 : 4;
-        from->succs = (PhxDataFlowBlock **)realloc(from->succs, from->cap_succs * sizeof(PhxDataFlowBlock *));
+        from->succs = (PhxDataFlowBlock **)PyMem_RawRealloc(from->succs, from->cap_succs * sizeof(PhxDataFlowBlock *));
     }
     if (to->n_preds >= to->cap_preds) {
         to->cap_preds = to->cap_preds ? to->cap_preds * 2 : 4;
-        to->preds = (PhxDataFlowBlock **)realloc(to->preds, to->cap_preds * sizeof(PhxDataFlowBlock *));
+        to->preds = (PhxDataFlowBlock **)PyMem_RawRealloc(to->preds, to->cap_preds * sizeof(PhxDataFlowBlock *));
     }
     from->succs[from->n_succs++] = to;
     to->preds[to->n_preds++] = from;
@@ -36,23 +36,23 @@ void phx_df_block_connect(PhxDataFlowBlock *from, PhxDataFlowBlock *to) {
 void phx_df_init(PhxDataFlowAnalyzer *a, size_t max_obj_id) {
     memset(a, 0, sizeof(*a));
     a->max_obj_id = max_obj_id;
-    a->obj_id_to_index = (size_t *)calloc(max_obj_id + 1, sizeof(size_t));
+    a->obj_id_to_index = (size_t *)PyMem_RawCalloc(max_obj_id + 1, sizeof(size_t));
     a->index_to_obj = NULL;
     a->blocks = NULL;
     a->capacity = 0;
 }
 
 void phx_df_destroy(PhxDataFlowAnalyzer *a) {
-    free(a->obj_id_to_index);
-    free(a->index_to_obj);
-    free(a->blocks);
+    PyMem_RawFree(a->obj_id_to_index);
+    PyMem_RawFree(a->index_to_obj);
+    PyMem_RawFree(a->blocks);
 }
 
 void phx_df_add_object(PhxDataFlowAnalyzer *a, void *obj, size_t obj_id) {
     size_t idx = a->num_bits;
     a->obj_id_to_index[obj_id] = idx;
     a->num_bits++;
-    a->index_to_obj = (void **)realloc(a->index_to_obj, a->num_bits * sizeof(void *));
+    a->index_to_obj = (void **)PyMem_RawRealloc(a->index_to_obj, a->num_bits * sizeof(void *));
     a->index_to_obj[idx] = obj;
     for (size_t i = 0; i < a->n_blocks; i++) {
         PhxDataFlowBlock *b = a->blocks[i];
@@ -66,7 +66,7 @@ void phx_df_add_object(PhxDataFlowAnalyzer *a, void *obj, size_t obj_id) {
 void phx_df_add_block(PhxDataFlowAnalyzer *a, PhxDataFlowBlock *b) {
     if (a->n_blocks >= a->capacity) {
         a->capacity = a->capacity ? a->capacity * 2 : 16;
-        a->blocks = (PhxDataFlowBlock **)realloc(a->blocks, a->capacity * sizeof(PhxDataFlowBlock *));
+        a->blocks = (PhxDataFlowBlock **)PyMem_RawRealloc(a->blocks, a->capacity * sizeof(PhxDataFlowBlock *));
     }
     a->blocks[a->n_blocks++] = b;
     phx_bv_init(&b->gen, a->num_bits);
@@ -126,7 +126,7 @@ void phx_df_for_each_out(const PhxDataFlowAnalyzer *a, const PhxDataFlowBlock *b
 void phx_df_run(PhxDataFlowAnalyzer *a, int forward) {
     PhxDataFlowBlock *skip = forward ? a->entry : a->exit_block;
 
-    PhxDataFlowBlock **worklist = (PhxDataFlowBlock **)malloc(a->n_blocks * sizeof(PhxDataFlowBlock *));
+    PhxDataFlowBlock **worklist = (PhxDataFlowBlock **)PyMem_RawMalloc(a->n_blocks * sizeof(PhxDataFlowBlock *));
     size_t wl_head = 0, wl_tail = 0;
 
     for (size_t i = 0; i < a->n_blocks; i++) {
@@ -182,5 +182,5 @@ void phx_df_run(PhxDataFlowAnalyzer *a, int forward) {
 
     phx_bv_destroy(&new_in);
     phx_bv_destroy(&new_out);
-    free(worklist);
+    PyMem_RawFree(worklist);
 }
