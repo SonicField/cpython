@@ -1,6 +1,8 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/hir/refcount_insertion.h"
+#include "cinderx/Jit/hir/refcount_env_c.h"
+#include "cinderx/Jit/hir/refcount_pass_c.h"
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/jit_config_c.h"
@@ -1302,6 +1304,13 @@ void RefcountInsertion::Run(Function& func) {
   PhiElimination{}.Run(func);
   bindGuards(func);
   func.cfg.splitCriticalEdges();
+
+  PhxRefcountEnv *c_env = phx_rc_env_create(static_cast<void*>(&func));
+  phx_rc_run(c_env);
+  phx_rc_env_destroy(c_env);
+  removeTrampolineBlocks(&func.cfg);
+  optimizeLongDecrefRuns(func);
+  return;
 
   TRACE(
       "Starting refcount insertion for '{}':\n{}",
