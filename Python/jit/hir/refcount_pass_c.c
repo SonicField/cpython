@@ -141,6 +141,7 @@ void phx_rc_kill_register(PhxRefcountEnv *env, PhxRegState *rstate,
 /* Forward declarations */
 extern void *hir_chase_assign(void *reg);
 extern void *phx_rc_model_reg(void *reg);
+extern size_t phx_rc_get_rpo(void *func, void **out, size_t capacity);
 extern int hir_liveness_is_last_use(const void *state, void *instr, void *reg);
 extern int hir_liveness_is_live_in(const void *state, const void *block, void *reg);
 extern void hir_liveness_foreach_live_in(
@@ -1004,17 +1005,15 @@ static void wl_pop(PhxWorklist *wl) {
 /* ---- Main pass ---- */
 
 void phx_rc_run(PhxRefcountEnv *env) {
-    HirCFG *cfg = (HirCFG *)hir_func_cfg_ptr(env->func);
-
-    /* Get RPO traversal */
+    /* Get RPO traversal (use C++ bridge for correct ordering) */
     size_t rpo_cap = 64;
     void **rpo_blocks = (void **)PyMem_RawMalloc(rpo_cap * sizeof(void *));
-    size_t n_rpo = hir_cfg_get_rpo_c(cfg, rpo_blocks, rpo_cap);
+    size_t n_rpo = phx_rc_get_rpo(env->func, rpo_blocks, rpo_cap);
     if (n_rpo > rpo_cap) {
         rpo_cap = n_rpo;
         rpo_blocks = (void **)PyMem_RawRealloc(
             rpo_blocks, rpo_cap * sizeof(void *));
-        hir_cfg_get_rpo_c(cfg, rpo_blocks, rpo_cap);
+        phx_rc_get_rpo(env->func, rpo_blocks, rpo_cap);
     }
 
     /* Analysis phase: fixed-point iteration */

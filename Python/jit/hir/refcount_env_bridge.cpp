@@ -6,6 +6,7 @@
 #include "cinderx/Jit/hir/refcount_env_c.h"
 #include "cinderx/Jit/hir/refcount_structs_c.h"
 #include "cinderx/Jit/hir/hir.h"
+#include "cinderx/Jit/hir/function.h"
 #include "cinderx/Jit/hir/type.h"
 #include "cinderx/Jit/deopt.h"
 
@@ -101,5 +102,12 @@ void *phx_rc_model_reg(void *reg) {
   return modelReg(static_cast<Register*>(reg));
 }
 
+size_t phx_rc_get_rpo(void *func_ptr, void **out, size_t capacity) {
+  auto& func = *static_cast<jit::hir::Function*>(func_ptr);
+  auto rpo = func.cfg.GetRPOTraversal();
+  size_t n = rpo.size() < capacity ? rpo.size() : capacity;
+  for (size_t i = 0; i < n; i++) out[i] = rpo[i];
+  return rpo.size();
+}
 
 } /* extern "C" */
