@@ -17,4 +17,9 @@ int phx_rc_is_uncounted(void *reg) {
   return !(reg_type <= TMortalObject);
 }
 
+int phx_rc_reg_is_object(void *reg) {
+  auto* r = static_cast<Register*>(reg);
+  return r->type() <= TObject ? 1 : 0;
+}
+
 } /* extern "C" */
