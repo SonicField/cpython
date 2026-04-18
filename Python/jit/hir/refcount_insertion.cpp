@@ -1,6 +1,8 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/hir/refcount_insertion.h"
+#include "cinderx/Jit/hir/refcount_env_c.h"
+#include "cinderx/Jit/hir/refcount_pass_c.h"
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/jit_config_c.h"
@@ -1303,6 +1305,16 @@ void RefcountInsertion::Run(Function& func) {
   bindGuards(func);
   func.cfg.splitCriticalEdges();
 
+  // Use C refcount pass
+  PhxRefcountEnv *c_env = phx_rc_env_create(static_cast<void*>(&func));
+  phx_rc_run(c_env);
+  phx_rc_env_destroy(c_env);
+
+  removeTrampolineBlocks(&func.cfg);
+  optimizeLongDecrefRuns(func);
+  return;
+
+  // C++ pass below is unreachable
   TRACE(
       "Starting refcount insertion for '{}':\n{}",
       func.fullname,
