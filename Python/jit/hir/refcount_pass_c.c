@@ -12,6 +12,7 @@
 #include "cinderx/Common/jit_log_c.h"
 #include "Python.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /* AliasClass bits for managed heap (AManagedHeapAny) */
@@ -277,7 +278,8 @@ PhxPhiInput *phx_rc_collect_phi_inputs(
             continue;
         }
         void *input_reg = hir_c_get_operand((void *)phi, phi_idx);
-        const PhxRegState *rs = phx_sm_get(preds[pred_idx].state, input_reg);
+        void *input_model = model_reg_rc(input_reg);
+        const PhxRegState *rs = phx_sm_get(preds[pred_idx].state, input_model);
         JIT_DCHECK_C(rs != NULL, "Phi input not found in pred state");
         inputs[count].block = preds[pred_idx].block;
         inputs[count].rstate = rs;
@@ -298,6 +300,7 @@ PhxPhiSupport phx_rc_process_phis(
     PhxStateMap *in_state)
 {
     PhxPhiSupport support;
+    memset(&support, 0, sizeof(support));
     phx_bs_init(&support.dead, env->num_support_bits);
     support.forward_keys = NULL;
     support.forward_vals = NULL;
@@ -494,7 +497,7 @@ void phx_rc_use_simple_in_state(PhxRefcountEnv *env, void *block) {
     if (op == HIR_OP_CondBranch || op == HIR_OP_CondBranchIterNotDone) {
         void *false_bb = hir_c_condbranch_false_target(term);
         if (block == false_bb) {
-            void *reg = hir_c_get_operand(term, 0);
+            void *reg = model_reg_rc(hir_c_get_operand(term, 0));
             PhxRegState *rs = phx_sm_get(&env->live_regs, reg);
             if (rs) phx_rs_set_uncounted(rs);
         }
@@ -502,7 +505,7 @@ void phx_rc_use_simple_in_state(PhxRefcountEnv *env, void *block) {
         if (phx_rc_condbranch_check_type_is_wait_handle(term)) {
             void *true_bb = hir_c_condbranch_true_target(term);
             if (block == true_bb) {
-                void *reg = hir_c_get_operand(term, 0);
+                void *reg = model_reg_rc(hir_c_get_operand(term, 0));
                 PhxRegState *rs = phx_sm_get(&env->live_regs, reg);
                 if (rs) phx_rs_set_uncounted(rs);
             }
@@ -539,7 +542,6 @@ void phx_rc_use_simple_in_state(PhxRefcountEnv *env, void *block) {
 /* updateInState: orchestrate in-state computation for multi-predecessor blocks. */
 void phx_rc_update_in_state(PhxRefcountEnv *env, void *block) {
     const HirBasicBlock *bb = (const HirBasicBlock *)block;
-
     if (hir_bb_in_edges_count(bb) <= 1) {
         phx_rc_use_simple_in_state(env, block);
         return;
@@ -642,7 +644,7 @@ void phx_rc_steal_inputs(PhxRefcountEnv *env, void *instr,
     for (size_t i = 0; i < n_ops; i++) {
         if (!(stolen_mask & ((uint64_t)1 << i))) continue;
 
-        void *reg = hir_c_get_operand(instr, i);
+        void *reg = model_reg_rc(hir_c_get_operand(instr, i));
         PhxRegState *rstate = phx_sm_get(&env->live_regs, reg);
         if (!rstate) continue;
 
@@ -684,7 +686,8 @@ void phx_rc_process_output(PhxRefcountEnv *env, void *instr,
     if (!output) return;
 
     if (phx_rc_is_passthrough(instr) && !phx_rc_is_guard_is(instr)) {
-        PhxRegState *rstate = phx_sm_get(&env->live_regs, output);
+        void *model_out = model_reg_rc(output);
+        PhxRegState *rstate = phx_sm_get(&env->live_regs, model_out);
         JIT_DCHECK_C(rstate != NULL, "Passthrough output not in live_regs");
         phx_rs_add_copy(rstate, output);
         if (phx_rc_is_uncounted(output)) {
@@ -796,7 +799,7 @@ void phx_rc_process_instr(PhxRefcountEnv *env, void *instr) {
     if (op == HIR_OP_Return) {
         JIT_DCHECK_C(phx_sm_size(&env->live_regs) == 1,
                      "Unexpected live value(s) at Return");
-        void *ret_op = hir_c_get_operand(instr, 0);
+        void *ret_op = model_reg_rc(hir_c_get_operand(instr, 0));
         PhxRegState *ret_rs = phx_sm_get(&env->live_regs, ret_op);
         JIT_DCHECK_C(ret_rs && phx_rs_num_copies(ret_rs) == 1,
                      "Return should have exactly one copy");
@@ -1046,7 +1049,6 @@ void phx_rc_run(PhxRefcountEnv *env) {
     }
 
     wl_destroy(&worklist);
-
     /* Mutation phase */
     env->mutate = 1;
     for (size_t bi = 0; bi < n_rpo; bi++) {
@@ -1068,12 +1070,10 @@ void phx_rc_run(PhxRefcountEnv *env) {
             phx_rc_process_instr(env, instr);
             instr = next;
         }
-
         if (hir_bb_out_edges_count(bb) == 1) {
             const HirEdge *out_edge = hir_bb_out_edge(bb, 0);
             phx_rc_exit_block(env, block, out_edge);
         }
     }
-
     PyMem_RawFree(rpo_blocks);
 }
