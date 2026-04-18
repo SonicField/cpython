@@ -318,6 +318,7 @@ static void sm_grow(PhxStateMap *sm) {
             while (sm->keys[idx]) idx = (idx + 1) & mask;
             sm->keys[idx] = old_keys[i];
             sm->values[idx] = old_vals[i];
+            memset(&old_vals[i], 0, sizeof(PhxRegState));
             sm->count++;
         }
     }
