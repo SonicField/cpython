@@ -134,12 +134,10 @@ static void *model_reg_rc(void *reg) {
     return hir_chase_assign(reg);
 }
 
-/* Copy state into env and re-initialize borrow support tracking. */
+/* Deep-copy state into env->live_regs and re-initialize borrow support. */
 void phx_rc_use_in_state(PhxRefcountEnv *env, const PhxStateMap *state) {
     phx_sm_destroy(&env->live_regs);
-    env->live_regs = *state;
-    /* Re-init the destination (source is shallow-moved) */
-    phx_sm_init((PhxStateMap *)state);
+    phx_sm_copy(&env->live_regs, state);
 
     phx_bs_init(&env->borrow_support, env->num_support_bits);
     env->n_borrowed = 0;
@@ -476,6 +474,7 @@ void phx_rc_use_simple_in_state(PhxRefcountEnv *env, void *block) {
         PhxStateMap empty;
         phx_sm_init(&empty);
         phx_rc_use_in_state(env, &empty);
+        phx_sm_destroy(&empty);
         return;
     }
 

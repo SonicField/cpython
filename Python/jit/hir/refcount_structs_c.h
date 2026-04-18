@@ -77,6 +77,7 @@ typedef struct {
 
 void phx_sm_init(PhxStateMap *sm);
 void phx_sm_destroy(PhxStateMap *sm);
+void phx_sm_copy(PhxStateMap *dst, const PhxStateMap *src);
 PhxRegState *phx_sm_get(const PhxStateMap *sm, void *model);
 PhxRegState *phx_sm_get_or_create(PhxStateMap *sm, void *model);
 int phx_sm_contains(const PhxStateMap *sm, void *model);

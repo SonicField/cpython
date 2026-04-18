@@ -185,6 +185,36 @@ void phx_sm_destroy(PhxStateMap *sm) {
     }
     PyMem_RawFree(sm->keys);
     PyMem_RawFree(sm->values);
+    sm->keys = NULL;
+    sm->values = NULL;
+    sm->capacity = 0;
+    sm->count = 0;
+}
+
+void phx_sm_copy(PhxStateMap *dst, const PhxStateMap *src) {
+    phx_sm_init(dst);
+    for (size_t i = 0; i < src->capacity; i++) {
+        if (!src->keys[i]) continue;
+        void *model = src->keys[i];
+        const PhxRegState *srs = &src->values[i];
+        PhxRegState *drs = phx_sm_get_or_create(dst, model);
+        drs->kind = srs->kind;
+        /* Deep-copy copies array */
+        PyMem_RawFree(drs->copies);
+        drs->n_copies = srs->n_copies;
+        drs->cap_copies = srs->n_copies ? srs->n_copies : 1;
+        drs->copies = (void **)PyMem_RawMalloc(
+            drs->cap_copies * sizeof(void *));
+        memcpy(drs->copies, srs->copies,
+               srs->n_copies * sizeof(void *));
+        /* Deep-copy borrow support */
+        phx_bs_destroy(&drs->support);
+        drs->support.initialized = 0;
+        if (srs->support.initialized) {
+            drs->support.initialized = 1;
+            phx_bv_copy(&drs->support.bits, &srs->support.bits);
+        }
+    }
 }
 
 static void sm_grow(PhxStateMap *sm);
