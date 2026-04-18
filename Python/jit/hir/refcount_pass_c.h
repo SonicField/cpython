@@ -98,6 +98,25 @@ void phx_rc_use_simple_in_state(PhxRefcountEnv *env, void *block);
  * merge predecessor states, update borrow support forwarding. */
 void phx_rc_update_in_state(PhxRefcountEnv *env, void *block);
 
+/* ---- R3b-3: per-instruction processing ---- */
+
+/* Check if register is in the FrameState chain (localsplus or stack). */
+int phx_rc_is_in_frame_state(const void *frame_state, void *reg);
+
+/* Process stolen inputs: transfer ownership or insert Increfs. */
+void phx_rc_steal_inputs(PhxRefcountEnv *env, void *instr,
+                         uint64_t stolen_mask, void *cursor);
+
+/* Track the output of an instruction. */
+void phx_rc_process_output(PhxRefcountEnv *env, void *instr,
+                           const void *effects);
+
+/* Process a single instruction: effects, steals, output, dying regs. */
+void phx_rc_process_instr(PhxRefcountEnv *env, void *instr);
+
+/* Fill deopt live regs from the current live_regs state (C++ bridge). */
+void phx_rc_fill_deopt_live_regs(const PhxStateMap *live_regs, void *instr);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

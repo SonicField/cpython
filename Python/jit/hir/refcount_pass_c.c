@@ -7,6 +7,7 @@
 #include "cinderx/Jit/hir/refcount_pass_c.h"
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_basic_block_c.h"
+#include "cinderx/Jit/hir/instr_effects_c.h"
 #include "cinderx/Common/jit_log_c.h"
 #include "Python.h"
 
@@ -599,4 +600,213 @@ void phx_rc_update_in_state(PhxRefcountEnv *env, void *block) {
     phx_rc_use_in_state(env, in_state);
     phx_rc_phi_support_destroy(&phi_support);
     PyMem_RawFree(preds);
+}
+
+/* ---- R3b-3: Per-instruction processing ---- */
+
+extern int phx_rc_is_passthrough(void *instr);
+extern int phx_rc_is_guard_is(void *instr);
+
+/* isInFrameState: check if reg appears in localsplus or stack of any
+ * FrameState in the chain. */
+int phx_rc_is_in_frame_state(const void *frame_state, void *reg) {
+    const HirFrameStateLayout *fs = (const HirFrameStateLayout *)frame_state;
+    while (fs) {
+        for (size_t i = 0; i < fs->localsplus.count; i++) {
+            if (fs->localsplus.data[i] == reg) return 1;
+        }
+        for (size_t i = 0; i < fs->stack.count; i++) {
+            if (fs->stack.data[i] == reg) return 1;
+        }
+        fs = fs->parent;
+    }
+    return 0;
+}
+
+/* stealInputs: process operands stolen by an instruction. */
+void phx_rc_steal_inputs(PhxRefcountEnv *env, void *instr,
+                         uint64_t stolen_mask, void *cursor)
+{
+    if (stolen_mask == 0) return;
+
+    size_t n_ops = hir_c_num_operands(instr);
+    for (size_t i = 0; i < n_ops; i++) {
+        if (!(stolen_mask & ((uint64_t)1 << i))) continue;
+
+        void *reg = hir_c_get_operand(instr, i);
+        PhxRegState *rstate = phx_sm_get(&env->live_regs, reg);
+        if (!rstate) continue;
+
+        int is_dying = hir_liveness_is_last_use(
+            env->liveness_state, instr, reg);
+
+        if (rstate->kind == PHX_REF_OWNED && is_dying) {
+            int32_t op = hir_c_opcode(instr);
+            if (op == HIR_OP_YieldValue ||
+                op == HIR_OP_YieldFrom ||
+                op == HIR_OP_YieldAndYieldFrom ||
+                op == HIR_OP_YieldFromHandleStopAsyncIteration ||
+                op == HIR_OP_InitialYield) {
+                HirDeoptLayout *deopt = hir_c_as_deopt_mut(instr);
+                if (deopt && deopt->frame_state &&
+                    phx_rc_is_in_frame_state(deopt->frame_state, reg)) {
+                    if (env->mutate) {
+                        phx_rc_insert_incref(env, reg, instr);
+                        continue;
+                    }
+                }
+            }
+            phx_rs_set_borrowed(rstate, env->num_support_bits);
+            continue;
+        }
+
+        if (env->mutate && rstate->kind != PHX_REF_UNCOUNTED) {
+            phx_rc_insert_incref(env, reg, instr);
+        }
+    }
+}
+
+/* processOutput: track the output of an instruction. */
+void phx_rc_process_output(PhxRefcountEnv *env, void *instr,
+                           const void *effects_ptr)
+{
+    const HirMemoryEffects *effects = (const HirMemoryEffects *)effects_ptr;
+    void *output = hir_c_output(instr);
+    if (!output) return;
+
+    if (phx_rc_is_passthrough(instr) && !phx_rc_is_guard_is(instr)) {
+        PhxRegState *rstate = phx_sm_get(&env->live_regs, output);
+        JIT_DCHECK_C(rstate != NULL, "Passthrough output not in live_regs");
+        phx_rs_add_copy(rstate, output);
+        if (phx_rc_is_uncounted(output)) {
+            phx_rs_set_uncounted(rstate);
+        }
+        return;
+    }
+
+    PhxRegState *rstate = phx_sm_get_or_create(&env->live_regs, output);
+    if (phx_rc_is_uncounted(output)) {
+        /* Already uncounted by default */
+    } else if (effects->borrows_output) {
+        phx_rs_set_borrowed(rstate, env->num_support_bits);
+        phx_bs_add_acls(&rstate->support, effects->borrow_support);
+        phx_rc_register_borrow_support(env, rstate);
+    } else {
+        phx_rs_set_owned(rstate);
+    }
+}
+
+/* Collect dying regs for an instruction into a dynamically allocated array.
+ * Caller must free the returned array. */
+static void **collect_dying_regs(PhxRefcountEnv *env, void *instr,
+                                  size_t *n_dying_out) {
+    void **dying = NULL;
+    size_t n = 0, cap = 0;
+
+    size_t n_ops = hir_c_num_operands(instr);
+    for (size_t i = 0; i < n_ops; i++) {
+        void *reg = hir_c_get_operand(instr, i);
+        if (hir_liveness_is_last_use(env->liveness_state, instr, reg)) {
+            if (n >= cap) {
+                cap = cap ? cap * 2 : 8;
+                dying = (void **)PyMem_RawRealloc(dying, cap * sizeof(void *));
+            }
+            dying[n++] = reg;
+        }
+    }
+
+    /* Also check output for immediate death (phi case) */
+    void *output = hir_c_output(instr);
+    if (output && hir_liveness_is_last_use(env->liveness_state, instr, output)) {
+        if (n >= cap) {
+            cap = cap ? cap * 2 : 8;
+            dying = (void **)PyMem_RawRealloc(dying, cap * sizeof(void *));
+        }
+        dying[n++] = output;
+    }
+
+    *n_dying_out = n;
+    return dying;
+}
+
+static int is_dying_reg(PhxRefcountEnv *env, void *instr, void *reg) {
+    return hir_liveness_is_last_use(env->liveness_state, instr, reg);
+}
+
+/* processInstr: process a single instruction — effects, steals, output,
+ * dying regs. */
+void phx_rc_process_instr(PhxRefcountEnv *env, void *instr) {
+    int32_t op = hir_c_opcode(instr);
+    JIT_DCHECK_C(op != HIR_OP_Incref && op != HIR_OP_Decref &&
+                 op != HIR_OP_XDecref && op != HIR_OP_Snapshot,
+                 "Unsupported instruction in processInstr");
+
+    if (hir_c_num_edges(instr) > 0) {
+        return;
+    }
+
+    if (hir_c_is_phi(instr)) {
+        /* Phi: collect deferred deaths, kill after last phi in block */
+        void *output = hir_c_output(instr);
+        if (output && is_dying_reg(env, instr, output)) {
+            if (env->n_deferred >= env->cap_deferred) {
+                env->cap_deferred = env->cap_deferred
+                    ? env->cap_deferred * 2 : 8;
+                env->deferred_deaths = (void **)PyMem_RawRealloc(
+                    env->deferred_deaths,
+                    env->cap_deferred * sizeof(void *));
+            }
+            env->deferred_deaths[env->n_deferred++] = output;
+        }
+
+        void *block = hir_c_block(instr);
+        void *next = hir_bb_next_instr((const HirBasicBlock *)block, instr);
+        if (next && !hir_c_is_phi(next) && env->n_deferred > 0) {
+            phx_rc_kill_registers(env, env->deferred_deaths,
+                                  env->n_deferred, next);
+            env->n_deferred = 0;
+        }
+        return;
+    }
+
+    HirMemoryEffects effects = hir_memory_effects(instr);
+
+    /* Invalidate borrow support by AliasClass */
+    if (effects.may_store != 0) {
+        phx_rc_invalidate_bs_acls(env, instr, effects.may_store);
+    }
+
+    /* Steal inputs */
+    phx_rc_steal_inputs(env, instr, effects.stolen_mask, instr);
+
+    /* Return check */
+    if (op == HIR_OP_Return) {
+        JIT_DCHECK_C(phx_sm_size(&env->live_regs) == 1,
+                     "Unexpected live value(s) at Return");
+        return;
+    }
+
+    /* Fill deopt live regs (mutation phase only) */
+    if (env->mutate) {
+        phx_rc_fill_deopt_live_regs(&env->live_regs, instr);
+    }
+
+    /* Terminator check */
+    if (hir_c_is_terminator(instr)) {
+        return;
+    }
+
+    /* Process output */
+    phx_rc_process_output(env, instr, &effects);
+
+    /* Kill dying registers after this instruction */
+    void *block = hir_c_block(instr);
+    void *next_instr = hir_bb_next_instr((const HirBasicBlock *)block, instr);
+
+    size_t n_dying = 0;
+    void **dying = collect_dying_regs(env, instr, &n_dying);
+    if (n_dying > 0 && next_instr) {
+        phx_rc_kill_registers(env, dying, n_dying, next_instr);
+    }
+    PyMem_RawFree(dying);
 }

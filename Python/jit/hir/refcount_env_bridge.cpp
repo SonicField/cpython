@@ -4,8 +4,10 @@
  */
 
 #include "cinderx/Jit/hir/refcount_env_c.h"
+#include "cinderx/Jit/hir/refcount_structs_c.h"
 #include "cinderx/Jit/hir/hir.h"
 #include "cinderx/Jit/hir/type.h"
+#include "cinderx/Jit/deopt.h"
 
 using namespace jit::hir;
 
@@ -33,6 +35,36 @@ int phx_rc_is_passthrough(void *instr) {
 
 int phx_rc_is_guard_is(void *instr) {
   return static_cast<Instr*>(instr)->IsGuardIs() ? 1 : 0;
+}
+
+void phx_rc_fill_deopt_live_regs(const PhxStateMap *live_regs, void *instr_ptr) {
+  auto& instr = *static_cast<Instr*>(instr_ptr);
+  auto deopt = instr.asDeoptBase();
+  if (deopt == nullptr) {
+    return;
+  }
+
+  JIT_CHECK(deopt->live_regs().empty(), "Instruction should have no live regs");
+
+  for (size_t idx = 0; idx < live_regs->capacity; idx++) {
+    if (!live_regs->keys[idx]) continue;
+    const PhxRegState& rstate = live_regs->values[idx];
+    auto ref_kind = static_cast<RefKind>(rstate.kind);
+
+    for (int i = 0, n = (int)rstate.n_copies; i < n; ++i) {
+      auto* reg = static_cast<Register*>(rstate.copies[i]);
+      HirType h_regtype = Type::toHirType(reg->type());
+      HirType h_cptr = Type::toHirType(TCPtr);
+      if (hir_type_could_be(&h_regtype, &h_cptr)) {
+        continue;
+      }
+      deopt->emplaceLiveReg(reg, ref_kind, jit::deoptValueKind(reg->type()));
+      if (ref_kind == RefKind::kOwned) {
+        ref_kind = RefKind::kBorrowed;
+      }
+    }
+  }
+  deopt->sortLiveRegs();
 }
 
 } /* extern "C" */
