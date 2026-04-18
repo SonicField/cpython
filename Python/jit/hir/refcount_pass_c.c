@@ -23,7 +23,7 @@ static int c_rc_log_enabled(void) {
 }
 
 /* AliasClass bits for managed heap (AManagedHeapAny) */
-#define ALIAS_MANAGED_HEAP_ANY 0x3FC
+#include "cinderx/Jit/hir/alias_class_c.h"
 
 /* Bridge: check if register type is subtype of TObject (needs C++ constant) */
 extern int phx_rc_reg_is_object(void *reg);
@@ -117,7 +117,7 @@ void phx_rc_kill_register(PhxRefcountEnv *env, PhxRegState *rstate,
         if (bit >= 0) {
             phx_rc_invalidate_bs_bit(env, cursor, (size_t)bit);
         }
-        phx_rc_invalidate_bs_acls(env, cursor, ALIAS_MANAGED_HEAP_ANY);
+        phx_rc_invalidate_bs_acls(env, cursor, AManagedHeapAny);
         if (env->mutate) {
             phx_rc_insert_decref(env, copy, cursor);
         }
