@@ -727,35 +727,22 @@ void phx_rc_process_output(PhxRefcountEnv *env, void *instr,
     }
 }
 
-/* Collect dying regs for an instruction into a dynamically allocated array.
+extern size_t hir_liveness_get_dying_regs(
+    const void *state, void *instr, void **out_regs, size_t capacity);
+
+/* Get dying regs for an instruction from precomputed liveness data.
  * Caller must free the returned array. */
 static void **collect_dying_regs(PhxRefcountEnv *env, void *instr,
                                   size_t *n_dying_out) {
+    void *stack_buf[16];
+    size_t n = hir_liveness_get_dying_regs(
+        env->liveness_state, instr, stack_buf, 16);
+
     void **dying = NULL;
-    size_t n = 0, cap = 0;
-
-    size_t n_ops = hir_c_num_operands(instr);
-    for (size_t i = 0; i < n_ops; i++) {
-        void *reg = hir_c_get_operand(instr, i);
-        if (hir_liveness_is_last_use(env->liveness_state, instr, reg)) {
-            if (n >= cap) {
-                cap = cap ? cap * 2 : 8;
-                dying = (void **)PyMem_RawRealloc(dying, cap * sizeof(void *));
-            }
-            dying[n++] = reg;
-        }
+    if (n > 0) {
+        dying = (void **)PyMem_RawMalloc(n * sizeof(void *));
+        memcpy(dying, stack_buf, n * sizeof(void *));
     }
-
-    /* Also check output for immediate death (phi case) */
-    void *output = hir_c_output(instr);
-    if (output && hir_liveness_is_last_use(env->liveness_state, instr, output)) {
-        if (n >= cap) {
-            cap = cap ? cap * 2 : 8;
-            dying = (void **)PyMem_RawRealloc(dying, cap * sizeof(void *));
-        }
-        dying[n++] = output;
-    }
-
     *n_dying_out = n;
     return dying;
 }

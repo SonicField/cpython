@@ -26,6 +26,13 @@ int hir_liveness_is_last_use(
 /* Free the liveness analysis state. */
 void hir_liveness_destroy(HirLivenessState *state);
 
+/* Get all registers that die after instruction instr.
+ * Writes Register* pointers into out_regs, up to capacity.
+ * Returns number of dying registers. */
+size_t hir_liveness_get_dying_regs(
+    const HirLivenessState *state, HirInstr instr,
+    void **out_regs, size_t capacity);
+
 /* Check if a register is live-in to a basic block.
  * block must be a BasicBlock* from the function used to create state. */
 int hir_liveness_is_live_in(

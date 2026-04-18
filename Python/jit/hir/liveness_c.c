@@ -373,6 +373,20 @@ int hir_liveness_is_last_use(
     return phx_bv_get_bit(&e->regs, idx);
 }
 
+size_t hir_liveness_get_dying_regs(
+    const HirLivenessState *state, void *instr, void **out_regs, size_t capacity)
+{
+    const PhxLastUseEntry *e = lu_find(&state->last_uses, instr);
+    if (!e) return 0;
+    size_t count = 0;
+    for (size_t i = 0; i < state->analyzer.num_bits && count < capacity; i++) {
+        if (phx_bv_get_bit(&e->regs, i)) {
+            out_regs[count++] = state->analyzer.index_to_obj[i];
+        }
+    }
+    return count;
+}
+
 int hir_liveness_is_live_in(
     const HirLivenessState *state, const void *block, HirRegister reg)
 {
