@@ -65,10 +65,12 @@ static int phi_use_cmp(const void *a, const void *b) {
     return 0;
 }
 
-/* ---- modelReg: chase Assign chains ---- */
+/* ---- modelReg: chase through passthroughs (matches phx_rc_model_reg) ---- */
+
+extern void *phx_rc_model_reg(void *reg);
 
 static void *model_reg(void *reg) {
-    return hir_chase_assign(reg);
+    return phx_rc_model_reg(reg);
 }
 
 /* ---- Public API ---- */
