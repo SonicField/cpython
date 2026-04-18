@@ -7,6 +7,7 @@
 #include "cinderx/Jit/jit_config_c.h"
 #include "cinderx/Jit/frame.h"
 #include "cinderx/Jit/hir/analysis.h"
+#include "cinderx/Jit/hir/func_type_checks_c.h"
 #include "cinderx/Jit/hir/builder.h"
 #include "cinderx/Jit/hir/builtin_load_method_elimination.h"
 #include "cinderx/Jit/hir/clean_cfg.h"
@@ -65,7 +66,11 @@ static void runPass(T&& pass, hir::Function& func, PostPassFunction callback) {
                     "Function {} failed type checking after pass {}:\n{}",
                     func.fullname,
                     pass.name(),
-                    func);)
+                    func);
+                JIT_DCHECK(
+                    hir_func_type_checks(&func) == funcTypeChecks(func, std::cerr),
+                    "funcTypeChecks C/C++ mismatch after pass {}",
+                    pass.name());)
 }
 
 void Compiler::runPasses(jit::hir::Function& irfunc, PassConfig config) {

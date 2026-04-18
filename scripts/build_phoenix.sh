@@ -40,7 +40,7 @@ PHOENIX_CXX="${PHOENIX_CXX:-clang++}"
 
 # gcc-toolset-15 workaround: force clang to use gcc 11 headers/libs
 GCC_INSTALL_FLAG=""
-if [ -d /usr/lib/gcc/x86_64-redhat-linux/11 ] && [ "" != "aarch64" ]; then
+if [ -d /usr/lib/gcc/x86_64-redhat-linux/11 ] && [ "$ARCH" != "aarch64" ]; then
     GCC_INSTALL_FLAG="--gcc-install-dir=/usr/lib/gcc/x86_64-redhat-linux/11"
 fi
 
