@@ -374,6 +374,8 @@ PhxPhiSupport phx_rc_process_phis(
                     }
                     fi = support.n_forwards++;
                     support.forward_keys[fi] = (size_t)model_bit;
+                    memset(&support.forward_vals[fi], 0,
+                           sizeof(PhxBorrowSupport));
                     phx_bs_init(&support.forward_vals[fi],
                                 env->num_support_bits);
                 }
