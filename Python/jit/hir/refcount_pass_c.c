@@ -174,7 +174,7 @@ void phx_rc_kill_registers(PhxRefcountEnv *env, void **regs, size_t n_regs,
                            void *cursor) {
     if (n_regs == 0) return;
 
-    typedef struct { void *copy; PhxRegState *rstate; } RegCopy;
+    typedef struct { void *copy; void *model; int kind; } RegCopy;
     RegCopy *rcs = (RegCopy *)PyMem_RawMalloc(n_regs * sizeof(RegCopy));
 
     size_t n_rcs = 0;
@@ -183,7 +183,8 @@ void phx_rc_kill_registers(PhxRefcountEnv *env, void **regs, size_t n_regs,
         PhxRegState *rs = phx_sm_get(&env->live_regs, model);
         if (rs) {
             rcs[n_rcs].copy = regs[i];
-            rcs[n_rcs].rstate = rs;
+            rcs[n_rcs].model = model;
+            rcs[n_rcs].kind = rs->kind;
             n_rcs++;
         }
     }
@@ -193,13 +194,13 @@ void phx_rc_kill_registers(PhxRefcountEnv *env, void **regs, size_t n_regs,
         RegCopy tmp = rcs[i];
         size_t j = i;
         while (j > 0) {
-            int a_bor = (rcs[j-1].rstate->kind == PHX_REF_BORROWED) ? 1 : 0;
-            int b_bor = (tmp.rstate->kind == PHX_REF_BORROWED) ? 1 : 0;
+            int a_bor = (rcs[j-1].kind == PHX_REF_BORROWED) ? 1 : 0;
+            int b_bor = (tmp.kind == PHX_REF_BORROWED) ? 1 : 0;
             int swap = 0;
             if (b_bor && !a_bor) swap = 1;
             else if (a_bor == b_bor) {
-                int a_id = hir_reg_id(rcs[j-1].rstate->model);
-                int b_id = hir_reg_id(tmp.rstate->model);
+                int a_id = hir_reg_id(rcs[j-1].model);
+                int b_id = hir_reg_id(tmp.model);
                 if (b_id < a_id) swap = 1;
             }
             if (!swap) break;
@@ -210,7 +211,8 @@ void phx_rc_kill_registers(PhxRefcountEnv *env, void **regs, size_t n_regs,
     }
 
     for (size_t i = 0; i < n_rcs; i++) {
-        phx_rc_kill_register(env, rcs[i].rstate, rcs[i].copy, cursor);
+        PhxRegState *rs = phx_sm_get(&env->live_regs, rcs[i].model);
+        if (rs) phx_rc_kill_register(env, rs, rcs[i].copy, cursor);
     }
 
     PyMem_RawFree(rcs);
