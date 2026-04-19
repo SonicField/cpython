@@ -2249,6 +2249,14 @@ void hir_c_replace_with(HirInstr old_instr, HirInstr new_instr) {
   as_instr(old_instr)->ReplaceWith(*as_instr(new_instr));
 }
 
+void hir_c_copy_frame_state(HirInstr dst, HirInstr src) {
+  auto* src_deopt = as_instr(src)->asDeoptBase();
+  auto* dst_deopt = as_instr(dst)->asDeoptBase();
+  if (src_deopt && dst_deopt && src_deopt->frameState()) {
+    dst_deopt->setFrameState(*src_deopt->frameState());
+  }
+}
+
 void hir_c_set_successor_cpp(HirInstr instr, size_t i, void *block) {
   as_instr(instr)->set_successor(i, static_cast<BasicBlock*>(block));
 }

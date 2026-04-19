@@ -776,6 +776,17 @@ static inline uint32_t hir_c_call_flags(const void *instr) {
     return ((const HirVectorCall *)instr)->flags;
 }
 
+/* CallFlags C constants (must match C++ enum class CallFlags in hir.h) */
+#define HIR_CALL_FLAG_NONE    0u
+#define HIR_CALL_FLAG_KWARGS  (1u << 0)
+#define HIR_CALL_FLAG_AWAITED (1u << 1)
+#define HIR_CALL_FLAG_STATIC  (1u << 2)
+
+/* DeoptBase frame_state accessor */
+static inline void *hir_c_get_frame_state(const void *instr) {
+    return ((const HirDeoptLayout *)instr)->frame_state;
+}
+
 static inline void *hir_c_deopt_patchpoint_patcher(const void *instr) {
     return ((const HirDeoptPatchpoint *)instr)->patcher;
 }

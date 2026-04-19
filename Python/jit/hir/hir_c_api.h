@@ -690,6 +690,10 @@ void hir_c_set_successor_cpp(HirInstr instr, size_t i, void *block);
 /* Replace all uses of 'orig' register with 'replacement' in this instruction. */
 void hir_c_replace_uses_of(HirInstr instr, HirRegister orig, HirRegister replacement);
 
+/* Copy frame state from src instruction (DeoptBase) onto dst instruction (DeoptBase).
+ * Both must be DeoptBase subclasses. Deep copies the FrameState. */
+void hir_c_copy_frame_state(HirInstr dst, HirInstr src);
+
 /* Note: hir_c_num_edges, hir_c_successor, hir_c_is_terminator,
  * hir_c_set_bytecode_offset, hir_c_copy_bytecode_offset are already
  * defined as static inline in hir_instr_c.h — no extern C needed. */
