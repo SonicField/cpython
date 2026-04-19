@@ -2804,9 +2804,14 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
       sync_c_env(cenv);
       return r;
     }
-    case Opcode::kLoadArrayItem:
+    case Opcode::kLoadArrayItem: {
+      SimplifyEnv cenv = make_c_env();
+      auto *r = static_cast<Register*>(simplify_load_array_item_tuple_c(&cenv, instr));
+      sync_c_env(cenv);
+      if (r) return r;
       return simplifyLoadArrayItem(
           env, static_cast<const LoadArrayItem*>(instr));
+    }
     case Opcode::kLoadVarObjectSize: {
       SimplifyEnv cenv = make_c_env();
       auto *r = static_cast<Register*>(simplify_load_var_object_size_c(&cenv, instr));

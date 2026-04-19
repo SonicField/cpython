@@ -212,6 +212,33 @@ void *simplify_primitive_compare_box_true_c(const void *instr) {
     return hir_c_get_operand(left_def, 0);
 }
 
+/* ---- simplifyLoadArrayItem (partial — known tuple path) ----
+ * If src is a known tuple and idx is a known int, fold to constant item. */
+void *simplify_load_array_item_tuple_c(SimplifyEnv *env, const void *instr) {
+    void *src = hir_c_get_operand(instr, 0);
+    void *idx_reg = hir_c_get_operand(instr, 1);
+    HirType idx_type = hir_register_type(idx_reg);
+    if (!hir_type_has_int_spec(&idx_type)) return NULL;
+
+    intptr_t idx_signed = hir_type_int_spec(&idx_type);
+    if (idx_signed < 0) return NULL;
+
+    HirType src_type = hir_register_type(src);
+    HirType t_tuple_exact = HIR_TYPE_TUPLEEXACT;
+    if (hir_type_has_value_spec(&src_type, t_tuple_exact)) {
+        PyObject *tuple_obj = hir_type_object_spec(&src_type);
+        if (idx_signed < PyTuple_GET_SIZE(tuple_obj)) {
+            simplify_env_emit_use_type(env, src, src_type);
+            simplify_env_emit_use_type(env, idx_reg, idx_type);
+            PyObject *item = PyTuple_GET_ITEM(tuple_obj, idx_signed);
+            extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
+            PyObject *ref = hir_func_add_reference(env->func, item);
+            return simplify_env_emit_load_const(env, hir_type_from_object(ref));
+        }
+    }
+    return NULL;
+}
+
 /* ---- simplifyLoadTupleItem ----
  * If src is a known tuple object, fold to the constant item. */
 void *simplify_load_tuple_item_c(SimplifyEnv *env, const void *instr) {
