@@ -1,6 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "cinderx/Jit/hir/simplify.h"
+#include "cinderx/Jit/hir/simplify_c.h"
 #include "cinderx/Jit/jit_config_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/hir/hir_c_api.h"
@@ -2725,7 +2726,7 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
     case Opcode::kCheckVar:
     case Opcode::kCheckExc:
     case Opcode::kCheckField:
-      return simplifyCheck(static_cast<const CheckBase*>(instr));
+      return static_cast<Register*>(simplify_check_c(instr));
     case Opcode::kCheckSequenceBounds:
       return simplifyCheckSequenceBounds(env, instr);
     case Opcode::kGuardType:
