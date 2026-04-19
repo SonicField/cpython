@@ -131,6 +131,68 @@ void *simplify_env_emit_call_static_instr(SimplifyEnv *env, size_t n_operands,
     return instr;
 }
 
+void *simplify_env_emit_load_field(SimplifyEnv *env, void *receiver,
+                                    const char *name, intptr_t offset,
+                                    HirType type, int borrowed) {
+    extern void *hir_c_create_load_field(void *func, void *recv, const char *name,
+                                          intptr_t offset, HirType type, int borrowed);
+    void *instr = hir_c_create_load_field(env->func, receiver, name, offset, type, borrowed);
+    return simplify_env_emit(env, instr);
+}
+
+void *simplify_env_emit_cint_to_cbool(SimplifyEnv *env, void *src) {
+    void *reg = hir_func_alloc_register(env->func);
+    extern void *hir_c_create_cint_to_cbool(void *dst, void *src);
+    void *instr = hir_c_create_cint_to_cbool(reg, src);
+    return simplify_env_emit(env, instr);
+}
+
+/* ---- emitGetLengthInt64 C helper ----
+ * Returns ob_size/ma_used/used/length field as CInt64, or NULL. */
+static void *emit_get_length_int64_c(SimplifyEnv *env, void *obj) {
+    HirType obj_type = hir_register_type(obj);
+    HirType t_tuple_exact = HIR_TYPE_TUPLEEXACT;
+    HirType t_cint64 = HIR_TYPE_CINT64;
+
+#ifndef Py_GIL_DISABLED
+    HirType t_list_exact = HIR_TYPE_SIMPLE(0x00000010000ULL, HIR_TYPE_LIFETIME_TOP);
+    if (hir_type_is_subtype(obj_type, t_list_exact) ||
+        hir_type_is_subtype(obj_type, t_tuple_exact)) {
+#else
+    if (hir_type_is_subtype(obj_type, t_tuple_exact)) {
+#endif
+        HirType unspec = hir_type_unspecialized(&obj_type);
+        simplify_env_emit_use_type(env, obj, unspec);
+        return simplify_env_emit_load_field(env, obj, "ob_size",
+            (intptr_t)offsetof(PyVarObject, ob_size), t_cint64, 0);
+    }
+
+    HirType t_unicode_exact = HIR_TYPE_UNICODEEXACT;
+#ifndef Py_GIL_DISABLED
+    HirType t_dict_exact = HIR_TYPE_DICTEXACT;
+    HirType t_set_exact = HIR_TYPE_SIMPLE(0x00000020000ULL, HIR_TYPE_LIFETIME_TOP);
+    if (hir_type_is_subtype(obj_type, t_dict_exact)) {
+        HirType unspec = hir_type_unspecialized(&obj_type);
+        simplify_env_emit_use_type(env, obj, unspec);
+        return simplify_env_emit_load_field(env, obj, "ma_used",
+            (intptr_t)offsetof(PyDictObject, ma_used), t_cint64, 0);
+    }
+    if (hir_type_is_subtype(obj_type, t_set_exact)) {
+        HirType unspec = hir_type_unspecialized(&obj_type);
+        simplify_env_emit_use_type(env, obj, unspec);
+        return simplify_env_emit_load_field(env, obj, "used",
+            (intptr_t)offsetof(PySetObject, used), t_cint64, 0);
+    }
+#endif
+    if (hir_type_is_subtype(obj_type, t_unicode_exact)) {
+        HirType unspec = hir_type_unspecialized(&obj_type);
+        simplify_env_emit_use_type(env, obj, unspec);
+        return simplify_env_emit_load_field(env, obj, "length",
+            (intptr_t)offsetof(PyASCIIObject, length), t_cint64, 0);
+    }
+    return NULL;
+}
+
 void *simplify_env_emit_check_neg(SimplifyEnv *env, void *src, void *frame_state) {
     extern void *hir_c_create_check_neg(void *func, void *src, void *fs);
     void *instr = hir_c_create_check_neg(env->func, src, frame_state);
@@ -284,6 +346,12 @@ void *simplify_is_truthy_c(SimplifyEnv *env, const void *instr) {
         simplify_env_emit_use_type(env, input, t_bool);
         void *right = simplify_env_emit_load_const(env, hir_type_from_object(Py_True));
         return simplify_env_emit_primitive_compare(env, HIR_PCMP_Equal, input, right);
+    }
+
+    /* Collection length path: emit GetLengthInt64 + CIntToCBool */
+    void *size = emit_get_length_int64_c(env, input);
+    if (size != NULL) {
+        return simplify_env_emit_cint_to_cbool(env, size);
     }
 
     /* TLongExact: compare with _PyLong_GetZero() */
