@@ -7,6 +7,7 @@
 #   scripts/gate_phoenix.sh --pydebug    # x86_64 with assertions
 #   scripts/gate_phoenix.sh --benchmark  # x86_64 + 4-benchmark check
 #   scripts/gate_phoenix.sh --wiring     # x86_64 + wiring smoke (force_compile diverse functions)
+#   scripts/gate_phoenix.sh --arm64      # x86_64 + ARM64 remote gate (devgpu004)
 #
 # Exit code: 0 = GATE PASS, 1 = GATE FAIL
 set -euo pipefail
@@ -20,6 +21,7 @@ PYDEBUG=0
 BENCHMARK=0
 CLEAN=0
 WIRING=0
+ARM64=0
 EXPECT_COMMIT=""
 for arg in "$@"; do
     case "$arg" in
@@ -27,8 +29,9 @@ for arg in "$@"; do
         --benchmark) BENCHMARK=1 ;;
         --clean)     CLEAN=1 ;;
         --wiring)    WIRING=1 ;;
+        --arm64)     ARM64=1 ;;
         --commit=*)  EXPECT_COMMIT="${arg#--commit=}" ;;
-        *)           echo "Unknown flag: $arg"; echo "Usage: $0 [--pydebug] [--benchmark] [--clean] [--wiring] [--commit=HASH]"; exit 1 ;;
+        *)           echo "Unknown flag: $arg"; echo "Usage: $0 [--pydebug] [--benchmark] [--clean] [--wiring] [--arm64] [--commit=HASH]"; exit 1 ;;
     esac
 done
 
@@ -291,6 +294,40 @@ if [ "$BENCHMARK" -eq 1 ]; then
         FAILURES="$FAILURES Benchmark:geo-mean=${GEO_MEAN}x(<1.0x)"
     fi
     rm -f "${PYTHON}_bench"
+fi
+
+# Step 7: ARM64 remote gate (optional)
+if [ "$ARM64" -eq 1 ]; then
+    echo "" | tee -a "$RESULTS_FILE"
+    echo "Step 7: ARM64 remote gate (devgpu004)" | tee -a "$RESULTS_FILE"
+    ARM64_HOST="alexturner@devgpu004.kcm2.facebook.com"
+    ARM64_DIR="~/local/phoenix/cpython"
+
+    # Sync current HEAD to ARM64 via git bundle
+    BUNDLE_FILE="$CPYTHON_ROOT/arm64-gate-bundle.bundle"
+    (cd "$CPYTHON_ROOT" && git bundle create "$BUNDLE_FILE" HEAD~5..HEAD 2>/dev/null)
+
+    ARM64_OUTPUT=$(nbs-remote-run "$ARM64_HOST" "
+        cd $ARM64_DIR &&
+        git fetch $BUNDLE_FILE phoenix-asm-integration:arm64-gate-update 2>/dev/null;
+        git checkout arm64-gate-update 2>/dev/null;
+        scripts/build_phoenix.sh --clean 2>&1 | tail -5;
+        echo BUILD_ARM64=\$?;
+        chmod +x python;
+        JIT_ENABLE=1 ./python -m test test_phoenix_jit_arithmetic test_phoenix_jit_autocompile test_phoenix_jit_comparisons test_phoenix_jit_containers test_phoenix_jit_controlflow test_phoenix_jit_coverage test_phoenix_jit_functions test_phoenix_jit_generators test_phoenix_float test_phoenix_hir_type test_phoenix_benchmark_correctness test_phoenix_deferred_compile test_phoenix_profiling_hooks test_phoenix_usetype_float 2>&1 | tail -10;
+        echo ARM64_EXIT=\$?
+    " 2>&1 || echo "ARM64_REMOTE_FAIL")
+
+    echo "$ARM64_OUTPUT" | tee -a "$RESULTS_FILE"
+
+    if echo "$ARM64_OUTPUT" | grep -q "ARM64_REMOTE_FAIL"; then
+        GATE_PASS=0
+        FAILURES="$FAILURES ARM64:remote_fail"
+    elif echo "$ARM64_OUTPUT" | grep -q "FAILURE"; then
+        GATE_PASS=0
+        FAILURES="$FAILURES ARM64:test_failure"
+    fi
+    rm -f "$BUNDLE_FILE"
 fi
 
 # Final report
