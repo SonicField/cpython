@@ -212,6 +212,25 @@ void *simplify_primitive_compare_box_true_c(const void *instr) {
     return hir_c_get_operand(left_def, 0);
 }
 
+/* ---- simplifyUnbox (partial — unbox(box(x)) → x) ---- */
+void *simplify_unbox_box_c(const void *instr) {
+    void *input = hir_c_get_operand(instr, 0);
+    void *output_reg = hir_c_output(instr);
+    if (output_reg == NULL) return NULL;
+    HirType output_type = hir_register_type(output_reg);
+
+    extern void *hir_reg_instr(void *reg);
+    void *box_instr = hir_reg_instr(input);
+    if (box_instr == NULL || hir_c_opcode(box_instr) != HIR_OP_PrimitiveBox)
+        return NULL;
+
+    HirType box_type = ((const HirPrimitiveBox *)box_instr)->type;
+    if (hir_type_equal(&box_type, &output_type)) {
+        return hir_c_get_operand(box_instr, 0);
+    }
+    return NULL;
+}
+
 /* ---- simplifyIntConvert ----
  * If input already has the target type, IntConvert is redundant. */
 void *simplify_int_convert_c(SimplifyEnv *env, const void *instr) {

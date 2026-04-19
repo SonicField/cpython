@@ -2830,8 +2830,11 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
       return r;
     }
     case Opcode::kIndexUnbox:
-    case Opcode::kPrimitiveUnbox:
+    case Opcode::kPrimitiveUnbox: {
+      auto *r = static_cast<Register*>(simplify_unbox_box_c(instr));
+      if (r) return r;
       return simplifyUnbox(env, instr);
+    }
 
     case Opcode::kIsNegativeAndErrOccurred: {
       SimplifyEnv cenv = make_c_env();
