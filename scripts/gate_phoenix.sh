@@ -126,9 +126,13 @@ echo "" | tee -a "$RESULTS_FILE"
 echo "--- Step 4: CPython Tests ---" | tee -a "$RESULTS_FILE"
 CPYTHON_OUTPUT=$(JIT_ENABLE=1 ASAN_OPTIONS=detect_leaks=0 "$PYTHON" -m test -j8 --timeout=120 2>&1 || true)
 
-CPYTHON_PASS=$(echo "$CPYTHON_OUTPUT" | grep -oP 'tests OK\.\s*$' | wc -l || echo 0)
-CPYTHON_SUMMARY=$(echo "$CPYTHON_OUTPUT" | tail -5)
-echo "CPython summary:" | tee -a "$RESULTS_FILE"
+CPYTHON_RESULT=$(echo "$CPYTHON_OUTPUT" | grep -oP 'Result: \K\w+' || echo "UNKNOWN")
+CPYTHON_TOTAL_TESTS=$(echo "$CPYTHON_OUTPUT" | grep -oP 'Total tests: run=\K[0-9]+' || echo 0)
+CPYTHON_FILES_RUN=$(echo "$CPYTHON_OUTPUT" | grep -oP 'Total test files: run=\K[0-9]+' || echo 0)
+CPYTHON_FILES_TOTAL=$(echo "$CPYTHON_OUTPUT" | grep -oP 'Total test files: run=[0-9]+/\K[0-9]+' || echo 0)
+CPYTHON_FAILED=$(echo "$CPYTHON_OUTPUT" | grep -oP 'failed=\K[0-9]+' || echo 0)
+CPYTHON_SUMMARY=$(echo "$CPYTHON_OUTPUT" | tail -10)
+echo "CPython: $CPYTHON_TOTAL_TESTS tests, $CPYTHON_FILES_RUN/$CPYTHON_FILES_TOTAL modules, Result: $CPYTHON_RESULT" | tee -a "$RESULTS_FILE"
 echo "$CPYTHON_SUMMARY" | tee -a "$RESULTS_FILE"
 
 # Check for crashes (hard failures)

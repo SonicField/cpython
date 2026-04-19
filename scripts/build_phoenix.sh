@@ -170,14 +170,25 @@ $AR_CMD rcs "$BUILD_DIR/_deps/asmjit-build/libasmjit.a"
 
 # Step 6: Remove stale python binary and rebuild CPython
 echo "--- Building CPython ---"
+cd "$CPYTHON_ROOT"
 rm -f python
 # ASAN builds: disable LeakSanitizer during make — CPython's freeze step runs
 # its own Python, and ASAN flags CPython's startup leaks as errors.
+MAKE_LOG=$(mktemp)
 if [ "$ASAN" -eq 1 ]; then
-    ASAN_OPTIONS=detect_leaks=0 make -j"$JOBS" 2>&1 | tail -3
+    ASAN_OPTIONS=detect_leaks=0 make -j"$JOBS" 2>&1 | tee "$MAKE_LOG" | tail -3
 else
-    make -j"$JOBS" 2>&1 | tail -3
+    make -j"$JOBS" 2>&1 | tee "$MAKE_LOG" | tail -3
 fi
+MAKE_EXIT=${PIPESTATUS[0]}
+if [ "$MAKE_EXIT" -ne 0 ]; then
+    echo "FAIL: make exited with code $MAKE_EXIT"
+    echo "Last 20 lines of make output:"
+    tail -20 "$MAKE_LOG"
+    rm -f "$MAKE_LOG"
+    exit 1
+fi
+rm -f "$MAKE_LOG"
 
 # Step 7: Verify binary exists
 if [ ! -f "$CPYTHON_ROOT/python" ]; then
