@@ -115,9 +115,8 @@ void *simplify_env_emit_long_compare(SimplifyEnv *env, int32_t op,
 
 void *simplify_env_emit_primitive_box_bool(SimplifyEnv *env, void *src) {
     void *reg = hir_func_alloc_register(env->func);
-    extern void *hir_c_create_primitive_box(void *dst, void *src, HirType type);
-    HirType t_cbool = HIR_TYPE_CBOOL;
-    void *instr = hir_c_create_primitive_box(reg, src, t_cbool);
+    extern void *hir_c_create_primitive_box_bool_reg(void *dst, void *src);
+    void *instr = hir_c_create_primitive_box_bool_reg(reg, src);
     return simplify_env_emit(env, instr);
 }
 
@@ -197,6 +196,20 @@ void *simplify_env_emit_check_neg(SimplifyEnv *env, void *src, void *frame_state
     extern void *hir_c_create_check_neg(void *func, void *src, void *fs);
     void *instr = hir_c_create_check_neg(env->func, src, frame_state);
     return simplify_env_emit(env, instr);
+}
+
+/* ---- simplifyGetLength ----
+ * If obj is a collection with known length field, emit LoadField + PrimitiveBox. */
+void *simplify_get_length_c(SimplifyEnv *env, const void *instr) {
+    void *obj = hir_c_get_operand(instr, 0);
+    void *size = emit_get_length_int64_c(env, obj);
+    if (size == NULL) return NULL;
+
+    void *fs = hir_c_get_frame_state(instr);
+    HirType t_cint64 = HIR_TYPE_CINT64;
+    extern void *hir_c_create_primitive_box(void *func, void *src, HirType type, void *fs);
+    void *box = hir_c_create_primitive_box(env->func, size, t_cint64, fs);
+    return simplify_env_emit(env, box);
 }
 
 /* ---- simplifyStoreSubscr ----
