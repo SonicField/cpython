@@ -382,7 +382,18 @@ void *simplify_load_var_object_size_c(SimplifyEnv *env, const void *instr) {
     void *obj_reg = hir_c_get_operand(instr, 0);
     HirType obj_type = hir_register_type(obj_reg);
 
-    HirType t_tuple_exact = HIR_TYPE_SIMPLE(0x00000040000ULL, HIR_TYPE_LIFETIME_TOP);
+    /* MakeTuple path: nvalues = NumOperands */
+    extern void *hir_reg_instr(void *reg);
+    void *obj_def = hir_reg_instr(obj_reg);
+    if (obj_def != NULL && hir_c_opcode(obj_def) == HIR_OP_MakeTuple) {
+        simplify_env_emit_use_type(env, obj_reg, obj_type);
+        size_t size = hir_c_num_operands(obj_def);
+        HirType output_type = hir_register_type(hir_c_output(instr));
+        return simplify_env_emit_load_const(env, make_cint_type(output_type, (intptr_t)size));
+    }
+
+    /* Known tuple/bytes object path */
+    HirType t_tuple_exact = HIR_TYPE_TUPLEEXACT;
     HirType t_bytes_exact = HIR_TYPE_SIMPLE(0x00000002000ULL, HIR_TYPE_LIFETIME_TOP);
 
     if (hir_type_has_value_spec(&obj_type, t_tuple_exact) ||
