@@ -215,6 +215,9 @@ def make_closure(x):
         return x + y
     return inner
 
+def container_eq():
+    return ([1,2]==[1,2], [1,2]==[1,3], {1:2}=={1:2}, (1,2)==(1,2))
+
 tests = [
     (straight_add, (3, 4), 7),
     (recursive_fib, (10,), 55),
@@ -224,6 +227,7 @@ tests = [
     (multi_var, (10,), 230),
     (cond_loop, (10,), -5),
     (make_closure(10), (5,), 15),
+    (container_eq, (), (True, False, True, True)),
 ]
 for func, args, expected in tests:
     cinderjit.force_compile(func)

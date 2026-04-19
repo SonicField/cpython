@@ -764,6 +764,18 @@ static inline int32_t hir_c_load_arg_idx(const void *instr) {
     return ((const HirLoadArg *)instr)->arg_idx;
 }
 
+static inline size_t hir_c_load_tuple_item_idx(const void *instr) {
+    return ((const HirLoadTupleItem *)instr)->idx;
+}
+
+static inline intptr_t hir_c_load_field_offset(const void *instr) {
+    return (intptr_t)((const HirLoadField *)instr)->offset;
+}
+
+static inline intptr_t hir_c_load_array_item_offset(const void *instr) {
+    return ((const HirLoadArrayItem *)instr)->offset;
+}
+
 static inline HirType hir_c_load_arg_type(const void *instr) {
     return ((const HirLoadArg *)instr)->type;
 }

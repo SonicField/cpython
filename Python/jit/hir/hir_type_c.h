@@ -288,6 +288,15 @@ static inline int hir_type_has_value_spec(const HirType *t, HirType ty) {
            hir_type_is_subtype(*t, ty);
 }
 
+/* Construct a CDouble HirType with double specialization.
+ * C equivalent of Type::fromCDouble(d). */
+static inline HirType hir_type_from_cdouble(double d) {
+    HirType t = HIR_TYPE_CDOUBLE;
+    t.bits_and_flags |= ((uint64_t)HIR_SPEC_DOUBLE << HIR_TYPE_SPEC_SHIFT);
+    t.double_val = d;
+    return t;
+}
+
 /* Return the type with specialization stripped (spec_kind=Top, spec_val=0).
  * C equivalent of Type::unspecialized(). */
 static inline HirType hir_type_unspecialized(const HirType *t) {
