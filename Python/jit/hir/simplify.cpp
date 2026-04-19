@@ -2741,9 +2741,10 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
       return r;
     }
     case Opcode::kGuardType: {
-      auto *r = static_cast<Register*>(simplify_guard_type_identity_c(instr));
-      if (r) return r;
-      return simplifyGuardType(env, static_cast<const GuardType*>(instr));
+      SimplifyEnv cenv = make_c_env();
+      auto *r = static_cast<Register*>(simplify_guard_type_c(&cenv, instr));
+      sync_c_env(cenv);
+      return r;
     }
     case Opcode::kRefineType:
       return static_cast<Register*>(simplify_refine_type_c(instr));

@@ -65,14 +65,21 @@ void *simplify_refine_type_c(const void *instr) {
     return NULL;
 }
 
-/* ---- simplifyGuardType (partial — type-already-matches path) ----
- * If input already has the guarded type, GuardType is redundant. */
-void *simplify_guard_type_identity_c(const void *instr) {
+/* ---- simplifyGuardType ----
+ * If input already has the guarded type, redundant.
+ * If target is NoneType, convert to GuardIs(Py_None). */
+void *simplify_guard_type_c(SimplifyEnv *env, const void *instr) {
     void *input = hir_c_get_operand(instr, 0);
     HirType input_type = hir_register_type(input);
     HirType target = hir_c_guard_type_target(instr);
     if (hir_type_is_subtype(input_type, target)) {
         return input;
+    }
+    HirType t_none = HIR_TYPE_NONETYPE;
+    if (hir_type_equal(&target, &t_none)) {
+        extern void *hir_c_create_guard_is(void *func, void *target_obj, void *src);
+        void *guard = hir_c_create_guard_is(env->func, Py_None, input);
+        return simplify_env_emit(env, guard);
     }
     return NULL;
 }
