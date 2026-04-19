@@ -257,6 +257,16 @@ static_assert(static_cast<int>(PrimitiveCompareOp::kLessThan) == HIR_PCMP_LessTh
 static_assert(static_cast<int>(PrimitiveCompareOp::kGreaterThanUnsigned) == HIR_PCMP_GreaterThanUnsigned, "PrimitiveCompareOp mismatch");
 static_assert(static_cast<int>(PrimitiveCompareOp::kLessThanEqualUnsigned) == HIR_PCMP_LessThanEqualUnsigned, "PrimitiveCompareOp mismatch");
 
+/* ---- BinaryOpKind / UnaryOpKind / PrimitiveUnaryOpKind enum verification ---- */
+static_assert(static_cast<int>(BinaryOpKind::kAdd) == HIR_BOP_Add, "BinaryOpKind mismatch");
+static_assert(static_cast<int>(BinaryOpKind::kPower) == HIR_BOP_Power, "BinaryOpKind mismatch");
+static_assert(static_cast<int>(BinaryOpKind::kSubscript) == HIR_BOP_Subscript, "BinaryOpKind mismatch");
+static_assert(static_cast<int>(BinaryOpKind::kPowerUnsigned) == HIR_BOP_PowerUnsigned, "BinaryOpKind mismatch");
+static_assert(static_cast<int>(UnaryOpKind::kNot) == HIR_UOP_Not, "UnaryOpKind mismatch");
+static_assert(static_cast<int>(UnaryOpKind::kInvert) == HIR_UOP_Invert, "UnaryOpKind mismatch");
+static_assert(static_cast<int>(PrimitiveUnaryOpKind::kNotInt) == HIR_PUO_NotInt, "PrimitiveUnaryOpKind mismatch");
+static_assert(static_cast<int>(PrimitiveUnaryOpKind::kNegateInt) == HIR_PUO_NegateInt, "PrimitiveUnaryOpKind mismatch");
+
 /* ---- Type constant bit verification ---- */
 /* Verify HIR_TYPE_*EXACT constants match C++ type_generated.h bits.
  * Prevents TLongExact/TListExact confusion class (4 incidents 2026-04-19). */

@@ -794,6 +794,37 @@ static inline uint32_t hir_c_call_flags(const void *instr) {
 #define HIR_CALL_FLAG_AWAITED (1u << 1)
 #define HIR_CALL_FLAG_STATIC  (1u << 2)
 
+/* BinaryOpKind C constants (must match C++ enum class BinaryOpKind in hir.h) */
+#define HIR_BOP_Add               0
+#define HIR_BOP_And               1
+#define HIR_BOP_FloorDivide       2
+#define HIR_BOP_LShift            3
+#define HIR_BOP_MatrixMultiply    4
+#define HIR_BOP_Modulo            5
+#define HIR_BOP_Multiply          6
+#define HIR_BOP_Or                7
+#define HIR_BOP_Power             8
+#define HIR_BOP_RShift            9
+#define HIR_BOP_Subscript         10
+#define HIR_BOP_Subtract          11
+#define HIR_BOP_TrueDivide        12
+#define HIR_BOP_Xor               13
+#define HIR_BOP_FloorDivideUnsigned 14
+#define HIR_BOP_ModuloUnsigned    15
+#define HIR_BOP_RShiftUnsigned    16
+#define HIR_BOP_PowerUnsigned     17
+
+/* UnaryOpKind C constants */
+#define HIR_UOP_Not               0
+#define HIR_UOP_Negate            1
+#define HIR_UOP_Positive          2
+#define HIR_UOP_Invert            3
+
+/* PrimitiveUnaryOpKind C constants */
+#define HIR_PUO_NegateInt         0
+#define HIR_PUO_InvertInt         1
+#define HIR_PUO_NotInt            2
+
 /* CompareOp C constants (must match C++ enum class CompareOp in hir.h) */
 #define HIR_CMP_LessThan              0
 #define HIR_CMP_LessThanEqual         1
