@@ -53,6 +53,18 @@ void *simplify_check_c(const void *instr) {
     return NULL;
 }
 
+void *simplify_env_emit_primitive_unbox(SimplifyEnv *env, void *src, HirType type) {
+    void *reg = hir_func_alloc_register(env->func);
+    void *instr = hir_c_create_primitive_unbox(reg, src, type);
+    return simplify_env_emit(env, instr);
+}
+
+void *simplify_env_emit_primitive_unary_op(SimplifyEnv *env, int32_t op, void *src) {
+    void *reg = hir_func_alloc_register(env->func);
+    void *instr = hir_c_create_primitive_unary_op(reg, op, src);
+    return simplify_env_emit(env, instr);
+}
+
 /* ---- simplifyCast ----
  * If input already has the cast target type, Cast is redundant. */
 void *simplify_cast_c(const void *instr) {
@@ -135,6 +147,24 @@ void *simplify_env_emit_primitive_box_bool(SimplifyEnv *env, void *src) {
     extern void *hir_c_create_primitive_box_bool_reg(void *dst, void *src);
     void *instr = hir_c_create_primitive_box_bool_reg(reg, src);
     return simplify_env_emit(env, instr);
+}
+
+/* ---- simplifyUnaryOp ----
+ * If not(bool) → PrimitiveUnbox + NotInt + PrimitiveBoxBool */
+#define HIR_UNARY_NOT 0
+#define HIR_PRIM_UNARY_NOT_INT 2
+void *simplify_unary_op_c(SimplifyEnv *env, const void *instr) {
+    void *operand = hir_c_get_operand(instr, 0);
+    int32_t op = hir_c_unary_op_kind(instr);
+    HirType t_bool = HIR_TYPE_BOOL;
+    if (op == HIR_UNARY_NOT && hir_type_is_subtype(hir_register_type(operand), t_bool)) {
+        simplify_env_emit_use_type(env, operand, t_bool);
+        HirType t_cbool = HIR_TYPE_CBOOL;
+        void *unboxed = simplify_env_emit_primitive_unbox(env, operand, t_cbool);
+        void *negated = simplify_env_emit_primitive_unary_op(env, HIR_PRIM_UNARY_NOT_INT, unboxed);
+        return simplify_env_emit_primitive_box_bool(env, negated);
+    }
+    return NULL;
 }
 
 /* Returns the INSTRUCTION (not output reg) so caller can set operands */

@@ -2837,8 +2837,12 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
     case Opcode::kFloatBinaryOp:
       return simplifyFloatBinaryOp(
           env, static_cast<const FloatBinaryOp*>(instr));
-    case Opcode::kUnaryOp:
-      return simplifyUnaryOp(env, static_cast<const UnaryOp*>(instr));
+    case Opcode::kUnaryOp: {
+      SimplifyEnv cenv = make_c_env();
+      auto *r = static_cast<Register*>(simplify_unary_op_c(&cenv, instr));
+      sync_c_env(cenv);
+      return r;
+    }
 
     case Opcode::kPrimitiveCompare: {
       SimplifyEnv cenv = make_c_env();
