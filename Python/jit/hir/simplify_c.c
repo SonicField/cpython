@@ -218,6 +218,22 @@ void *simplify_is_truthy_c(SimplifyEnv *env, const void *instr) {
     void *input = hir_c_get_operand(instr, 0);
     HirType input_type = hir_register_type(input);
 
+    /* Known immutable object: constant-fold PyObject_IsTrue */
+    PyObject *obj = hir_type_as_object(&input_type);
+    if (obj != NULL) {
+        PyTypeObject *tp = Py_TYPE(obj);
+        if (tp == &PyBool_Type || tp == &PyFloat_Type ||
+            tp == &PyLong_Type || tp == &PyFrozenSet_Type ||
+            tp == &PySlice_Type || tp == &PyTuple_Type ||
+            tp == &PyUnicode_Type || tp == Py_TYPE(Py_None)) {
+            int res = PyObject_IsTrue(obj);
+            if (res >= 0) {
+                simplify_env_emit_use_type(env, input, input_type);
+                return simplify_env_emit_load_const(env, make_cbool_type(res));
+            }
+        }
+    }
+
     /* TBool: compare with Py_True */
     HirType t_bool = HIR_TYPE_BOOL;
     if (hir_type_is_subtype(input_type, t_bool)) {
