@@ -2749,7 +2749,7 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
     case Opcode::kRefineType:
       return static_cast<Register*>(simplify_refine_type_c(instr));
     case Opcode::kCast:
-      return simplifyCast(static_cast<const Cast*>(instr));
+      return static_cast<Register*>(simplify_cast_c(instr));
 
     case Opcode::kCompare: {
       SimplifyEnv cenv = make_c_env();

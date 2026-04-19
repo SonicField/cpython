@@ -27,6 +27,7 @@ void *simplify_env_emit_use_type(SimplifyEnv *env, void *val, HirType type);
 
 /* Env-free handlers (return existing register or NULL) */
 void *simplify_check_c(const void *instr);
+void *simplify_cast_c(const void *instr);
 void *simplify_refine_type_c(const void *instr);
 void *simplify_guard_type_c(SimplifyEnv *env, const void *instr);
 void *simplify_primitive_compare_c(SimplifyEnv *env, const void *instr);

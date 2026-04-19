@@ -53,6 +53,23 @@ void *simplify_check_c(const void *instr) {
     return NULL;
 }
 
+/* ---- simplifyCast ----
+ * If input already has the cast target type, Cast is redundant. */
+void *simplify_cast_c(const void *instr) {
+    void *input = hir_c_get_operand(instr, 0);
+    const HirCast *cast = (const HirCast *)instr;
+    HirType type = hir_type_from_pytype((PyTypeObject *)cast->pytype, cast->exact);
+    if (cast->optional) {
+        HirType t_none = HIR_TYPE_NONETYPE;
+        type = hir_type_union(type, t_none);
+    }
+    HirType input_type = hir_register_type(input);
+    if (hir_type_is_subtype(input_type, type)) {
+        return input;
+    }
+    return NULL;
+}
+
 /* ---- simplifyRefineType ----
  * If input already has the target type, RefineType is redundant. */
 void *simplify_refine_type_c(const void *instr) {
