@@ -149,7 +149,7 @@ void *simplify_compare_c(SimplifyEnv *env, const void *instr) {
     HirType right_type = hir_register_type(right);
     int32_t op = hir_c_compare_op(instr);
 
-    HirType t_none = HIR_TYPE_SIMPLE(0x00000000080ULL, HIR_TYPE_LIFETIME_TOP);
+    HirType t_none = HIR_TYPE_NONETYPE;
 
     /* None == None or None != None */
     if (hir_type_is_subtype(left_type, t_none) &&
@@ -160,6 +160,34 @@ void *simplify_compare_c(SimplifyEnv *env, const void *instr) {
             PyObject *result = (op == HIR_CMP_Equal) ? Py_True : Py_False;
             return simplify_env_emit_load_const(env, hir_type_from_object(result));
         }
+    }
+
+    /* Bool == Bool or Bool != Bool → PrimitiveCompare + PrimitiveBoxBool */
+    HirType t_bool = HIR_TYPE_BOOL;
+    if (hir_type_is_subtype(left_type, t_bool) &&
+        hir_type_is_subtype(right_type, t_bool) &&
+        (op == HIR_CMP_Equal || op == HIR_CMP_NotEqual)) {
+        int32_t prim_op = (op == HIR_CMP_Equal) ? HIR_PCMP_Equal : HIR_PCMP_NotEqual;
+        simplify_env_emit_use_type(env, left, t_bool);
+        simplify_env_emit_use_type(env, right, t_bool);
+        void *result = simplify_env_emit_primitive_compare(env, prim_op, left, right);
+        return simplify_env_emit_primitive_box_bool(env, result);
+    }
+
+    /* Float comparison (not In/NotIn/ExcMatch) */
+    HirType t_float_exact = HIR_TYPE_FLOATEXACT;
+    if (hir_type_is_subtype(left_type, t_float_exact) &&
+        hir_type_is_subtype(right_type, t_float_exact) &&
+        op != HIR_CMP_In && op != HIR_CMP_NotIn && op != HIR_CMP_ExcMatch) {
+        return simplify_env_emit_float_compare(env, op, left, right);
+    }
+
+    /* Long comparison (not In/NotIn/ExcMatch) */
+    HirType t_long_exact = HIR_TYPE_LONGEXACT;
+    if (hir_type_is_subtype(left_type, t_long_exact) &&
+        hir_type_is_subtype(right_type, t_long_exact) &&
+        op != HIR_CMP_In && op != HIR_CMP_NotIn && op != HIR_CMP_ExcMatch) {
+        return simplify_env_emit_long_compare(env, op, left, right);
     }
 
     return NULL;
