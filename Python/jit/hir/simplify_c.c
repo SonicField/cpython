@@ -6,6 +6,7 @@
 #include "cinderx/Jit/hir/simplify_c.h"
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
+#include "Python.h"
 
 /* Forward declarations (avoid hir_c_api.h typedef conflicts) */
 extern HirType hir_register_type(void *reg);
