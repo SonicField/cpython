@@ -701,6 +701,11 @@ void hir_c_replace_uses_of(HirInstr instr, HirRegister orig, HirRegister replace
  * Both must be DeoptBase subclasses. Deep copies the FrameState. */
 void hir_c_copy_frame_state(HirInstr dst, HirInstr src);
 
+/* ---- Runtime function address bridges ---- */
+/* Returns function pointer for JITRT_InvokeIterNext (C++ linkage).
+ * Lifetime: static (function pointer, never changes). */
+void *jit_rt_invoke_iter_next_addr(void);
+
 /* ---- Context/Preload bridges ---- */
 
 /* Check if a PyMethodDef is a known builtin. Returns the builtin name

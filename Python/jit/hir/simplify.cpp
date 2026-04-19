@@ -2882,8 +2882,12 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
       return r;
     }
 
-    case Opcode::kStoreAttr:
-      return simplifyStoreAttr(env, instr);
+    case Opcode::kStoreAttr: {
+      SimplifyEnv cenv = make_c_env();
+      auto *r = static_cast<Register*>(simplify_store_attr_c(&cenv, instr));
+      sync_c_env(cenv);
+      return r;
+    }
 
     case Opcode::kCallMethod:
       return simplifyCallMethod(env, static_cast<const CallMethod*>(instr));
@@ -2906,36 +2910,16 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
     }
 
     case Opcode::kGetIter: {
-      // C->C inlining: narrow iterator type for known input types
-      Register* input = instr->GetOperand(0);
-      if (jit::g_range_iterator_type != nullptr &&
-          input->type() <= Type::fromTypeExact(&PyRange_Type)) {
-        env.emitUseType(instr->output(),
-                          Type::fromTypeExact(jit::g_range_iterator_type));
-      }
+      SimplifyEnv cenv = make_c_env();
+      simplify_get_iter_c(&cenv, instr);
+      sync_c_env(cenv);
       return nullptr;
     }
     case Opcode::kInvokeIterNext: {
-      // C->C inlining: skip JitGen check for known non-generator iterators
-      Register* iterator = instr->GetOperand(0);
-      auto iter_ty = iterator->type();
-      HirType iter_hir = to_hir(iter_ty);
-      PyTypeObject* iter_type = hir_type_runtime_py_type(&iter_hir);
-      if (iter_type != nullptr &&
-          ((jit::g_range_iterator_type != nullptr &&
-            iter_type == jit::g_range_iterator_type) ||
-           (jit::g_list_iterator_type != nullptr &&
-            iter_type == jit::g_list_iterator_type) ||
-           (jit::g_tuple_iterator_type != nullptr &&
-            iter_type == jit::g_tuple_iterator_type))) {
-        // Known non-generator iterator: use direct JITRT_InvokeIterNext
-        // which still handles sentinel conversion but skips the JitGen check
-        auto call = env.emitCallStaticInstr(
-            1, reinterpret_cast<void*>(JITRT_InvokeIterNext), TObject);
-        call->SetOperand(0, iterator);
-        return call->output();
-      }
-      return nullptr;
+      SimplifyEnv cenv = make_c_env();
+      auto *r = static_cast<Register*>(simplify_invoke_iter_next_c(&cenv, instr));
+      sync_c_env(cenv);
+      return r;
     }
     default:
       return nullptr;

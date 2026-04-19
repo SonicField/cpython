@@ -7,6 +7,7 @@
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "Python.h"
+#include "cinderx/Jit/jit_config_c.h"
 #include "pycore_long.h"
 
 /* Forward declarations (avoid hir_c_api.h typedef conflicts) */
@@ -285,6 +286,55 @@ static binaryfunc long_slot_method(int32_t op) {
         case HIR_BOP_Xor: return nb->nb_xor;
         default: return NULL;
     }
+}
+
+/* ---- simplifyStoreAttr ---- */
+void *simplify_store_attr_c(SimplifyEnv *env, const void *instr) {
+    if (!jit_get_config()->attr_caches) return NULL;
+    void *receiver = hir_c_get_operand(instr, 0);
+    void *value = hir_c_get_operand(instr, 1);
+    int32_t name_idx = ((const HirStoreAttr *)instr)->name_idx;
+    void *fs = hir_c_get_frame_state(instr);
+    extern void *hir_c_create_store_attr_cached(void *func, void *recv, void *val,
+                                                 int32_t idx, void *fs);
+    void *cached = hir_c_create_store_attr_cached(env->func, receiver, value, name_idx, fs);
+    return simplify_env_emit(env, cached);
+}
+
+/* ---- simplifyGetIter ---- */
+void *simplify_get_iter_c(SimplifyEnv *env, const void *instr) {
+    extern PyTypeObject *jit_g_range_iterator_type;
+    if (jit_g_range_iterator_type == NULL) return NULL;
+    void *input = hir_c_get_operand(instr, 0);
+    HirType input_type = hir_register_type(input);
+    HirType t_range = hir_type_from_pytype(&PyRange_Type, 1);
+    if (!hir_type_is_subtype(input_type, t_range)) return NULL;
+    void *output = hir_c_output(instr);
+    if (output == NULL) return NULL;
+    HirType iter_type = hir_type_from_pytype(jit_g_range_iterator_type, 1);
+    simplify_env_emit_use_type(env, output, iter_type);
+    return NULL;
+}
+
+/* ---- simplifyInvokeIterNext ---- */
+void *simplify_invoke_iter_next_c(SimplifyEnv *env, const void *instr) {
+    extern PyTypeObject *jit_g_range_iterator_type;
+    extern PyTypeObject *jit_g_list_iterator_type;
+    extern PyTypeObject *jit_g_tuple_iterator_type;
+    void *iterator = hir_c_get_operand(instr, 0);
+    HirType iter_type = hir_register_type(iterator);
+    PyTypeObject *iter_pytype = hir_type_runtime_py_type(&iter_type);
+    if (iter_pytype == NULL) return NULL;
+    if (!((jit_g_range_iterator_type != NULL && iter_pytype == jit_g_range_iterator_type) ||
+          (jit_g_list_iterator_type != NULL && iter_pytype == jit_g_list_iterator_type) ||
+          (jit_g_tuple_iterator_type != NULL && iter_pytype == jit_g_tuple_iterator_type)))
+        return NULL;
+    extern void *jit_rt_invoke_iter_next_addr(void);
+    HirType t_object = HIR_TYPE_OBJECT;
+    void *call = simplify_env_emit_call_static_instr(env, 1,
+        jit_rt_invoke_iter_next_addr(), t_object);
+    hir_c_set_operand(call, 0, iterator);
+    return hir_c_output(call);
 }
 
 /* Forward declarations for helpers defined later */

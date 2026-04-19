@@ -23,6 +23,7 @@
 #include "cinderx/Jit/hir/instr_effects_c.h"
 #include "cinderx/Jit/hir/pass.h"
 #include "cinderx/Jit/context.h"
+#include "cinderx/Jit/jit_rt.h"
 
 #include <cstring>
 #include <vector>
@@ -466,6 +467,10 @@ void hir_reg_uses_destroy(HirRegUses uses) {
 }
 
 /* ---- outputType with override ---- */
+
+void *jit_rt_invoke_iter_next_addr(void) {
+  return reinterpret_cast<void*>(JITRT_InvokeIterNext);
+}
 
 const char *jit_builtins_find(void *method_def) {
   auto* meth = static_cast<PyMethodDef*>(method_def);
