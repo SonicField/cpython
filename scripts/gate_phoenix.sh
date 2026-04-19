@@ -127,7 +127,7 @@ echo "--- Step 4: CPython Tests ---" | tee -a "$RESULTS_FILE"
 CPYTHON_OUTPUT=$(JIT_ENABLE=1 ASAN_OPTIONS=detect_leaks=0 "$PYTHON" -m test -j8 --timeout=120 2>&1 || true)
 
 CPYTHON_RESULT=$(echo "$CPYTHON_OUTPUT" | grep -oP 'Result: \K\w+' || echo "UNKNOWN")
-CPYTHON_TOTAL_TESTS=$(echo "$CPYTHON_OUTPUT" | grep -oP 'Total tests: run=\K[0-9]+' || echo 0)
+CPYTHON_TOTAL_TESTS=$(echo "$CPYTHON_OUTPUT" | grep -oP 'Total tests: run=\K[0-9,]+' | tr -d ',' || echo 0)
 CPYTHON_FILES_RUN=$(echo "$CPYTHON_OUTPUT" | grep -oP 'Total test files: run=\K[0-9]+' || echo 0)
 CPYTHON_FILES_TOTAL=$(echo "$CPYTHON_OUTPUT" | grep -oP 'Total test files: run=[0-9]+/\K[0-9]+' || echo 0)
 CPYTHON_FAILED=$(echo "$CPYTHON_OUTPUT" | grep -oP 'failed=\K[0-9]+' || echo 0)
