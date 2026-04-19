@@ -13,29 +13,44 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CPYTHON_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PYTHON="$CPYTHON_ROOT/python"
-RESULTS_FILE="/tmp/gate_results_$(date +%s).txt"
 
 # Parse flags
 PYDEBUG=0
 BENCHMARK=0
 CLEAN=0
+EXPECT_COMMIT=""
 for arg in "$@"; do
     case "$arg" in
         --pydebug)   PYDEBUG=1 ;;
         --benchmark) BENCHMARK=1 ;;
         --clean)     CLEAN=1 ;;
-        *)           echo "Unknown flag: $arg"; echo "Usage: $0 [--pydebug] [--benchmark] [--clean]"; exit 1 ;;
+        --commit=*)  EXPECT_COMMIT="${arg#--commit=}" ;;
+        *)           echo "Unknown flag: $arg"; echo "Usage: $0 [--pydebug] [--benchmark] [--clean] [--commit=HASH]"; exit 1 ;;
     esac
 done
 
 ARCH="$(uname -m)"
+COMMIT_HASH="$(cd "$CPYTHON_ROOT" && git rev-parse --short HEAD)"
 COMMIT="$(cd "$CPYTHON_ROOT" && git log -1 --oneline)"
 GATE_PASS=1
 FAILURES=""
 
+GATE_LOG_DIR="$CPYTHON_ROOT/docs/gates"
+mkdir -p "$GATE_LOG_DIR"
+GATE_LOG="$GATE_LOG_DIR/${COMMIT_HASH}.log"
+RESULTS_FILE="$GATE_LOG"
+
+if [ -n "$EXPECT_COMMIT" ]; then
+    if [[ "$COMMIT_HASH" != "$EXPECT_COMMIT"* ]]; then
+        echo "GATE FAIL — HEAD $COMMIT_HASH does not match expected $EXPECT_COMMIT" | tee "$RESULTS_FILE"
+        exit 1
+    fi
+fi
+
 echo "=== Phoenix JIT Gate ===" | tee "$RESULTS_FILE"
 echo "Architecture: $ARCH" | tee -a "$RESULTS_FILE"
 echo "Commit: $COMMIT" | tee -a "$RESULTS_FILE"
+echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)" | tee -a "$RESULTS_FILE"
 echo "Pydebug: $PYDEBUG" | tee -a "$RESULTS_FILE"
 echo "Benchmark: $BENCHMARK" | tee -a "$RESULTS_FILE"
 echo "" | tee -a "$RESULTS_FILE"
@@ -103,10 +118,10 @@ if [ "$PHOENIX_RESULT" != "SUCCESS" ]; then
     echo "$PHOENIX_OUTPUT" | grep -E "FAIL|ERROR|CRASH|Assertion failed" | tee -a "$RESULTS_FILE"
 fi
 
-# Step 4: CPython test suite (parallel)
+# Step 4: CPython test suite (parallel, JIT enabled)
 echo "" | tee -a "$RESULTS_FILE"
 echo "--- Step 4: CPython Tests ---" | tee -a "$RESULTS_FILE"
-CPYTHON_OUTPUT=$(ASAN_OPTIONS=detect_leaks=0 "$PYTHON" -m test -j4 2>&1 || true)
+CPYTHON_OUTPUT=$(JIT_ENABLE=1 ASAN_OPTIONS=detect_leaks=0 "$PYTHON" -m test -j8 --timeout=120 2>&1 || true)
 
 CPYTHON_PASS=$(echo "$CPYTHON_OUTPUT" | grep -oP 'tests OK\.\s*$' | wc -l || echo 0)
 CPYTHON_SUMMARY=$(echo "$CPYTHON_OUTPUT" | tail -5)
@@ -121,7 +136,30 @@ if [ "$CPYTHON_CRASHES" -gt 0 ]; then
     FAILURES="$FAILURES CPython:${CPYTHON_CRASHES}crash"
 fi
 
-# Step 5: Benchmark (optional)
+# Step 5: nbody crash check (auto-compilation path)
+echo "" | tee -a "$RESULTS_FILE"
+echo "--- Step 5: nbody Crash Check ---" | tee -a "$RESULTS_FILE"
+NBODY_OUTPUT=$(JIT_ENABLE=1 "$PYTHON" -c "
+import _cinderx, cinderjit
+cinderjit.auto()
+import sys; sys.path.insert(0, '$CPYTHON_ROOT/Tools')
+from benchmark_phoenix import bench_nbody
+for i in range(3):
+    r = bench_nbody(10000)
+    print(f'nbody iter {i}: {r}')
+print('nbody: PASS')
+" 2>&1 || true)
+NBODY_EXIT=$?
+echo "$NBODY_OUTPUT" | tee -a "$RESULTS_FILE"
+if ! echo "$NBODY_OUTPUT" | grep -q "nbody: PASS"; then
+    GATE_PASS=0
+    FAILURES="$FAILURES nbody:CRASH"
+    echo "nbody: FAIL (crash or incorrect output)" | tee -a "$RESULTS_FILE"
+else
+    echo "nbody: PASS" | tee -a "$RESULTS_FILE"
+fi
+
+# Step 6: Benchmark (optional)
 if [ "$BENCHMARK" -eq 1 ]; then
     echo "" | tee -a "$RESULTS_FILE"
     echo "--- Step 5: Benchmark ---" | tee -a "$RESULTS_FILE"
@@ -148,11 +186,11 @@ echo "========================================" | tee -a "$RESULTS_FILE"
 if [ "$GATE_PASS" -eq 1 ]; then
     echo "GATE PASS — $ARCH: Phoenix $PHOENIX_TOTAL tests ($PHOENIX_MODULES_PASS/$PHOENIX_MODULES_TOTAL modules)" | tee -a "$RESULTS_FILE"
     echo "Commit: $COMMIT" | tee -a "$RESULTS_FILE"
-    echo "Results: $RESULTS_FILE"
+    echo "Gate log: $GATE_LOG"
     exit 0
 else
     echo "GATE FAIL — $FAILURES" | tee -a "$RESULTS_FILE"
     echo "Commit: $COMMIT" | tee -a "$RESULTS_FILE"
-    echo "Results: $RESULTS_FILE"
+    echo "Gate log: $GATE_LOG"
     exit 1
 fi
