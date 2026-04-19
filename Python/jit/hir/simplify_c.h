@@ -33,6 +33,7 @@ void *simplify_guard_type_identity_c(const void *instr);
 /* Env-using handlers (Category 2) */
 void *simplify_primitive_box_bool_c(SimplifyEnv *env, const void *instr);
 void *simplify_cint_to_cbool_c(SimplifyEnv *env, const void *instr);
+void *simplify_cond_branch_const_c(SimplifyEnv *env, const void *instr);
 
 #ifdef __cplusplus
 }

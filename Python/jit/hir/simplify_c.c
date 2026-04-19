@@ -89,6 +89,21 @@ void *simplify_cint_to_cbool_c(SimplifyEnv *env, const void *instr) {
     return NULL;
 }
 
+/* ---- simplifyCondBranch (partial — constant condition folding) ----
+ * If condition is a known int constant, fold to unconditional Branch. */
+void *simplify_cond_branch_const_c(SimplifyEnv *env, const void *instr) {
+    void *cond = hir_c_get_operand(instr, 0);
+    HirType cond_type = hir_register_type(cond);
+    if (hir_type_has_int_spec(&cond_type)) {
+        intptr_t spec = hir_type_int_spec(&cond_type);
+        void *target = hir_c_successor(instr, spec ? 0 : 1);
+        extern void *hir_c_create_branch_cpp(void *target_block);
+        void *branch = hir_c_create_branch_cpp(target);
+        return simplify_env_emit(env, branch);
+    }
+    return NULL;
+}
+
 /* ---- simplifyPrimitiveBoxBool ----
  * If input is a known int constant, replace with Py_True/Py_False. */
 void *simplify_primitive_box_bool_c(SimplifyEnv *env, const void *instr) {
