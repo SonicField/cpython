@@ -24,6 +24,7 @@
 #include "cinderx/Jit/hir/refcount_insertion.h"
 #include "cinderx/Jit/hir/simplify.h"
 #include "cinderx/Jit/hir/ssa.h"
+#include "cinderx/Jit/hir/ssa_check_c.h"
 #include "cinderx/Jit/jit_time_log.h"
 
 #include <chrono>
@@ -55,7 +56,7 @@ static void runPass(T&& pass, hir::Function& func, PostPassFunction callback) {
                     func);
 
                 JIT_DCHECK(
-                    checkFunc(func, std::cerr),
+                    hir_check_func_c(static_cast<void*>(&func)),
                     "Function {} failed verification after pass {}:\n{}",
                     func.fullname,
                     pass.name(),

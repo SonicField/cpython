@@ -5,17 +5,11 @@
 #include "cinderx/Jit/hir/hir.h"
 #include "cinderx/Jit/hir/pass.h"
 
-#include <iosfwd>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 namespace jit::hir {
-
-// Check that func's CFG is well-formed and that its Register uses and defs are
-// vald SSA, returning true iff no errors were found. Details of any errors
-// will be written to err.
-bool checkFunc(const Function& func, std::ostream& err);
 
 struct SSABasicBlock {
   BasicBlock* block;

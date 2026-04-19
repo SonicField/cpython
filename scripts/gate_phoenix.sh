@@ -102,7 +102,7 @@ echo "JIT Smoke: PASS" | tee -a "$RESULTS_FILE"
 echo "" | tee -a "$RESULTS_FILE"
 echo "--- Step 3: Phoenix Tests ---" | tee -a "$RESULTS_FILE"
 PHOENIX_MODULES="test_phoenix_jit_arithmetic test_phoenix_jit_autocompile test_phoenix_jit_comparisons test_phoenix_jit_containers test_phoenix_jit_controlflow test_phoenix_jit_coverage test_phoenix_jit_functions test_phoenix_jit_generators test_phoenix_float test_phoenix_hir_type test_phoenix_profiling_hooks test_phoenix_deferred_compile test_phoenix_benchmark_correctness test_phoenix_usetype_float"
-PHOENIX_OUTPUT=$(ASAN_OPTIONS=detect_leaks=0 "$PYTHON" -m test $PHOENIX_MODULES 2>&1 || true)
+PHOENIX_OUTPUT=$(JIT_ENABLE=1 ASAN_OPTIONS=detect_leaks=0 "$PYTHON" -m test $PHOENIX_MODULES 2>&1 || true)
 
 PHOENIX_TOTAL=$(echo "$PHOENIX_OUTPUT" | grep -oP 'Total tests: run=\K[0-9]+' || echo 0)
 PHOENIX_RESULT=$(echo "$PHOENIX_OUTPUT" | grep -oP 'Result: \K\w+' || echo "UNKNOWN")
