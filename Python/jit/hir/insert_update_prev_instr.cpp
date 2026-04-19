@@ -6,7 +6,7 @@
 #include "cinderx/Jit/hir/insert_update_prev_instr.h"
 
 #include "cinderx/Common/code.h"
-#include "cinderx/Jit/hir/instr_effects.h"
+#include "cinderx/Jit/hir/instr_effects_c.h"
 #include "cinderx/UpstreamBorrow/borrowed.h" // @donotremove
 
 #include <stack>
@@ -168,7 +168,7 @@ void InsertUpdatePrevInstr::Run([[maybe_unused]] Function& func) {
 
           inited_once = true;
         }
-      } else if (hasArbitraryExecution(instr)) {
+      } else if (hir_has_arbitrary_execution(&instr)) {
         update_one();
       }
     }

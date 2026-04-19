@@ -12,7 +12,7 @@
 #include "cinderx/Jit/hir/builder.h"
 #include "cinderx/Jit/hir/clean_cfg.h"
 #include "cinderx/Jit/hir/copy_propagation.h"
-#include "cinderx/Jit/hir/instr_effects.h"
+#include "cinderx/Jit/hir/instr_effects_c.h"
 #include "cinderx/Jit/hir/preload.h"
 #include "cinderx/Jit/inline_cache.h"
 #include "cinderx/Jit/context.h"
@@ -376,7 +376,7 @@ void tryEliminateBeginEnd(EndInlinedFunction* end) {
     if (it->asDeoptBase()
 #if PY_VERSION_HEX >= 0x030C0000
         // Updating the previous instruction needs the frame too.
-        || hasArbitraryExecution(*it)
+        || hir_has_arbitrary_execution(&*it)
 #endif
     ) {
       return;
