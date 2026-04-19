@@ -6,6 +6,7 @@
 #   scripts/gate_phoenix.sh              # x86_64 only (local)
 #   scripts/gate_phoenix.sh --pydebug    # x86_64 with assertions
 #   scripts/gate_phoenix.sh --benchmark  # x86_64 + 4-benchmark check
+#   scripts/gate_phoenix.sh --wiring     # x86_64 + wiring smoke (force_compile diverse functions)
 #
 # Exit code: 0 = GATE PASS, 1 = GATE FAIL
 set -euo pipefail
@@ -18,14 +19,16 @@ PYTHON="$CPYTHON_ROOT/python"
 PYDEBUG=0
 BENCHMARK=0
 CLEAN=0
+WIRING=0
 EXPECT_COMMIT=""
 for arg in "$@"; do
     case "$arg" in
         --pydebug)   PYDEBUG=1 ;;
         --benchmark) BENCHMARK=1 ;;
         --clean)     CLEAN=1 ;;
+        --wiring)    WIRING=1 ;;
         --commit=*)  EXPECT_COMMIT="${arg#--commit=}" ;;
-        *)           echo "Unknown flag: $arg"; echo "Usage: $0 [--pydebug] [--benchmark] [--clean] [--commit=HASH]"; exit 1 ;;
+        *)           echo "Unknown flag: $arg"; echo "Usage: $0 [--pydebug] [--benchmark] [--clean] [--wiring] [--commit=HASH]"; exit 1 ;;
     esac
 done
 
@@ -159,10 +162,68 @@ else
     echo "nbody: PASS" | tee -a "$RESULTS_FILE"
 fi
 
-# Step 6: Benchmark (optional)
+# Step 6: Wiring smoke test (optional — catches sole-path divergence)
+if [ "$WIRING" -eq 1 ]; then
+    echo "" | tee -a "$RESULTS_FILE"
+    echo "--- Step 6: Wiring Smoke Test ---" | tee -a "$RESULTS_FILE"
+    WIRING_OUTPUT=$(ASAN_OPTIONS=detect_leaks=0 "$PYTHON" -c "
+import _cinderx, cinderjit
+
+def straight_add(x, y): return x + y
+
+def recursive_fib(n):
+    if n < 2: return n
+    return recursive_fib(n - 1) + recursive_fib(n - 2)
+
+def loop_sum(n):
+    s = 0
+    for i in range(n):
+        s += i
+    return s
+
+def make_gen(n):
+    def gen(n):
+        for i in range(n):
+            yield i * i
+    return list(gen(n))
+
+def nested_float(n):
+    total = 0.0
+    for i in range(n):
+        for j in range(n):
+            total += float(i) * float(j)
+    return total
+
+tests = [
+    (straight_add, (3, 4), 7),
+    (recursive_fib, (10,), 55),
+    (loop_sum, (100,), 4950),
+    (make_gen, (5,), [0, 1, 4, 9, 16]),
+    (nested_float, (10,), 2025.0),
+]
+for func, args, expected in tests:
+    cinderjit.force_compile(func)
+    assert cinderjit.is_jit_compiled(func), f'{func.__name__} not compiled'
+    result = func(*args)
+    assert result == expected, f'{func.__name__}: got {result}, expected {expected}'
+    print(f'{func.__name__}: PASS')
+print('Wiring smoke: PASS')
+" 2>&1 || true)
+    WIRING_EXIT=$?
+    echo "$WIRING_OUTPUT" | tee -a "$RESULTS_FILE"
+    if ! echo "$WIRING_OUTPUT" | grep -q "Wiring smoke: PASS"; then
+        GATE_PASS=0
+        FAILURES="$FAILURES Wiring:CRASH"
+        echo "Wiring smoke: FAIL" | tee -a "$RESULTS_FILE"
+    else
+        echo "Wiring smoke: PASS" | tee -a "$RESULTS_FILE"
+    fi
+fi
+
+# Step 7: Benchmark (optional)
 if [ "$BENCHMARK" -eq 1 ]; then
     echo "" | tee -a "$RESULTS_FILE"
-    echo "--- Step 5: Benchmark ---" | tee -a "$RESULTS_FILE"
+    echo "--- Step 7: Benchmark ---" | tee -a "$RESULTS_FILE"
     cp "$PYTHON" "${PYTHON}_bench"
     BENCH_OUTPUT=$(VANILLA_PYTHON="$CPYTHON_ROOT/../cpython-vanilla/python" JIT_ENABLE=1 "${PYTHON}_bench" \
         "$CPYTHON_ROOT/Tools/benchmark_phoenix.py" jit \
