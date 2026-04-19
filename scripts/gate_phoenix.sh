@@ -198,12 +198,32 @@ def nested_float(n):
             total += float(i) * float(j)
     return total
 
+def multi_var(n):
+    a, b, c = 0, 1, 2
+    for i in range(n):
+        a, b, c = b, c, a + b + c
+    return a
+
+def cond_loop(n):
+    s = 0
+    for i in range(n):
+        s += i if i % 2 == 0 else -i
+    return s
+
+def make_closure(x):
+    def inner(y):
+        return x + y
+    return inner
+
 tests = [
     (straight_add, (3, 4), 7),
     (recursive_fib, (10,), 55),
     (loop_sum, (100,), 4950),
     (make_gen, (5,), [0, 1, 4, 9, 16]),
     (nested_float, (10,), 2025.0),
+    (multi_var, (10,), 230),
+    (cond_loop, (10,), -5),
+    (make_closure(10), (5,), 15),
 ]
 for func, args, expected in tests:
     cinderjit.force_compile(func)
