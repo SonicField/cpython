@@ -466,6 +466,10 @@ void hir_reg_uses_destroy(HirRegUses uses) {
 
 /* ---- outputType with override ---- */
 
+HirType hir_output_type(HirInstr instr) {
+  return Type::toHirType(outputType(*as_instr(instr)));
+}
+
 HirType hir_output_type_with_override(HirInstr instr,
                                       size_t override_idx,
                                       const HirType *override_type) {

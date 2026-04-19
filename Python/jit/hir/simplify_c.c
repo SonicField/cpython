@@ -12,6 +12,7 @@
 extern HirType hir_register_type(void *reg);
 extern void *hir_func_alloc_register(void *func);
 extern void hir_c_insert_before(void *new_instr, void *before);
+extern HirType hir_output_type(void *instr);
 
 /* ---- SimplifyEnv: C equivalent of the C++ Env struct ---- */
 
@@ -19,7 +20,12 @@ void *simplify_env_emit(SimplifyEnv *env, void *new_instr) {
     env->optimized = 1;
     hir_c_set_bytecode_offset(new_instr, env->bc_off);
     hir_c_insert_before(new_instr, env->cursor_instr);
-    return hir_c_output(new_instr);
+    void *out = hir_c_output(new_instr);
+    if (out) {
+        HirType out_type = hir_output_type(new_instr);
+        hir_reg_set_type(out, out_type);
+    }
+    return out;
 }
 
 void *simplify_env_emit_load_const(SimplifyEnv *env, HirType type) {
@@ -157,36 +163,6 @@ void *simplify_compare_c(SimplifyEnv *env, const void *instr) {
         }
     }
 
-    /* Bool == Bool or Bool != Bool → PrimitiveCompare + PrimitiveBoxBool */
-    HirType t_bool = HIR_TYPE_SIMPLE(0x00000000002ULL, HIR_TYPE_LIFETIME_TOP);
-    if (hir_type_is_subtype(left_type, t_bool) &&
-        hir_type_is_subtype(right_type, t_bool) &&
-        (op == 2 || op == 3)) {
-        /* PrimitiveCompareOp::kEqual=4, kNotEqual=5 match CompareOp values */
-        int32_t prim_op = (op == 2) ? 4 : 5;
-        simplify_env_emit_use_type(env, left, t_bool);
-        simplify_env_emit_use_type(env, right, t_bool);
-        void *result = simplify_env_emit_primitive_compare(env, prim_op, left, right);
-        return simplify_env_emit_primitive_box_bool(env, result);
-    }
-
-    HirType t_float_exact = HIR_TYPE_SIMPLE(0x00000008000ULL, HIR_TYPE_LIFETIME_TOP);
-    HirType t_long_exact = HIR_TYPE_SIMPLE(0x00000010000ULL, HIR_TYPE_LIFETIME_TOP);
-
-    /* Float comparison */
-    if (hir_type_is_subtype(left_type, t_float_exact) &&
-        hir_type_is_subtype(right_type, t_float_exact) &&
-        op != 6 && op != 7 && op != 10) { /* not In/NotIn/ExcMatch */
-        return simplify_env_emit_float_compare(env, op, left, right);
-    }
-
-    /* Long comparison */
-    if (hir_type_is_subtype(left_type, t_long_exact) &&
-        hir_type_is_subtype(right_type, t_long_exact) &&
-        op != 6 && op != 7 && op != 10) {
-        return simplify_env_emit_long_compare(env, op, left, right);
-    }
-
     return NULL;
 }
 
@@ -199,6 +175,28 @@ void *simplify_int_convert_c(SimplifyEnv *env, const void *instr) {
     if (hir_type_is_subtype(src_type, target)) {
         simplify_env_emit_use_type(env, src, target);
         return src;
+    }
+    return NULL;
+}
+
+/* ---- simplifyLoadVarObjectSize (partial — known object path) ----
+ * If input is a known tuple/bytes object, fold to constant ob_size. */
+void *simplify_load_var_object_size_c(SimplifyEnv *env, const void *instr) {
+    void *obj_reg = hir_c_get_operand(instr, 0);
+    HirType obj_type = hir_register_type(obj_reg);
+
+    HirType t_tuple_exact = HIR_TYPE_SIMPLE(0x00000040000ULL, HIR_TYPE_LIFETIME_TOP);
+    HirType t_bytes_exact = HIR_TYPE_SIMPLE(0x00000002000ULL, HIR_TYPE_LIFETIME_TOP);
+
+    if (hir_type_has_value_spec(&obj_type, t_tuple_exact) ||
+        hir_type_has_value_spec(&obj_type, t_bytes_exact)) {
+        PyObject *obj = hir_type_as_object(&obj_type);
+        if (obj != NULL) {
+            Py_ssize_t size = ((PyVarObject *)obj)->ob_size;
+            simplify_env_emit_use_type(env, obj_reg, obj_type);
+            HirType output_type = hir_register_type(hir_c_output(instr));
+            return simplify_env_emit_load_const(env, make_cint_type(output_type, (intptr_t)size));
+        }
     }
     return NULL;
 }

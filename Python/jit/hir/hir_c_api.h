@@ -624,7 +624,10 @@ HirInstr hir_reg_uses_get(HirRegUses uses, HirRegister reg, size_t idx);
 /* Free the RegUses handle. */
 void hir_reg_uses_destroy(HirRegUses uses);
 
-/* ---- outputType with override ---- */
+/* ---- outputType ---- */
+
+/* Compute the output type of an instruction based on its opcode and operands. */
+HirType hir_output_type(HirInstr instr);
 
 /* Compute the output type of an instruction, but override one operand's
  * type at override_idx with override_type. Used by guard removal to
