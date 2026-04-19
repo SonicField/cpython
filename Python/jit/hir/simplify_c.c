@@ -70,17 +70,15 @@ void *simplify_guard_type_identity_c(const void *instr) {
     return NULL;
 }
 
-/* ---- simplifyIsTruthy (partial — CBool constant folding) ----
- * If input is a known CBool constant, replace with the constant directly. */
-void *simplify_is_truthy_cbool_c(SimplifyEnv *env, const void *instr) {
+/* ---- simplifyPrimitiveBoxBool ----
+ * If input is a known int constant, replace with Py_True/Py_False. */
+void *simplify_primitive_box_bool_c(SimplifyEnv *env, const void *instr) {
     void *input = hir_c_get_operand(instr, 0);
     HirType input_type = hir_register_type(input);
-    HirType t_cbool = HIR_TYPE_CBOOL;
-    if (hir_type_is_subtype(input_type, t_cbool) &&
-        hir_type_has_int_spec(&input_type)) {
-        intptr_t val = hir_type_int_spec(&input_type);
-        PyObject *result = val ? Py_True : Py_False;
-        HirType result_type = hir_type_from_object(result);
+    if (hir_type_has_int_spec(&input_type)) {
+        simplify_env_emit_use_type(env, input, input_type);
+        PyObject *bool_obj = hir_type_int_spec(&input_type) ? Py_True : Py_False;
+        HirType result_type = hir_type_from_object(bool_obj);
         return simplify_env_emit_load_const(env, result_type);
     }
     return NULL;

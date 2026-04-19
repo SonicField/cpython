@@ -2801,8 +2801,12 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
     case Opcode::kPrimitiveCompare:
       return simplifyPrimitiveCompare(
           env, static_cast<const PrimitiveCompare*>(instr));
-    case Opcode::kPrimitiveBoxBool:
-      return simplifyPrimitiveBoxBool(env, instr);
+    case Opcode::kPrimitiveBoxBool: {
+      SimplifyEnv cenv = make_c_env();
+      auto *r = static_cast<Register*>(simplify_primitive_box_bool_c(&cenv, instr));
+      sync_c_env(cenv);
+      return r;
+    }
     case Opcode::kIndexUnbox:
     case Opcode::kPrimitiveUnbox:
       return simplifyUnbox(env, instr);
