@@ -17,10 +17,6 @@ extern "C" {
  * Caller must provide rpo_out with at least capacity entries. */
 size_t hir_cfg_get_rpo_c(void *cfg, void **rpo_out, size_t capacity);
 
-/* Differential verification: compare C RPO against C++ GetRPOTraversal.
- * Returns 1 if traversals match (same blocks in same order), 0 if mismatch. */
-int hir_cfg_rpo_verify(void *func);
-
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
