@@ -165,6 +165,25 @@ void *simplify_compare_c(SimplifyEnv *env, const void *instr) {
     return NULL;
 }
 
+/* ---- simplifyPrimitiveCompare (partial — box(b)==True → b) ---- */
+void *simplify_primitive_compare_box_true_c(const void *instr) {
+    void *left = hir_c_get_operand(instr, 0);
+    void *right = hir_c_get_operand(instr, 1);
+    int32_t op = hir_c_compare_op(instr);
+    if (op != HIR_PCMP_Equal) return NULL;
+
+    extern void *hir_reg_instr(void *reg);
+    void *left_def = hir_reg_instr(left);
+    if (left_def == NULL || hir_c_opcode(left_def) != HIR_OP_PrimitiveBoxBool)
+        return NULL;
+
+    HirType right_type = hir_register_type(right);
+    PyObject *right_obj = hir_type_as_object(&right_type);
+    if (right_obj != Py_True) return NULL;
+
+    return hir_c_get_operand(left_def, 0);
+}
+
 /* ---- simplifyIntConvert ----
  * If input already has the target type, IntConvert is redundant. */
 void *simplify_int_convert_c(SimplifyEnv *env, const void *instr) {
