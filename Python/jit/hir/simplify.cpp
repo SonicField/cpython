@@ -2876,8 +2876,12 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
     case Opcode::kVectorCall:
       return simplifyVectorCall(env, static_cast<const VectorCall*>(instr));
 
-    case Opcode::kStoreSubscr:
-      return simplifyStoreSubscr(env, instr);
+    case Opcode::kStoreSubscr: {
+      SimplifyEnv cenv = make_c_env();
+      auto *r = static_cast<Register*>(simplify_store_subscr_c(&cenv, instr));
+      sync_c_env(cenv);
+      return r;
+    }
 
     case Opcode::kCIntToCBool: {
       SimplifyEnv cenv = make_c_env();

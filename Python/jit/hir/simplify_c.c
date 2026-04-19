@@ -121,6 +121,43 @@ void *simplify_env_emit_primitive_box_bool(SimplifyEnv *env, void *src) {
     return simplify_env_emit(env, instr);
 }
 
+/* Returns the INSTRUCTION (not output reg) so caller can set operands */
+void *simplify_env_emit_call_static_instr(SimplifyEnv *env, size_t n_operands,
+                                           void *addr, HirType ret_type) {
+    void *reg = hir_func_alloc_register(env->func);
+    extern void *hir_c_create_call_static_reg(size_t n, void *dst, void *addr, HirType ret);
+    void *instr = hir_c_create_call_static_reg(n_operands, reg, addr, ret_type);
+    simplify_env_emit(env, instr);
+    return instr;
+}
+
+void *simplify_env_emit_check_neg(SimplifyEnv *env, void *src, void *frame_state) {
+    extern void *hir_c_create_check_neg(void *func, void *src, void *fs);
+    void *instr = hir_c_create_check_neg(env->func, src, frame_state);
+    return simplify_env_emit(env, instr);
+}
+
+/* ---- simplifyStoreSubscr ----
+ * If target is DictExact, call mp_ass_subscript directly + check_neg. */
+void *simplify_store_subscr_c(SimplifyEnv *env, const void *instr) {
+    void *target = hir_c_get_operand(instr, 0);
+    HirType target_type = hir_register_type(target);
+    HirType t_dict_exact = HIR_TYPE_DICTEXACT;
+
+    if (!hir_type_is_subtype(target_type, t_dict_exact)) return NULL;
+
+    void *addr = (void *)PyDict_Type.tp_as_mapping->mp_ass_subscript;
+    HirType t_cint32 = HIR_TYPE_CINT32;
+    void *call = simplify_env_emit_call_static_instr(env, 3, addr, t_cint32);
+    hir_c_set_operand(call, 0, hir_c_get_operand(instr, 0));
+    hir_c_set_operand(call, 1, hir_c_get_operand(instr, 1));
+    hir_c_set_operand(call, 2, hir_c_get_operand(instr, 2));
+
+    void *fs = hir_c_get_frame_state(instr);
+    simplify_env_emit_check_neg(env, hir_c_output(call), fs);
+    return NULL;
+}
+
 /* Helper: create HirType with int specialization */
 static HirType make_int_spec_type(HirType base, intptr_t val) {
     base.bits_and_flags |= ((uint64_t)HIR_SPEC_INT << HIR_TYPE_SPEC_SHIFT);
