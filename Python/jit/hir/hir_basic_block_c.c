@@ -235,6 +235,7 @@ hir_bb_append_instr(HirBasicBlock *bb, void *instr) {
     node->prev_ = prev;
     node->next_ = s;
     s->prev_ = node;
+    hir_c_set_block(instr, bb);
     return instr;
 }
 
@@ -248,6 +249,7 @@ hir_bb_push_front_instr(HirBasicBlock *bb, void *instr) {
     node->prev_ = s;
     node->next_ = next;
     next->prev_ = node;
+    hir_c_set_block(instr, bb);
 }
 
 void *
@@ -260,5 +262,7 @@ hir_bb_pop_front_instr(HirBasicBlock *bb) {
     first->next_->prev_ = s;
     first->prev_ = first;
     first->next_ = first;
-    return node_to_instr(bb, first);
+    void *instr = node_to_instr(bb, first);
+    hir_c_set_block(instr, NULL);
+    return instr;
 }
