@@ -2782,8 +2782,13 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
       return r;
     }
 
-    case Opcode::kIsTruthy:
+    case Opcode::kIsTruthy: {
+      SimplifyEnv cenv = make_c_env();
+      auto *r = static_cast<Register*>(simplify_is_truthy_c(&cenv, instr));
+      sync_c_env(cenv);
+      if (r) return r;
       return simplifyIsTruthy(env, instr);
+    }
 
 // TODO(T255262756) - Enable this again. See P2169675076 and P2184559031 (same
 // pattern but applied to simplifyLoadAttrTypeReceiver).

@@ -32,6 +32,7 @@ void *simplify_guard_type_identity_c(const void *instr);
 void *simplify_primitive_compare_box_true_c(const void *instr);
 void *simplify_unbox_box_c(const void *instr);
 void *simplify_cond_branch_check_type_c(SimplifyEnv *env, const void *instr);
+void *simplify_is_truthy_c(SimplifyEnv *env, const void *instr);
 void *simplify_check_sequence_bounds_c(SimplifyEnv *env, const void *instr);
 void *simplify_load_array_item_tuple_c(SimplifyEnv *env, const void *instr);
 void *simplify_load_tuple_item_c(SimplifyEnv *env, const void *instr);

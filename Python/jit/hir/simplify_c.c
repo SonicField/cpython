@@ -7,6 +7,7 @@
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "Python.h"
+#include "pycore_long.h"
 
 /* Forward declarations (avoid hir_c_api.h typedef conflicts) */
 extern HirType hir_register_type(void *reg);
@@ -210,6 +211,30 @@ void *simplify_primitive_compare_box_true_c(const void *instr) {
     if (right_obj != Py_True) return NULL;
 
     return hir_c_get_operand(left_def, 0);
+}
+
+/* ---- simplifyIsTruthy (partial — Bool + LongExact paths) ---- */
+void *simplify_is_truthy_c(SimplifyEnv *env, const void *instr) {
+    void *input = hir_c_get_operand(instr, 0);
+    HirType input_type = hir_register_type(input);
+
+    /* TBool: compare with Py_True */
+    HirType t_bool = HIR_TYPE_BOOL;
+    if (hir_type_is_subtype(input_type, t_bool)) {
+        simplify_env_emit_use_type(env, input, t_bool);
+        void *right = simplify_env_emit_load_const(env, hir_type_from_object(Py_True));
+        return simplify_env_emit_primitive_compare(env, HIR_PCMP_Equal, input, right);
+    }
+
+    /* TLongExact: compare with _PyLong_GetZero() */
+    HirType t_long_exact = HIR_TYPE_LONGEXACT;
+    if (hir_type_is_subtype(input_type, t_long_exact)) {
+        simplify_env_emit_use_type(env, input, input_type);
+        void *right = simplify_env_emit_load_const(env, hir_type_from_object(_PyLong_GetZero()));
+        return simplify_env_emit_primitive_compare(env, HIR_PCMP_NotEqual, input, right);
+    }
+
+    return NULL;
 }
 
 /* ---- simplifyCheckSequenceBounds ----
