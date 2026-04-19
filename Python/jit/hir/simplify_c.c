@@ -287,6 +287,116 @@ static binaryfunc long_slot_method(int32_t op) {
     }
 }
 
+/* Forward declarations for helpers defined later */
+static binaryfunc float_slot_method(int32_t op);
+
+/* ---- InPlaceOp → BinaryOp conversion ---- */
+static int32_t inplace_to_binary(int32_t iop) {
+    switch (iop) {
+        case HIR_IOP_Add: return HIR_BOP_Add;
+        case HIR_IOP_Subtract: return HIR_BOP_Subtract;
+        case HIR_IOP_Multiply: return HIR_BOP_Multiply;
+        case HIR_IOP_TrueDivide: return HIR_BOP_TrueDivide;
+        case HIR_IOP_FloorDivide: return HIR_BOP_FloorDivide;
+        case HIR_IOP_Modulo: return HIR_BOP_Modulo;
+        case HIR_IOP_Power: return HIR_BOP_Power;
+        default: return -1;
+    }
+}
+
+void *simplify_env_emit_long_in_place_op(SimplifyEnv *env, int32_t op,
+                                          void *left, void *right, void *fs) {
+    extern void *hir_c_create_long_in_place_op(void *func, int32_t op,
+                                                void *left, void *right, void *fs);
+    void *instr = hir_c_create_long_in_place_op(env->func, op, left, right, fs);
+    return simplify_env_emit(env, instr);
+}
+
+void *simplify_env_emit_float_binary_op_deopt(SimplifyEnv *env, int32_t op,
+                                               void *left, void *right, void *fs) {
+    extern void *hir_c_create_float_binary_op(void *func, int32_t op,
+                                               void *left, void *right, void *fs);
+    void *instr = hir_c_create_float_binary_op(env->func, op, left, right, fs);
+    return simplify_env_emit(env, instr);
+}
+
+void *simplify_env_emit_guard_type_deopt(SimplifyEnv *env, HirType target,
+                                          void *src, void *fs) {
+    extern void *hir_c_create_guard_type(void *func, HirType target,
+                                          void *src, void *fs);
+    void *instr = hir_c_create_guard_type(env->func, target, src, fs);
+    return simplify_env_emit(env, instr);
+}
+
+/* ---- simplifyInPlaceOp ---- */
+void *simplify_in_place_op_c(SimplifyEnv *env, const void *instr) {
+    void *lhs = hir_c_get_operand(instr, 0);
+    void *rhs = hir_c_get_operand(instr, 1);
+    HirType lhs_type = hir_register_type(lhs);
+    HirType rhs_type = hir_register_type(rhs);
+    int32_t op = hir_c_binary_op_kind(instr);
+    void *fs = hir_c_get_frame_state(instr);
+    HirType t_long_exact = HIR_TYPE_LONGEXACT;
+    HirType t_float_exact = HIR_TYPE_FLOATEXACT;
+
+    /* Path 1: Long in-place */
+    if (hir_type_is_subtype(lhs_type, t_long_exact) &&
+        hir_type_is_subtype(rhs_type, t_long_exact) &&
+        op != HIR_IOP_MatrixMultiply) {
+        simplify_env_emit_use_type(env, lhs, t_long_exact);
+        simplify_env_emit_use_type(env, rhs, t_long_exact);
+        return simplify_env_emit_long_in_place_op(env, op, lhs, rhs, fs);
+    }
+
+    /* Path 2: Float speculation (LHS not Float, RHS is Float) */
+    if (!hir_type_is_subtype(lhs_type, t_float_exact) &&
+        hir_type_is_subtype(rhs_type, t_float_exact)) {
+        int32_t binop = inplace_to_binary(op);
+        if (binop >= 0 && (float_slot_method(binop) != NULL || binop == HIR_BOP_Power)) {
+            void *guarded = simplify_env_emit_guard_type_deopt(env, t_float_exact, lhs, fs);
+            simplify_env_emit_use_type(env, rhs, t_float_exact);
+            return simplify_env_emit_float_binary_op_deopt(env, binop, guarded, rhs, fs);
+        }
+    }
+
+    /* Path 3: Float in-place (both Float) */
+    if (hir_type_is_subtype(lhs_type, t_float_exact) &&
+        hir_type_is_subtype(rhs_type, t_float_exact)) {
+        int32_t binop = inplace_to_binary(op);
+        if (binop >= 0 && (float_slot_method(binop) != NULL || binop == HIR_BOP_Power)) {
+            simplify_env_emit_use_type(env, lhs, t_float_exact);
+            simplify_env_emit_use_type(env, rhs, t_float_exact);
+            return simplify_env_emit_float_binary_op_deopt(env, binop, lhs, rhs, fs);
+        }
+    }
+
+    /* Path 4: Float speculation (LHS is Float, RHS not Float but could be) */
+    if (hir_type_is_subtype(lhs_type, t_float_exact) &&
+        !hir_type_is_subtype(rhs_type, t_float_exact) &&
+        hir_type_could_be(&rhs_type, &t_float_exact)) {
+        int32_t binop = inplace_to_binary(op);
+        if (binop >= 0 && (float_slot_method(binop) != NULL || binop == HIR_BOP_Power)) {
+            simplify_env_emit_use_type(env, lhs, t_float_exact);
+            void *guarded = simplify_env_emit_guard_type_deopt(env, t_float_exact, rhs, fs);
+            return simplify_env_emit_float_binary_op_deopt(env, binop, lhs, guarded, fs);
+        }
+    }
+
+    /* Path 5: Reverse float speculation (RHS is Float, LHS not but could be) */
+    if (hir_type_is_subtype(rhs_type, t_float_exact) &&
+        !hir_type_is_subtype(lhs_type, t_float_exact) &&
+        hir_type_could_be(&lhs_type, &t_float_exact)) {
+        int32_t binop = inplace_to_binary(op);
+        if (binop >= 0 && (float_slot_method(binop) != NULL || binop == HIR_BOP_Power)) {
+            simplify_env_emit_use_type(env, rhs, t_float_exact);
+            void *guarded = simplify_env_emit_guard_type_deopt(env, t_float_exact, lhs, fs);
+            return simplify_env_emit_float_binary_op_deopt(env, binop, guarded, rhs, fs);
+        }
+    }
+
+    return NULL;
+}
+
 /* ---- Float slot method lookup ---- */
 static binaryfunc float_slot_method(int32_t op) {
     PyNumberMethods *nb = PyFloat_Type.tp_as_number;

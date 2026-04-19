@@ -825,6 +825,21 @@ static inline uint32_t hir_c_call_flags(const void *instr) {
 #define HIR_PUO_InvertInt         1
 #define HIR_PUO_NotInt            2
 
+/* InPlaceOpKind C constants */
+#define HIR_IOP_Add               0
+#define HIR_IOP_And               1
+#define HIR_IOP_FloorDivide       2
+#define HIR_IOP_LShift            3
+#define HIR_IOP_MatrixMultiply    4
+#define HIR_IOP_Modulo            5
+#define HIR_IOP_Multiply          6
+#define HIR_IOP_Or                7
+#define HIR_IOP_Power             8
+#define HIR_IOP_RShift            9
+#define HIR_IOP_Subtract          10
+#define HIR_IOP_TrueDivide        11
+#define HIR_IOP_Xor               12
+
 /* CompareOp C constants (must match C++ enum class CompareOp in hir.h) */
 #define HIR_CMP_LessThan              0
 #define HIR_CMP_LessThanEqual         1

@@ -47,6 +47,7 @@ void *simplify_cint_to_cbool_c(SimplifyEnv *env, const void *instr);
 void *simplify_cond_branch_const_c(SimplifyEnv *env, const void *instr);
 void *simplify_compare_c(SimplifyEnv *env, const void *instr);
 void *simplify_is_neg_and_err_c(SimplifyEnv *env, const void *instr);
+void *simplify_in_place_op_c(SimplifyEnv *env, const void *instr);
 void *simplify_float_binary_op_c(SimplifyEnv *env, const void *instr);
 void *simplify_long_binary_op_c(SimplifyEnv *env, const void *instr);
 void *simplify_get_length_c(SimplifyEnv *env, const void *instr);
