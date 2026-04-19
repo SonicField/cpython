@@ -2722,6 +2722,13 @@ Register* simplifyCIntToCBool(Env& env, const Instr* instr) {
 }
 
 Register* simplifyInstr(Env& env, const Instr* instr) {
+  auto make_c_env = [&]() -> SimplifyEnv {
+    return {&env.func, env.block, const_cast<Instr*>(&*env.cursor),
+            env.bc_off.value(), 0};
+  };
+  auto sync_c_env = [&](const SimplifyEnv& cenv) {
+    if (cenv.optimized) env.optimized = true;
+  };
   switch (instr->opcode()) {
     case Opcode::kCheckVar:
     case Opcode::kCheckExc:
