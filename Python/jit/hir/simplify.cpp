@@ -2761,9 +2761,12 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
       if (r) return r;
       return simplifyCondBranch(env, instr);
     }
-    case Opcode::kCondBranchCheckType:
-      return simplifyCondBranchCheckType(
-          env, static_cast<const CondBranchCheckType*>(instr));
+    case Opcode::kCondBranchCheckType: {
+      SimplifyEnv cenv = make_c_env();
+      auto *r = static_cast<Register*>(simplify_cond_branch_check_type_c(&cenv, instr));
+      sync_c_env(cenv);
+      return r;
+    }
 
     case Opcode::kGetLength:
       return simplifyGetLength(env, instr);

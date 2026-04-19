@@ -241,6 +241,22 @@ struct HirInstrLayoutVerifier {
         "Send frame_state_ layout mismatch — reversed mixin order?");
 };
 
+/* ---- CompareOp / PrimitiveCompareOp enum value verification ---- */
+static_assert(static_cast<int>(CompareOp::kLessThan) == HIR_CMP_LessThan, "CompareOp mismatch");
+static_assert(static_cast<int>(CompareOp::kEqual) == HIR_CMP_Equal, "CompareOp mismatch");
+static_assert(static_cast<int>(CompareOp::kNotEqual) == HIR_CMP_NotEqual, "CompareOp mismatch");
+static_assert(static_cast<int>(CompareOp::kIn) == HIR_CMP_In, "CompareOp mismatch");
+static_assert(static_cast<int>(CompareOp::kNotIn) == HIR_CMP_NotIn, "CompareOp mismatch");
+static_assert(static_cast<int>(CompareOp::kExcMatch) == HIR_CMP_ExcMatch, "CompareOp mismatch");
+static_assert(static_cast<int>(CompareOp::kGreaterThanUnsigned) == HIR_CMP_GreaterThanUnsigned, "CompareOp mismatch");
+static_assert(static_cast<int>(CompareOp::kLessThanEqualUnsigned) == HIR_CMP_LessThanEqualUnsigned, "CompareOp mismatch");
+
+static_assert(static_cast<int>(PrimitiveCompareOp::kEqual) == HIR_PCMP_Equal, "PrimitiveCompareOp mismatch");
+static_assert(static_cast<int>(PrimitiveCompareOp::kNotEqual) == HIR_PCMP_NotEqual, "PrimitiveCompareOp mismatch");
+static_assert(static_cast<int>(PrimitiveCompareOp::kLessThan) == HIR_PCMP_LessThan, "PrimitiveCompareOp mismatch");
+static_assert(static_cast<int>(PrimitiveCompareOp::kGreaterThanUnsigned) == HIR_PCMP_GreaterThanUnsigned, "PrimitiveCompareOp mismatch");
+static_assert(static_cast<int>(PrimitiveCompareOp::kLessThanEqualUnsigned) == HIR_PCMP_LessThanEqualUnsigned, "PrimitiveCompareOp mismatch");
+
 /* ---- Runtime read-through-cast verification ----
  * Creates C++ HIR objects, casts to C structs, reads via C accessors.
  * Validates that layout compatibility translates to correct field reads. */

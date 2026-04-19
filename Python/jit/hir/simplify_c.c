@@ -212,6 +212,30 @@ void *simplify_primitive_compare_box_true_c(const void *instr) {
     return hir_c_get_operand(left_def, 0);
 }
 
+/* ---- simplifyCondBranchCheckType ----
+ * If value type is subtype of expected → Branch to true_bb.
+ * If value type can't be expected → Branch to false_bb. */
+void *simplify_cond_branch_check_type_c(SimplifyEnv *env, const void *instr) {
+    void *value = hir_c_get_operand(instr, 0);
+    HirType actual_type = hir_register_type(value);
+    const HirCondBranchCheckType *cbct = (const HirCondBranchCheckType *)instr;
+    HirType expected_type = cbct->type;
+
+    if (hir_type_is_subtype(actual_type, expected_type)) {
+        simplify_env_emit_use_type(env, value, actual_type);
+        extern void *hir_c_create_branch_cpp(void *target_block);
+        void *branch = hir_c_create_branch_cpp(cbct->true_edge.to);
+        return simplify_env_emit(env, branch);
+    }
+    if (!hir_type_could_be(&actual_type, &expected_type)) {
+        simplify_env_emit_use_type(env, value, actual_type);
+        extern void *hir_c_create_branch_cpp(void *target_block);
+        void *branch = hir_c_create_branch_cpp(cbct->false_edge.to);
+        return simplify_env_emit(env, branch);
+    }
+    return NULL;
+}
+
 /* ---- simplifyUnbox (partial — unbox(box(x)) → x) ---- */
 void *simplify_unbox_box_c(const void *instr) {
     void *input = hir_c_get_operand(instr, 0);
