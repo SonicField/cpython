@@ -701,6 +701,12 @@ void hir_c_replace_uses_of(HirInstr instr, HirRegister orig, HirRegister replace
  * Both must be DeoptBase subclasses. Deep copies the FrameState. */
 void hir_c_copy_frame_state(HirInstr dst, HirInstr src);
 
+/* ---- Context/Preload bridges ---- */
+
+/* Check if a PyMethodDef is a known builtin. Returns the builtin name
+ * or NULL if not found. The returned string is owned by the Builtins cache. */
+const char *jit_builtins_find(void *method_def);
+
 /* Note: hir_c_num_edges, hir_c_successor, hir_c_is_terminator,
  * hir_c_set_bytecode_offset, hir_c_copy_bytecode_offset are already
  * defined as static inline in hir_instr_c.h — no extern C needed. */

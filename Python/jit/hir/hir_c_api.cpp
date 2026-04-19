@@ -22,6 +22,7 @@
 #include "cinderx/Jit/hir/function.h"
 #include "cinderx/Jit/hir/instr_effects_c.h"
 #include "cinderx/Jit/hir/pass.h"
+#include "cinderx/Jit/context.h"
 
 #include <cstring>
 #include <vector>
@@ -465,6 +466,17 @@ void hir_reg_uses_destroy(HirRegUses uses) {
 }
 
 /* ---- outputType with override ---- */
+
+const char *jit_builtins_find(void *method_def) {
+  auto* meth = static_cast<PyMethodDef*>(method_def);
+  auto result = jit::getContext()->builtins().find(meth);
+  if (result.has_value()) {
+    static thread_local std::string last_result;
+    last_result = result.value();
+    return last_result.c_str();
+  }
+  return nullptr;
+}
 
 HirType hir_output_type(HirInstr instr) {
   return Type::toHirType(outputType(*as_instr(instr)));
