@@ -2798,9 +2798,12 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
       sync_c_env(cenv);
       return r;
     }
-    case Opcode::kLoadTupleItem:
-      return simplifyLoadTupleItem(
-          env, static_cast<const LoadTupleItem*>(instr));
+    case Opcode::kLoadTupleItem: {
+      SimplifyEnv cenv = make_c_env();
+      auto *r = static_cast<Register*>(simplify_load_tuple_item_c(&cenv, instr));
+      sync_c_env(cenv);
+      return r;
+    }
     case Opcode::kLoadArrayItem:
       return simplifyLoadArrayItem(
           env, static_cast<const LoadArrayItem*>(instr));

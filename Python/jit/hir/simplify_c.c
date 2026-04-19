@@ -212,6 +212,24 @@ void *simplify_primitive_compare_box_true_c(const void *instr) {
     return hir_c_get_operand(left_def, 0);
 }
 
+/* ---- simplifyLoadTupleItem ----
+ * If src is a known tuple object, fold to the constant item. */
+void *simplify_load_tuple_item_c(SimplifyEnv *env, const void *instr) {
+    void *src = hir_c_get_operand(instr, 0);
+    HirType src_type = hir_register_type(src);
+    HirType t_tuple = HIR_TYPE_TUPLE;
+    if (!hir_type_has_value_spec(&src_type, t_tuple)) return NULL;
+
+    simplify_env_emit_use_type(env, src, src_type);
+    PyObject *tuple_obj = hir_type_object_spec(&src_type);
+    size_t idx = hir_c_load_tuple_item_idx(instr);
+    PyObject *item = PyTuple_GET_ITEM(tuple_obj, idx);
+    extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
+    PyObject *ref = hir_func_add_reference(env->func, item);
+    HirType item_type = hir_type_from_object(ref);
+    return simplify_env_emit_load_const(env, item_type);
+}
+
 /* ---- simplifyLoadField (partial — known float object) ----
  * If loadee is a known float and we're loading ob_fval, fold to constant. */
 void *simplify_load_field_float_c(SimplifyEnv *env, const void *instr) {
