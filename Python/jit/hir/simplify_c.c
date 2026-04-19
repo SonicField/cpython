@@ -46,6 +46,30 @@ void *simplify_check_c(const void *instr) {
     return NULL;
 }
 
+/* ---- simplifyRefineType ----
+ * If input already has the target type, RefineType is redundant. */
+void *simplify_refine_type_c(const void *instr) {
+    void *input = hir_c_get_operand(instr, 0);
+    HirType input_type = hir_register_type(input);
+    HirType target = ((const HirRefineType *)instr)->type;
+    if (hir_type_is_subtype(input_type, target)) {
+        return input;
+    }
+    return NULL;
+}
+
+/* ---- simplifyGuardType (partial — type-already-matches path) ----
+ * If input already has the guarded type, GuardType is redundant. */
+void *simplify_guard_type_identity_c(const void *instr) {
+    void *input = hir_c_get_operand(instr, 0);
+    HirType input_type = hir_register_type(input);
+    HirType target = hir_c_guard_type_target(instr);
+    if (hir_type_is_subtype(input_type, target)) {
+        return input;
+    }
+    return NULL;
+}
+
 /* ---- simplifyIsTruthy (partial — CBool constant folding) ----
  * If input is a known CBool constant, replace with the constant directly. */
 void *simplify_is_truthy_cbool_c(SimplifyEnv *env, const void *instr) {
