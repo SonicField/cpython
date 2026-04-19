@@ -263,6 +263,13 @@ void *simplify_env_emit_load_const_object(SimplifyEnv *env, PyObject *obj) {
     return simplify_env_emit_load_const(env, hir_type_from_object(ref));
 }
 
+void *simplify_env_emit_unicode_compare(SimplifyEnv *env, int32_t op,
+                                         void *left, void *right) {
+    void *reg = hir_func_alloc_register(env->func);
+    void *instr = hir_c_create_unicode_compare(reg, op, left, right);
+    return simplify_env_emit(env, instr);
+}
+
 /* Helper: create HirType with int specialization */
 static HirType make_int_spec_type(HirType base, intptr_t val) {
     base.bits_and_flags |= ((uint64_t)HIR_SPEC_INT << HIR_TYPE_SPEC_SHIFT);
@@ -340,26 +347,66 @@ void *simplify_compare_c(SimplifyEnv *env, const void *instr) {
         return simplify_env_emit_long_compare(env, op, left, right);
     }
 
+    /* Unicode comparison (not In/NotIn/ExcMatch) */
+    HirType t_unicode_exact = HIR_TYPE_UNICODEEXACT;
+    if (hir_type_is_subtype(left_type, t_unicode_exact) &&
+        hir_type_is_subtype(right_type, t_unicode_exact) &&
+        op != HIR_CMP_In && op != HIR_CMP_NotIn && op != HIR_CMP_ExcMatch) {
+        return simplify_env_emit_unicode_compare(env, op, left, right);
+    }
+
     return NULL;
 }
 
-/* ---- simplifyPrimitiveCompare (partial — box(b)==True → b) ---- */
-void *simplify_primitive_compare_box_true_c(const void *instr) {
+/* ---- simplifyPrimitiveCompare (full C port) ---- */
+void *simplify_primitive_compare_c(SimplifyEnv *env, const void *instr) {
     void *left = hir_c_get_operand(instr, 0);
     void *right = hir_c_get_operand(instr, 1);
     int32_t op = hir_c_compare_op(instr);
-    if (op != HIR_PCMP_Equal) return NULL;
 
-    extern void *hir_reg_instr(void *reg);
-    void *left_def = hir_reg_instr(left);
-    if (left_def == NULL || hir_c_opcode(left_def) != HIR_OP_PrimitiveBoxBool)
-        return NULL;
+    if (op == HIR_PCMP_Equal || op == HIR_PCMP_NotEqual) {
+        HirType left_type = hir_register_type(left);
+        HirType right_type = hir_register_type(right);
 
-    HirType right_type = hir_register_type(right);
-    PyObject *right_obj = hir_type_as_object(&right_type);
-    if (right_obj != Py_True) return NULL;
+        /* Types can't overlap → always false (or true for !=) */
+        if (!hir_type_could_be(&left_type, &right_type)) {
+            simplify_env_emit_use_type(env, left, left_type);
+            simplify_env_emit_use_type(env, right, right_type);
+            int val = (op == HIR_PCMP_NotEqual) ? 1 : 0;
+            return simplify_env_emit_load_const(env, make_cbool_type(val));
+        }
+        /* Both have int specialization → compare values */
+        if (hir_type_has_int_spec(&left_type) && hir_type_has_int_spec(&right_type)) {
+            int equal = (hir_type_int_spec(&left_type) == hir_type_int_spec(&right_type));
+            int val = (op == HIR_PCMP_NotEqual) ? !equal : equal;
+            simplify_env_emit_use_type(env, left, left_type);
+            simplify_env_emit_use_type(env, right, right_type);
+            return simplify_env_emit_load_const(env, make_cbool_type(val));
+        }
+        /* Both have object specialization → compare pointers */
+        if (hir_type_has_object_spec(&left_type) && hir_type_has_object_spec(&right_type)) {
+            int equal = (hir_type_object_spec(&left_type) == hir_type_object_spec(&right_type));
+            int val = (op == HIR_PCMP_NotEqual) ? !equal : equal;
+            simplify_env_emit_use_type(env, left, left_type);
+            simplify_env_emit_use_type(env, right, right_type);
+            return simplify_env_emit_load_const(env, make_cbool_type(val));
+        }
+    }
 
-    return hir_c_get_operand(left_def, 0);
+    /* box(b) == True → b */
+    if (op == HIR_PCMP_Equal) {
+        extern void *hir_reg_instr(void *reg);
+        void *left_def = hir_reg_instr(left);
+        if (left_def != NULL && hir_c_opcode(left_def) == HIR_OP_PrimitiveBoxBool) {
+            HirType right_type = hir_register_type(right);
+            PyObject *right_obj = hir_type_as_object(&right_type);
+            if (right_obj == Py_True) {
+                return hir_c_get_operand(left_def, 0);
+            }
+        }
+    }
+
+    return NULL;
 }
 
 /* ---- simplifyIsTruthy (partial — Bool + LongExact paths) ---- */
@@ -554,8 +601,26 @@ void *simplify_cond_branch_check_type_c(SimplifyEnv *env, const void *instr) {
     return NULL;
 }
 
-/* ---- simplifyUnbox (partial — unbox(box(x)) → x) ---- */
-void *simplify_unbox_box_c(const void *instr) {
+/* ---- simplifyUnbox — full C port ---- */
+static int cint_fits_type(int64_t val, HirType target) {
+    uint64_t bits = target.bits_and_flags & HIR_TYPE_BITS_MASK;
+    if (bits == 0x01000000000ULL) return 1; /* CInt64 — always fits */
+    if (bits == 0x00800000000ULL) return val >= INT32_MIN && val <= INT32_MAX;
+    if (bits == 0x00400000000ULL) return val >= INT16_MIN && val <= INT16_MAX;
+    return val >= INT8_MIN && val <= INT8_MAX; /* CInt8 */
+}
+
+static int cuint_fits_type(int64_t val, HirType target) {
+    if (val < 0) return 0;
+    uint64_t bits = target.bits_and_flags & HIR_TYPE_BITS_MASK;
+    if (bits == 0x10000000000ULL) return 1; /* CUInt64 */
+    if (bits == 0x08000000000ULL) return (uint64_t)val <= UINT32_MAX;
+    if (bits == 0x04000000000ULL) return (uint64_t)val <= UINT16_MAX;
+    return (uint64_t)val <= UINT8_MAX; /* CUInt8 */
+}
+
+/* ---- simplifyUnbox — full C port ---- */
+void *simplify_unbox_box_c(SimplifyEnv *env, const void *instr) {
     void *input = hir_c_get_operand(instr, 0);
     void *output_reg = hir_c_output(instr);
     if (output_reg == NULL) return NULL;
@@ -570,6 +635,38 @@ void *simplify_unbox_box_c(const void *instr) {
     if (hir_type_equal(&box_type, &output_type)) {
         return hir_c_get_operand(box_instr, 0);
     }
+
+    /* Constant-folding for known int/float values */
+    HirType input_type = hir_register_type(input);
+    if (!hir_type_has_object_spec(&input_type)) return NULL;
+    PyObject *value = hir_type_object_spec(&input_type);
+
+    HirType t_csigned = HIR_TYPE_SIMPLE(0x01e00000000ULL, HIR_TYPE_LIFETIME_BOTTOM);
+    HirType t_cunsigned = HIR_TYPE_SIMPLE(0x1e000000000ULL, HIR_TYPE_LIFETIME_BOTTOM);
+    HirType t_csigned_or_unsigned = {t_csigned.bits_and_flags | t_cunsigned.bits_and_flags, {0}};
+
+    if (hir_type_is_subtype(output_type, t_csigned_or_unsigned)) {
+        if (!PyLong_Check(value)) return NULL;
+        int overflow = 0;
+        long number = PyLong_AsLongAndOverflow(value, &overflow);
+        if (overflow != 0) return NULL;
+
+        if (hir_type_is_subtype(output_type, t_csigned)) {
+            if (!cint_fits_type(number, output_type)) return NULL;
+            return simplify_env_emit_load_const(env, make_cint_type(output_type, (intptr_t)number));
+        } else {
+            if (!cuint_fits_type(number, output_type)) return NULL;
+            return simplify_env_emit_load_const(env, make_cint_type(output_type, (intptr_t)number));
+        }
+    }
+
+    HirType t_cdouble = HIR_TYPE_CDOUBLE;
+    if (hir_type_is_subtype(output_type, t_cdouble)) {
+        if (!PyFloat_Check(value)) return NULL;
+        double number = PyFloat_AS_DOUBLE(value);
+        return simplify_env_emit_load_const(env, hir_type_from_cdouble(number));
+    }
+
     return NULL;
 }
 

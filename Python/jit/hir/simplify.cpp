@@ -2755,8 +2755,7 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
       SimplifyEnv cenv = make_c_env();
       auto *r = static_cast<Register*>(simplify_compare_c(&cenv, instr));
       sync_c_env(cenv);
-      if (r) return r;
-      return simplifyCompare(env, static_cast<const Compare*>(instr));
+      return r;
     }
 
     case Opcode::kCondBranch: {
@@ -2842,10 +2841,10 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
       return simplifyUnaryOp(env, static_cast<const UnaryOp*>(instr));
 
     case Opcode::kPrimitiveCompare: {
-      auto *r = static_cast<Register*>(simplify_primitive_compare_box_true_c(instr));
-      if (r) return r;
-      return simplifyPrimitiveCompare(
-          env, static_cast<const PrimitiveCompare*>(instr));
+      SimplifyEnv cenv = make_c_env();
+      auto *r = static_cast<Register*>(simplify_primitive_compare_c(&cenv, instr));
+      sync_c_env(cenv);
+      return r;
     }
     case Opcode::kPrimitiveBoxBool: {
       SimplifyEnv cenv = make_c_env();
@@ -2855,9 +2854,10 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
     }
     case Opcode::kIndexUnbox:
     case Opcode::kPrimitiveUnbox: {
-      auto *r = static_cast<Register*>(simplify_unbox_box_c(instr));
-      if (r) return r;
-      return simplifyUnbox(env, instr);
+      SimplifyEnv cenv = make_c_env();
+      auto *r = static_cast<Register*>(simplify_unbox_box_c(&cenv, instr));
+      sync_c_env(cenv);
+      return r;
     }
 
     case Opcode::kIsNegativeAndErrOccurred: {
