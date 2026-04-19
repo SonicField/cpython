@@ -107,12 +107,21 @@ void *simplify_env_emit_primitive_box_bool(SimplifyEnv *env, void *src) {
     return simplify_env_emit(env, instr);
 }
 
-/* Helper: create HirType for CBool(val) with int specialization */
+/* Helper: create HirType with int specialization */
+static HirType make_int_spec_type(HirType base, intptr_t val) {
+    base.bits_and_flags |= ((uint64_t)HIR_SPEC_INT << HIR_TYPE_SPEC_SHIFT);
+    base.int_val = val;
+    return base;
+}
+
 static HirType make_cbool_type(intptr_t val) {
-    HirType t = HIR_TYPE_CBOOL;
-    t.bits_and_flags |= ((uint64_t)HIR_SPEC_INT << HIR_TYPE_SPEC_SHIFT);
-    t.int_val = val != 0 ? 1 : 0;
-    return t;
+    return make_int_spec_type(((HirType)HIR_TYPE_CBOOL), val != 0 ? 1 : 0);
+}
+
+static HirType make_cint_type(HirType target_type, intptr_t val) {
+    uint64_t bits = target_type.bits_and_flags & HIR_TYPE_BITS_MASK;
+    HirType t = HIR_TYPE_SIMPLE(bits, HIR_TYPE_LIFETIME_BOTTOM);
+    return make_int_spec_type(t, val);
 }
 
 /* ---- simplifyCIntToCBool ----
@@ -192,6 +201,19 @@ void *simplify_int_convert_c(SimplifyEnv *env, const void *instr) {
         return src;
     }
     return NULL;
+}
+
+/* ---- simplifyIsNegativeAndErrOccurred ----
+ * If input is a LoadConst, we know no exception is active → result is 0. */
+void *simplify_is_neg_and_err_c(SimplifyEnv *env, const void *instr) {
+    void *input = hir_c_get_operand(instr, 0);
+    extern void *hir_reg_instr(void *reg);
+    void *def = hir_reg_instr(input);
+    if (def == NULL || hir_c_opcode(def) != HIR_OP_LoadConst) {
+        return NULL;
+    }
+    HirType output_type = hir_register_type(hir_c_output(instr));
+    return simplify_env_emit_load_const(env, make_cint_type(output_type, 0));
 }
 
 /* ---- simplifyCondBranch (partial — constant condition folding) ----

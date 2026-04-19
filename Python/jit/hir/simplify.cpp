@@ -2825,8 +2825,12 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
     case Opcode::kPrimitiveUnbox:
       return simplifyUnbox(env, instr);
 
-    case Opcode::kIsNegativeAndErrOccurred:
-      return simplifyIsNegativeAndErrOccurred(env, instr);
+    case Opcode::kIsNegativeAndErrOccurred: {
+      SimplifyEnv cenv = make_c_env();
+      auto *r = static_cast<Register*>(simplify_is_neg_and_err_c(&cenv, instr));
+      sync_c_env(cenv);
+      return r;
+    }
 
     case Opcode::kStoreAttr:
       return simplifyStoreAttr(env, instr);
