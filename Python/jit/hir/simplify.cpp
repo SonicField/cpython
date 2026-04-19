@@ -2746,8 +2746,13 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
     case Opcode::kCast:
       return simplifyCast(static_cast<const Cast*>(instr));
 
-    case Opcode::kCompare:
+    case Opcode::kCompare: {
+      SimplifyEnv cenv = make_c_env();
+      auto *r = static_cast<Register*>(simplify_compare_c(&cenv, instr));
+      sync_c_env(cenv);
+      if (r) return r;
       return simplifyCompare(env, static_cast<const Compare*>(instr));
+    }
 
     case Opcode::kCondBranch: {
       SimplifyEnv cenv = make_c_env();

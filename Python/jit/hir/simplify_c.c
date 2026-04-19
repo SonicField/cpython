@@ -70,6 +70,43 @@ void *simplify_guard_type_identity_c(const void *instr) {
     return NULL;
 }
 
+/* ---- Additional SimplifyEnv emit helpers ---- */
+
+void *simplify_env_emit_primitive_compare(SimplifyEnv *env, int32_t op,
+                                          void *left, void *right) {
+    void *reg = hir_func_alloc_register(env->func);
+    extern void *hir_c_create_primitive_compare(void *dst, int32_t op,
+                                                 void *left, void *right);
+    void *instr = hir_c_create_primitive_compare(reg, op, left, right);
+    return simplify_env_emit(env, instr);
+}
+
+void *simplify_env_emit_float_compare(SimplifyEnv *env, int32_t op,
+                                       void *left, void *right) {
+    void *reg = hir_func_alloc_register(env->func);
+    extern void *hir_c_create_float_compare(void *dst, int32_t op,
+                                             void *left, void *right);
+    void *instr = hir_c_create_float_compare(reg, op, left, right);
+    return simplify_env_emit(env, instr);
+}
+
+void *simplify_env_emit_long_compare(SimplifyEnv *env, int32_t op,
+                                      void *left, void *right) {
+    void *reg = hir_func_alloc_register(env->func);
+    extern void *hir_c_create_long_compare(void *dst, int32_t op,
+                                            void *left, void *right);
+    void *instr = hir_c_create_long_compare(reg, op, left, right);
+    return simplify_env_emit(env, instr);
+}
+
+void *simplify_env_emit_primitive_box_bool(SimplifyEnv *env, void *src) {
+    void *reg = hir_func_alloc_register(env->func);
+    extern void *hir_c_create_primitive_box(void *dst, void *src, HirType type);
+    HirType t_cbool = HIR_TYPE_CBOOL;
+    void *instr = hir_c_create_primitive_box(reg, src, t_cbool);
+    return simplify_env_emit(env, instr);
+}
+
 /* Helper: create HirType for CBool(val) with int specialization */
 static HirType make_cbool_type(intptr_t val) {
     HirType t = HIR_TYPE_CBOOL;
@@ -86,6 +123,48 @@ void *simplify_cint_to_cbool_c(SimplifyEnv *env, const void *instr) {
     if (hir_type_has_int_spec(&input_type)) {
         return simplify_env_emit_load_const(env, make_cbool_type(hir_type_int_spec(&input_type)));
     }
+    return NULL;
+}
+
+/* ---- simplifyCompare (partial — None, Float, Long paths) ---- */
+void *simplify_compare_c(SimplifyEnv *env, const void *instr) {
+    void *left = hir_c_get_operand(instr, 0);
+    void *right = hir_c_get_operand(instr, 1);
+    HirType left_type = hir_register_type(left);
+    HirType right_type = hir_register_type(right);
+    int32_t op = hir_c_compare_op(instr);
+
+    HirType t_none = HIR_TYPE_SIMPLE(0x00000000080ULL, HIR_TYPE_LIFETIME_TOP);
+
+    /* None == None or None != None */
+    if (hir_type_is_subtype(left_type, t_none) &&
+        hir_type_is_subtype(right_type, t_none)) {
+        /* CompareOp::kEqual = 2, kNotEqual = 3 */
+        if (op == 2 || op == 3) {
+            simplify_env_emit_use_type(env, left, t_none);
+            simplify_env_emit_use_type(env, right, t_none);
+            PyObject *result = (op == 2) ? Py_True : Py_False;
+            return simplify_env_emit_load_const(env, hir_type_from_object(result));
+        }
+    }
+
+    HirType t_float_exact = HIR_TYPE_SIMPLE(0x00000008000ULL, HIR_TYPE_LIFETIME_TOP);
+    HirType t_long_exact = HIR_TYPE_SIMPLE(0x00000010000ULL, HIR_TYPE_LIFETIME_TOP);
+
+    /* Float comparison */
+    if (hir_type_is_subtype(left_type, t_float_exact) &&
+        hir_type_is_subtype(right_type, t_float_exact) &&
+        op != 6 && op != 7 && op != 10) { /* not In/NotIn/ExcMatch */
+        return simplify_env_emit_float_compare(env, op, left, right);
+    }
+
+    /* Long comparison */
+    if (hir_type_is_subtype(left_type, t_long_exact) &&
+        hir_type_is_subtype(right_type, t_long_exact) &&
+        op != 6 && op != 7 && op != 10) {
+        return simplify_env_emit_long_compare(env, op, left, right);
+    }
+
     return NULL;
 }
 
