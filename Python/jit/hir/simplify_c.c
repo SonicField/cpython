@@ -154,11 +154,10 @@ void *simplify_compare_c(SimplifyEnv *env, const void *instr) {
     /* None == None or None != None */
     if (hir_type_is_subtype(left_type, t_none) &&
         hir_type_is_subtype(right_type, t_none)) {
-        /* CompareOp::kEqual = 2, kNotEqual = 3 */
-        if (op == 2 || op == 3) {
+        if (op == HIR_CMP_Equal || op == HIR_CMP_NotEqual) {
             simplify_env_emit_use_type(env, left, t_none);
             simplify_env_emit_use_type(env, right, t_none);
-            PyObject *result = (op == 2) ? Py_True : Py_False;
+            PyObject *result = (op == HIR_CMP_Equal) ? Py_True : Py_False;
             return simplify_env_emit_load_const(env, hir_type_from_object(result));
         }
     }

@@ -782,6 +782,33 @@ static inline uint32_t hir_c_call_flags(const void *instr) {
 #define HIR_CALL_FLAG_AWAITED (1u << 1)
 #define HIR_CALL_FLAG_STATIC  (1u << 2)
 
+/* CompareOp C constants (must match C++ enum class CompareOp in hir.h) */
+#define HIR_CMP_LessThan              0
+#define HIR_CMP_LessThanEqual         1
+#define HIR_CMP_Equal                 2
+#define HIR_CMP_NotEqual              3
+#define HIR_CMP_GreaterThan           4
+#define HIR_CMP_GreaterThanEqual      5
+#define HIR_CMP_In                    6
+#define HIR_CMP_NotIn                 7
+#define HIR_CMP_ExcMatch              8
+#define HIR_CMP_GreaterThanUnsigned   9
+#define HIR_CMP_GreaterThanEqualUnsigned 10
+#define HIR_CMP_LessThanUnsigned      11
+#define HIR_CMP_LessThanEqualUnsigned 12
+
+/* PrimitiveCompareOp C constants (must match C++ enum class PrimitiveCompareOp) */
+#define HIR_PCMP_LessThan             0
+#define HIR_PCMP_LessThanEqual        1
+#define HIR_PCMP_Equal                2
+#define HIR_PCMP_NotEqual             3
+#define HIR_PCMP_GreaterThan          4
+#define HIR_PCMP_GreaterThanEqual     5
+#define HIR_PCMP_GreaterThanUnsigned  6
+#define HIR_PCMP_GreaterThanEqualUnsigned 7
+#define HIR_PCMP_LessThanUnsigned     8
+#define HIR_PCMP_LessThanEqualUnsigned 9
+
 /* DeoptBase frame_state accessor */
 static inline void *hir_c_get_frame_state(const void *instr) {
     return ((const HirDeoptLayout *)instr)->frame_state;
