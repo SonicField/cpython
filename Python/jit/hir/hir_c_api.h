@@ -701,6 +701,22 @@ void hir_c_replace_uses_of(HirInstr instr, HirRegister orig, HirRegister replace
  * Both must be DeoptBase subclasses. Deep copies the FrameState. */
 void hir_c_copy_frame_state(HirInstr dst, HirInstr src);
 
+/* ---- Block manipulation bridges ---- */
+
+/* Allocate a new basic block in the function's CFG.
+ * Lifetime: compilation-scoped (valid until function is destroyed). */
+void *hir_cfg_alloc_block(HirFunction func);
+
+/* Split the current block after the given instruction, creating a new
+ * tail block. Returns the tail block.
+ * Lifetime: compilation-scoped. */
+void *hir_cfg_split_after(HirFunction func, void *instr);
+
+/* Create a 2-way Phi instruction merging results from two predecessor blocks.
+ * Lifetime: compilation-scoped. */
+void *hir_phi_create_2way(HirFunction func, void *bb1, void *reg1,
+                           void *bb2, void *reg2);
+
 /* ---- Runtime function address bridges ---- */
 /* Returns function pointer for JITRT_InvokeIterNext (C++ linkage).
  * Lifetime: static (function pointer, never changes). */

@@ -468,6 +468,23 @@ void hir_reg_uses_destroy(HirRegUses uses) {
 
 /* ---- outputType with override ---- */
 
+void *hir_cfg_alloc_block(HirFunction func) {
+  return as_func(func)->cfg.AllocateBlock();
+}
+
+void *hir_cfg_split_after(HirFunction func, void *instr) {
+  return as_func(func)->cfg.splitAfter(*as_instr(instr));
+}
+
+void *hir_phi_create_2way(HirFunction func, void *bb1, void *reg1,
+                           void *bb2, void *reg2) {
+  std::unordered_map<BasicBlock*, Register*> args;
+  args[static_cast<BasicBlock*>(bb1)] = as_reg(reg1);
+  args[static_cast<BasicBlock*>(bb2)] = as_reg(reg2);
+  Register* dst = as_func(func)->env.AllocateRegister();
+  return Phi::create(dst, args);
+}
+
 void *jit_rt_invoke_iter_next_addr(void) {
   return reinterpret_cast<void*>(JITRT_InvokeIterNext);
 }
