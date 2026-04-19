@@ -159,6 +159,10 @@ HirRegister hir_func_alloc_register(HirFunction func) {
   return as_func(func)->env.AllocateRegister();
 }
 
+PyObject* hir_func_add_reference(HirFunction func, PyObject* obj) {
+  return as_func(func)->env.addReference(obj);
+}
+
 size_t hir_cfg_get_rpo(HirCFG cfg, HirBasicBlock *out, size_t capacity) {
   auto rpo = as_cfg(cfg)->GetRPOTraversal();
   size_t count = rpo.size() < capacity ? rpo.size() : capacity;

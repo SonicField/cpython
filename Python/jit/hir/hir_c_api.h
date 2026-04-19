@@ -46,6 +46,10 @@ const char *hir_func_fullname(HirFunction func);
  * Returns an opaque HirRegister handle. */
 HirRegister hir_func_alloc_register(HirFunction func);
 
+/* Register a PyObject* reference to keep alive during compilation.
+ * Returns the same object (for chaining). */
+PyObject* hir_func_add_reference(HirFunction func, PyObject* obj);
+
 /* Get blocks in reverse postorder. Caller provides output array.
  * Returns number of blocks written (clamped to capacity). */
 size_t hir_cfg_get_rpo(HirCFG cfg, HirBasicBlock *out, size_t capacity);
