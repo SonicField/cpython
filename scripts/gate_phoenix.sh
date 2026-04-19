@@ -222,6 +222,22 @@ def tuple_fold():
     t = (10, 20, 30)
     return (t[0], t[1], t[-1], len(t), len((1,2,3,4,5)))
 
+def dict_store():
+    d = {}
+    d['a'] = 1
+    d['b'] = 2
+    d['c'] = 3
+    return d == {'a': 1, 'b': 2, 'c': 3}
+
+def truthy_checks():
+    return (bool([1,2]), bool([]), bool('hi'), bool(''),
+            bool(42), bool(0), bool(3.14), bool(0.0),
+            bool(None), bool(True), bool(False))
+
+def length_checks():
+    return (len([1,2,3]), len('hello'), len({1:2, 3:4}),
+            len((1,2,3,4)), len({1,2,3}))
+
 tests = [
     (straight_add, (3, 4), 7),
     (recursive_fib, (10,), 55),
@@ -233,6 +249,9 @@ tests = [
     (make_closure(10), (5,), 15),
     (container_eq, (), (True, False, True, True)),
     (tuple_fold, (), (10, 20, 30, 3, 5)),
+    (dict_store, (), True),
+    (truthy_checks, (), (True, False, True, False, True, False, True, False, False, True, False)),
+    (length_checks, (), (3, 5, 2, 4, 3)),
 ]
 for func, args, expected in tests:
     cinderjit.force_compile(func)
