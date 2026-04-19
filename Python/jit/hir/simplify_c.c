@@ -198,6 +198,29 @@ void *simplify_env_emit_check_neg(SimplifyEnv *env, void *src, void *frame_state
     return simplify_env_emit(env, instr);
 }
 
+/* ---- isBuiltin C helper ----
+ * Checks if a register holding a callable is a known builtin with given name. */
+static int is_builtin_c(void *callable_reg, const char *name) {
+    HirType callable_type = hir_register_type(callable_reg);
+    if (!hir_type_has_object_spec(&callable_type)) return 0;
+
+    PyObject *callable_obj = hir_type_object_spec(&callable_type);
+    PyMethodDef *meth = NULL;
+
+    if (Py_TYPE(callable_obj) == &PyCFunction_Type) {
+        meth = ((PyCFunctionObject *)callable_obj)->m_ml;
+    } else if (Py_TYPE(callable_obj) == &PyMethodDescr_Type) {
+        meth = ((PyMethodDescrObject *)callable_obj)->d_method;
+    }
+
+    if (meth == NULL) return 0;
+
+    extern const char *jit_builtins_find(void *method_def);
+    const char *found = jit_builtins_find(meth);
+    if (found == NULL) return 0;
+    return strcmp(found, name) == 0;
+}
+
 /* ---- simplifyGetLength ----
  * If obj is a collection with known length field, emit LoadField + PrimitiveBox. */
 void *simplify_get_length_c(SimplifyEnv *env, const void *instr) {
