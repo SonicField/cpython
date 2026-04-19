@@ -104,57 +104,6 @@ bool operandsMustMatch(OperandType op_type) {
   JIT_ABORT("unknown constraint");
 }
 
-bool funcTypeChecks(const Function& func, std::ostream& err) {
-  for (auto& block : func.cfg.blocks) {
-    for (const Instr& instr : block) {
-      if (instr.NumOperands() > 1 &&
-          operandsMustMatch(instr.GetOperandType(0))) {
-        Type join = TBottom;
-        for (std::size_t i = 0; i < instr.NumOperands(); i++) {
-          JIT_DCHECK(
-              operandsMustMatch(instr.GetOperandType(i)),
-              "Inconsistent operand type constraint");
-          join |= instr.GetOperand(i)->type();
-        }
-        OperandType expected_type = instr.GetOperandType(0);
-        if (!registerTypeMatches(join, expected_type)) {
-          fmt::print(
-              err,
-              "TYPE MISMATCH in bb {} of '{}'\nInstr '{}' expected "
-              "join of operands of type {} to subclass '{}'\n",
-              block.id,
-              func.fullname,
-              instr,
-              join,
-              expected_type);
-          return false;
-        }
-      } else {
-        for (std::size_t i = 0; i < instr.NumOperands(); i++) {
-          Register* op = instr.GetOperand(i);
-          OperandType expected_type = instr.GetOperandType(i);
-          if (!registerTypeMatches(op->type(), expected_type)) {
-            fmt::print(
-                err,
-                "TYPE MISMATCH in bb {} of '{}'\nInstr '{}' expected "
-                "operand {} to be of type {} "
-                "but got {} from '{}'\n",
-                block.id,
-                func.fullname,
-                instr,
-                i,
-                expected_type,
-                op->type(),
-                *op->instr());
-            return false;
-          }
-        }
-      }
-    }
-  }
-  return true;
-}
-
 void DataflowAnalysis::AddBasicBlock(const BasicBlock* cfg_block) {
   auto res = df_blocks_.emplace(
       std::piecewise_construct,

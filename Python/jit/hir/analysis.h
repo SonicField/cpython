@@ -21,10 +21,6 @@ extern const RegisterSet kEmptyRegSet;
 
 std::ostream& operator<<(std::ostream& os, const RegisterSet& set);
 
-// Returns true if each instruction in func properly type-checks
-// Writes to err if any failure occurs and returns false
-bool funcTypeChecks(const Function& func, std::ostream& err);
-
 // Returns true iff the constraint signifies that all of its instruction's
 // operands must match
 bool operandsMustMatch(OperandType op_type);
