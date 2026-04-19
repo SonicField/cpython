@@ -257,6 +257,20 @@ static_assert(static_cast<int>(PrimitiveCompareOp::kLessThan) == HIR_PCMP_LessTh
 static_assert(static_cast<int>(PrimitiveCompareOp::kGreaterThanUnsigned) == HIR_PCMP_GreaterThanUnsigned, "PrimitiveCompareOp mismatch");
 static_assert(static_cast<int>(PrimitiveCompareOp::kLessThanEqualUnsigned) == HIR_PCMP_LessThanEqualUnsigned, "PrimitiveCompareOp mismatch");
 
+/* ---- Type constant bit verification ---- */
+/* Verify HIR_TYPE_*EXACT constants match C++ type_generated.h bits.
+ * Prevents TLongExact/TListExact confusion class (4 incidents 2026-04-19). */
+static_assert(Type::kListExact == 0x00000010000UL, "ListExact bits mismatch");
+static_assert(Type::kLongExact == 0x00000000400UL, "LongExact bits mismatch");
+static_assert(Type::kSetExact == 0x00000020000UL, "SetExact bits mismatch");
+static_assert(Type::kBytesExact == 0x00000002000UL, "BytesExact bits mismatch");
+static_assert(Type::kFloatExact == 0x00000008000UL, "FloatExact bits mismatch");
+static_assert(Type::kTupleExact == 0x00000040000UL, "TupleExact bits mismatch");
+static_assert(Type::kUnicodeExact == 0x00000100000UL, "UnicodeExact bits mismatch");
+static_assert(Type::kDictExact == 0x00000004000UL, "DictExact bits mismatch");
+static_assert(Type::kBool == 0x00000000002UL, "Bool bits mismatch");
+static_assert(Type::kNoneType == 0x00000000080UL, "NoneType bits mismatch");
+
 /* ---- Runtime read-through-cast verification ----
  * Creates C++ HIR objects, casts to C structs, reads via C accessors.
  * Validates that layout compatibility translates to correct field reads. */
