@@ -29,6 +29,7 @@ void *simplify_env_emit_use_type(SimplifyEnv *env, void *val, HirType type);
 void *simplify_check_c(const void *instr);
 void *simplify_refine_type_c(const void *instr);
 void *simplify_guard_type_identity_c(const void *instr);
+void *simplify_int_convert_c(SimplifyEnv *env, const void *instr);
 
 /* Env-using handlers (Category 2) */
 void *simplify_primitive_box_bool_c(SimplifyEnv *env, const void *instr);

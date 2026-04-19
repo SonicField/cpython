@@ -89,6 +89,19 @@ void *simplify_cint_to_cbool_c(SimplifyEnv *env, const void *instr) {
     return NULL;
 }
 
+/* ---- simplifyIntConvert ----
+ * If input already has the target type, IntConvert is redundant. */
+void *simplify_int_convert_c(SimplifyEnv *env, const void *instr) {
+    void *src = hir_c_get_operand(instr, 0);
+    HirType src_type = hir_register_type(src);
+    HirType target = ((const HirIntConvert *)instr)->type;
+    if (hir_type_is_subtype(src_type, target)) {
+        simplify_env_emit_use_type(env, src, target);
+        return src;
+    }
+    return NULL;
+}
+
 /* ---- simplifyCondBranch (partial — constant condition folding) ----
  * If condition is a known int constant, fold to unconditional Branch. */
 void *simplify_cond_branch_const_c(SimplifyEnv *env, const void *instr) {

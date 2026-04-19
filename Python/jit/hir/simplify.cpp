@@ -2763,8 +2763,12 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
     case Opcode::kGetLength:
       return simplifyGetLength(env, instr);
 
-    case Opcode::kIntConvert:
-      return simplifyIntConvert(env, static_cast<const IntConvert*>(instr));
+    case Opcode::kIntConvert: {
+      SimplifyEnv cenv = make_c_env();
+      auto *r = static_cast<Register*>(simplify_int_convert_c(&cenv, instr));
+      sync_c_env(cenv);
+      return r;
+    }
 
     case Opcode::kIsTruthy:
       return simplifyIsTruthy(env, instr);
