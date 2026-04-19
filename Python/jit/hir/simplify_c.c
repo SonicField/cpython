@@ -155,7 +155,7 @@ static void *emit_get_length_int64_c(SimplifyEnv *env, void *obj) {
     HirType t_cint64 = HIR_TYPE_CINT64;
 
 #ifndef Py_GIL_DISABLED
-    HirType t_list_exact = HIR_TYPE_SIMPLE(0x00000010000ULL, HIR_TYPE_LIFETIME_TOP);
+    HirType t_list_exact = HIR_TYPE_LISTEXACT;
     if (hir_type_is_subtype(obj_type, t_list_exact) ||
         hir_type_is_subtype(obj_type, t_tuple_exact)) {
 #else
@@ -170,7 +170,7 @@ static void *emit_get_length_int64_c(SimplifyEnv *env, void *obj) {
     HirType t_unicode_exact = HIR_TYPE_UNICODEEXACT;
 #ifndef Py_GIL_DISABLED
     HirType t_dict_exact = HIR_TYPE_DICTEXACT;
-    HirType t_set_exact = HIR_TYPE_SIMPLE(0x00000020000ULL, HIR_TYPE_LIFETIME_TOP);
+    HirType t_set_exact = HIR_TYPE_SETEXACT;
     if (hir_type_is_subtype(obj_type, t_dict_exact)) {
         HirType unspec = hir_type_unspecialized(&obj_type);
         simplify_env_emit_use_type(env, obj, unspec);
@@ -547,7 +547,7 @@ void *simplify_load_var_object_size_c(SimplifyEnv *env, const void *instr) {
 
     /* Known tuple/bytes object path */
     HirType t_tuple_exact = HIR_TYPE_TUPLEEXACT;
-    HirType t_bytes_exact = HIR_TYPE_SIMPLE(0x00000002000ULL, HIR_TYPE_LIFETIME_TOP);
+    HirType t_bytes_exact = HIR_TYPE_BYTESEXACT;
 
     if (hir_type_has_value_spec(&obj_type, t_tuple_exact) ||
         hir_type_has_value_spec(&obj_type, t_bytes_exact)) {
