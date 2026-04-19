@@ -2734,8 +2734,12 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
     case Opcode::kCheckExc:
     case Opcode::kCheckField:
       return static_cast<Register*>(simplify_check_c(instr));
-    case Opcode::kCheckSequenceBounds:
-      return simplifyCheckSequenceBounds(env, instr);
+    case Opcode::kCheckSequenceBounds: {
+      SimplifyEnv cenv = make_c_env();
+      auto *r = static_cast<Register*>(simplify_check_sequence_bounds_c(&cenv, instr));
+      sync_c_env(cenv);
+      return r;
+    }
     case Opcode::kGuardType: {
       auto *r = static_cast<Register*>(simplify_guard_type_identity_c(instr));
       if (r) return r;

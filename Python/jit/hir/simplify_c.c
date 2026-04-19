@@ -212,6 +212,45 @@ void *simplify_primitive_compare_box_true_c(const void *instr) {
     return hir_c_get_operand(left_def, 0);
 }
 
+/* ---- simplifyCheckSequenceBounds ----
+ * If sequence is MakeTuple with known length + idx is known int, fold bounds check. */
+void *simplify_check_sequence_bounds_c(SimplifyEnv *env, const void *instr) {
+    void *sequence = hir_c_get_operand(instr, 0);
+    void *idx_reg = hir_c_get_operand(instr, 1);
+    HirType seq_type = hir_register_type(sequence);
+    HirType idx_type = hir_register_type(idx_reg);
+
+    HirType t_tuple_exact = HIR_TYPE_TUPLEEXACT;
+    HirType t_cint = HIR_TYPE_CINT;
+
+    if (!hir_type_is_subtype(seq_type, t_tuple_exact)) return NULL;
+    if (!hir_type_is_subtype(idx_type, t_cint)) return NULL;
+
+    extern void *hir_reg_instr(void *reg);
+    void *seq_def = hir_reg_instr(sequence);
+    if (seq_def == NULL || hir_c_opcode(seq_def) != HIR_OP_MakeTuple) return NULL;
+
+    if (!hir_type_has_int_spec(&idx_type)) return NULL;
+
+    size_t length = hir_c_num_operands(seq_def);
+    intptr_t idx_value = hir_type_int_spec(&idx_type);
+    int adjusted = 0;
+    if (idx_value < 0) {
+        idx_value += (intptr_t)length;
+        adjusted = 1;
+    }
+    if ((size_t)idx_value < length) {
+        simplify_env_emit_use_type(env, sequence, seq_type);
+        simplify_env_emit_use_type(env, idx_reg, idx_type);
+        if (adjusted) {
+            HirType t_cint64 = HIR_TYPE_CINT64;
+            return simplify_env_emit_load_const(env, make_cint_type(t_cint64, idx_value));
+        }
+        return idx_reg;
+    }
+    return NULL;
+}
+
 /* ---- simplifyLoadArrayItem (partial — known tuple path) ----
  * If src is a known tuple and idx is a known int, fold to constant item. */
 void *simplify_load_array_item_tuple_c(SimplifyEnv *env, const void *instr) {
