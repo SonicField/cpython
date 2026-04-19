@@ -70,6 +70,25 @@ void *simplify_guard_type_identity_c(const void *instr) {
     return NULL;
 }
 
+/* Helper: create HirType for CBool(val) with int specialization */
+static HirType make_cbool_type(intptr_t val) {
+    HirType t = HIR_TYPE_CBOOL;
+    t.bits_and_flags |= ((uint64_t)HIR_SPEC_INT << HIR_TYPE_SPEC_SHIFT);
+    t.int_val = val != 0 ? 1 : 0;
+    return t;
+}
+
+/* ---- simplifyCIntToCBool ----
+ * If input is a known int constant, fold to CBool(val != 0). */
+void *simplify_cint_to_cbool_c(SimplifyEnv *env, const void *instr) {
+    void *input = hir_c_get_operand(instr, 0);
+    HirType input_type = hir_register_type(input);
+    if (hir_type_has_int_spec(&input_type)) {
+        return simplify_env_emit_load_const(env, make_cbool_type(hir_type_int_spec(&input_type)));
+    }
+    return NULL;
+}
+
 /* ---- simplifyPrimitiveBoxBool ----
  * If input is a known int constant, replace with Py_True/Py_False. */
 void *simplify_primitive_box_bool_c(SimplifyEnv *env, const void *instr) {

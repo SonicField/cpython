@@ -2826,8 +2826,12 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
     case Opcode::kStoreSubscr:
       return simplifyStoreSubscr(env, instr);
 
-    case Opcode::kCIntToCBool:
-      return simplifyCIntToCBool(env, instr);
+    case Opcode::kCIntToCBool: {
+      SimplifyEnv cenv = make_c_env();
+      auto *r = static_cast<Register*>(simplify_cint_to_cbool_c(&cenv, instr));
+      sync_c_env(cenv);
+      return r;
+    }
 
     case Opcode::kGetIter: {
       // C->C inlining: narrow iterator type for known input types
