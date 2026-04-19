@@ -704,7 +704,8 @@ void hir_c_copy_frame_state(HirInstr dst, HirInstr src);
 /* ---- Context/Preload bridges ---- */
 
 /* Check if a PyMethodDef is a known builtin. Returns the builtin name
- * or NULL if not found. The returned string is owned by the Builtins cache. */
+ * or NULL if not found.
+ * Lifetime: thread-local static (valid until next call from same thread). */
 const char *jit_builtins_find(void *method_def);
 
 /* Note: hir_c_num_edges, hir_c_successor, hir_c_is_terminator,
