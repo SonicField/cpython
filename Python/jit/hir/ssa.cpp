@@ -3,6 +3,7 @@
 #include "cinderx/Jit/hir/ssa.h"
 
 #include "cinderx/Jit/hir/hir_instr_c.h"
+#include "cinderx/Jit/hir/ssaify_c.h"
 #include "cinderx/Common/log.h"
 #include "cinderx/Jit/hir/hir.h"
 #include "cinderx/Jit/hir/phi_elimination.h"
@@ -17,8 +18,7 @@ namespace jit::hir {
 
 
 void SSAify::Run(Function& irfunc) {
-  Run(irfunc, irfunc.cfg.entry_block);
-  PhiElimination{}.Run(irfunc);
+  hir_ssaify_run_c(static_cast<void*>(&irfunc));
 }
 
 // This implements the algorithm outlined in "Simple and Efficient Construction

@@ -140,17 +140,11 @@ typedef struct {
     void *func;           /* HirFunction */
     void *null_reg;       /* singleton null register */
     PhxMap block_map;     /* BasicBlock* → PhxSSABlock* */
-    PhxSSABlock *pool;    /* arena-allocated SSABasicBlocks */
-    size_t pool_count;
-    size_t pool_cap;
+    PhxPtrArr allocs;     /* individually allocated PhxSSABlock* for cleanup */
 } PhxSSAState;
 
 static PhxSSABlock *ssa_alloc_block(PhxSSAState *st, void *bb) {
-    if (st->pool_count >= st->pool_cap) {
-        st->pool_cap = st->pool_cap ? st->pool_cap * 2 : 32;
-        st->pool = (PhxSSABlock *)PyMem_RawRealloc(st->pool, st->pool_cap * sizeof(PhxSSABlock));
-    }
-    PhxSSABlock *s = &st->pool[st->pool_count++];
+    PhxSSABlock *s = (PhxSSABlock *)PyMem_RawMalloc(sizeof(PhxSSABlock));
     memset(s, 0, sizeof(*s));
     s->block = bb;
     phx_arr_init(&s->preds);
@@ -159,6 +153,7 @@ static PhxSSABlock *ssa_alloc_block(PhxSSAState *st, void *bb) {
     phx_map_init(&s->phi_nodes);
     phx_arr_init(&s->inc_phi_regs);
     phx_arr_init(&s->inc_phi_outs);
+    phx_arr_push(&st->allocs, s);
     return s;
 }
 
@@ -244,7 +239,7 @@ static void *ssa_get_define(PhxSSAState *st, PhxSSABlock *ssablock, void *reg) {
                 it = hir_bb_next_instr(bb, it);
             }
             st->null_reg = hir_func_alloc_register(st->func);
-            HirType nullptr_type = {{0}, 0};
+            HirType nullptr_type = HIR_TYPE_NULLPTR;
             void *loadnull = hir_c_create_load_const(st->null_reg, nullptr_type);
             if (it) {
                 hir_c_copy_bytecode_offset(loadnull, it);
@@ -294,7 +289,7 @@ typedef struct {
 
 static int ssa_visit_use_cb(void **reg_slot, void *ctx_raw) {
     SSAVisitCtx *vc = (SSAVisitCtx *)ctx_raw;
-    if (*reg_slot == NULL) return 1;
+    JIT_CHECK_C(*reg_slot != NULL, "Instructions should not have nullptr operands");
     *reg_slot = ssa_get_define(vc->st, vc->ssablock, *reg_slot);
     return 1;
 }
@@ -315,6 +310,7 @@ void hir_ssaify_run_c(HirFunction func) {
     memset(&st, 0, sizeof(st));
     st.func = func;
     phx_map_init(&st.block_map);
+    phx_arr_init(&st.allocs);
 
     HirCFG *cfg = (HirCFG *)hir_func_cfg_ptr(func);
 
@@ -405,15 +401,17 @@ void hir_ssaify_run_c(HirFunction func) {
     }
 
     /* Cleanup */
-    for (size_t i = 0; i < st.pool_count; i++) {
-        phx_arr_destroy(&st.pool[i].preds);
-        phx_arr_destroy(&st.pool[i].succs);
-        phx_map_destroy(&st.pool[i].local_defs);
-        phx_map_destroy(&st.pool[i].phi_nodes);
-        phx_arr_destroy(&st.pool[i].inc_phi_regs);
-        phx_arr_destroy(&st.pool[i].inc_phi_outs);
+    for (size_t i = 0; i < st.allocs.count; i++) {
+        PhxSSABlock *s = (PhxSSABlock *)st.allocs.data[i];
+        phx_arr_destroy(&s->preds);
+        phx_arr_destroy(&s->succs);
+        phx_map_destroy(&s->local_defs);
+        phx_map_destroy(&s->phi_nodes);
+        phx_arr_destroy(&s->inc_phi_regs);
+        phx_arr_destroy(&s->inc_phi_outs);
+        PyMem_RawFree(s);
     }
-    PyMem_RawFree(st.pool);
+    phx_arr_destroy(&st.allocs);
     phx_map_destroy(&st.block_map);
     PyMem_RawFree(rpo);
 
