@@ -233,6 +233,13 @@ void *simplify_store_subscr_c(SimplifyEnv *env, const void *instr) {
     return NULL;
 }
 
+/* Helper: emit LoadConst for a known PyObject* (registers reference + creates type) */
+void *simplify_env_emit_load_const_object(SimplifyEnv *env, PyObject *obj) {
+    extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
+    PyObject *ref = hir_func_add_reference(env->func, obj);
+    return simplify_env_emit_load_const(env, hir_type_from_object(ref));
+}
+
 /* Helper: create HirType with int specialization */
 static HirType make_int_spec_type(HirType base, intptr_t val) {
     base.bits_and_flags |= ((uint64_t)HIR_SPEC_INT << HIR_TYPE_SPEC_SHIFT);
@@ -428,6 +435,20 @@ void *simplify_load_array_item_tuple_c(SimplifyEnv *env, const void *instr) {
     intptr_t idx_signed = hir_type_int_spec(&idx_type);
     if (idx_signed < 0) return NULL;
 
+    /* MakeTuple path: return the idx-th operand directly */
+    extern void *hir_reg_instr(void *reg);
+    void *src_def = hir_reg_instr(src);
+    if (src_def != NULL && hir_c_opcode(src_def) == HIR_OP_MakeTuple) {
+        size_t length = hir_c_num_operands(src_def);
+        if ((size_t)idx_signed < length) {
+            HirType t_tuple_exact_use = HIR_TYPE_TUPLEEXACT;
+            simplify_env_emit_use_type(env, src, t_tuple_exact_use);
+            simplify_env_emit_use_type(env, idx_reg, idx_type);
+            return hir_c_get_operand(src_def, (size_t)idx_signed);
+        }
+    }
+
+    /* Known tuple object path */
     HirType src_type = hir_register_type(src);
     HirType t_tuple_exact = HIR_TYPE_TUPLEEXACT;
     if (hir_type_has_value_spec(&src_type, t_tuple_exact)) {
