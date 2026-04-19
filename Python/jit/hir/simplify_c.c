@@ -482,6 +482,21 @@ void *simplify_cond_branch_const_c(SimplifyEnv *env, const void *instr) {
         void *branch = hir_c_create_branch_cpp(target);
         return simplify_env_emit(env, branch);
     }
+    /* IntConvert forwarding: if cond is from a widening IntConvert, use src */
+    extern void *hir_reg_instr(void *reg);
+    void *cond_def = hir_reg_instr(cond);
+    if (cond_def != NULL && hir_c_opcode(cond_def) == HIR_OP_IntConvert) {
+        void *src = hir_c_get_operand(cond_def, 0);
+        HirType convert_type = ((const HirIntConvert *)cond_def)->type;
+        HirType src_type = hir_register_type(src);
+        if (hir_type_size_in_bytes(&convert_type) >= hir_type_size_in_bytes(&src_type)) {
+            extern void *hir_c_create_cond_branch_cpp(void *cond_reg, void *true_bb, void *false_bb);
+            void *true_bb = hir_c_successor(instr, 0);
+            void *false_bb = hir_c_successor(instr, 1);
+            void *new_cb = hir_c_create_cond_branch_cpp(src, true_bb, false_bb);
+            return simplify_env_emit(env, new_cb);
+        }
+    }
     return NULL;
 }
 

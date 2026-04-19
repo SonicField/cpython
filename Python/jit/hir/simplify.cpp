@@ -2763,8 +2763,7 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
       SimplifyEnv cenv = make_c_env();
       auto *r = static_cast<Register*>(simplify_cond_branch_const_c(&cenv, instr));
       sync_c_env(cenv);
-      if (r) return r;
-      return simplifyCondBranch(env, instr);
+      return r;
     }
     case Opcode::kCondBranchCheckType: {
       SimplifyEnv cenv = make_c_env();
