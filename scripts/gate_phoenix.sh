@@ -218,6 +218,10 @@ def make_closure(x):
 def container_eq():
     return ([1,2]==[1,2], [1,2]==[1,3], {1:2}=={1:2}, (1,2)==(1,2))
 
+def tuple_fold():
+    t = (10, 20, 30)
+    return (t[0], t[1], t[-1], len(t), len((1,2,3,4,5)))
+
 tests = [
     (straight_add, (3, 4), 7),
     (recursive_fib, (10,), 55),
@@ -228,6 +232,7 @@ tests = [
     (cond_loop, (10,), -5),
     (make_closure(10), (5,), 15),
     (container_eq, (), (True, False, True, True)),
+    (tuple_fold, (), (10, 20, 30, 3, 5)),
 ]
 for func, args, expected in tests:
     cinderjit.force_compile(func)
