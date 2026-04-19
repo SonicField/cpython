@@ -268,6 +268,150 @@ static int is_builtin_c(void *callable_reg, const char *name) {
     return strcmp(found, name) == 0;
 }
 
+/* ---- Long slot method lookup ---- */
+static binaryfunc long_slot_method(int32_t op) {
+    PyNumberMethods *nb = PyLong_Type.tp_as_number;
+    switch (op) {
+        case HIR_BOP_Add: return nb->nb_add;
+        case HIR_BOP_And: return nb->nb_and;
+        case HIR_BOP_FloorDivide: return nb->nb_floor_divide;
+        case HIR_BOP_LShift: return nb->nb_lshift;
+        case HIR_BOP_Modulo: return nb->nb_remainder;
+        case HIR_BOP_Multiply: return nb->nb_multiply;
+        case HIR_BOP_Or: return nb->nb_or;
+        case HIR_BOP_RShift: return nb->nb_rshift;
+        case HIR_BOP_Subtract: return nb->nb_subtract;
+        case HIR_BOP_TrueDivide: return nb->nb_true_divide;
+        case HIR_BOP_Xor: return nb->nb_xor;
+        default: return NULL;
+    }
+}
+
+/* ---- Float slot method lookup ---- */
+static binaryfunc float_slot_method(int32_t op) {
+    PyNumberMethods *nb = PyFloat_Type.tp_as_number;
+    switch (op) {
+        case HIR_BOP_Add: return nb->nb_add;
+        case HIR_BOP_FloorDivide: return nb->nb_floor_divide;
+        case HIR_BOP_Modulo: return nb->nb_remainder;
+        case HIR_BOP_Multiply: return nb->nb_multiply;
+        case HIR_BOP_Subtract: return nb->nb_subtract;
+        case HIR_BOP_TrueDivide: return nb->nb_true_divide;
+        default: return NULL;
+    }
+}
+
+void *simplify_env_emit_double_binary_op(SimplifyEnv *env, int32_t op,
+                                          void *left, void *right) {
+    void *reg = hir_func_alloc_register(env->func);
+    void *instr = hir_c_create_double_binary_op(reg, op, left, right);
+    return simplify_env_emit(env, instr);
+}
+
+/* ---- simplifyFloatBinaryOp ---- */
+void *simplify_float_binary_op_c(SimplifyEnv *env, const void *instr) {
+    int32_t op = hir_c_binary_op_kind(instr);
+    void *left = hir_c_get_operand(instr, 0);
+    void *right = hir_c_get_operand(instr, 1);
+
+    /* Path 1: unbox + native double arithmetic + box */
+    if (op != HIR_BOP_Power && float_slot_method(op) != NULL) {
+        HirType t_cdouble = HIR_TYPE_CDOUBLE;
+        void *left_unboxed = simplify_env_emit_primitive_unbox(env, left, t_cdouble);
+        void *right_unboxed = simplify_env_emit_primitive_unbox(env, right, t_cdouble);
+        void *result = simplify_env_emit_double_binary_op(env, op, left_unboxed, right_unboxed);
+        void *fs = hir_c_get_frame_state(instr);
+        HirType t_float_exact = HIR_TYPE_FLOATEXACT;
+        extern void *hir_c_create_primitive_box(void *func, void *src, HirType type, void *fs);
+        void *box = hir_c_create_primitive_box(env->func, result, t_float_exact, fs);
+        return simplify_env_emit(env, box);
+    }
+
+    /* Path 2: constant folding (same pattern as LongBinaryOp) */
+    extern int jit_compile_running(void);
+    if (jit_compile_running()) return NULL;
+
+    HirType left_type = hir_register_type(left);
+    HirType right_type = hir_register_type(right);
+    if (!hir_type_has_object_spec(&left_type) ||
+        !hir_type_has_object_spec(&right_type)) return NULL;
+
+    PyObject *left_obj = hir_type_object_spec(&left_type);
+    PyObject *right_obj = hir_type_object_spec(&right_type);
+
+    extern void jit_compile_lock(void);
+    extern void jit_compile_unlock(void);
+    jit_compile_lock();
+
+    PyObject *result;
+    if (op == HIR_BOP_Power) {
+        result = PyFloat_Type.tp_as_number->nb_power(left_obj, right_obj, Py_None);
+    } else {
+        binaryfunc slot = float_slot_method(op);
+        if (slot == NULL) { jit_compile_unlock(); return NULL; }
+        result = (*slot)(left_obj, right_obj);
+    }
+
+    jit_compile_unlock();
+
+    if (result == NULL) {
+        PyErr_Clear();
+        return NULL;
+    }
+
+    simplify_env_emit_use_type(env, left, left_type);
+    simplify_env_emit_use_type(env, right, right_type);
+    extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
+    PyObject *ref = hir_func_add_reference(env->func, result);
+    Py_DECREF(result);
+    return simplify_env_emit_load_const(env, hir_type_from_object(ref));
+}
+
+/* ---- simplifyLongBinaryOp ---- */
+void *simplify_long_binary_op_c(SimplifyEnv *env, const void *instr) {
+    extern int jit_compile_running(void);
+    if (jit_compile_running()) return NULL;
+
+    void *left = hir_c_get_operand(instr, 0);
+    void *right = hir_c_get_operand(instr, 1);
+    HirType left_type = hir_register_type(left);
+    HirType right_type = hir_register_type(right);
+
+    if (!hir_type_has_object_spec(&left_type) ||
+        !hir_type_has_object_spec(&right_type)) return NULL;
+
+    int32_t op = hir_c_binary_op_kind(instr);
+    PyObject *left_obj = hir_type_object_spec(&left_type);
+    PyObject *right_obj = hir_type_object_spec(&right_type);
+
+    extern void jit_compile_lock(void);
+    extern void jit_compile_unlock(void);
+    jit_compile_lock();
+
+    PyObject *result;
+    if (op == HIR_BOP_Power) {
+        result = PyLong_Type.tp_as_number->nb_power(left_obj, right_obj, Py_None);
+    } else {
+        binaryfunc slot = long_slot_method(op);
+        if (slot == NULL) { jit_compile_unlock(); return NULL; }
+        result = (*slot)(left_obj, right_obj);
+    }
+
+    jit_compile_unlock();
+
+    if (result == NULL) {
+        PyErr_Clear();
+        return NULL;
+    }
+
+    simplify_env_emit_use_type(env, left, left_type);
+    simplify_env_emit_use_type(env, right, right_type);
+    extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
+    PyObject *ref = hir_func_add_reference(env->func, result);
+    Py_DECREF(result);
+    return simplify_env_emit_load_const(env, hir_type_from_object(ref));
+}
+
 /* ---- simplifyGetLength ----
  * If obj is a collection with known length field, emit LoadField + PrimitiveBox. */
 void *simplify_get_length_c(SimplifyEnv *env, const void *instr) {

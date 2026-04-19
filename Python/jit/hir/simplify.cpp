@@ -2832,11 +2832,18 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
       return simplifyBinaryOp(env, static_cast<const BinaryOp*>(instr));
     case Opcode::kInPlaceOp:
       return simplifyInPlaceOp(env, static_cast<const InPlaceOp*>(instr));
-    case Opcode::kLongBinaryOp:
-      return simplifyLongBinaryOp(env, static_cast<const LongBinaryOp*>(instr));
-    case Opcode::kFloatBinaryOp:
-      return simplifyFloatBinaryOp(
-          env, static_cast<const FloatBinaryOp*>(instr));
+    case Opcode::kLongBinaryOp: {
+      SimplifyEnv cenv = make_c_env();
+      auto *r = static_cast<Register*>(simplify_long_binary_op_c(&cenv, instr));
+      sync_c_env(cenv);
+      return r;
+    }
+    case Opcode::kFloatBinaryOp: {
+      SimplifyEnv cenv = make_c_env();
+      auto *r = static_cast<Register*>(simplify_float_binary_op_c(&cenv, instr));
+      sync_c_env(cenv);
+      return r;
+    }
     case Opcode::kUnaryOp: {
       SimplifyEnv cenv = make_c_env();
       auto *r = static_cast<Register*>(simplify_unary_op_c(&cenv, instr));
