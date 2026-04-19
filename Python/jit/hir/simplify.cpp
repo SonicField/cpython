@@ -2792,8 +2792,12 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
     case Opcode::kLoadMethod:
       return simplifyLoadMethod(env, instr);
 #endif
-    case Opcode::kLoadField:
-      return simplifyLoadField(env, static_cast<const LoadField*>(instr));
+    case Opcode::kLoadField: {
+      SimplifyEnv cenv = make_c_env();
+      auto *r = static_cast<Register*>(simplify_load_field_float_c(&cenv, instr));
+      sync_c_env(cenv);
+      return r;
+    }
     case Opcode::kLoadTupleItem:
       return simplifyLoadTupleItem(
           env, static_cast<const LoadTupleItem*>(instr));

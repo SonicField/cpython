@@ -212,6 +212,30 @@ void *simplify_primitive_compare_box_true_c(const void *instr) {
     return hir_c_get_operand(left_def, 0);
 }
 
+/* ---- simplifyLoadField (partial — known float object) ----
+ * If loadee is a known float and we're loading ob_fval, fold to constant. */
+void *simplify_load_field_float_c(SimplifyEnv *env, const void *instr) {
+    void *loadee = hir_c_get_operand(instr, 0);
+    HirType loadee_type = hir_register_type(loadee);
+    if (!hir_type_has_object_spec(&loadee_type)) return NULL;
+
+    void *output_reg = hir_c_output(instr);
+    if (output_reg == NULL) return NULL;
+    HirType output_type = hir_register_type(output_reg);
+    HirType t_cdouble = HIR_TYPE_CDOUBLE;
+    if (!hir_type_is_subtype(output_type, t_cdouble)) return NULL;
+
+    PyObject *value = hir_type_object_spec(&loadee_type);
+    if (value == NULL || !PyFloat_Check(value)) return NULL;
+
+    intptr_t offset = hir_c_load_field_offset(instr);
+    if (offset != (intptr_t)offsetof(PyFloatObject, ob_fval)) return NULL;
+
+    double number = PyFloat_AS_DOUBLE(value);
+    simplify_env_emit_use_type(env, loadee, loadee_type);
+    return simplify_env_emit_load_const(env, hir_type_from_cdouble(number));
+}
+
 /* ---- simplifyCondBranchCheckType ----
  * If value type is subtype of expected → Branch to true_bb.
  * If value type can't be expected → Branch to false_bb. */
