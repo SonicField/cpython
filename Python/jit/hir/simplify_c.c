@@ -163,6 +163,35 @@ void *simplify_compare_c(SimplifyEnv *env, const void *instr) {
         }
     }
 
+    /* Bool == Bool or Bool != Bool → PrimitiveCompare + PrimitiveBoxBool */
+    HirType t_bool = HIR_TYPE_SIMPLE(0x00000000002ULL, HIR_TYPE_LIFETIME_TOP);
+    if (hir_type_is_subtype(left_type, t_bool) &&
+        hir_type_is_subtype(right_type, t_bool) &&
+        (op == 2 || op == 3)) {
+        int32_t prim_op = (op == 2) ? 4 : 5;
+        simplify_env_emit_use_type(env, left, t_bool);
+        simplify_env_emit_use_type(env, right, t_bool);
+        void *result = simplify_env_emit_primitive_compare(env, prim_op, left, right);
+        return simplify_env_emit_primitive_box_bool(env, result);
+    }
+
+    HirType t_float_exact = HIR_TYPE_SIMPLE(0x00000008000ULL, HIR_TYPE_LIFETIME_TOP);
+    HirType t_long_exact = HIR_TYPE_SIMPLE(0x00000010000ULL, HIR_TYPE_LIFETIME_TOP);
+
+    /* Float comparison */
+    if (hir_type_is_subtype(left_type, t_float_exact) &&
+        hir_type_is_subtype(right_type, t_float_exact) &&
+        op != 6 && op != 7 && op != 10) {
+        return simplify_env_emit_float_compare(env, op, left, right);
+    }
+
+    /* Long comparison */
+    if (hir_type_is_subtype(left_type, t_long_exact) &&
+        hir_type_is_subtype(right_type, t_long_exact) &&
+        op != 6 && op != 7 && op != 10) {
+        return simplify_env_emit_long_compare(env, op, left, right);
+    }
+
     return NULL;
 }
 
