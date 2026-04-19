@@ -136,7 +136,7 @@ echo "CPython: $CPYTHON_TOTAL_TESTS tests, $CPYTHON_FILES_RUN/$CPYTHON_FILES_TOT
 echo "$CPYTHON_SUMMARY" | tee -a "$RESULTS_FILE"
 
 # Check for crashes (hard failures)
-CPYTHON_CRASHES=$(echo "$CPYTHON_OUTPUT" | grep -c -E "CRASH|Segmentation fault|Aborted" || true)
+CPYTHON_CRASHES=$(echo "$CPYTHON_OUTPUT" | grep -c -wE "CRASH|Segmentation fault|Aborted" || true)
 CPYTHON_CRASHES=${CPYTHON_CRASHES:-0}
 if [ "$CPYTHON_CRASHES" -gt 0 ]; then
     GATE_PASS=0

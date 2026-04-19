@@ -190,11 +190,12 @@ if [ "$MAKE_EXIT" -ne 0 ]; then
 fi
 rm -f "$MAKE_LOG"
 
-# Step 7: Verify binary exists
+# Step 7: Verify binary exists and is executable
 if [ ! -f "$CPYTHON_ROOT/python" ]; then
     echo "FAIL: python binary not built"
     exit 1
 fi
+chmod +x "$CPYTHON_ROOT/python"
 
 echo "=== Build complete ==="
 echo "Binary: $CPYTHON_ROOT/python"
