@@ -2408,6 +2408,11 @@ void hir_c_set_true_bb(HirInstr branch, void *new_true_block) {
   cb->set_true_bb(static_cast<BasicBlock*>(new_true_block));
 }
 
+void hir_bb_remove_phi_predecessor(void *block, void *pred) {
+  static_cast<BasicBlock*>(block)->removePhiPredecessor(
+      static_cast<BasicBlock*>(pred));
+}
+
 void hir_bb_set_successor_null(void *block, size_t idx) {
   auto *bb = static_cast<BasicBlock*>(block);
   auto *term = bb->GetTerminator();

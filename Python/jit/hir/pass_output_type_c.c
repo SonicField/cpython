@@ -563,3 +563,73 @@ int hir_remove_trampoline_blocks_c(void *cfg) {
     hir_simplify_redundant_cond_branches_c(cfg);
     return n_tramp > 0 ? 1 : 0;
 }
+
+/* ==== removeUnreachableBlocks C port ==== */
+extern void hir_bb_remove_phi_predecessor(void *block, void *pred);
+
+int hir_remove_unreachable_blocks_c(void *func) {
+    HirCFG *cfg = hir_func_cfg_ptr(func);
+
+    /* DFS to find reachable blocks */
+    void *visited[4096];
+    size_t n_visited = 0;
+    void *stack[4096];
+    size_t stack_top = 0;
+
+    stack[stack_top++] = cfg->entry_block;
+    while (stack_top > 0) {
+        void *block = stack[--stack_top];
+        /* Check if already visited */
+        int found = 0;
+        for (size_t i = 0; i < n_visited; i++) {
+            if (visited[i] == block) { found = 1; break; }
+        }
+        if (found) continue;
+        if (n_visited < 4096) visited[n_visited++] = block;
+
+        void *term = hir_bb_get_terminator((HirBasicBlock *)block);
+        size_t n_edges = hir_c_num_edges(term);
+        for (size_t i = 0; i < n_edges; i++) {
+            void *succ = hir_c_successor(term, i);
+            int succ_visited = 0;
+            for (size_t j = 0; j < n_visited; j++) {
+                if (visited[j] == succ) { succ_visited = 1; break; }
+            }
+            if (!succ_visited && stack_top < 4096) {
+                stack[stack_top++] = succ;
+            }
+        }
+    }
+
+    /* Collect unreachable blocks */
+    void *unreachable[1024];
+    size_t n_unreach = 0;
+
+    void *block = hir_cfg_blocks_first_ptr(cfg);
+    while (block) {
+        void *next = hir_cfg_blocks_next_ptr(cfg, block);
+        int reachable = 0;
+        for (size_t i = 0; i < n_visited; i++) {
+            if (visited[i] == block) { reachable = 1; break; }
+        }
+        if (!reachable) {
+            void *term = hir_bb_get_terminator((HirBasicBlock *)block);
+            if (term) {
+                size_t n_edges = hir_c_num_edges(term);
+                for (size_t i = 0; i < n_edges; i++) {
+                    hir_bb_remove_phi_predecessor(hir_c_successor(term, i), block);
+                }
+            }
+            hir_cfg_remove_block(cfg, (HirBasicBlock *)block);
+            hir_bb_clear((HirBasicBlock *)block);
+            if (n_unreach < 1024) unreachable[n_unreach++] = block;
+        }
+        block = next;
+    }
+
+    for (size_t i = 0; i < n_unreach; i++) {
+        hir_bb_destroy(unreachable[i]);
+    }
+
+    return n_unreach > 0 ? 1 : 0;
+}
