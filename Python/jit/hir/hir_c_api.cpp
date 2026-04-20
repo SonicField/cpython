@@ -2382,4 +2382,21 @@ void hir_instr_expand_into(void *original, void **expansion, size_t count) {
   as_instr(original)->ExpandInto(exp);
 }
 
+void hir_instr_destroy(HirInstr instr) {
+  Instr::Destroy(as_instr(instr));
+}
+
+void hir_c_set_true_bb(HirInstr branch, void *new_true_block) {
+  auto *cb = static_cast<CondBranchBase*>(as_instr(branch));
+  cb->set_true_bb(static_cast<BasicBlock*>(new_true_block));
+}
+
+void *hir_phi_create_2way_with_output(void *output_reg,
+    void *bb1, void *reg1, void *bb2, void *reg2) {
+  std::unordered_map<BasicBlock*, Register*> args;
+  args[static_cast<BasicBlock*>(bb1)] = as_reg(reg1);
+  args[static_cast<BasicBlock*>(bb2)] = as_reg(reg2);
+  return Phi::create(as_reg(output_reg), args);
+}
+
 } /* extern "C" */

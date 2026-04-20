@@ -318,6 +318,19 @@ HirInstr hir_c_create_deopt_patchpoint(void *patcher);
 /* Create a Snapshot instruction (0 operands, from FrameState). */
 HirInstr hir_c_create_snapshot(void *frame_state);
 
+/* Unlink an instruction from its block (does not free memory). */
+void hir_instr_unlink(HirInstr instr);
+
+/* Destroy (free) an unlinked instruction. */
+void hir_instr_destroy(HirInstr instr);
+
+/* Set the true_bb on a CondBranch instruction (for emitCondSlowPath). */
+void hir_c_set_true_bb(HirInstr branch, void *new_true_block);
+
+/* Create a Phi with caller-provided output register (for emitCondSlowPath). */
+void *hir_phi_create_2way_with_output(void *output_reg,
+    void *bb1, void *reg1, void *bb2, void *reg2);
+
 /* Set suppress_exception_deopt flag on a DeoptBase instruction. */
 void hir_c_set_suppress_exc_deopt(HirInstr instr, int val);
 
