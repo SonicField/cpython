@@ -551,7 +551,7 @@ void *jit_rt_invoke_iter_next_addr(void) {
 
 const char *jit_builtins_find(void *method_def) {
   auto* meth = static_cast<PyMethodDef*>(method_def);
-  auto result = jit::getContext()->builtins().find(meth);
+  auto result = ::jit::getContext()->builtins().find(meth);
   if (result.has_value()) {
     static thread_local std::string last_result;
     last_result = result.value();
@@ -2389,6 +2389,95 @@ void hir_instr_destroy(HirInstr instr) {
 void hir_c_set_true_bb(HirInstr branch, void *new_true_block) {
   auto *cb = static_cast<CondBranchBase*>(as_instr(branch));
   cb->set_true_bb(static_cast<BasicBlock*>(new_true_block));
+}
+
+HirType hir_return_type_c(void *callable_reg) {
+  auto *reg = static_cast<Register*>(callable_reg);
+  Type callable_type = reg->type();
+  HirType callable_hir = Type::toHirType(callable_type);
+  if (!hir_type_has_object_spec(&callable_hir)) {
+    return Type::toHirType(TObject);
+  }
+  PyObject* callable_obj = hir_type_object_spec(&callable_hir);
+  if (Py_TYPE(callable_obj) == &PyCFunction_Type) {
+    PyCFunctionObject* func = reinterpret_cast<PyCFunctionObject*>(callable_obj);
+    const ::jit::Builtins& builtins = ::jit::getContext()->builtins();
+    auto name = builtins.find(func->m_ml);
+    if (name.has_value()) {
+      // Lookup in builtinFunctionReturnType table
+      static const ::jit::UnorderedMap<std::string_view, Type> kRetTypes = {
+          {"dict.copy", TDictExact}, {"hasattr", TBool},
+          {"isinstance", TBool}, {"len", TLongExact},
+          {"list.copy", TListExact}, {"list.count", TLongExact},
+          {"list.index", TLongExact}, {"str.capitalize", TUnicodeExact},
+          {"str.center", TUnicodeExact}, {"str.count", TLongExact},
+          {"str.endswith", TBool}, {"str.find", TLongExact},
+          {"str.format", TUnicodeExact}, {"str.index", TLongExact},
+          {"str.isalnum", TBool}, {"str.isalpha", TBool},
+          {"str.isascii", TBool}, {"str.isdecimal", TBool},
+          {"str.isdigit", TBool}, {"str.isidentifier", TBool},
+          {"str.islower", TBool}, {"str.isnumeric", TBool},
+          {"str.isprintable", TBool}, {"str.isspace", TBool},
+          {"str.istitle", TBool}, {"str.isupper", TBool},
+          {"str.join", TUnicodeExact}, {"str.lower", TUnicodeExact},
+          {"str.lstrip", TUnicodeExact}, {"str.partition", TTupleExact},
+          {"str.replace", TUnicodeExact}, {"str.rfind", TLongExact},
+          {"str.rindex", TLongExact}, {"str.rpartition", TTupleExact},
+          {"str.rsplit", TListExact}, {"str.split", TListExact},
+          {"str.splitlines", TListExact}, {"str.upper", TUnicodeExact},
+          {"tuple.count", TLongExact}, {"tuple.index", TLongExact},
+      };
+      auto it = kRetTypes.find(name.value());
+      if (it != kRetTypes.end()) {
+        return Type::toHirType(it->second);
+      }
+    }
+  }
+  if (Py_TYPE(callable_obj) == &PyMethodDescr_Type) {
+    PyMethodDescrObject* meth = reinterpret_cast<PyMethodDescrObject*>(callable_obj);
+    const ::jit::Builtins& builtins = ::jit::getContext()->builtins();
+    auto name = builtins.find(meth->d_method);
+    if (name.has_value()) {
+      static const ::jit::UnorderedMap<std::string_view, Type> kRetTypes = {
+          {"dict.copy", TDictExact}, {"hasattr", TBool},
+          {"isinstance", TBool}, {"len", TLongExact},
+          {"list.copy", TListExact}, {"list.count", TLongExact},
+          {"list.index", TLongExact}, {"str.capitalize", TUnicodeExact},
+          {"str.center", TUnicodeExact}, {"str.count", TLongExact},
+          {"str.endswith", TBool}, {"str.find", TLongExact},
+          {"str.format", TUnicodeExact}, {"str.index", TLongExact},
+          {"str.isalnum", TBool}, {"str.isalpha", TBool},
+          {"str.isascii", TBool}, {"str.isdecimal", TBool},
+          {"str.isdigit", TBool}, {"str.isidentifier", TBool},
+          {"str.islower", TBool}, {"str.isnumeric", TBool},
+          {"str.isprintable", TBool}, {"str.isspace", TBool},
+          {"str.istitle", TBool}, {"str.isupper", TBool},
+          {"str.join", TUnicodeExact}, {"str.lower", TUnicodeExact},
+          {"str.lstrip", TUnicodeExact}, {"str.partition", TTupleExact},
+          {"str.replace", TUnicodeExact}, {"str.rfind", TLongExact},
+          {"str.rindex", TLongExact}, {"str.rpartition", TTupleExact},
+          {"str.rsplit", TListExact}, {"str.split", TListExact},
+          {"str.splitlines", TListExact}, {"str.upper", TUnicodeExact},
+          {"tuple.count", TLongExact}, {"tuple.index", TLongExact},
+      };
+      auto it = kRetTypes.find(name.value());
+      if (it != kRetTypes.end()) {
+        return Type::toHirType(it->second);
+      }
+    }
+  }
+  if (Py_TYPE(callable_obj) == &PyType_Type) {
+    PyTypeObject* cls = reinterpret_cast<PyTypeObject*>(callable_obj);
+    Type result = Type::fromTypeExact(cls);
+    if (!(result <= TType) &&
+        (result <= TBuiltinExact || cls->tp_new == PyBaseObject_Type.tp_new)) {
+      if (result <= TUnicodeExact || result <= TBytesExact) {
+        return Type::toHirType(result | TUser);
+      }
+      return Type::toHirType(result);
+    }
+  }
+  return Type::toHirType(TObject);
 }
 
 void *hir_phi_create_2way_with_output(void *output_reg,
