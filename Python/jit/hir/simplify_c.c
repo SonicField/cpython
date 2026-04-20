@@ -2370,6 +2370,66 @@ static void *simplify_vectorcall_global_c(SimplifyEnv *env, const void *instr) {
     return simplify_env_emit(env, new_call);
 }
 
+/* ==== resolveArgs ==== */
+static void *simplify_resolve_args_c(SimplifyEnv *env, const void *instr,
+                                      PyFunctionObject *target) {
+    PyCodeObject *code = (PyCodeObject *)target->func_code;
+    size_t co_argcount = (size_t)code->co_argcount;
+    size_t n_operands = hir_c_num_operands(instr);
+    size_t num_args = n_operands - 1;
+
+    if (num_args > co_argcount) return NULL;
+
+    size_t num_positional = num_args < co_argcount ? num_args : co_argcount;
+    void *resolved_args[256];
+    if (co_argcount > 256) return NULL;
+    for (size_t i = 0; i < co_argcount; i++) resolved_args[i] = NULL;
+
+    PyTupleObject *defaults = (PyTupleObject *)target->func_defaults;
+    size_t num_defaults = defaults == NULL ? 0 : (size_t)PyTuple_GET_SIZE((PyObject *)defaults);
+
+    if (num_positional + num_defaults < co_argcount) return NULL;
+
+    for (size_t i = 0; i < co_argcount; i++) {
+        if (i < num_positional) {
+            resolved_args[i] = hir_c_get_operand(instr, i + 1);
+        } else {
+            size_t num_non_defaults = co_argcount - num_defaults;
+            size_t default_idx = i - num_non_defaults;
+
+            extern void jit_compile_lock(void);
+            extern void jit_compile_unlock(void);
+            jit_compile_lock();
+            PyObject *def = PyTuple_GET_ITEM((PyObject *)defaults, default_idx);
+            jit_compile_unlock();
+            if (def == NULL) return NULL;
+            extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
+            PyObject *ref = hir_func_add_reference(env->func, def);
+            resolved_args[i] = simplify_env_emit_load_const(env, hir_type_from_object(ref));
+        }
+        if (resolved_args[i] == NULL) return NULL;
+    }
+
+    HirType t_tuple = HIR_TYPE_TUPLE;
+    void *defaults_obj = simplify_env_emit_load_field(env, hir_c_get_operand(instr, 0),
+        "func_defaults", (intptr_t)offsetof(PyFunctionObject, func_defaults), t_tuple, 0);
+
+    extern void *hir_c_create_guard_is(void *func, void *target, void *src);
+    void *guard = hir_c_create_guard_is(env->func, (void *)defaults, defaults_obj);
+    simplify_env_emit(env, guard);
+
+    void *fs = hir_c_get_frame_state(instr);
+    extern void *hir_c_create_vectorcall(void *func, size_t n_ops,
+                                          uint32_t flags, void *fs);
+    void *new_call = hir_c_create_vectorcall(env->func,
+        co_argcount + 1, HIR_CALL_FLAG_NONE, fs);
+    hir_c_set_operand(new_call, 0, hir_c_get_operand(instr, 0));
+    for (size_t i = 0; i < co_argcount; i++) {
+        hir_c_set_operand(new_call, i + 1, resolved_args[i]);
+    }
+    return simplify_env_emit(env, new_call);
+}
+
 /* ==== emitCondSlowPath ==== */
 void *simplify_emit_cond_slow_path(SimplifyEnv *env, void *output_reg,
                                     void *previous_path_value,
@@ -2621,6 +2681,25 @@ void *simplify_vectorcall_c(SimplifyEnv *env, const void *instr) {
         void *fs = hir_c_get_frame_state(instr);
         void *gl = hir_c_create_get_length(env->func, hir_c_get_operand(instr, 1), fs);
         return simplify_env_emit(env, gl);
+    }
+
+    /* resolveArgs: fix mismatched argument count for known PyFunction targets */
+    {
+        HirType target_type_h = hir_register_type(target);
+        HirType t_func = HIR_TYPE_FUNC;
+        if (hir_type_has_value_spec(&target_type_h, t_func)) {
+            PyFunctionObject *pyfunc = (PyFunctionObject *)hir_type_object_spec(&target_type_h);
+            PyCodeObject *code = (PyCodeObject *)pyfunc->func_code;
+            if (code->co_kwonlyargcount == 0 && !(code->co_flags & CO_VARARGS) &&
+                !(code->co_flags & CO_VARKEYWORDS)) {
+                size_t co_argcount = (size_t)code->co_argcount;
+                size_t num_args = n_operands - 1;
+                if (num_args != co_argcount && num_args <= co_argcount) {
+                    void *resolved = simplify_resolve_args_c(env, instr, pyfunc);
+                    if (resolved) return resolved;
+                }
+            }
+        }
     }
 
     /* isinstance(obj, type) */
