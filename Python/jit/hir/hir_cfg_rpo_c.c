@@ -72,5 +72,5 @@ size_t hir_cfg_get_rpo_c(void *cfg_ptr, void **rpo_out, size_t capacity) {
     PyMem_RawFree(visited);
     PyMem_RawFree(stack);
     PyMem_RawFree(postorder);
-    return rpo_count;
+    return po_count;
 }

@@ -81,11 +81,22 @@ void *phx_rc_model_reg(void *reg) {
 }
 
 size_t phx_rc_get_rpo(void *func_ptr, void **out, size_t capacity) {
+  extern size_t hir_cfg_get_rpo_c(void *cfg, void **rpo_out, size_t cap);
+  void *cfg = hir_func_cfg_ptr(func_ptr);
+  size_t c_count = hir_cfg_get_rpo_c(cfg, out, capacity);
+
+#ifdef JIT_DCHECK_C
   auto& func = *static_cast<jit::hir::Function*>(func_ptr);
-  auto rpo = func.cfg.GetRPOTraversal();
-  size_t n = rpo.size() < capacity ? rpo.size() : capacity;
-  for (size_t i = 0; i < n; i++) out[i] = rpo[i];
-  return rpo.size();
+  auto cpp_rpo = func.cfg.GetRPOTraversal();
+  JIT_DCHECK(c_count == cpp_rpo.size(),
+      "RPO count mismatch: C={} C++={}", c_count, cpp_rpo.size());
+  for (size_t i = 0; i < c_count && i < cpp_rpo.size(); i++) {
+    JIT_DCHECK(out[i] == cpp_rpo[i],
+        "RPO block mismatch at index {}: C={} C++={}", i, out[i], (void*)cpp_rpo[i]);
+  }
+#endif
+
+  return c_count;
 }
 
 } /* extern "C" */
