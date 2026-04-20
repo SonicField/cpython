@@ -12,18 +12,21 @@
 
 using namespace jit::hir;
 
+extern "C" HirType hir_register_type(void *reg);
+extern "C" size_t hir_cfg_get_rpo(void *cfg, void **out, size_t capacity);
+
 extern "C" {
 
 int phx_rc_is_uncounted(void *reg) {
-  auto* r = static_cast<Register*>(reg);
-  HirType h_reg = Type::toHirType(r->type());
-  HirType h_mortal = Type::toHirType(TMortalObject);
+  HirType h_reg = hir_register_type(reg);
+  HirType h_mortal = HIR_TYPE_SIMPLE(0x000ffffffffULL, HIR_LIFETIME_MORTAL);
   return !hir_type_could_be(&h_reg, &h_mortal);
 }
 
 int phx_rc_reg_is_object(void *reg) {
-  auto* r = static_cast<Register*>(reg);
-  return r->type() <= TObject ? 1 : 0;
+  HirType h_reg = hir_register_type(reg);
+  HirType t_object = HIR_TYPE_OBJECT;
+  return hir_type_is_subtype(h_reg, t_object) ? 1 : 0;
 }
 
 int phx_rc_condbranch_check_type_is_wait_handle(void *instr) {
@@ -36,7 +39,7 @@ int phx_rc_is_passthrough(void *instr) {
 }
 
 int phx_rc_is_guard_is(void *instr) {
-  return static_cast<Instr*>(instr)->IsGuardIs() ? 1 : 0;
+  return hir_c_opcode(instr) == HIR_OP_GuardIs ? 1 : 0;
 }
 
 void phx_rc_fill_deopt_live_regs(const PhxStateMap *live_regs, void *instr_ptr) {
