@@ -927,3 +927,181 @@ void hir_optimize_long_decref_runs_c(void *func) {
         }
     }
 }
+
+/* ==== removeUnreachableInstructions C port ==== */
+#include "cinderx/Jit/hir/dominator_c.h"
+
+extern int hir_instr_is_deopt_base(void *instr);
+extern HirType hir_output_type(void *instr);
+extern void hir_instr_replace_with(void *old_instr, void *new_instr);
+extern void hir_instr_replace_uses_of(void *instr, void *old_reg, void *new_reg);
+extern void *hir_c_create_refine_type_reg(void *dst, HirType type, void *src);
+extern void *hir_func_alloc_register(void *func);
+extern void hir_c_insert_before(void *new_instr, void *before);
+extern void *hir_c_cond_branch_true_bb(void *instr);
+extern void *hir_c_cond_branch_false_bb(void *instr);
+extern void *hir_c_create_branch_cpp(void *target_block);
+
+static int is_output_bottom(void *instr) {
+    void *out = hir_c_output(instr);
+    if (out == NULL) return 0;
+    HirType out_type = hir_register_type(out);
+    HirType t_bottom = HIR_TYPE_BOTTOM;
+    return hir_type_is_subtype(out_type, t_bottom);
+}
+
+int hir_remove_unreachable_instructions_c(void *func) {
+    void *cfg = hir_func_cfg_ptr(func);
+
+    int modified = 0;
+    void *rpo_blocks[4096];
+    extern size_t hir_cfg_get_rpo_c(void *cfg, void **out, size_t cap);
+    size_t n_blocks = hir_cfg_get_rpo_c(cfg, rpo_blocks, 4096);
+
+    PhxDominatorState *dom = phx_dom_create(func);
+    PhxRegUses reg_uses;
+    hir_collect_direct_reg_uses_c(func, &reg_uses);
+
+    /* PostOrder = reverse RPO */
+    for (size_t bi = n_blocks; bi > 0; bi--) {
+        void *block = rpo_blocks[bi - 1];
+
+        void *instr = hir_bb_first_instr(block);
+        while (instr) {
+            void *next = hir_bb_next_instr(block, instr);
+
+            if (!is_output_bottom(instr) &&
+                hir_c_opcode(instr) != HIR_OP_Unreachable) {
+                instr = next;
+                continue;
+            }
+
+            modified = 1;
+
+            /* Walk backward from 'next' to find last DeoptBase */
+            void *it = next;
+            if (it == NULL) it = instr;
+            while (it != hir_bb_first_instr(block)) {
+                void *prev = hir_bb_prev_instr(block, it);
+                if (prev == NULL) break;
+                if (hir_instr_is_deopt_base(prev)) break;
+                it = prev;
+            }
+
+            /* GuardType → UseType preservation */
+            if (it != hir_bb_first_instr(block)) {
+                void *prev = hir_bb_prev_instr(block, it);
+                if (prev && hir_c_is_guard_type(prev)) {
+                    void *guard_out = hir_c_output(prev);
+                    HirType guard_type = hir_register_type(guard_out);
+                    void *use_type = hir_c_create_use_type(guard_out, guard_type);
+                    hir_c_insert_before(use_type, it);
+                    void *ut_out = hir_c_output(use_type);
+                    if (ut_out) hir_reg_set_type(ut_out, hir_output_type(use_type));
+                }
+            }
+
+            /* Insert Unreachable marker */
+            void *unreachable = hir_c_create_unreachable();
+            hir_c_insert_before(unreachable, it);
+
+            /* Clean up dangling phi references */
+            void *old_term = hir_bb_get_terminator(block);
+            if (old_term && old_term != unreachable) {
+                size_t n_edges = hir_c_num_edges(old_term);
+                for (size_t ei = 0; ei < n_edges; ei++) {
+                    void *succ = hir_c_successor(old_term, ei);
+                    if (!succ) continue;
+                    void *phi = hir_bb_first_instr(succ);
+                    while (phi && hir_c_is_phi(phi)) {
+                        phx_reg_uses_remove_instr(&reg_uses, phi);
+                        phi = hir_bb_next_instr(succ, phi);
+                    }
+                    hir_bb_remove_phi_predecessor(succ, block);
+                }
+            }
+
+            /* Remove all instructions from it onward */
+            while (it) {
+                void *to_delete = it;
+                it = hir_bb_next_instr(block, it);
+                hir_instr_unlink(to_delete);
+                phx_reg_uses_remove_instr(&reg_uses, to_delete);
+                hir_instr_destroy(to_delete);
+            }
+
+            break; /* done with this block */
+        }
+
+        /* If block starts with Unreachable, redirect predecessors */
+        void *first = hir_bb_first_instr(block);
+        if (first && hir_c_opcode(first) == HIR_OP_Unreachable) {
+            void *in_from[256];
+            extern size_t hir_bb_in_edges_list(void *block, void **out, size_t cap);
+            size_t n_preds = hir_bb_in_edges_list(block, in_from, 256);
+            void *terminators[256];
+            size_t n_terms = 0;
+            for (size_t pi = 0; pi < n_preds; pi++) {
+                void *pred = in_from[pi];
+                void *term = hir_bb_get_terminator(pred);
+                if (term && n_terms < 256) terminators[n_terms++] = term;
+            }
+
+            for (size_t ti = 0; ti < n_terms; ti++) {
+                void *branch = terminators[ti];
+                int op = hir_c_opcode(branch);
+
+                if (op == HIR_OP_Branch) {
+                    hir_instr_replace_with(branch, hir_c_create_unreachable());
+                } else if (hir_c_is_condbranch(branch)) {
+                    void *true_bb = hir_c_cond_branch_true_bb(branch);
+                    void *false_bb = hir_c_cond_branch_false_bb(branch);
+                    void *target = (false_bb == block) ? true_bb : false_bb;
+
+                    if (op == HIR_OP_CondBranchCheckType) {
+                        HirCondBranchCheckType *cbt = (HirCondBranchCheckType *)branch;
+                        void *refined_value = hir_func_alloc_register(func);
+                        HirType check_type = cbt->type;
+                        if (target == false_bb) {
+                            HirType t_top = HIR_TYPE_TOP;
+                            check_type = hir_type_subtract(t_top, cbt->type);
+                        }
+                        void *operand = hir_c_get_operand(branch, 0);
+                        void *refine = hir_c_create_refine_type_reg(refined_value, check_type, operand);
+                        hir_c_insert_before(refine, branch);
+                        void *ref_out = hir_c_output(refine);
+                        if (ref_out) hir_reg_set_type(ref_out, hir_output_type(refine));
+
+                        const PhxRegUseList *uses = phx_reg_uses_find(&reg_uses, operand);
+                        if (uses) {
+                            int target_id = ((HirBasicBlock *)target)->id;
+                            for (size_t ui = 0; ui < uses->count; ui++) {
+                                void *user = uses->instrs[ui];
+                                void *user_block = hir_c_block(user);
+                                int user_bid = ((HirBasicBlock *)user_block)->id;
+                                if (phx_dom_dominates(dom, target_id, user_bid)) {
+                                    hir_instr_replace_uses_of(user, operand, refined_value);
+                                }
+                            }
+                        }
+                    }
+                    hir_instr_replace_with(branch, hir_c_create_branch_cpp(target));
+                }
+                phx_reg_uses_remove_instr(&reg_uses, branch);
+                hir_instr_destroy(branch);
+            }
+        }
+    }
+
+    phx_reg_uses_destroy(&reg_uses);
+    phx_dom_destroy(dom);
+
+    if (modified) {
+        extern int hir_remove_unreachable_blocks_c(void *func);
+        extern void hir_reflow_types_c(void *func, void *start_block);
+        hir_remove_unreachable_blocks_c(func);
+        void *entry = *(void **)cfg;
+        hir_reflow_types_c(func, entry);
+    }
+    return modified;
+}
