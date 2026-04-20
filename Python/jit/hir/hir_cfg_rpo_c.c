@@ -45,7 +45,10 @@ size_t hir_cfg_get_rpo_c(void *cfg_ptr, void **rpo_out, size_t capacity) {
         size_t n_edges = term ? hir_c_num_edges(term) : 0;
 
         if (top->edge_idx < n_edges) {
-            size_t ei = top->edge_idx++;
+            /* Visit successors in REVERSE order (false_bb before true_bb)
+             * to match C++ postorder_traverse which visits false first.
+             * This ensures identical RPO block ordering. */
+            size_t ei = n_edges - 1 - top->edge_idx++;
             HirBasicBlock *succ = (HirBasicBlock *)hir_c_successor(term, ei);
             if (succ && !visited[succ->id]) {
                 visited[succ->id] = 1;
