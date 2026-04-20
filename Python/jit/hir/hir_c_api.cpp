@@ -560,8 +560,22 @@ const char *jit_builtins_find(void *method_def) {
   return nullptr;
 }
 
+static HirType get_op_type_default(size_t idx, void *ctx) {
+  auto *i = static_cast<Instr*>(ctx);
+  return Type::toHirType(i->GetOperand(idx)->type());
+}
+
+extern "C" HirType hir_output_type_c(const void *instr,
+    HirType (*get_op_type)(size_t, void*), void *ctx);
+
 HirType hir_output_type(HirInstr instr) {
-  return Type::toHirType(outputType(*as_instr(instr)));
+  HirType c_result = hir_output_type_c(instr, get_op_type_default, instr);
+  HirType cpp_result = Type::toHirType(outputType(*as_instr(instr)));
+  JIT_DCHECK(
+      memcmp(&c_result, &cpp_result, sizeof(HirType)) == 0,
+      "C outputType diverges from C++ for opcode {}",
+      as_instr(instr)->opname());
+  return c_result;
 }
 
 HirType hir_output_type_with_override(HirInstr instr,

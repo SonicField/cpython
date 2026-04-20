@@ -867,6 +867,11 @@ static inline uint32_t hir_c_call_flags(const void *instr) {
 #define HIR_PCMP_LessThanUnsigned     8
 #define HIR_PCMP_LessThanEqualUnsigned 9
 
+/* PrimitiveUnaryOpKind C constants */
+#define HIR_PUOP_NegateInt  0
+#define HIR_PUOP_InvertInt  1
+#define HIR_PUOP_NotInt     2
+
 /* DeoptBase frame_state accessor */
 static inline void *hir_c_get_frame_state(const void *instr) {
     return ((const HirDeoptLayout *)instr)->frame_state;

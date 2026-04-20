@@ -190,7 +190,7 @@ HirType hir_output_type_c(const void *instr,
     /* ---- PrimitiveUnaryOp ---- */
     case HIR_OP_PrimitiveUnaryOp: {
         int32_t puop = hir_c_primitive_unary_op_kind(instr);
-        if (puop == 2 /* kNotInt */) { HirType _t = HIR_TYPE_CBOOL; return _t; }
+        if (puop == HIR_PUOP_NotInt) { HirType _t = HIR_TYPE_CBOOL; return _t; }
         HirType op0_t = get_op_type(0, ctx);
         return hir_type_unspecialized(&op0_t);
     }
