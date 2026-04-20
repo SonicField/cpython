@@ -100,12 +100,6 @@ Type returnType(Type callable) {
 
 } // namespace
 
-Register* chaseAssignOperand(Register* value) {
-  while (value->instr()->IsAssign()) {
-    value = value->instr()->GetOperand(0);
-  }
-  return value;
-}
 
 RegUses collectDirectRegUses(Function& func) {
   RegUses uses;
@@ -847,40 +841,5 @@ bool removeUnreachableInstructions(Function& func) {
   return modified;
 }
 
-void simplifyRedundantCondBranches(CFG* cfg) {
-  std::vector<BasicBlock*> to_simplify;
-  for (auto& block : cfg->blocks) {
-    if (block.empty()) {
-      continue;
-    }
-    auto term = block.GetTerminator();
-    std::size_t num_edges = term->numEdges();
-    if (num_edges < 2) {
-      continue;
-    }
-    JIT_CHECK(num_edges == 2, "only two edges are supported");
-    if (term->successor(0) != term->successor(1)) {
-      continue;
-    }
-    switch (term->opcode()) {
-      case Opcode::kCondBranch:
-      case Opcode::kCondBranchIterNotDone:
-      case Opcode::kCondBranchCheckType:
-        break;
-      default:
-        // Can't be sure that it's safe to replace the instruction with a branch
-        JIT_ABORT("Unknown side effects of {} instruction", term->opname());
-    }
-    to_simplify.emplace_back(&block);
-  }
-  for (auto& block : to_simplify) {
-    auto term = block->GetTerminator();
-    term->unlink();
-    auto branch = block->appendWithOff<Branch>(
-        term->bytecodeOffset(), term->successor(0));
-    branch->copyBytecodeOffset(*term);
-    Instr::Destroy(term);
-  }
-}
 
 } // namespace jit::hir

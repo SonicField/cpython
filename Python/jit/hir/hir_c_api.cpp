@@ -403,8 +403,10 @@ HirInstr hir_reg_instr(HirRegister reg) {
   return as_reg(reg)->instr();
 }
 
+extern "C" void *hir_chase_assign_operand(void *reg);
+
 HirRegister hir_chase_assign(HirRegister reg) {
-  return chaseAssignOperand(as_reg(reg));
+  return static_cast<Register*>(hir_chase_assign_operand(reg));
 }
 
 /* ---- Phi-specific ---- */
