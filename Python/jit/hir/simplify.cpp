@@ -634,41 +634,14 @@ struct Env {
   }
 };
 
-static bool isBuiltin(PyMethodDef* meth, const char* name) {
-  const Builtins& builtins = getContext()->builtins();
-  return builtins.find(meth) == name;
-}
-
-static bool isBuiltin(Register* callable, const char* name) {
-  Type callable_type = callable->type();
-  HirType callable_hir = to_hir(callable_type);
-  if (!hir_type_has_object_spec(&callable_hir)) {
-    return false;
-  }
-  PyObject* callable_obj = hir_type_object_spec(&callable_hir);
-  if (Py_TYPE(callable_obj) == &PyCFunction_Type) {
-    PyCFunctionObject* func =
-        reinterpret_cast<PyCFunctionObject*>(callable_obj);
-    return isBuiltin(func->m_ml, name);
-  }
-  if (Py_TYPE(callable_obj) == &PyMethodDescr_Type) {
-    PyMethodDescrObject* meth =
-        reinterpret_cast<PyMethodDescrObject*>(callable_obj);
-    return isBuiltin(meth->d_method, name);
-  }
-  return false;
-}
-
 static Register* resolveArgs(
     Env& env,
     const VectorCall* instr,
     PyFunctionObject* target) {
   PyCodeObject* code = (PyCodeObject*)target->func_code;
   JIT_CHECK(!(code->co_flags & CO_VARARGS), "can't resolve varargs");
-  // number of positional args (including args with default values)
   size_t co_argcount = static_cast<size_t>(code->co_argcount);
   if (instr->numArgs() > co_argcount) {
-    // TASK(T143644311): support varargs and check if non-varargs here
     return nullptr;
   }
 
@@ -677,18 +650,13 @@ static Register* resolveArgs(
 
   JIT_CHECK(!(code->co_flags & CO_VARKEYWORDS), "can't resolve varkwargs");
 
-  // grab default positional arguments
   PyTupleObject* defaults = (PyTupleObject*)target->func_defaults;
-
-  // TASK(T143644350): support kwargs and kwdefaults
   size_t num_defaults =
       defaults == nullptr ? 0 : static_cast<size_t>(PyTuple_GET_SIZE((PyObject*)defaults));
 
   if (num_positional + num_defaults < co_argcount) {
-    // function was called with too few arguments
     return nullptr;
   }
-  // TASK(T143644377): support kwonly args
   JIT_CHECK(code->co_kwonlyargcount == 0, " can't resolve kwonly args");
   for (size_t i = 0; i < co_argcount; i++) {
     if (i < num_positional) {
@@ -724,163 +692,9 @@ static Register* resolveArgs(
   return result;
 }
 
-
-// Special case here where we are testing `if isinstance`. In that case we do
-// not want to go through the boxing and then unboxing that we are about to do.
-// Instead, we want to directly provide the result of the unboxed comparison.
-std::optional<std::pair<Instr*, std::vector<Instr*>>> isVectorCallIfIsInstance(
-    Env& env,
-    const VectorCall* instr) {
-  std::vector<Instr*> snapshots;
-
-  LivenessAnalysis::LastUses last_uses;
-  Register* output = nullptr;
-
-  enum state { kInitial, kCondBranch, kIsTruthy, kFailed };
-  auto state = kInitial;
-
-  auto block = instr->block();
-  for (auto current = block->rbegin();
-       current != block->rend() && state != kFailed;
-       ++current) {
-    switch (state) {
-      case kInitial: {
-        if (!current->IsCondBranch()) {
-          state = kFailed;
-          break;
-        }
-
-        LivenessAnalysis analysis{env.func};
-        analysis.Run();
-
-        last_uses = analysis.GetLastUses();
-        auto lu_at_condbranch = last_uses.find(&*current);
-        if (lu_at_condbranch == last_uses.end() ||
-            lu_at_condbranch->second.size() != 1) {
-          state = kFailed;
-          break;
-        }
-
-        state = kCondBranch;
-        output = current->GetOperand(0);
-        break;
-      }
-      case kCondBranch: {
-        if (current->IsIsTruthy() && output == current->output() &&
-            current->GetOperand(0) == instr->output()) {
-          auto lu_at_istruthy = last_uses.find(&*current);
-          if (lu_at_istruthy == last_uses.end() ||
-              lu_at_istruthy->second.size() != 1) {
-            state = kFailed;
-          } else {
-            state = kIsTruthy;
-          }
-          break;
-        }
-
-        if (current->IsSnapshot()) {
-          snapshots.push_back(&*current);
-          break;
-        }
-
-        state = kFailed;
-        break;
-      }
-      case kIsTruthy: {
-        if (&*current == instr) {
-          JIT_CHECK(output != nullptr, "output should have been set");
-          return std::make_optional(std::make_pair(output->instr(), snapshots));
-        }
-
-        if (current->IsSnapshot()) {
-          break;
-        }
-
-        state = kFailed;
-        break;
-      }
-      case kFailed:
-        JIT_ABORT("Hit kFailed state but it should not be reachable");
-    }
-  }
-
-  return std::nullopt;
-}
-
 Register* simplifyVectorCall(Env& env, const VectorCall* instr) {
   if (instr->flags() & CallFlags::KwArgs) {
     return nullptr;
-  }
-  if (isBuiltin(instr->GetOperand(0), "isinstance") && instr->numArgs() == 2 &&
-      instr->GetOperand(2)->type() <= TType &&
-      !(instr->GetOperand(2)->type() <= TTuple)) {
-    auto obj_op = instr->GetOperand(1);
-    auto type_op = instr->GetOperand(2);
-
-    auto obj_type = env.emitLoadField(
-        obj_op, "ob_type", offsetof(PyObject, ob_type), TType);
-
-    auto compare_type = env.emitPrimitiveCompare(
-        PrimitiveCompareOp::kEqual, obj_type, type_op);
-
-    // If this is a VectorCall to isinstance and it's being used as the
-    // predicate of an if statement, it will look like:
-    //
-    //     o1 = VectorCall
-    //     o2 = IsTruthy o1
-    //     CondBranch o2
-    //
-    // Below, this would then expand into boxing the bool on both sides of the
-    // conditional, then unboxing it again to do another comparison. Instead, we
-    // can circumvent that by directly using the result of the primitive
-    // compare.
-    auto data = isVectorCallIfIsInstance(env, instr);
-    if (data.has_value()) {
-      auto& [is_truthy, snapshots] = data.value();
-      auto result = is_truthy->output();
-
-      // We no longer need the IsTruthy instruction.
-      is_truthy->unlink();
-      Instr::Destroy(is_truthy);
-
-      // We also no longer need the Snapshot instructions contained between the
-      // IsTruthy instruction and the CondBranch instruction.
-      for (auto snapshot : snapshots) {
-        snapshot->unlink();
-        Instr::Destroy(snapshot);
-      }
-
-      env.emitCondSlowPath(
-          result,
-          compare_type,
-          [&](auto slow_path) {
-            return env.emitCondBranchInstr(compare_type, nullptr, slow_path);
-          },
-          [&] {
-            return env.emitIsInstance(obj_op, type_op, *instr->frameState());
-          });
-
-      // The output of the VectorCall instruction was previously a TBool, but we
-      // are replacing it with a TCBool since we are now doing a primitive
-      // compare instead. This works, but requires that we change the
-      // instruction's output type to match in order to pass the assertions that
-      // come after the call to simplifyInstr.
-      instr->output()->set_type(TCBool);
-
-      return result;
-    }
-
-    Register* cbool_res = env.emitCond(
-        [&](BasicBlock* fast_path, BasicBlock* slow_path) {
-          env.emitCondBranch(compare_type, fast_path, slow_path);
-        },
-        [&] { // Fast path
-          return compare_type;
-        },
-        [&] { // Slow path
-          return env.emitIsInstance(obj_op, type_op, *instr->frameState());
-        });
-    return env.emitPrimitiveBoxBool(cbool_res);
   }
   Type target_type = instr->GetOperand(0)->type();
   HirType target_hir = to_hir(target_type);
