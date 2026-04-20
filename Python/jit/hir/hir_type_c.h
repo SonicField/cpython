@@ -176,6 +176,10 @@ size_t hir_type_to_string_c(const HirType *type, char *buf, size_t bufsz,
 #define HIR_TYPE_SIMPLE(bits, lifetime) \
     { (bits) | ((lifetime) << HIR_TYPE_LIFETIME_SHIFT), {0} }
 
+/* Safe return for HirType compound literals (avoids C99 brace-initializer
+ * in return statement error). Use instead of 'return HIR_TYPE_*;' */
+#define RETURN_HIRTYPE(x) do { HirType _t = (x); return _t; } while(0)
+
 /* Primitive C types (kLifetimeBottom = 0) */
 #define HIR_TYPE_CBOOL    HIR_TYPE_SIMPLE(0x00100000000ULL, HIR_TYPE_LIFETIME_BOTTOM)
 #define HIR_TYPE_CINT8    HIR_TYPE_SIMPLE(0x00200000000ULL, HIR_TYPE_LIFETIME_BOTTOM)

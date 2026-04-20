@@ -9,6 +9,8 @@
 #include "cinderx/Jit/hir/analysis.h"
 #include "cinderx/Jit/hir/printer.h"
 
+extern "C" void hir_simplify_redundant_cond_branches_c(void *cfg);
+
 namespace jit::hir {
 
 static inline HirType to_hir(Type t) {
@@ -648,7 +650,7 @@ bool removeTrampolineBlocks(CFG* cfg) {
     cfg->RemoveBlock(block);
     delete block;
   }
-  simplifyRedundantCondBranches(cfg);
+  hir_simplify_redundant_cond_branches_c(cfg);
   return trampolines.size() > 0;
 }
 

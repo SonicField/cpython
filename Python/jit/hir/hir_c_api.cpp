@@ -636,8 +636,11 @@ void hir_remove_unreachable_instructions(HirFunction func) {
   removeUnreachableInstructions(*as_func(func));
 }
 
+extern "C" void hir_reflow_types_c(void *func, void *start_block);
+
 void hir_reflow_types(HirFunction func) {
-  reflowTypes(*as_func(func));
+  auto *f = as_func(func);
+  hir_reflow_types_c(func, f->cfg.entry_block);
 }
 
 /* T2-D predicates (is_condbranch, is_istruthy, is_compare, is_vectorcall,
