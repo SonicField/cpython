@@ -508,3 +508,15 @@ void hir_simplify_redundant_cond_branches_c(void *cfg) {
         hir_instr_destroy(term);
     }
 }
+
+/* ==== chaseAssignOperand C port ==== */
+void *hir_chase_assign_operand(void *value) {
+    extern void *hir_reg_instr(void *reg);
+    while (1) {
+        void *def = hir_reg_instr(value);
+        if (def == NULL || hir_c_opcode(def) != HIR_OP_Assign)
+            break;
+        value = hir_c_get_operand(def, 0);
+    }
+    return value;
+}
