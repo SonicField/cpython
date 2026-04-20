@@ -2412,6 +2412,10 @@ void hir_c_set_true_bb(HirInstr branch, void *new_true_block) {
   cb->set_true_bb(static_cast<BasicBlock*>(new_true_block));
 }
 
+void *hir_cfg_allocate_unlinked_block(void *cfg) {
+  return static_cast<CFG*>(cfg)->AllocateUnlinkedBlock();
+}
+
 void hir_bb_fixup_phis(void *block, void *old_pred, void *new_pred) {
   static_cast<BasicBlock*>(block)->fixupPhis(
       static_cast<BasicBlock*>(old_pred),

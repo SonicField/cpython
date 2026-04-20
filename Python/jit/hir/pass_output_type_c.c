@@ -697,3 +697,6 @@ void *hir_cfg_get_block_by_id(void *cfg, int id) {
     }
     return NULL;
 }
+
+/* ==== AllocateUnlinkedBlock C port ==== */
+extern void *hir_cfg_allocate_unlinked_block(void *cfg);
