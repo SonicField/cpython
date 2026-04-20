@@ -1839,6 +1839,34 @@ static void *simplify_load_attr_member_descr_c(SimplifyEnv *env,
     return NULL;
 }
 
+/* ==== simplifyLoadAttrProperty ==== */
+#include "cinderx/Common/property.h"
+
+static void *simplify_load_attr_property_c(SimplifyEnv *env,
+        void *receiver, HirType recv_type, PyTypeObject *py_type,
+        PyObject *attr_name, PyObject *descr, void *fs) {
+    if (Py_TYPE(descr) != &PyProperty_Type) return NULL;
+
+    Ci_propertyobject *prop = (Ci_propertyobject *)descr;
+    PyObject *getter = prop->prop_get;
+    if (getter == NULL) return NULL;
+
+    emit_type_attr_deopt_patcher(env, py_type, attr_name, descr,
+                                 receiver, "property attribute");
+    simplify_env_emit_use_type(env, receiver, recv_type);
+
+    extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
+    PyObject *ref = hir_func_add_reference(env->func, getter);
+    void *getter_obj = simplify_env_emit_load_const(env, hir_type_from_object(ref));
+
+    extern void *hir_c_create_vectorcall(void *func, size_t n_ops,
+                                          uint32_t flags, void *fs);
+    void *call = hir_c_create_vectorcall(env->func, 2, HIR_CALL_FLAG_NONE, fs);
+    hir_c_set_operand(call, 0, getter_obj);
+    hir_c_set_operand(call, 1, receiver);
+    return simplify_env_emit(env, call);
+}
+
 /* ==== simplifyLoadAttrInstanceReceiver ==== */
 static void *simplify_load_attr_instance_c(SimplifyEnv *env, const void *instr) {
     void *receiver = hir_c_get_operand(instr, 0);
@@ -1875,7 +1903,11 @@ static void *simplify_load_attr_instance_c(SimplifyEnv *env, const void *instr) 
         recv_type, py_type, attr_name, descr, fs);
     if (result) return result;
 
-    /* Property + GenericDescr — return NULL to fall through to C++ */
+    result = simplify_load_attr_property_c(env, receiver, recv_type,
+        py_type, attr_name, descr, fs);
+    if (result) return result;
+
+    /* GenericDescr — return NULL to fall through to C++ */
     return NULL;
 }
 
