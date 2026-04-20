@@ -2408,6 +2408,16 @@ void hir_c_set_true_bb(HirInstr branch, void *new_true_block) {
   cb->set_true_bb(static_cast<BasicBlock*>(new_true_block));
 }
 
+void hir_bb_set_successor_null(void *block, size_t idx) {
+  auto *bb = static_cast<BasicBlock*>(block);
+  auto *term = bb->GetTerminator();
+  term->edge(idx)->set_to(nullptr);
+}
+
+void hir_bb_destroy(void *block) {
+  delete static_cast<BasicBlock*>(block);
+}
+
 void *hir_cfg_blocks_first_ptr(void *cfg) {
   return hir_cfg_blocks_first(cfg);
 }

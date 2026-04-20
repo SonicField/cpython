@@ -520,3 +520,46 @@ void *hir_chase_assign_operand(void *value) {
     }
     return value;
 }
+
+/* ==== removeTrampolineBlocks C port ==== */
+extern void hir_bb_set_successor_null(void *block, size_t idx);
+extern void hir_bb_destroy(void *block);
+
+int hir_remove_trampoline_blocks_c(void *cfg) {
+    void *trampolines[1024];
+    size_t n_tramp = 0;
+
+    HirCFG *c = (HirCFG *)cfg;
+    void *block = hir_cfg_blocks_first_ptr(cfg);
+    while (block) {
+        void *next = hir_cfg_blocks_next_ptr(cfg, block);
+        if (hir_bb_is_trampoline((HirBasicBlock *)block)) {
+            void *term = hir_bb_get_terminator((HirBasicBlock *)block);
+            void *succ = hir_c_successor(term, 0);
+
+            if (block == c->entry_block) {
+                if (hir_bb_in_edges_count((HirBasicBlock *)succ) > 1) {
+                    block = next;
+                    continue;
+                }
+                c->entry_block = succ;
+            }
+
+            hir_bb_retarget_preds((HirBasicBlock *)block, (HirBasicBlock *)succ);
+            hir_bb_set_successor_null(block, 0);
+
+            if (n_tramp < 1024) {
+                trampolines[n_tramp++] = block;
+            }
+        }
+        block = next;
+    }
+
+    for (size_t i = 0; i < n_tramp; i++) {
+        hir_cfg_remove_block(c, (HirBasicBlock *)trampolines[i]);
+        hir_bb_destroy(trampolines[i]);
+    }
+
+    hir_simplify_redundant_cond_branches_c(cfg);
+    return n_tramp > 0 ? 1 : 0;
+}
