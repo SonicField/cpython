@@ -170,7 +170,15 @@ std::vector<BasicBlock*> CFG::GetRPOTraversal(BasicBlock* start) {
 }
 
 std::vector<BasicBlock*> CFG::GetPostOrderTraversal() const {
-  return GetPostOrderTraversal(entry_block);
+  // Delegate to C RPO and reverse (PostOrder = reverse RPO)
+  void* blocks[4096];
+  size_t n = hir_cfg_get_rpo_c(
+      const_cast<CFG*>(this), blocks, 4096);
+  std::vector<BasicBlock*> result(
+      reinterpret_cast<BasicBlock**>(blocks),
+      reinterpret_cast<BasicBlock**>(blocks) + n);
+  std::reverse(result.begin(), result.end());
+  return result;
 }
 
 std::vector<BasicBlock*> CFG::GetPostOrderTraversal(BasicBlock* start) {
