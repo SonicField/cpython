@@ -687,3 +687,13 @@ void hir_cfg_split_critical_edges_c(void *func) {
         hir_bb_fixup_phis(to, from, split_bb);
     }
 }
+
+/* ==== getBlockById C port ==== */
+void *hir_cfg_get_block_by_id(void *cfg, int id) {
+    void *block = hir_cfg_blocks_first_ptr(cfg);
+    while (block) {
+        if (((HirBasicBlock *)block)->id == id) return block;
+        block = hir_cfg_blocks_next_ptr(cfg, block);
+    }
+    return NULL;
+}

@@ -120,10 +120,12 @@ BasicBlock* CFG::splitAfter(Instr& target) {
 }
 
 void CFG::splitCriticalEdges() {
+  // C++ callers don't have Function*, so keep minimal C++ here.
+  // The C port (hir_cfg_split_critical_edges_c) needs Function* for
+  // hir_cfg_alloc_block. When all callers pass Function*, this can
+  // delegate to C. For now, keep the C++ implementation.
   std::vector<Edge*> critical_edges;
 
-  // Separately enumerate and process the critical edges to avoid mutating the
-  // CFG while iterating it.
   for (auto& block : blocks) {
     auto term = block.GetTerminator();
     JIT_DCHECK(term != nullptr, "Invalid block");
