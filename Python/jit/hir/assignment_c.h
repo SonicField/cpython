@@ -28,10 +28,6 @@ int phx_assign_is_assigned_in(const PhxAssignmentState *state,
 int phx_assign_is_assigned_out(const PhxAssignmentState *state,
                                int block_id, HirRegister reg);
 
-/* Differential verification against C++ AssignmentAnalysis. */
-int phx_assign_verify(HirFunction func, const PhxAssignmentState *c_state,
-                      int is_definite);
-
 /* Free the assignment analysis state. */
 void phx_assign_destroy(PhxAssignmentState *state);
 

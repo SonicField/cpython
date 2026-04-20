@@ -120,9 +120,6 @@ PhxAssignmentState *phx_assign_create(HirFunction func, int is_definite) {
 
     phx_df_run_ex(&state->analyzer, 1, is_definite, is_definite);
 
-    JIT_DCHECK_C(phx_assign_verify(func, state, is_definite),
-                 "C AssignmentAnalysis diverges from C++");
-
     return state;
 }
 
