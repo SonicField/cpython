@@ -56,6 +56,13 @@ int hir_func_env_allocate_type_method_cache(HirFunction func);
 /* Allocate a type attr cache slot, returns cache_id */
 int hir_func_env_allocate_type_attr_cache(HirFunction func);
 
+/* Allocate a TypeAttrDeoptPatcher for use with DeoptPatchpoint */
+void *hir_func_allocate_type_attr_deopt_patcher(
+    HirFunction func, void *type, void *attr_name, void *method);
+
+/* Ensure a preloader exists for a Python function (find+create if needed) */
+void hir_preloader_ensure(void *py_func);
+
 /* Get blocks in reverse postorder. Caller provides output array.
  * Returns number of blocks written (clamped to capacity). */
 size_t hir_cfg_get_rpo(HirCFG cfg, HirBasicBlock *out, size_t capacity);

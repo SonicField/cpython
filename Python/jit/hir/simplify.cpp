@@ -2632,8 +2632,13 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
       return r;
     }
 
-    case Opcode::kCallMethod:
+    case Opcode::kCallMethod: {
+      SimplifyEnv cenv = make_c_env();
+      auto *r = static_cast<Register*>(simplify_call_method_c(&cenv, instr));
+      sync_c_env(cenv);
+      if (r) return r;
       return simplifyCallMethod(env, static_cast<const CallMethod*>(instr));
+    }
 
     case Opcode::kVectorCall:
       return simplifyVectorCall(env, static_cast<const VectorCall*>(instr));

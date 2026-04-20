@@ -27,6 +27,7 @@ extern void *hir_c_create_cond_branch_cpp(void *cond_reg,
                                            void *false_block);
 extern int hir_func_env_allocate_type_method_cache(void *func);
 extern int hir_func_env_allocate_type_attr_cache(void *func);
+extern void hir_c_set_suppress_exc_deopt(void *instr, int val);
 extern void *hir_c_create_fill_type_method_cache(void *func,
     void *receiver, int name_idx, int cache_id, void *fs);
 extern void *hir_c_create_load_method_cached(void *func,
@@ -1669,4 +1670,49 @@ void *simplify_load_attr_c(SimplifyEnv *env, const void *instr) {
     }
 
     return NULL;
+}
+
+/* ==== simplifyCallMethod ====
+ * Path 1: func()->type() <= TNullptr → rewrite as VectorCall.
+ * Path 2: __exit__/__aexit__ bound method resolution (complex, needs deep bridges).
+ * Currently only Path 1 is ported. Path 2 returns NULL to fall through to C++. */
+void *simplify_call_method_c(SimplifyEnv *env, const void *instr) {
+    const HirCallMethod *cm = (const HirCallMethod *)instr;
+    size_t n_operands = hir_c_num_operands(instr);
+
+    /* Path 1: func is known to be NULL (self was None) → rewrite as VectorCall */
+    void *func_reg = hir_c_get_operand(instr, 0);
+    HirType func_type = hir_register_type(func_reg);
+    HirType t_nullptr = HIR_TYPE_NULLPTR;
+    if (!hir_type_is_subtype(func_type, t_nullptr)) {
+        return NULL;
+    }
+
+    extern void *hir_c_create_vectorcall(void *func, size_t n_ops,
+                                          uint32_t flags, void *fs);
+    void *call = hir_c_create_vectorcall(env->func, n_operands - 1,
+                                          cm->flags, hir_c_get_frame_state(instr));
+    hir_c_set_suppress_exc_deopt(call, cm->suppress_exception_deopt);
+
+    for (size_t i = 1; i < n_operands; ++i) {
+        hir_c_set_operand(call, i - 1, hir_c_get_operand(instr, i));
+    }
+
+    void *out = simplify_env_emit(env, call);
+
+    /* Stage 1.5: narrow output type for constructor calls with default __new__ */
+    void *callable = hir_c_get_operand(call, 0);
+    HirType callable_type = hir_register_type(callable);
+    if (hir_type_has_object_spec(&callable_type)) {
+        PyObject *callable_obj = hir_type_object_spec(&callable_type);
+        if (PyType_Check(callable_obj)) {
+            PyTypeObject *cls = (PyTypeObject *)callable_obj;
+            if (cls->tp_new == PyBaseObject_Type.tp_new) {
+                HirType exact_type = hir_type_from_pytype(cls, 1);
+                hir_reg_set_type(out, exact_type);
+            }
+        }
+    }
+
+    return out;
 }

@@ -18,6 +18,8 @@
 
 #include "cinderx/Jit/hir/type.h"
 #include "cinderx/Jit/hir/hir.h"
+#include "cinderx/Jit/hir/preload.h"
+#include "cinderx/Jit/type_deopt_patchers.h"
 #include "cinderx/Jit/hir/cfg.h"
 #include "cinderx/Jit/hir/function.h"
 #include "cinderx/Jit/hir/instr_effects_c.h"
@@ -171,6 +173,28 @@ int hir_func_env_allocate_type_method_cache(HirFunction func) {
 
 int hir_func_env_allocate_type_attr_cache(HirFunction func) {
   return as_func(func)->env.allocateLoadTypeAttrCache();
+}
+
+void *hir_func_allocate_type_attr_deopt_patcher(
+    HirFunction func, void *type, void *attr_name,
+    void *method) {
+  return as_func(func)->allocateCodePatcher<jit::TypeAttrDeoptPatcher>(
+      static_cast<PyTypeObject*>(type),
+      static_cast<PyUnicodeObject*>(attr_name),
+      static_cast<PyObject*>(method));
+}
+
+void hir_preloader_ensure(void *py_func) {
+  auto *func = static_cast<PyFunctionObject*>(py_func);
+  if (preloaderManager().find(func) != nullptr) {
+    return;
+  }
+  auto callee_preloader = Preloader::makePreloader(func);
+  if (callee_preloader) {
+    preloaderManager().add(
+        (PyCodeObject *)func->func_code,
+        std::move(callee_preloader));
+  }
 }
 
 size_t hir_cfg_get_rpo(HirCFG cfg, HirBasicBlock *out, size_t capacity) {
