@@ -1,5 +1,7 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
+extern "C" void hir_cfg_split_critical_edges_c(void *func);
+
 #include "cinderx/Jit/hir/refcount_insertion.h"
 #include "cinderx/Jit/hir/refcount_env_c.h"
 #include "cinderx/Jit/hir/refcount_pass_c.h"
@@ -112,7 +114,7 @@ void optimizeLongDecrefRuns(Function& irfunc) {
 void RefcountInsertion::Run(Function& func) {
   PhiElimination{}.Run(func);
   bindGuards(func);
-  func.cfg.splitCriticalEdges();
+  hir_cfg_split_critical_edges_c(&func);
 
   PhxRefcountEnv *c_env = phx_rc_env_create(static_cast<void*>(&func));
   phx_rc_run(c_env);
