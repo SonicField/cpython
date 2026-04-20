@@ -2215,10 +2215,166 @@ static void *simplify_vectorcall_static_c(SimplifyEnv *env, const void *instr) {
     return try_specialize_ccall_c(env, instr);
 }
 
-/* ==== simplifyVectorCall (partial: static + type() + len()) ==== */
+/* simplifyVectorCallBoundMethod: resolve LoadAttrSpecial bound methods */
+static void *simplify_vectorcall_bound_method_c(SimplifyEnv *env, const void *instr) {
+#if PY_VERSION_HEX < 0x030C0000
+    return NULL;
+#else
+    const HirVectorCall *vc = (const HirVectorCall *)instr;
+    if (vc->flags & (HIR_CALL_FLAG_KWARGS | HIR_CALL_FLAG_STATIC | HIR_CALL_FLAG_AWAITED))
+        return NULL;
+
+    void *func_reg = hir_c_get_operand(instr, 0);
+    extern void *hir_reg_instr(void *reg);
+    void *func_def = hir_reg_instr(func_reg);
+    if (func_def == NULL || hir_c_opcode(func_def) != HIR_OP_LoadAttrSpecial)
+        return NULL;
+
+    const HirLoadAttrSpecial *las = (const HirLoadAttrSpecial *)func_def;
+    PyObject *attr_id = las->id;
+    if (attr_id != &_Py_ID(__enter__) && attr_id != &_Py_ID(__aenter__) &&
+        attr_id != &_Py_ID(__exit__) && attr_id != &_Py_ID(__aexit__))
+        return NULL;
+
+    void *receiver = hir_c_get_operand(func_def, 0);
+    HirType recv_type = hir_register_type(receiver);
+    PyTypeObject *py_type = hir_type_runtime_py_type(&recv_type);
+    if (!hir_type_is_exact(&recv_type) || py_type == NULL ||
+        !PyType_HasFeature(py_type, Py_TPFLAGS_READY))
+        return NULL;
+
+    extern int jit_compile_running(void);
+    if (jit_compile_running()) {
+        if (!Ci_Type_HasValidVersionTag(py_type)) return NULL;
+    } else {
+        extern int jit_ensure_version_tag(PyTypeObject *type);
+        if (!jit_ensure_version_tag(py_type)) return NULL;
+    }
+
+    extern PyObject *jit_type_lookup_safe(PyTypeObject *type, PyObject *name);
+    PyObject *method = jit_type_lookup_safe(py_type, attr_id);
+    if (method == NULL || !PyFunction_Check(method)) return NULL;
+
+    if (!jit_compile_running()) {
+        extern void hir_preloader_ensure(void *py_func);
+        hir_preloader_ensure(method);
+    }
+
+    void *fs = hir_c_get_frame_state(instr);
+    extern void *hir_c_create_snapshot(void *fs);
+    void *snapshot = hir_c_create_snapshot(fs);
+    simplify_env_emit(env, snapshot);
+
+    extern int _PyClassLoader_IsImmutable(PyObject *container);
+    if (!_PyClassLoader_IsImmutable((PyObject *)py_type)) {
+        extern void *hir_func_allocate_type_attr_deopt_patcher(
+            void *func, void *type, void *attr_name, void *method);
+        void *patcher = hir_func_allocate_type_attr_deopt_patcher(
+            env->func, py_type, attr_id, method);
+        extern void *hir_c_create_deopt_patchpoint(void *patcher);
+        void *pp = hir_c_create_deopt_patchpoint(patcher);
+        simplify_env_emit(env, pp);
+        extern void hir_c_set_guilty_reg(void *instr, void *reg);
+        hir_c_set_guilty_reg(pp, receiver);
+        extern void hir_c_set_descr(void *instr, const char *descr);
+        hir_c_set_descr(pp, "LoadAttrSpecial method resolution");
+    }
+
+    HirType recv_unspec = hir_type_unspecialized(&recv_type);
+    simplify_env_emit_use_type(env, receiver, recv_unspec);
+
+    extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
+    PyObject *ref = hir_func_add_reference(env->func, method);
+    void *func_const = simplify_env_emit_load_const(env, hir_type_from_object(ref));
+
+    size_t orig_nargs = hir_c_num_operands(instr) - 1;
+    extern void *hir_c_create_vectorcall(void *func, size_t n_ops,
+                                          uint32_t flags, void *fs);
+    void *new_call = hir_c_create_vectorcall(env->func,
+        2 + orig_nargs, vc->flags | HIR_CALL_FLAG_STATIC, fs);
+    hir_c_set_operand(new_call, 0, func_const);
+    hir_c_set_operand(new_call, 1, receiver);
+    for (size_t i = 0; i < orig_nargs; ++i) {
+        hir_c_set_operand(new_call, 2 + i, hir_c_get_operand(instr, 1 + i));
+    }
+    return simplify_env_emit(env, new_call);
+#endif
+}
+
+/* simplifyVectorCallGlobal: GuardIs → GlobalDeoptPatcher → static call */
+static void *simplify_vectorcall_global_c(SimplifyEnv *env, const void *instr) {
+    const HirVectorCall *vc = (const HirVectorCall *)instr;
+    if (vc->flags & (HIR_CALL_FLAG_KWARGS | HIR_CALL_FLAG_STATIC | HIR_CALL_FLAG_AWAITED))
+        return NULL;
+
+    void *func_reg = hir_c_get_operand(instr, 0);
+    extern void *hir_reg_instr(void *reg);
+    void *func_def = hir_reg_instr(func_reg);
+    if (func_def == NULL || hir_c_opcode(func_def) != HIR_OP_GuardIs)
+        return NULL;
+
+    const HirGuardIs *guard_is = (const HirGuardIs *)func_def;
+    PyObject *expected = guard_is->target;
+    if (!PyFunction_Check(expected)) return NULL;
+
+    void *guarded_input = hir_c_get_operand(func_def, 0);
+    extern void *hir_reg_instr(void *reg);
+    void *input_def = hir_reg_instr(guarded_input);
+    if (input_def == NULL || hir_c_opcode(input_def) != HIR_OP_LoadGlobalCached)
+        return NULL;
+
+    const HirLoadGlobalCached *lg = (const HirLoadGlobalCached *)input_def;
+    PyObject *name = PyTuple_GET_ITEM(((PyCodeObject *)lg->code)->co_names, lg->name_idx);
+    if (!PyUnicode_CheckExact(name)) return NULL;
+
+    extern int jit_compile_running(void);
+    if (jit_compile_running()) return NULL;
+
+    void *fs = hir_c_get_frame_state(instr);
+    extern void *hir_c_create_snapshot(void *fs);
+    void *snapshot = hir_c_create_snapshot(fs);
+    simplify_env_emit(env, snapshot);
+
+    extern void *hir_func_allocate_global_deopt_patcher(
+        void *func, void *globals, void *key_name, void *expected);
+    void *patcher = hir_func_allocate_global_deopt_patcher(
+        env->func, lg->globals, name, expected);
+    extern void *hir_c_create_deopt_patchpoint(void *patcher);
+    void *pp = hir_c_create_deopt_patchpoint(patcher);
+    simplify_env_emit(env, pp);
+    extern void hir_c_set_guilty_reg(void *instr, void *reg);
+    hir_c_set_guilty_reg(pp, func_reg);
+    extern void hir_c_set_descr(void *instr, const char *descr);
+    hir_c_set_descr(pp, "Global callee guard elimination");
+
+    extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
+    PyObject *ref = hir_func_add_reference(env->func, expected);
+    void *func_const = simplify_env_emit_load_const(env, hir_type_from_object(ref));
+
+    size_t orig_nargs = hir_c_num_operands(instr) - 1;
+    extern void *hir_c_create_vectorcall(void *func, size_t n_ops,
+                                          uint32_t flags, void *fs);
+    void *new_call = hir_c_create_vectorcall(env->func,
+        1 + orig_nargs, vc->flags | HIR_CALL_FLAG_STATIC, fs);
+    hir_c_set_operand(new_call, 0, func_const);
+    for (size_t i = 0; i < orig_nargs; ++i) {
+        hir_c_set_operand(new_call, 1 + i, hir_c_get_operand(instr, 1 + i));
+    }
+    return simplify_env_emit(env, new_call);
+}
+
+/* ==== simplifyVectorCall ==== */
 void *simplify_vectorcall_c(SimplifyEnv *env, const void *instr) {
     /* Try static sub-handler */
     void *result = simplify_vectorcall_static_c(env, instr);
+    if (result) return result;
+
+    /* Try bound method sub-handler */
+    result = simplify_vectorcall_bound_method_c(env, instr);
+    if (result) return result;
+
+    /* Try global sub-handler */
+    result = simplify_vectorcall_global_c(env, instr);
     if (result) return result;
 
     /* BoundMethod and Global sub-handlers — return NULL to fall through to C++ */

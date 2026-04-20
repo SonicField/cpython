@@ -63,6 +63,10 @@ void *hir_func_allocate_type_attr_deopt_patcher(
 /* Get the name object from a FrameState's code->co_names at name_idx */
 PyObject *hir_frame_state_get_name(void *frame_state, int name_idx);
 
+/* Allocate a GlobalDeoptPatcher (watches global rebinding) */
+void *hir_func_allocate_global_deopt_patcher(
+    HirFunction func, void *globals, void *key_name, void *expected);
+
 /* Allocate a TypeDeoptPatcher (watches any type modification) */
 void *hir_func_allocate_type_deopt_patcher(HirFunction func, void *type);
 

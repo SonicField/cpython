@@ -20,6 +20,7 @@
 #include "cinderx/Jit/hir/hir.h"
 #include "cinderx/Jit/hir/preload.h"
 #include "cinderx/Jit/type_deopt_patchers.h"
+#include "cinderx/Jit/global_deopt_patcher.h"
 #include "cinderx/Jit/hir/cfg.h"
 #include "cinderx/Jit/hir/function.h"
 #include "cinderx/Jit/hir/instr_effects_c.h"
@@ -187,6 +188,14 @@ void *hir_func_allocate_type_attr_deopt_patcher(
 PyObject *hir_frame_state_get_name(void *frame_state, int name_idx) {
   auto *fs = static_cast<jit::hir::FrameState*>(frame_state);
   return PyTuple_GET_ITEM(fs->code->co_names, name_idx);
+}
+
+void *hir_func_allocate_global_deopt_patcher(
+    HirFunction func, void *globals, void *key_name, void *expected) {
+  return as_func(func)->allocateCodePatcher<jit::GlobalDeoptPatcher>(
+      static_cast<PyDictObject*>(globals),
+      static_cast<PyUnicodeObject*>(key_name),
+      static_cast<PyObject*>(expected));
 }
 
 void *hir_func_allocate_type_deopt_patcher(
