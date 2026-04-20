@@ -767,3 +767,44 @@ void hir_collect_direct_reg_uses_c(void *func, PhxRegUses *ru) {
         block = hir_cfg_blocks_next_ptr(cfg, block);
     }
 }
+
+/* ==== isPassthrough C port ==== */
+int hir_is_passthrough_c(const void *instr) {
+    int op = hir_c_opcode(instr);
+    switch (op) {
+    case HIR_OP_Assign:
+    case HIR_OP_BitCast:
+    case HIR_OP_CheckErrOccurred:
+    case HIR_OP_CheckExc:
+    case HIR_OP_CheckField:
+    case HIR_OP_CheckFreevar:
+    case HIR_OP_CheckNeg:
+    case HIR_OP_CheckVar:
+    case HIR_OP_GuardIs:
+    case HIR_OP_GuardType:
+    case HIR_OP_RefineType:
+    case HIR_OP_UseType:
+        return 1;
+    case HIR_OP_Cast:
+        return ((const HirCast *)instr)->pytype != (void *)&PyFloat_Type;
+    default:
+        return 0;
+    }
+}
+
+/* ==== modelReg C port ==== */
+int hir_is_passthrough_c(const void *instr);
+
+void *hir_model_reg_c(void *reg) {
+    extern void *hir_reg_instr(void *reg);
+    void *orig = reg;
+    while (1) {
+        void *def = hir_reg_instr(reg);
+        if (def == NULL) break;
+        if (!hir_is_passthrough_c(def)) break;
+        if (hir_c_opcode(def) == HIR_OP_GuardIs) break;
+        reg = hir_c_get_operand(def, 0);
+        if (reg == orig) break; /* cycle detection */
+    }
+    return reg;
+}
