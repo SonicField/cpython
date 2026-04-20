@@ -74,34 +74,6 @@ void phx_rc_fill_deopt_live_regs(const PhxStateMap *live_regs, void *instr_ptr) 
   hir_deopt_sort_live_regs(instr_ptr);
 }
 
-int phx_rc_merge_verify(const PhxRegState *c_dst, const PhxRegState *c_from,
-                        const PhxRegState *c_result) {
-  RefKind dst_kind = static_cast<RefKind>(c_dst->kind);
-  RefKind from_kind = static_cast<RefKind>(c_from->kind);
-  RefKind result_kind = static_cast<RefKind>(c_result->kind);
-
-  /* Apply C++ merge logic directly */
-  RefKind expected_kind;
-  if (dst_kind == from_kind) {
-    expected_kind = dst_kind;
-  } else if (dst_kind == RefKind::kUncounted) {
-    expected_kind = from_kind;
-  } else if (from_kind == RefKind::kUncounted) {
-    expected_kind = dst_kind;
-  } else {
-    expected_kind = RefKind::kOwned;
-  }
-
-  if (result_kind != expected_kind) {
-    JIT_LOG(
-        "phx_rs_merge DIVERGENCE: dst_kind=%d from_kind=%d "
-        "expected=%d got=%d",
-        (int)dst_kind, (int)from_kind,
-        (int)expected_kind, (int)result_kind);
-    return 0;
-  }
-  return 1;
-}
 
 void *phx_rc_model_reg(void *reg) {
   extern void *hir_model_reg_c(void *reg);

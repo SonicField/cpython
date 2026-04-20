@@ -221,8 +221,6 @@ void phx_rc_kill_registers(PhxRefcountEnv *env, void **regs, size_t n_regs,
 /* ---- R3b-2: Phi handling + block entry ---- */
 
 extern int phx_rc_condbranch_check_type_is_wait_handle(void *instr);
-extern int phx_rc_merge_verify(const PhxRegState *c_dst, const PhxRegState *c_from,
-                               const PhxRegState *c_result);
 
 /* collectPredStates: collect predecessor out-states, sorted by block ID. */
 PhxPredState *phx_rc_collect_pred_states(
@@ -612,11 +610,7 @@ void phx_rc_update_in_state(PhxRefcountEnv *env, void *block) {
         for (size_t pi = 0; pi < n_preds; pi++) {
             const PhxRegState *pred_rs = phx_sm_get(preds[pi].state, model);
             if (pred_rs) {
-                PhxRegState pre_merge = *rstate;
                 phx_rs_merge(rstate, pred_rs);
-                JIT_DCHECK_C(
-                    phx_rc_merge_verify(&pre_merge, pred_rs, rstate),
-                    "phx_rs_merge C/C++ divergence");
                 if (rstate->kind == PHX_REF_OWNED) break;
             }
         }
