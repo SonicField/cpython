@@ -1563,3 +1563,110 @@ void *simplify_binary_op_c(SimplifyEnv *env, const void *instr) {
 
     return NULL;
 }
+
+/* ==== LoadAttr emit helpers ==== */
+
+static void *emit_load_type_attr_cache_entry_type(SimplifyEnv *env, int cache_id) {
+    void *reg = hir_func_alloc_register(env->func);
+    void *instr = hir_c_create_load_type_attr_cache_entry_type(reg, cache_id);
+    return simplify_env_emit(env, instr);
+}
+
+static void *emit_load_type_attr_cache_entry_value(SimplifyEnv *env, int cache_id) {
+    void *reg = hir_func_alloc_register(env->func);
+    void *instr = hir_c_create_load_type_attr_cache_entry_value(reg, cache_id);
+    return simplify_env_emit(env, instr);
+}
+
+extern void *hir_c_create_fill_type_attr_cache(void *func,
+    void *receiver, int name_idx, int cache_id, void *fs);
+
+static void *emit_fill_type_attr_cache(SimplifyEnv *env, void *receiver,
+                                        int32_t name_idx, int32_t cache_id, void *fs) {
+    void *instr = hir_c_create_fill_type_attr_cache(env->func, receiver,
+                                                     name_idx, cache_id, fs);
+    return simplify_env_emit(env, instr);
+}
+
+extern void *hir_c_create_load_attr_cached(void *func,
+    void *receiver, int name_idx, void *fs);
+
+static void *emit_load_attr_cached(SimplifyEnv *env, void *receiver,
+                                    int32_t name_idx, void *fs) {
+    void *instr = hir_c_create_load_attr_cached(env->func, receiver, name_idx, fs);
+    return simplify_env_emit(env, instr);
+}
+
+extern void *hir_c_create_load_module_attr_cached(void *func,
+    void *receiver, int name_idx, void *fs);
+
+static void *emit_load_module_attr_cached(SimplifyEnv *env, void *receiver,
+                                           int32_t name_idx, void *fs) {
+    void *instr = hir_c_create_load_module_attr_cached(env->func, receiver, name_idx, fs);
+    return simplify_env_emit(env, instr);
+}
+
+/* ==== simplifyLoadAttrTypeReceiver emitCond callbacks ==== */
+
+typedef struct {
+    int32_t cache_id;
+} TypeAttrFastCtx;
+
+typedef struct {
+    int32_t cache_id;
+    void *receiver;
+    int32_t name_idx;
+    void *fs;
+} TypeAttrSlowCtx;
+
+static void *type_attr_fast_path(SimplifyEnv *env, void *ctx) {
+    TypeAttrFastCtx *c = (TypeAttrFastCtx *)ctx;
+    return emit_load_type_attr_cache_entry_value(env, c->cache_id);
+}
+
+static void *type_attr_slow_path(SimplifyEnv *env, void *ctx) {
+    TypeAttrSlowCtx *c = (TypeAttrSlowCtx *)ctx;
+    return emit_fill_type_attr_cache(env, c->receiver, c->name_idx, c->cache_id, c->fs);
+}
+
+/* ==== simplifyLoadAttr ====
+ * Partial port: handles type receiver (emitCond), module, and default cached
+ * paths. Instance receiver (splitDict, memberDescr, property, genericDescr)
+ * returns NULL to fall through to C++ simplifyLoadAttrInstanceReceiver.
+ * Returns: register or NULL. Sets env->optimized if handled. */
+/* Called after C++ has already checked alreadyOptimized and instance receiver.
+ * Handles type receiver (emitCond) and module receiver paths.
+ * Returns NULL if not handled (caller falls through to LoadAttrCached). */
+void *simplify_load_attr_c(SimplifyEnv *env, const void *instr) {
+    if (!jit_get_config()->attr_caches) return NULL;
+
+    void *receiver = hir_c_get_operand(instr, 0);
+    HirType recv_type = hir_register_type(receiver);
+    int32_t name_idx = ((const HirLoadAttr *)instr)->name_idx;
+    void *fs = hir_c_get_frame_state(instr);
+
+    /* Module receiver: module attr cached */
+    extern PyTypeObject Ci_StrictModule_Type;
+    PyTypeObject *pytype = hir_type_runtime_py_type(&recv_type);
+    if (pytype == &PyModule_Type || pytype == &Ci_StrictModule_Type) {
+        return emit_load_module_attr_cached(env, receiver, name_idx, fs);
+    }
+
+    /* Type receiver: type attr cache with emitCond */
+    HirType t_type = HIR_TYPE_TYPE;
+    if (hir_type_is_subtype(recv_type, t_type)) {
+        int cache_id = hir_func_env_allocate_type_attr_cache(env->func);
+        simplify_env_emit_use_type(env, receiver, t_type);
+        void *guard = emit_load_type_attr_cache_entry_type(env, cache_id);
+        void *type_matches = emit_primitive_compare_eq(env, guard, receiver);
+
+        TypeAttrFastCtx fast_ctx = {cache_id};
+        TypeAttrSlowCtx slow_ctx = {cache_id, receiver, name_idx, fs};
+
+        return simplify_emit_cond(env, type_matches,
+                                  type_attr_fast_path, &fast_ctx,
+                                  type_attr_slow_path, &slow_ctx);
+    }
+
+    return NULL;
+}
