@@ -641,6 +641,7 @@ void hir_remove_unreachable_instructions(HirFunction func) {
 }
 
 extern "C" void hir_reflow_types_c(void *func, void *start_block);
+extern "C" void *phx_dom_idom(const void *state, int block_id);
 
 void hir_reflow_types(HirFunction func) {
   auto *f = as_func(func);
@@ -2410,6 +2411,47 @@ void hir_instr_destroy(HirInstr instr) {
 void hir_c_set_true_bb(HirInstr branch, void *new_true_block) {
   auto *cb = static_cast<CondBranchBase*>(as_instr(branch));
   cb->set_true_bb(static_cast<BasicBlock*>(new_true_block));
+}
+
+void hir_instr_replace_uses_of(void *instr, void *old_reg, void *new_reg) {
+  as_instr(instr)->ReplaceUsesOf(
+      static_cast<Register*>(old_reg),
+      static_cast<Register*>(new_reg));
+}
+
+void *hir_c_cond_branch_true_bb(void *instr) {
+  return static_cast<CondBranchBase*>(as_instr(instr))->true_bb();
+}
+
+void *hir_c_cond_branch_false_bb(void *instr) {
+  return static_cast<CondBranchBase*>(as_instr(instr))->false_bb();
+}
+
+size_t hir_bb_in_edges_list(void *block, void **out_from, size_t capacity) {
+  auto *bb = static_cast<BasicBlock*>(block);
+  auto edges = bb->in_edges();
+  size_t n = 0;
+  for (auto *edge : edges) {
+    if (n >= capacity) break;
+    out_from[n++] = edge->from();
+  }
+  return n;
+}
+
+int hir_dom_dominates(void *dom_state, void *block, void *target) {
+  auto *target_bb = static_cast<BasicBlock*>(target);
+  auto *block_bb = static_cast<BasicBlock*>(block);
+  // Walk idom chain from target — if we reach block, it dominates
+  int cur_id = target_bb->id;
+  while (cur_id >= 0) {
+    if (cur_id == block_bb->id) return 1;
+    void *idom = phx_dom_idom(dom_state, cur_id);
+    if (idom == NULL) break;
+    int new_id = static_cast<BasicBlock*>(idom)->id;
+    if (new_id == cur_id) break; // entry block
+    cur_id = new_id;
+  }
+  return 0;
 }
 
 void *hir_cfg_allocate_unlinked_block(void *cfg) {
