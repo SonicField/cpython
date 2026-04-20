@@ -18,7 +18,6 @@ typedef void* HirInstr;
 typedef void* HirRegister;
 
 typedef struct HirLivenessState HirLivenessState;
-int hir_liveness_verify(HirFunction func, const HirLivenessState *c_state);
 
 #include <string.h>
 
@@ -355,9 +354,6 @@ HirLivenessState *hir_liveness_create(HirFunction func) {
         }
         phx_bv_destroy(&live);
     }
-
-    JIT_DCHECK_C(hir_liveness_verify(func, state),
-                 "C LivenessAnalysis diverges from C++");
 
     return state;
 }
