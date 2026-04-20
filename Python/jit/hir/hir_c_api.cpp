@@ -2412,6 +2412,12 @@ void hir_c_set_true_bb(HirInstr branch, void *new_true_block) {
   cb->set_true_bb(static_cast<BasicBlock*>(new_true_block));
 }
 
+void hir_bb_fixup_phis(void *block, void *old_pred, void *new_pred) {
+  static_cast<BasicBlock*>(block)->fixupPhis(
+      static_cast<BasicBlock*>(old_pred),
+      static_cast<BasicBlock*>(new_pred));
+}
+
 void hir_bb_remove_phi_predecessor(void *block, void *pred) {
   static_cast<BasicBlock*>(block)->removePhiPredecessor(
       static_cast<BasicBlock*>(pred));

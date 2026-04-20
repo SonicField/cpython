@@ -318,6 +318,9 @@ HirInstr hir_c_create_deopt_patchpoint(void *patcher);
 /* Create a Snapshot instruction (0 operands, from FrameState). */
 HirInstr hir_c_create_snapshot(void *frame_state);
 
+/* Update Phi instructions in block to replace old_pred with new_pred */
+void hir_bb_fixup_phis(void *block, void *old_pred, void *new_pred);
+
 /* Unlink an instruction from its block (does not free memory). */
 void hir_instr_unlink(HirInstr instr);
 

@@ -633,3 +633,57 @@ int hir_remove_unreachable_blocks_c(void *func) {
 
     return n_unreach > 0 ? 1 : 0;
 }
+
+/* ==== splitCriticalEdges C port ==== */
+extern void hir_bb_fixup_phis(void *block, void *old_pred, void *new_pred);
+extern void *hir_c_set_successor_cpp(void *instr, size_t idx, void *block);
+extern void *hir_cfg_alloc_block(void *func);
+
+void hir_cfg_split_critical_edges_c(void *func) {
+    void *cfg = hir_func_cfg_ptr(func);
+
+    /* Collect critical edges: (block, edge_idx) pairs */
+    struct CritEdge { void *block; size_t edge_idx; };
+    struct CritEdge edges[4096];
+    size_t n_edges = 0;
+
+    void *block = hir_cfg_blocks_first_ptr(cfg);
+    while (block) {
+        void *term = hir_bb_get_terminator((HirBasicBlock *)block);
+        size_t n = hir_c_num_edges(term);
+        if (n >= 2) {
+            for (size_t i = 0; i < n; i++) {
+                void *succ = hir_c_successor(term, i);
+                if (hir_bb_in_edges_count((HirBasicBlock *)succ) > 1) {
+                    if (n_edges < 4096) {
+                        edges[n_edges].block = block;
+                        edges[n_edges].edge_idx = i;
+                        n_edges++;
+                    }
+                }
+            }
+        }
+        block = hir_cfg_blocks_next_ptr(cfg, block);
+    }
+
+    /* Split each critical edge */
+    for (size_t i = 0; i < n_edges; i++) {
+        void *from = edges[i].block;
+        void *term = hir_bb_get_terminator((HirBasicBlock *)from);
+        void *to = hir_c_successor(term, edges[i].edge_idx);
+
+        void *split_bb = hir_cfg_alloc_block(func);
+
+        /* Append Branch(to) to split_bb */
+        int32_t bc_off = ((const HirInstrLayout *)term)->bytecode_offset;
+        void *br = hir_c_create_branch_cpp(to);
+        hir_c_set_bytecode_offset(br, bc_off);
+        hir_bb_append_instr((HirBasicBlock *)split_bb, br);
+
+        /* Redirect edge from→split_bb */
+        hir_c_set_successor_cpp(term, edges[i].edge_idx, split_bb);
+
+        /* Fix up phis in 'to' block */
+        hir_bb_fixup_phis(to, from, split_bb);
+    }
+}
