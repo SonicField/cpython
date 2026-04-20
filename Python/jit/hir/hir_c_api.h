@@ -60,6 +60,13 @@ int hir_func_env_allocate_type_attr_cache(HirFunction func);
 void *hir_func_allocate_type_attr_deopt_patcher(
     HirFunction func, void *type, void *attr_name, void *method);
 
+/* Get the name object from a FrameState's code->co_names at name_idx */
+PyObject *hir_frame_state_get_name(void *frame_state, int name_idx);
+
+/* Allocate a SplitDictDeoptPatcher for use with DeoptPatchpoint */
+void *hir_func_allocate_split_dict_deopt_patcher(
+    HirFunction func, void *type, void *attr_name, void *keys);
+
 /* Ensure a preloader exists for a Python function (find+create if needed) */
 void hir_preloader_ensure(void *py_func);
 

@@ -2515,15 +2515,15 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
 // pattern but applied to simplifyLoadAttrTypeReceiver).
 #ifndef Py_GIL_DISABLED
     case Opcode::kLoadAttr: {
+      SimplifyEnv cenv = make_c_env();
+      auto *r = static_cast<Register*>(simplify_load_attr_c(&cenv, instr));
+      sync_c_env(cenv);
+      if (r) return r;
       auto* load_attr = static_cast<const LoadAttr*>(instr);
       if (load_attr->alreadyOptimized()) return nullptr;
       if (Register* reg = simplifyLoadAttrInstanceReceiver(env, load_attr)) {
         return reg;
       }
-      SimplifyEnv cenv = make_c_env();
-      auto *r = static_cast<Register*>(simplify_load_attr_c(&cenv, instr));
-      sync_c_env(cenv);
-      if (r) return r;
       if (jit_get_config()->attr_caches) {
         return env.emitLoadAttrCached(
             load_attr->GetOperand(0),

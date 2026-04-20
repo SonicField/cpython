@@ -184,6 +184,19 @@ void *hir_func_allocate_type_attr_deopt_patcher(
       static_cast<PyObject*>(method));
 }
 
+PyObject *hir_frame_state_get_name(void *frame_state, int name_idx) {
+  auto *fs = static_cast<jit::hir::FrameState*>(frame_state);
+  return PyTuple_GET_ITEM(fs->code->co_names, name_idx);
+}
+
+void *hir_func_allocate_split_dict_deopt_patcher(
+    HirFunction func, void *type, void *attr_name, void *keys) {
+  return as_func(func)->allocateCodePatcher<jit::SplitDictDeoptPatcher>(
+      static_cast<PyTypeObject*>(type),
+      static_cast<PyUnicodeObject*>(attr_name),
+      static_cast<PyDictKeysObject*>(keys));
+}
+
 void hir_preloader_ensure(void *py_func) {
   auto *func = static_cast<PyFunctionObject*>(py_func);
   if (preloaderManager().find(func) != nullptr) {

@@ -1637,10 +1637,179 @@ static void *type_attr_slow_path(SimplifyEnv *env, void *ctx) {
  * paths. Instance receiver (splitDict, memberDescr, property, genericDescr)
  * returns NULL to fall through to C++ simplifyLoadAttrInstanceReceiver.
  * Returns: register or NULL. Sets env->optimized if handled. */
-/* Called after C++ has already checked alreadyOptimized and instance receiver.
- * Handles type receiver (emitCond) and module receiver paths.
+/* ==== Type construction helpers ==== */
+static inline HirType hir_type_from_cuint(uint64_t val, HirType base) {
+    HirType t = base;
+    t.bits_and_flags = (t.bits_and_flags & ~HIR_TYPE_SPEC_MASK) |
+                       ((uint64_t)HIR_SPEC_INT << HIR_TYPE_SPEC_SHIFT);
+    t.int_val = (intptr_t)val;
+    return t;
+}
+
+static inline HirType hir_type_from_cptr(void *ptr) {
+    HirType t = HIR_TYPE_CPTR;
+    t.bits_and_flags = (t.bits_and_flags & ~HIR_TYPE_SPEC_MASK) |
+                       ((uint64_t)HIR_SPEC_OBJECT << HIR_TYPE_SPEC_SHIFT);
+    t.pyobject = (PyObject *)ptr;
+    return t;
+}
+
+/* ==== simplifyLoadAttrSplitDict ==== */
+#include "cinderx/Common/dict.h"
+
+static void *simplify_load_attr_split_dict_c(SimplifyEnv *env, const void *instr,
+                                              PyTypeObject *py_type, PyObject *attr_name) {
+#if PY_VERSION_HEX >= 0x030C0000
+    if (!PyType_HasFeature(py_type, Py_TPFLAGS_MANAGED_DICT))
+        return NULL;
+#else
+    if (!PyType_HasFeature(py_type, Py_TPFLAGS_HEAPTYPE) ||
+        py_type->tp_dictoffset < 0)
+        return NULL;
+#endif
+
+    PyHeapTypeObject *ht = (PyHeapTypeObject *)py_type;
+    if (ht->ht_cached_keys == NULL) return NULL;
+    PyDictKeysObject *keys = ht->ht_cached_keys;
+    Py_ssize_t attr_idx = getDictKeysIndex(keys, attr_name);
+    if (attr_idx == -1) return NULL;
+
+    void *receiver = hir_c_get_operand(instr, 0);
+    HirType recv_type = hir_register_type(receiver);
+    void *fs = hir_c_get_frame_state(instr);
+
+    extern void *hir_func_allocate_split_dict_deopt_patcher(
+        void *func, void *type, void *attr_name, void *keys);
+    void *patcher = hir_func_allocate_split_dict_deopt_patcher(
+        env->func, py_type, attr_name, keys);
+    extern void *hir_c_create_deopt_patchpoint(void *patcher);
+    void *pp = hir_c_create_deopt_patchpoint(patcher);
+    simplify_env_emit(env, pp);
+    extern void hir_c_set_guilty_reg(void *instr, void *reg);
+    hir_c_set_guilty_reg(pp, receiver);
+    extern void hir_c_set_descr(void *instr, const char *descr);
+    hir_c_set_descr(pp, "SplitDictDeoptPatcher");
+    simplify_env_emit_use_type(env, receiver, recv_type);
+
+    HirType t_optobj = HIR_TYPE_OPTOBJECT;
+#if PY_VERSION_HEX >= 0x030C0000
+    void *obj_dict = simplify_env_emit_load_field(env, receiver, "__dict__",
+        -3 * (intptr_t)sizeof(PyObject *), t_optobj, 0);
+#else
+    void *obj_dict = simplify_env_emit_load_field(env, receiver, "__dict__",
+        py_type->tp_dictoffset, t_optobj, 0);
+#endif
+
+    extern void *hir_c_create_check_field(void *func, void *src,
+        void *name, void *frame_state);
+    void *check_dict_instr = hir_c_create_check_field(env->func, obj_dict,
+        attr_name, fs);
+    void *checked_dict = simplify_env_emit(env, check_dict_instr);
+    hir_c_set_guilty_reg(check_dict_instr, receiver);
+
+#if PY_VERSION_HEX >= 0x030C0000
+    HirType t_cuint64 = HIR_TYPE_CUINT64;
+    void *one = simplify_env_emit_load_const(env, hir_type_from_cuint(1, t_cuint64));
+    void *dict_ptr_reg = hir_func_alloc_register(env->func);
+    void *bit_cast1 = hir_c_create_bit_cast(dict_ptr_reg, checked_dict, t_cuint64);
+    void *dict_ptr = simplify_env_emit(env, bit_cast1);
+
+    void *is_values_reg = hir_func_alloc_register(env->func);
+    void *and_instr = hir_c_create_int_binary_op(is_values_reg, HIR_BOP_And, dict_ptr, one);
+    void *is_values = simplify_env_emit(env, and_instr);
+
+    extern void *hir_c_create_guard(void *src);
+    void *guard_instr = hir_c_create_guard(is_values);
+    simplify_env_emit(env, guard_instr);
+    hir_c_set_guilty_reg(guard_instr, receiver);
+    hir_c_set_descr(guard_instr, "dict values check");
+
+    void *values_reg = hir_func_alloc_register(env->func);
+    void *add_instr = hir_c_create_int_binary_op(values_reg, HIR_BOP_Add, dict_ptr, one);
+    void *values = simplify_env_emit(env, add_instr);
+
+    void *values_obj_reg = hir_func_alloc_register(env->func);
+    void *bit_cast2 = hir_c_create_bit_cast(values_obj_reg, values, t_optobj);
+    void *values_obj = simplify_env_emit(env, bit_cast2);
+
+    void *attr = simplify_env_emit_load_field(env, values_obj, "attr",
+        attr_idx * (intptr_t)sizeof(PyObject *), t_optobj, 0);
+#else
+    HirType t_cptr = HIR_TYPE_CPTR;
+    void *dict_keys = simplify_env_emit_load_field(env, checked_dict,
+        "ma_keys", (intptr_t)offsetof(PyDictObject, ma_keys), t_cptr, 0);
+    void *expected_keys = simplify_env_emit_load_const(env, hir_type_from_cptr(keys));
+    void *equal = simplify_env_emit_primitive_compare(env, HIR_PCMP_Equal,
+        dict_keys, expected_keys);
+
+    extern void *hir_c_create_guard(void *src);
+    void *guard_instr = hir_c_create_guard(equal);
+    simplify_env_emit(env, guard_instr);
+    hir_c_set_guilty_reg(guard_instr, receiver);
+    hir_c_set_descr(guard_instr, "ht_cached_keys comparison");
+
+    void *split_item_reg = hir_func_alloc_register(env->func);
+    extern void *hir_c_create_load_split_dict_item(void *dst, void *src, intptr_t idx);
+    void *split_item = hir_c_create_load_split_dict_item(split_item_reg,
+        checked_dict, attr_idx);
+    void *attr = simplify_env_emit(env, split_item);
+#endif
+
+    void *check_attr_instr = hir_c_create_check_field(env->func, attr,
+        attr_name, fs);
+    void *checked_attr = simplify_env_emit(env, check_attr_instr);
+    hir_c_set_guilty_reg(check_attr_instr, receiver);
+
+    return checked_attr;
+}
+
+/* ==== simplifyLoadAttrInstanceReceiver (partial: SplitDict only) ==== */
+static void *simplify_load_attr_instance_c(SimplifyEnv *env, const void *instr) {
+    void *receiver = hir_c_get_operand(instr, 0);
+    HirType recv_type = hir_register_type(receiver);
+    PyTypeObject *py_type = hir_type_runtime_py_type(&recv_type);
+
+    if (!hir_type_is_exact(&recv_type) || py_type == NULL ||
+        !PyType_HasFeature(py_type, Py_TPFLAGS_READY) ||
+        py_type->tp_getattro != PyObject_GenericGetAttr)
+        return NULL;
+
+    extern int jit_compile_running(void);
+    if (jit_compile_running()) {
+        if (!Ci_Type_HasValidVersionTag(py_type)) return NULL;
+    } else {
+        extern int jit_ensure_version_tag(PyTypeObject *type);
+        if (!jit_ensure_version_tag(py_type)) return NULL;
+    }
+
+    int32_t name_idx = ((const HirLoadAttr *)instr)->name_idx;
+    void *fs = hir_c_get_frame_state(instr);
+    extern PyObject *hir_frame_state_get_name(void *fs, int name_idx);
+    PyObject *attr_name = hir_frame_state_get_name(fs, name_idx);
+    if (!PyUnicode_CheckExact(attr_name)) return NULL;
+
+    extern PyObject *jit_type_lookup_safe(PyTypeObject *type, PyObject *name);
+    PyObject *descr = jit_type_lookup_safe(py_type, attr_name);
+    if (descr == NULL) {
+        return simplify_load_attr_split_dict_c(env, instr, py_type, attr_name);
+    }
+
+    /* Descriptor paths (memberDescr, property, genericDescr) — return NULL
+     * to fall through to C++ for now. */
+    return NULL;
+}
+
+/* Called after C++ has already checked alreadyOptimized.
+ * Handles instance receiver (SplitDict), type receiver, module receiver.
  * Returns NULL if not handled (caller falls through to LoadAttrCached). */
 void *simplify_load_attr_c(SimplifyEnv *env, const void *instr) {
+    const HirLoadAttr *la = (const HirLoadAttr *)instr;
+    if (la->already_optimized) return NULL;
+
+    /* Try instance receiver first (SplitDict path) */
+    void *result = simplify_load_attr_instance_c(env, instr);
+    if (result) return result;
+
     if (!jit_get_config()->attr_caches) return NULL;
 
     void *receiver = hir_c_get_operand(instr, 0);
