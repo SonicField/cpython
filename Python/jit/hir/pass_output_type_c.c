@@ -700,3 +700,70 @@ void *hir_cfg_get_block_by_id(void *cfg, int id) {
 
 /* ==== AllocateUnlinkedBlock C port ==== */
 extern void *hir_cfg_allocate_unlinked_block(void *cfg);
+
+/* ==== RegUses: register → instruction use set ==== */
+typedef struct {
+    void **instrs;
+    size_t count;
+    size_t capacity;
+} PhxRegUseList;
+
+typedef struct {
+    PhxRegUseList *slots;  /* indexed by register ID */
+    size_t n_slots;
+} PhxRegUses;
+
+static void phx_reg_uses_init(PhxRegUses *ru, size_t n_regs) {
+    ru->n_slots = n_regs;
+    ru->slots = (PhxRegUseList *)PyMem_RawCalloc(n_regs, sizeof(PhxRegUseList));
+}
+
+static void phx_reg_uses_destroy(PhxRegUses *ru) {
+    for (size_t i = 0; i < ru->n_slots; i++) {
+        if (ru->slots[i].instrs) PyMem_RawFree(ru->slots[i].instrs);
+    }
+    PyMem_RawFree(ru->slots);
+}
+
+static void phx_reg_uses_add(PhxRegUses *ru, void *reg, void *instr) {
+    int id = hir_reg_id(reg);
+    if (id < 0 || (size_t)id >= ru->n_slots) return;
+    PhxRegUseList *list = &ru->slots[id];
+    if (list->count >= list->capacity) {
+        size_t new_cap = list->capacity ? list->capacity * 2 : 4;
+        list->instrs = (void **)PyMem_RawRealloc(list->instrs, new_cap * sizeof(void *));
+        list->capacity = new_cap;
+    }
+    list->instrs[list->count++] = instr;
+}
+
+static int phx_reg_uses_contains(const PhxRegUses *ru, void *reg, void *instr) {
+    int id = hir_reg_id(reg);
+    if (id < 0 || (size_t)id >= ru->n_slots) return 0;
+    const PhxRegUseList *list = &ru->slots[id];
+    for (size_t i = 0; i < list->count; i++) {
+        if (list->instrs[i] == instr) return 1;
+    }
+    return 0;
+}
+
+void hir_collect_direct_reg_uses_c(void *func, PhxRegUses *ru) {
+    void *env = hir_func_env(func);
+    size_t n_regs = hir_env_reg_count(env);
+    phx_reg_uses_init(ru, n_regs);
+
+    void *cfg = hir_func_cfg_ptr(func);
+    void *block = hir_cfg_blocks_first_ptr(cfg);
+    while (block) {
+        void *instr = hir_bb_first_instr(block);
+        while (instr) {
+            size_t n_ops = hir_c_num_operands(instr);
+            for (size_t i = 0; i < n_ops; i++) {
+                void *operand = hir_c_get_operand(instr, i);
+                phx_reg_uses_add(ru, operand, instr);
+            }
+            instr = hir_bb_next_instr(block, instr);
+        }
+        block = hir_cfg_blocks_next_ptr(cfg, block);
+    }
+}
