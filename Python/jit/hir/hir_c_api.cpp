@@ -624,12 +624,15 @@ int hir_has_arbitrary_execution_c(HirInstr instr) {
 
 /* ---- CFG / pass utilities ---- */
 
+extern "C" int hir_remove_trampoline_blocks_c(void *cfg);
+extern "C" int hir_remove_unreachable_blocks_c(void *func);
+
 int hir_remove_trampoline_blocks(HirCFG cfg) {
-  return removeTrampolineBlocks(as_cfg(cfg)) ? 1 : 0;
+  return hir_remove_trampoline_blocks_c(cfg);
 }
 
 int hir_remove_unreachable_blocks(HirFunction func) {
-  return removeUnreachableBlocks(*as_func(func)) ? 1 : 0;
+  return hir_remove_unreachable_blocks_c(func);
 }
 
 void hir_remove_unreachable_instructions(HirFunction func) {
