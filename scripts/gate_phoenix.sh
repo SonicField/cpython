@@ -87,6 +87,24 @@ else
     echo "_reg policy: PASS (0 banned factories in simplify_c.c)" | tee -a "$RESULTS_FILE"
 fi
 
+# Step 1c: Preserved-symbol gate (critical functions must still exist after deletions)
+echo "" | tee -a "$RESULTS_FILE"
+echo "--- Step 1c: Preserved Symbol Check ---" | tee -a "$RESULTS_FILE"
+MUST_SURVIVE="emitCInstr simplify_emit_cond simplify_emit_cond_slow_path hir_output_type_c hir_reflow_types_c hir_remove_trampoline_blocks_c hir_remove_unreachable_blocks_c simplify_env_emit simplify_binary_op_c simplify_load_method_c"
+SURVIVE_FAIL=0
+for sym in $MUST_SURVIVE; do
+    if ! grep -rq "$sym" "$CPYTHON_ROOT/Python/jit/hir/" --include='*.c' --include='*.cpp' --include='*.h' 2>/dev/null; then
+        echo "GATE FAIL — preserved symbol '$sym' not found in any source file" | tee -a "$RESULTS_FILE"
+        SURVIVE_FAIL=1
+    fi
+done
+if [ "$SURVIVE_FAIL" -eq 1 ]; then
+    GATE_PASS=0
+    FAILURES="$FAILURES preserved_symbols:MISSING"
+else
+    echo "Preserved symbols: PASS (all $( echo $MUST_SURVIVE | wc -w) symbols present)" | tee -a "$RESULTS_FILE"
+fi
+
 # Step 2: Verify JIT compiles and executes
 echo "" | tee -a "$RESULTS_FILE"
 echo "--- Step 2: JIT Smoke Test ---" | tee -a "$RESULTS_FILE"
