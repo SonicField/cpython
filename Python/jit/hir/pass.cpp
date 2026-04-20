@@ -10,6 +10,9 @@
 #include "cinderx/Jit/hir/printer.h"
 
 extern "C" void hir_simplify_redundant_cond_branches_c(void *cfg);
+extern "C" void hir_reflow_types_c(void *func, void *start_block);
+extern "C" int hir_remove_trampoline_blocks_c(void *cfg);
+extern "C" int hir_remove_unreachable_blocks_c(void *func);
 
 namespace jit::hir {
 
@@ -570,129 +573,19 @@ Type outputType(const Instr& instr) {
 }
 
 void reflowTypes(Function& func) {
-  reflowTypes(func, func.cfg.entry_block);
+  hir_reflow_types_c(&func, func.cfg.entry_block);
 }
 
 void reflowTypes(Function& func, BasicBlock* start) {
-  // First, reset all types to Bottom so Phi inputs from back edges don't
-  // contribute to the output type of the Phi until they've been processed.
-  for (size_t i = 0; i < func.env.reg_count(); i++) {
-    if (func.env.reg_data()[i]) {
-      func.env.reg_data()[i]->set_type(TBottom);
-    }
-  }
-
-  // Next, flow types forward, iterating to a fixed point.
-  auto rpo_blocks = CFG::GetRPOTraversal(start);
-  for (bool changed = true; changed;) {
-    changed = false;
-    for (auto block : rpo_blocks) {
-      for (auto& instr : *block) {
-        if (instr.opcode() == Opcode::kReturn) {
-          Type type = static_cast<const Return&>(instr).type();
-          hir::Register* value = instr.GetOperand(0);
-          JIT_DCHECK(
-              value->type() <= type,
-              "Function expecting to return a {} but got {}:{}, CFG is:\n{}",
-              type,
-              instr,
-              value->type(),
-              func.cfg);
-        }
-
-        auto dst = instr.output();
-        if (dst == nullptr) {
-          continue;
-        }
-
-        auto new_ty = outputType(instr);
-        if (new_ty == dst->type()) {
-          continue;
-        }
-
-        dst->set_type(new_ty);
-        changed = true;
-      }
-    }
-  }
+  hir_reflow_types_c(&func, start);
 }
 
 bool removeTrampolineBlocks(CFG* cfg) {
-  std::vector<BasicBlock*> trampolines;
-  for (auto& block : cfg->blocks) {
-    if (!block.IsTrampoline()) {
-      continue;
-    }
-    BasicBlock* succ = block.successor(0);
-    // if this is the entry block and its successor has multiple
-    // predecessors, don't remove it; it's necessary to maintain isolated
-    // entries
-    if (&block == cfg->entry_block) {
-      if (succ->in_edges().size() > 1) {
-        continue;
-      } else {
-        cfg->entry_block = succ;
-      }
-    }
-    // Update all predecessors to jump directly to our successor
-    block.retargetPreds(succ);
-    // Finish splicing the trampoline out of the cfg
-    block.set_successor(0, nullptr);
-    trampolines.emplace_back(&block);
-  }
-  for (auto& block : trampolines) {
-    cfg->RemoveBlock(block);
-    delete block;
-  }
-  hir_simplify_redundant_cond_branches_c(cfg);
-  return trampolines.size() > 0;
+  return hir_remove_trampoline_blocks_c(cfg) != 0;
 }
 
 bool removeUnreachableBlocks(Function& func) {
-  auto cfg = &func.cfg;
-
-  std::unordered_set<BasicBlock*> visited;
-  std::vector<BasicBlock*> stack;
-  stack.emplace_back(cfg->entry_block);
-  while (!stack.empty()) {
-    BasicBlock* block = stack.back();
-    stack.pop_back();
-    if (visited.contains(block)) {
-      continue;
-    }
-    visited.insert(block);
-    auto term = block->GetTerminator();
-    for (std::size_t i = 0, n = term->numEdges(); i < n; ++i) {
-      BasicBlock* succ = term->successor(i);
-      // This check isn't necessary for correctness but avoids unnecessary
-      // pushes to the stack.
-      if (!visited.contains(succ)) {
-        stack.emplace_back(succ);
-      }
-    }
-  }
-
-  std::vector<BasicBlock*> unreachable;
-  for (auto it = cfg->blocks.begin(); it != cfg->blocks.end();) {
-    BasicBlock* block = &*it;
-    ++it;
-    if (!visited.contains(block)) {
-      if (Instr* old_term = block->GetTerminator()) {
-        for (std::size_t i = 0, n = old_term->numEdges(); i < n; ++i) {
-          old_term->successor(i)->removePhiPredecessor(block);
-        }
-      }
-      cfg->RemoveBlock(block);
-      block->clear();
-      unreachable.emplace_back(block);
-    }
-  }
-
-  for (BasicBlock* block : unreachable) {
-    delete block;
-  }
-
-  return unreachable.size() > 0;
+  return hir_remove_unreachable_blocks_c(&func) != 0;
 }
 
 bool removeUnreachableInstructions(Function& func) {
