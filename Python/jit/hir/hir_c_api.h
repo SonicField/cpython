@@ -622,6 +622,12 @@ HirInstr hir_c_create_check_exc(HirFunction func, HirRegister src,
  * to factory functions). Returns NULL if none. */
 void *hir_get_frame_state(HirInstr instr);
 
+/* Get the FrameState from a Snapshot instruction. Returns NULL if none. */
+void *hir_snapshot_get_frame_state(void *snapshot);
+
+/* Copy a FrameState onto a DeoptBase instruction. */
+void hir_deopt_set_frame_state(void *deopt_instr, const void *frame_state);
+
 /* ---- Analysis utilities (T2-D Tier 1) ---- */
 
 /* Check if instruction is a passthrough (Assign, BitCast, etc.). */

@@ -2616,4 +2616,14 @@ void *hir_phi_create_2way_with_output(void *output_reg,
   return Phi::create(as_reg(output_reg), args);
 }
 
+void *hir_snapshot_get_frame_state(void *snapshot) {
+  return static_cast<Snapshot*>(as_instr(snapshot))->frameState();
+}
+
+void hir_deopt_set_frame_state(void *deopt_instr, const void *frame_state) {
+  auto *deopt = as_instr(deopt_instr)->asDeoptBase();
+  if (!deopt) return;
+  deopt->setFrameState(*static_cast<const FrameState*>(frame_state));
+}
+
 } /* extern "C" */

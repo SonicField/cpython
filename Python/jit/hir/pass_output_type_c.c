@@ -808,3 +808,95 @@ void *hir_model_reg_c(void *reg) {
     }
     return reg;
 }
+
+/* ==== bindGuards C port ==== */
+extern void *hir_snapshot_get_frame_state(void *snapshot);
+extern void hir_deopt_set_frame_state(void *deopt_instr, const void *frame_state);
+extern void hir_dead_code_elimination_run(void *func);
+
+static int hir_c_is_guard_class(const void *instr) {
+    int op = hir_c_opcode(instr);
+    return op == HIR_OP_Guard || op == HIR_OP_GuardIs ||
+           op == HIR_OP_GuardType || op == HIR_OP_Deopt ||
+           op == HIR_OP_DeoptPatchpoint;
+}
+
+void hir_bind_guards_c(void *func) {
+    void *cfg = hir_func_cfg_ptr(func);
+
+    void *snapshots[4096];
+    size_t n_snapshots = 0;
+
+    for (void *block = hir_cfg_blocks_first_ptr(cfg); block;
+         block = hir_cfg_blocks_next_ptr(cfg, block)) {
+        void *fs = NULL;
+        for (void *instr = hir_bb_first_instr(block); instr;
+             instr = hir_bb_next_instr(block, instr)) {
+            if (hir_c_is_snapshot(instr)) {
+                fs = hir_snapshot_get_frame_state(instr);
+                if (n_snapshots < 4096) {
+                    snapshots[n_snapshots++] = instr;
+                }
+            } else if (hir_c_is_guard_class(instr)) {
+                hir_deopt_set_frame_state(instr, fs);
+            } else if (!hir_c_is_replayable(instr)) {
+                fs = NULL;
+            }
+        }
+    }
+
+    for (size_t i = 0; i < n_snapshots; i++) {
+        hir_instr_unlink(snapshots[i]);
+        hir_instr_destroy(snapshots[i]);
+    }
+
+    hir_dead_code_elimination_run(func);
+}
+
+/* ==== optimizeLongDecrefRuns C port ==== */
+
+void hir_optimize_long_decref_runs_c(void *func) {
+    void *cfg = hir_func_cfg_ptr(func);
+    void *rpo_blocks[4096];
+    extern size_t hir_cfg_get_rpo_c(void *cfg, void **out, size_t cap);
+    size_t n_blocks = hir_cfg_get_rpo_c(cfg, rpo_blocks, 4096);
+
+    for (size_t b = 0; b < n_blocks; b++) {
+        void *block = rpo_blocks[b];
+        void *instr = hir_bb_first_instr(block);
+
+        while (instr) {
+            if (hir_c_opcode(instr) != HIR_OP_Decref) {
+                instr = hir_bb_next_instr(block, instr);
+                continue;
+            }
+
+            /* Count consecutive Decrefs */
+            int num = 0;
+            void *scan = instr;
+            while (scan && hir_c_opcode(scan) == HIR_OP_Decref) {
+                num++;
+                scan = hir_bb_next_instr(block, scan);
+            }
+
+            if (num < 4) {
+                /* Skip past the run */
+                instr = scan;
+                continue;
+            }
+
+            /* Create BatchDecref and replace the run */
+            void *batch = hir_c_create_batch_decref(num);
+            hir_c_copy_bytecode_offset(batch, instr);
+            hir_c_insert_before_pure(batch, instr, block);
+
+            for (int i = 0; i < num; i++) {
+                void *next = hir_bb_next_instr(block, instr);
+                hir_c_set_operand(batch, i, hir_c_get_operand(instr, 0));
+                hir_instr_unlink(instr);
+                hir_instr_destroy(instr);
+                instr = next;
+            }
+        }
+    }
+}
