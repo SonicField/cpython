@@ -13,6 +13,7 @@
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/hir/hir_opcode_c.h"
 #include "cinderx/Jit/hir/hir_basic_block_c.h"
+
 #include "Python.h"
 
 /* Forward declarations */
@@ -453,5 +454,57 @@ void hir_reflow_types_c(void *func, void *start_block) {
                 instr = hir_bb_next_instr(block, instr);
             }
         }
+    }
+}
+
+/* ==== simplifyRedundantCondBranches C port ==== */
+
+extern size_t hir_c_num_edges(const void *instr);
+extern void *hir_c_successor(const void *instr, size_t idx);
+extern void *hir_cfg_blocks_first_ptr(void *cfg);
+extern void *hir_cfg_blocks_next_ptr(void *cfg, void *block);
+extern void hir_instr_unlink(void *instr);
+extern void hir_instr_destroy(void *instr);
+extern void *hir_c_create_branch_cpp(void *target_block);
+extern void hir_c_set_bytecode_offset(void *instr, int32_t off);
+
+void hir_simplify_redundant_cond_branches_c(void *cfg) {
+    /* Collect blocks with redundant cond branches (both edges to same target) */
+    void *blocks_to_fix[1024];
+    size_t n_fix = 0;
+
+    void *block = hir_cfg_blocks_first_ptr(cfg);
+    while (block) {
+        if (!hir_bb_empty(block)) {
+            void *term = hir_bb_get_terminator(block);
+            size_t n_edges = hir_c_num_edges(term);
+            if (n_edges >= 2 && hir_c_successor(term, 0) == hir_c_successor(term, 1)) {
+                int op = hir_c_opcode(term);
+                if (op == HIR_OP_CondBranch ||
+                    op == HIR_OP_CondBranchIterNotDone ||
+                    op == HIR_OP_CondBranchCheckType) {
+                    if (n_fix < 1024) {
+                        blocks_to_fix[n_fix++] = block;
+                    }
+                }
+            }
+        }
+        block = hir_cfg_blocks_next_ptr(cfg, block);
+    }
+
+    /* Replace redundant cond branches with unconditional branches */
+    for (size_t i = 0; i < n_fix; i++) {
+        block = blocks_to_fix[i];
+        void *term = hir_bb_get_terminator(block);
+        int32_t bc_off = ((const HirInstrLayout *)term)->bytecode_offset;
+        void *target = hir_c_successor(term, 0);
+
+        hir_instr_unlink(term);
+
+        void *br = hir_c_create_branch_cpp(target);
+        hir_c_set_bytecode_offset(br, bc_off);
+        hir_bb_append_instr(block, br);
+
+        hir_instr_destroy(term);
     }
 }

@@ -2405,6 +2405,14 @@ void hir_c_set_true_bb(HirInstr branch, void *new_true_block) {
   cb->set_true_bb(static_cast<BasicBlock*>(new_true_block));
 }
 
+void *hir_cfg_blocks_first_ptr(void *cfg) {
+  return hir_cfg_blocks_first(cfg);
+}
+
+void *hir_cfg_blocks_next_ptr(void *cfg, void *block) {
+  return hir_cfg_blocks_next(cfg, static_cast<BasicBlock*>(block));
+}
+
 size_t hir_cfg_get_rpo_from(HirFunction func, void *start,
                             void **out, size_t capacity) {
   auto rpo = CFG::GetRPOTraversal(static_cast<BasicBlock*>(start));
