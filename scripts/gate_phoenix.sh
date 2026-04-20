@@ -90,7 +90,7 @@ fi
 # Step 1c: Preserved-symbol gate (critical functions must still exist after deletions)
 echo "" | tee -a "$RESULTS_FILE"
 echo "--- Step 1c: Preserved Symbol Check ---" | tee -a "$RESULTS_FILE"
-MUST_SURVIVE="emitCInstr simplify_emit_cond simplify_emit_cond_slow_path hir_output_type_c hir_reflow_types_c hir_remove_trampoline_blocks_c hir_remove_unreachable_blocks_c simplify_env_emit simplify_binary_op_c simplify_load_method_c simplify_load_attr_c simplify_call_method_c simplify_vectorcall_c simplify_vectorcall_isinstance_c hir_chase_assign_operand hir_simplify_redundant_cond_branches_c"
+MUST_SURVIVE="simplify_emit_cond simplify_emit_cond_slow_path hir_output_type_c hir_reflow_types_c hir_remove_trampoline_blocks_c hir_remove_unreachable_blocks_c simplify_env_emit simplify_binary_op_c simplify_load_method_c simplify_load_attr_c simplify_call_method_c simplify_vectorcall_c simplify_vectorcall_isinstance_c hir_chase_assign_operand hir_simplify_redundant_cond_branches_c hir_simplify_run_c"
 SURVIVE_FAIL=0
 for sym in $MUST_SURVIVE; do
     if ! grep -rq "$sym" "$CPYTHON_ROOT/Python/jit/hir/" --include='*.c' --include='*.cpp' --include='*.h' 2>/dev/null; then

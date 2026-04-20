@@ -75,6 +75,9 @@ void *simplify_load_attr_c(SimplifyEnv *env, const void *instr);
 void *simplify_call_method_c(SimplifyEnv *env, const void *instr);
 void *simplify_vectorcall_c(SimplifyEnv *env, const void *instr);
 
+/* Simplify::Run C port */
+void hir_simplify_run_c(void *func);
+
 #ifdef __cplusplus
 }
 #endif

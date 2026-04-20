@@ -2715,3 +2715,187 @@ void *simplify_vectorcall_c(SimplifyEnv *env, const void *instr) {
 
     return NULL;
 }
+
+/* ==== simplifyInstr C dispatcher ==== */
+
+static void *simplify_instr_c(SimplifyEnv *env, const void *instr) {
+    int op = hir_c_opcode(instr);
+    switch (op) {
+        case HIR_OP_CheckVar:
+        case HIR_OP_CheckExc:
+        case HIR_OP_CheckField:
+            return simplify_check_c(instr);
+        case HIR_OP_CheckSequenceBounds:
+            return simplify_check_sequence_bounds_c(env, instr);
+        case HIR_OP_GuardType:
+            return simplify_guard_type_c(env, instr);
+        case HIR_OP_RefineType:
+            return simplify_refine_type_c(instr);
+        case HIR_OP_Cast:
+            return simplify_cast_c(instr);
+        case HIR_OP_Compare:
+            return simplify_compare_c(env, instr);
+        case HIR_OP_CondBranch:
+            return simplify_cond_branch_const_c(env, instr);
+        case HIR_OP_CondBranchCheckType:
+            return simplify_cond_branch_check_type_c(env, instr);
+        case HIR_OP_GetLength:
+            return simplify_get_length_c(env, instr);
+        case HIR_OP_IntConvert:
+            return simplify_int_convert_c(env, instr);
+        case HIR_OP_IsTruthy:
+            return simplify_is_truthy_c(env, instr);
+#ifndef Py_GIL_DISABLED
+        case HIR_OP_LoadAttr:
+            return simplify_load_attr_c(env, instr);
+        case HIR_OP_LoadMethod:
+            return simplify_load_method_c(env, instr);
+#endif
+        case HIR_OP_LoadField:
+            return simplify_load_field_float_c(env, instr);
+        case HIR_OP_LoadTupleItem:
+            return simplify_load_tuple_item_c(env, instr);
+        case HIR_OP_LoadArrayItem:
+            return simplify_load_array_item_tuple_c(env, instr);
+        case HIR_OP_LoadVarObjectSize:
+            return simplify_load_var_object_size_c(env, instr);
+        case HIR_OP_BinaryOp:
+            return simplify_binary_op_c(env, instr);
+        case HIR_OP_InPlaceOp:
+            return simplify_in_place_op_c(env, instr);
+        case HIR_OP_LongBinaryOp:
+            return simplify_long_binary_op_c(env, instr);
+        case HIR_OP_FloatBinaryOp:
+            return simplify_float_binary_op_c(env, instr);
+        case HIR_OP_UnaryOp:
+            return simplify_unary_op_c(env, instr);
+        case HIR_OP_PrimitiveCompare:
+            return simplify_primitive_compare_c(env, instr);
+        case HIR_OP_PrimitiveBoxBool:
+            return simplify_primitive_box_bool_c(env, instr);
+        case HIR_OP_IndexUnbox:
+        case HIR_OP_PrimitiveUnbox:
+            return simplify_unbox_box_c(env, instr);
+        case HIR_OP_IsNegativeAndErrOccurred:
+            return simplify_is_neg_and_err_c(env, instr);
+        case HIR_OP_StoreAttr:
+            return simplify_store_attr_c(env, instr);
+        case HIR_OP_CallMethod:
+            return simplify_call_method_c(env, instr);
+        case HIR_OP_VectorCall:
+            return simplify_vectorcall_c(env, instr);
+        case HIR_OP_StoreSubscr:
+            return simplify_store_subscr_c(env, instr);
+        case HIR_OP_CIntToCBool:
+            return simplify_cint_to_cbool_c(env, instr);
+        case HIR_OP_GetIter:
+            simplify_get_iter_c(env, instr);
+            return NULL;
+        case HIR_OP_InvokeIterNext:
+            return simplify_invoke_iter_next_c(env, instr);
+        default:
+            return NULL;
+    }
+}
+
+/* ==== Simplify::Run C port ==== */
+
+extern void *hir_bb_next_instr(const void *bb, void *instr);
+extern void *hir_bb_prev_instr(const void *bb, void *instr);
+extern void hir_bb_remove_phi_predecessor(void *block, void *pred);
+extern void *hir_c_cond_branch_true_bb(void *instr);
+extern void *hir_c_cond_branch_false_bb(void *instr);
+extern void *hir_assign_create(void *output, void *value);
+extern void hir_instr_unlink(void *instr);
+extern void hir_instr_destroy(void *instr);
+extern void hir_copy_propagation_run(void *func);
+extern void hir_reflow_types_c(void *func, void *start_block);
+extern void hir_clean_cfg_run(void *func);
+extern void hir_c_insert_before(void *new_instr, void *before);
+extern void *hir_cfg_blocks_first_ptr(void *cfg);
+extern void *hir_cfg_blocks_next_ptr(void *cfg, void *block);
+
+void hir_simplify_run_c(void *func) {
+    void *cfg = hir_func_cfg_ptr(func);
+
+    const JitSimplifierCfg *config = &jit_get_config()->simplifier;
+    size_t new_block_limit = config->new_block_limit;
+    size_t iteration_limit = config->iteration_limit;
+    size_t total_new_blocks = 0;
+
+    int changed = 1;
+    for (size_t iter = 0;
+         changed && iter < iteration_limit && total_new_blocks < new_block_limit;
+         iter++) {
+        changed = 0;
+
+        void *block = hir_cfg_blocks_first_ptr(cfg);
+        while (block) {
+            void *next_block = hir_cfg_blocks_next_ptr(cfg, block);
+
+            void *instr = hir_bb_first_instr(block);
+            while (instr) {
+                void *next_instr = hir_bb_next_instr(block, instr);
+
+                SimplifyEnv env = {
+                    func, block, instr,
+                    hir_c_bytecode_offset(instr), 0, 0
+                };
+
+                void *new_output = simplify_instr_c(&env, instr);
+
+                if (new_output == NULL && !env.optimized) {
+                    instr = next_instr;
+                    continue;
+                }
+
+                changed = 1;
+                total_new_blocks += env.new_blocks;
+
+                if (new_output != NULL) {
+                    void *orig_output = hir_c_output(instr);
+                    void *assign = hir_assign_create(orig_output, new_output);
+                    hir_c_set_bytecode_offset(assign, env.bc_off);
+                    hir_c_insert_before(assign, instr);
+                    void *assign_out = hir_c_output(assign);
+                    if (assign_out) {
+                        hir_reg_set_type(assign_out, hir_output_type(assign));
+                    }
+                }
+
+                if (hir_c_is_condbranch(instr)) {
+                    void *prev = hir_bb_prev_instr(block, instr);
+                    if (prev && hir_c_is_branch(prev)) {
+                        void *new_dst = hir_c_successor(prev, 0);
+                        void *true_bb = hir_c_cond_branch_true_bb(instr);
+                        void *false_bb = hir_c_cond_branch_false_bb(instr);
+                        void *old_branch_block = (false_bb == new_dst)
+                            ? true_bb : false_bb;
+                        void *instr_block = hir_c_block(instr);
+                        hir_bb_remove_phi_predecessor(old_branch_block, instr_block);
+                    }
+                }
+
+                hir_instr_unlink(instr);
+                hir_instr_destroy(instr);
+
+                if (env.block != block) {
+                    break;
+                }
+
+                instr = next_instr;
+            }
+
+            if (total_new_blocks > new_block_limit) break;
+
+            block = next_block;
+        }
+
+        if (changed) {
+            hir_copy_propagation_run(func);
+            void *entry = *(void **)cfg;
+            hir_reflow_types_c(func, entry);
+            hir_clean_cfg_run(func);
+        }
+    }
+}
