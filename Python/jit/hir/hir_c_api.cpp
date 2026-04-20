@@ -571,29 +571,28 @@ extern "C" HirType hir_output_type_c(const void *instr,
     HirType (*get_op_type)(size_t, void*), void *ctx);
 
 HirType hir_output_type(HirInstr instr) {
-  HirType c_result = hir_output_type_c(instr, get_op_type_default, instr);
-  HirType cpp_result = Type::toHirType(outputType(*as_instr(instr)));
-  JIT_DCHECK(
-      memcmp(&c_result, &cpp_result, sizeof(HirType)) == 0,
-      "C outputType diverges from C++ for opcode {}",
-      as_instr(instr)->opname());
-  return c_result;
+  return hir_output_type_c(instr, get_op_type_default, instr);
+}
+
+struct OverrideCtx {
+  Instr* instr;
+  size_t override_idx;
+  HirType override_type;
+};
+
+static HirType get_op_type_with_override(size_t idx, void *ctx) {
+  auto *oc = static_cast<OverrideCtx*>(ctx);
+  if (idx == oc->override_idx) {
+    return oc->override_type;
+  }
+  return Type::toHirType(oc->instr->GetOperand(idx)->type());
 }
 
 HirType hir_output_type_with_override(HirInstr instr,
                                       size_t override_idx,
                                       const HirType *override_type) {
-  Type cpp_override = Type::fromHirType(*override_type);
-  Instr* i = as_instr(instr);
-  Type result = outputType(*i, [&](std::size_t ind) -> Type {
-    if (ind == override_idx) {
-      return cpp_override;
-    }
-    return i->GetOperand(ind)->type();
-  });
-  HirType c_result;
-  memcpy(&c_result, &result, sizeof(HirType));
-  return c_result;
+  OverrideCtx ctx{as_instr(instr), override_idx, *override_type};
+  return hir_output_type_c(instr, get_op_type_with_override, &ctx);
 }
 
 /* hir_instr_opname deleted — use hir_instr_info_name(hir_c_opcode(instr)) */

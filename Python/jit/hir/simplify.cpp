@@ -497,7 +497,7 @@ struct Env {
     instr->setBytecodeOffset(bc_off);
     block->insert(instr, cursor);
     if (instr->output()) {
-      instr->output()->set_type(outputType(*instr));
+      instr->output()->set_type(Type::fromHirType(hir_output_type(instr)));
     }
     return instr;
   }
@@ -522,7 +522,7 @@ struct Env {
     instr->setBytecodeOffset(bc_off);
     block->insert(instr, cursor);
     if (instr->output()) {
-      instr->output()->set_type(outputType(*instr));
+      instr->output()->set_type(Type::fromHirType(hir_output_type(instr)));
     }
     return instr->output();
   }
@@ -545,7 +545,7 @@ struct Env {
           output->set_type(TObject);
           break;
         default:
-          output->set_type(outputType(*instr));
+          output->set_type(Type::fromHirType(hir_output_type(instr)));
           break;
       }
     }
