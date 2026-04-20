@@ -737,6 +737,33 @@ static void phx_reg_uses_add(PhxRegUses *ru, void *reg, void *instr) {
     list->instrs[list->count++] = instr;
 }
 
+static void phx_reg_uses_erase(PhxRegUses *ru, void *reg, void *instr) {
+    int id = hir_reg_id(reg);
+    if (id < 0 || (size_t)id >= ru->n_slots) return;
+    PhxRegUseList *list = &ru->slots[id];
+    for (size_t i = 0; i < list->count; i++) {
+        if (list->instrs[i] == instr) {
+            list->instrs[i] = list->instrs[--list->count];
+            return;
+        }
+    }
+}
+
+static void phx_reg_uses_remove_instr(PhxRegUses *ru, void *instr) {
+    size_t n_ops = hir_c_num_operands(instr);
+    for (size_t i = 0; i < n_ops; i++) {
+        void *operand = hir_c_get_operand(instr, i);
+        phx_reg_uses_erase(ru, operand, instr);
+    }
+}
+
+static const PhxRegUseList *phx_reg_uses_find(const PhxRegUses *ru, void *reg) {
+    int id = hir_reg_id(reg);
+    if (id < 0 || (size_t)id >= ru->n_slots) return NULL;
+    const PhxRegUseList *list = &ru->slots[id];
+    return list->count > 0 ? list : NULL;
+}
+
 static int phx_reg_uses_contains(const PhxRegUses *ru, void *reg, void *instr) {
     int id = hir_reg_id(reg);
     if (id < 0 || (size_t)id >= ru->n_slots) return 0;
