@@ -73,6 +73,7 @@ void *simplify_load_method_c(SimplifyEnv *env, const void *instr);
 void *simplify_binary_op_c(SimplifyEnv *env, const void *instr);
 void *simplify_load_attr_c(SimplifyEnv *env, const void *instr);
 void *simplify_call_method_c(SimplifyEnv *env, const void *instr);
+void *simplify_vectorcall_c(SimplifyEnv *env, const void *instr);
 
 #ifdef __cplusplus
 }

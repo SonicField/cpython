@@ -2140,3 +2140,116 @@ void *simplify_call_method_c(SimplifyEnv *env, const void *instr) {
 
     return NULL;
 }
+
+/* ==== VectorCall Phase 1: static/bound/global sub-handlers ==== */
+
+/* trySpecializeCCall: specialize PyMethodDescr METH_NOARGS/METH_O to CallStatic */
+static void *try_specialize_ccall_c(SimplifyEnv *env, const void *instr) {
+    const HirVectorCall *vc = (const HirVectorCall *)instr;
+    if (vc->flags & HIR_CALL_FLAG_AWAITED) return NULL;
+
+    void *callable = hir_c_get_operand(instr, 0);
+    HirType callable_type = hir_register_type(callable);
+    PyObject *callable_obj = hir_type_as_object(&callable_type);
+    if (callable_obj == NULL) return NULL;
+
+    if (Py_TYPE(callable_obj) == &PyMethodDescr_Type) {
+        PyMethodDescrObject *meth = (PyMethodDescrObject *)callable_obj;
+        PyMethodDef *def = meth->d_method;
+        size_t n_args = hir_c_num_operands(instr) - 1;
+        /* Use original output type | TNullptr for CallStatic return type */
+        void *orig_out = hir_c_output(instr);
+        HirType orig_type = hir_register_type(orig_out);
+        HirType t_nullptr = HIR_TYPE_NULLPTR;
+        orig_type.bits_and_flags |= hir_type_bits(&t_nullptr);
+        HirType ret_type = orig_type;
+
+        if ((def->ml_flags & METH_NOARGS) && n_args == 1) {
+            extern void *hir_c_create_call_static(void *func, size_t n_ops,
+                                                   void *addr, HirType ret_type);
+            void *call = hir_c_create_call_static(env->func, 1,
+                (void *)def->ml_meth, ret_type);
+            hir_c_set_operand(call, 0, hir_c_get_operand(instr, 1));
+            void *call_out = simplify_env_emit(env, call);
+            extern void *hir_c_create_check_exc(void *func, void *src, void *fs);
+            void *fs = hir_c_get_frame_state(instr);
+            void *check = hir_c_create_check_exc(env->func, call_out, fs);
+            return simplify_env_emit(env, check);
+        }
+        if ((def->ml_flags & METH_O) && n_args == 2) {
+            extern void *hir_c_create_call_static(void *func, size_t n_ops,
+                                                   void *addr, HirType ret_type);
+            void *call = hir_c_create_call_static(env->func, 2,
+                (void *)def->ml_meth, ret_type);
+            hir_c_set_operand(call, 0, hir_c_get_operand(instr, 1));
+            hir_c_set_operand(call, 1, hir_c_get_operand(instr, 2));
+            void *call_out = simplify_env_emit(env, call);
+            extern void *hir_c_create_check_exc(void *func, void *src, void *fs);
+            void *fs = hir_c_get_frame_state(instr);
+            void *check = hir_c_create_check_exc(env->func, call_out, fs);
+            return simplify_env_emit(env, check);
+        }
+    }
+    return NULL;
+}
+
+/* simplifyVectorCallStatic: list.append or trySpecializeCCall */
+static void *simplify_vectorcall_static_c(SimplifyEnv *env, const void *instr) {
+    const HirVectorCall *vc = (const HirVectorCall *)instr;
+    if (!(vc->flags & HIR_CALL_FLAG_STATIC)) return NULL;
+
+    void *func = hir_c_get_operand(instr, 0);
+    if (is_builtin_c(func, "list.append") && hir_c_num_operands(instr) - 1 == 2) {
+        HirType func_type = hir_register_type(func);
+        simplify_env_emit_use_type(env, func, func_type);
+        extern void *hir_c_create_list_append(void *func_h, void *list,
+                                               void *item, void *fs);
+        void *fs = hir_c_get_frame_state(instr);
+        void *la = hir_c_create_list_append(env->func,
+            hir_c_get_operand(instr, 1), hir_c_get_operand(instr, 2), fs);
+        simplify_env_emit(env, la);
+        HirType t_nonetype = HIR_TYPE_NONETYPE;
+        return simplify_env_emit_load_const(env, t_nonetype);
+    }
+
+    return try_specialize_ccall_c(env, instr);
+}
+
+/* ==== simplifyVectorCall (partial: static + type() + len()) ==== */
+void *simplify_vectorcall_c(SimplifyEnv *env, const void *instr) {
+    /* Try static sub-handler */
+    void *result = simplify_vectorcall_static_c(env, instr);
+    if (result) return result;
+
+    /* BoundMethod and Global sub-handlers — return NULL to fall through to C++ */
+
+    const HirVectorCall *vc = (const HirVectorCall *)instr;
+    if (vc->flags & HIR_CALL_FLAG_KWARGS) return NULL;
+
+    void *target = hir_c_get_operand(instr, 0);
+    size_t n_operands = hir_c_num_operands(instr);
+
+    /* type(x) → LoadField(x, ob_type) */
+    HirType target_type = hir_register_type(target);
+    HirType t_type = HIR_TYPE_TYPE;
+    if (hir_type_is_subtype(target_type, t_type) &&
+        hir_type_has_object_spec(&target_type) &&
+        hir_type_object_spec(&target_type) == (PyObject *)&PyType_Type &&
+        n_operands == 2) {
+        simplify_env_emit_use_type(env, target, target_type);
+        return simplify_env_emit_load_field(env, hir_c_get_operand(instr, 1),
+            "ob_type", (intptr_t)offsetof(PyObject, ob_type), t_type, 0);
+    }
+
+    /* len(x) → GetLength */
+    if (is_builtin_c(target, "len") && n_operands - 1 == 1) {
+        HirType func_type = hir_register_type(target);
+        simplify_env_emit_use_type(env, target, func_type);
+        extern void *hir_c_create_get_length(void *func, void *src, void *fs);
+        void *fs = hir_c_get_frame_state(instr);
+        void *gl = hir_c_create_get_length(env->func, hir_c_get_operand(instr, 1), fs);
+        return simplify_env_emit(env, gl);
+    }
+
+    return NULL;
+}
