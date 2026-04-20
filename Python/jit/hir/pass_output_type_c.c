@@ -12,6 +12,7 @@
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/hir/hir_opcode_c.h"
+#include "cinderx/Jit/hir/hir_basic_block_c.h"
 #include "Python.h"
 
 /* Forward declarations */
@@ -401,5 +402,56 @@ HirType hir_output_type_c(const void *instr,
 
     default:
         { HirType _t = HIR_TYPE_BOTTOM; return _t; }
+    }
+}
+
+/* ==== reflowTypes C port ==== */
+
+static HirType get_op_type_from_instr(size_t idx, void *ctx) {
+    const void *instr = ctx;
+    void *operand = hir_c_get_operand(instr, idx);
+    return hir_register_type(operand);
+}
+
+extern size_t hir_cfg_get_rpo_from(void *func, void *start, void **out, size_t capacity);
+
+void hir_reflow_types_c(void *func, void *start_block) {
+    void *env = hir_func_env(func);
+    size_t n_regs = hir_env_reg_count(env);
+    void **regs = hir_env_reg_data(env);
+
+    /* Reset all register types to TBottom */
+    HirType t_bottom = HIR_TYPE_BOTTOM;
+    for (size_t i = 0; i < n_regs; i++) {
+        if (regs[i]) {
+            hir_reg_set_type(regs[i], t_bottom);
+        }
+    }
+
+    /* Get RPO traversal from start_block */
+    void *rpo_blocks[4096];
+    size_t n_blocks = hir_cfg_get_rpo_from(func, start_block, rpo_blocks, 4096);
+
+    /* Fixed-point iteration: flow types forward */
+    int changed = 1;
+    while (changed) {
+        changed = 0;
+        for (size_t b = 0; b < n_blocks; b++) {
+            void *block = rpo_blocks[b];
+            void *instr = hir_bb_first_instr(block);
+            while (instr) {
+                void *dst = hir_c_output(instr);
+                if (dst != NULL) {
+                    HirType new_ty = hir_output_type_c(instr,
+                        get_op_type_from_instr, (void *)instr);
+                    HirType old_ty = hir_register_type(dst);
+                    if (memcmp(&new_ty, &old_ty, sizeof(HirType)) != 0) {
+                        hir_reg_set_type(dst, new_ty);
+                        changed = 1;
+                    }
+                }
+                instr = hir_bb_next_instr(block, instr);
+            }
+        }
     }
 }

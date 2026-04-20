@@ -2405,6 +2405,14 @@ void hir_c_set_true_bb(HirInstr branch, void *new_true_block) {
   cb->set_true_bb(static_cast<BasicBlock*>(new_true_block));
 }
 
+size_t hir_cfg_get_rpo_from(HirFunction func, void *start,
+                            void **out, size_t capacity) {
+  auto rpo = CFG::GetRPOTraversal(static_cast<BasicBlock*>(start));
+  size_t n = rpo.size() < capacity ? rpo.size() : capacity;
+  for (size_t i = 0; i < n; i++) out[i] = rpo[i];
+  return n;
+}
+
 HirType hir_return_type_c(void *callable_reg) {
   auto *reg = static_cast<Register*>(callable_reg);
   Type callable_type = reg->type();
