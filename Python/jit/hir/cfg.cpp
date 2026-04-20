@@ -3,6 +3,8 @@
 #include "cinderx/Jit/hir/cfg.h"
 #include "cinderx/Jit/hir/hir_basic_block_c.h"
 
+extern "C" size_t hir_cfg_get_rpo_c(void *cfg, void **out, size_t capacity);
+
 namespace jit::hir {
 
 namespace {
@@ -153,7 +155,12 @@ void CFG::splitCriticalEdges() {
 }
 
 std::vector<BasicBlock*> CFG::GetRPOTraversal() const {
-  return GetRPOTraversal(entry_block);
+  void* blocks[4096];
+  size_t n = hir_cfg_get_rpo_c(
+      const_cast<CFG*>(this), blocks, 4096);
+  return std::vector<BasicBlock*>(
+      reinterpret_cast<BasicBlock**>(blocks),
+      reinterpret_cast<BasicBlock**>(blocks) + n);
 }
 
 std::vector<BasicBlock*> CFG::GetRPOTraversal(BasicBlock* start) {
