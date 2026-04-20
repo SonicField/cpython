@@ -2370,6 +2370,215 @@ static void *simplify_vectorcall_global_c(SimplifyEnv *env, const void *instr) {
     return simplify_env_emit(env, new_call);
 }
 
+/* ==== emitCondSlowPath ==== */
+void *simplify_emit_cond_slow_path(SimplifyEnv *env, void *output_reg,
+                                    void *previous_path_value,
+                                    void *branch_instr,
+                                    SimplifyCondBodyFn do_slow_path, void *ctx) {
+    env->new_blocks += 2;
+
+    void *previous_path = env->block;
+    void *slow_path_bb = hir_cfg_alloc_block(env->func);
+
+    void *fast_path = hir_cfg_split_after(env->func, branch_instr);
+    extern void hir_c_set_true_bb(void *branch, void *new_true_block);
+    hir_c_set_true_bb(branch_instr, fast_path);
+
+    env->block = slow_path_bb;
+    env->cursor_instr = NULL;
+    void *slow_path_value = do_slow_path(env, ctx);
+    void *br = hir_c_create_branch_cpp(fast_path);
+    simplify_env_emit(env, br);
+
+    env->block = fast_path;
+    env->cursor_instr = hir_bb_first_instr(fast_path);
+    extern void *hir_phi_create_2way_with_output(void *out_reg,
+        void *bb1, void *reg1, void *bb2, void *reg2);
+    void *phi = hir_phi_create_2way_with_output(output_reg,
+        previous_path, previous_path_value,
+        slow_path_bb, slow_path_value);
+    return simplify_env_emit(env, phi);
+}
+
+/* ==== isVectorCallIfIsInstance C port ==== */
+extern void *hir_liveness_create(void *func);
+extern void hir_liveness_destroy(void *state);
+extern int hir_liveness_is_last_use(const void *state, void *instr, void *reg);
+extern void hir_instr_unlink(void *instr);
+extern void hir_instr_destroy(void *instr);
+
+typedef struct {
+    void *is_truthy_instr;
+    void *snapshots[16];
+    int n_snapshots;
+    int found;
+} IsInstanceIfData;
+
+static IsInstanceIfData is_vectorcall_if_isinstance_c(SimplifyEnv *env,
+                                                       const void *vc_instr) {
+    IsInstanceIfData data = {NULL, {0}, 0, 0};
+
+    void *block = ((const HirInstrLayout *)vc_instr)->block;
+    void *liveness = hir_liveness_create(env->func);
+    void *vc_output = hir_c_output(vc_instr);
+
+    enum { kInitial, kCondBranch, kIsTruthy, kFailed } state = kInitial;
+    void *output_reg = NULL;
+
+    extern void *hir_bb_last_instr(const void *bb);
+    extern void *hir_bb_prev_instr(const void *bb, void *instr);
+    void *current = hir_bb_last_instr(block);
+
+    while (current && state != kFailed) {
+        int opcode = hir_c_opcode(current);
+
+        switch (state) {
+        case kInitial:
+            if (opcode != HIR_OP_CondBranch) {
+                state = kFailed;
+                break;
+            }
+            {
+                void *cond_op = hir_c_get_operand(current, 0);
+                if (!hir_liveness_is_last_use(liveness, current, cond_op) ||
+                    hir_c_num_operands(current) != 1) {
+                    state = kFailed;
+                    break;
+                }
+                state = kCondBranch;
+                output_reg = cond_op;
+            }
+            break;
+
+        case kCondBranch:
+            if (opcode == HIR_OP_IsTruthy &&
+                hir_c_output(current) == output_reg &&
+                hir_c_get_operand(current, 0) == vc_output) {
+                if (!hir_liveness_is_last_use(liveness, current, vc_output)) {
+                    state = kFailed;
+                } else {
+                    state = kIsTruthy;
+                    data.is_truthy_instr = current;
+                }
+                break;
+            }
+            if (opcode == HIR_OP_Snapshot) {
+                if (data.n_snapshots < 16) {
+                    data.snapshots[data.n_snapshots++] = current;
+                }
+                break;
+            }
+            state = kFailed;
+            break;
+
+        case kIsTruthy:
+            if (current == (void *)vc_instr) {
+                data.found = 1;
+                goto done;
+            }
+            if (opcode == HIR_OP_Snapshot) {
+                break;
+            }
+            state = kFailed;
+            break;
+
+        case kFailed:
+            break;
+        }
+
+        current = hir_bb_prev_instr(block, current);
+    }
+
+done:
+    hir_liveness_destroy(liveness);
+    return data;
+}
+
+/* ==== isinstance emitCond callbacks ==== */
+typedef struct {
+    void *compare_type;
+} IsInstanceFastCtx;
+
+typedef struct {
+    void *obj_op;
+    void *type_op;
+    void *fs;
+} IsInstanceSlowCtx;
+
+static void *isinstance_fast_path(SimplifyEnv *env, void *ctx) {
+    IsInstanceFastCtx *c = (IsInstanceFastCtx *)ctx;
+    return c->compare_type;
+}
+
+static void *isinstance_slow_path(SimplifyEnv *env, void *ctx) {
+    IsInstanceSlowCtx *c = (IsInstanceSlowCtx *)ctx;
+    extern void *hir_c_create_is_instance(void *func, void *obj, void *type, void *fs);
+    void *instr = hir_c_create_is_instance(env->func, c->obj_op, c->type_op, c->fs);
+    return simplify_env_emit(env, instr);
+}
+
+static void *isinstance_cond_slow_path_body(SimplifyEnv *env, void *ctx) {
+    IsInstanceSlowCtx *c = (IsInstanceSlowCtx *)ctx;
+    extern void *hir_c_create_is_instance(void *func, void *obj, void *type, void *fs);
+    void *instr = hir_c_create_is_instance(env->func, c->obj_op, c->type_op, c->fs);
+    return simplify_env_emit(env, instr);
+}
+
+/* ==== simplifyVectorCallIsInstance ==== */
+static void *simplify_vectorcall_isinstance_c(SimplifyEnv *env, const void *instr) {
+    void *obj_op = hir_c_get_operand(instr, 1);
+    void *type_op = hir_c_get_operand(instr, 2);
+    void *fs = hir_c_get_frame_state(instr);
+    HirType t_type = HIR_TYPE_TYPE;
+
+    void *obj_type_reg = simplify_env_emit_load_field(env, obj_op,
+        "ob_type", (intptr_t)offsetof(PyObject, ob_type), t_type, 0);
+
+    void *compare_type = simplify_env_emit_primitive_compare(env,
+        HIR_PCMP_Equal, obj_type_reg, type_op);
+
+    /* Phase 3: try if-isinstance optimization */
+    IsInstanceIfData if_data = is_vectorcall_if_isinstance_c(env, instr);
+    if (if_data.found) {
+        void *is_truthy = if_data.is_truthy_instr;
+        void *result_reg = hir_c_output(is_truthy);
+
+        hir_instr_unlink(is_truthy);
+        hir_instr_destroy(is_truthy);
+
+        for (int i = 0; i < if_data.n_snapshots; i++) {
+            hir_instr_unlink(if_data.snapshots[i]);
+            hir_instr_destroy(if_data.snapshots[i]);
+        }
+
+        /* emitCondSlowPath: branch to slow path if compare fails */
+        void *slow_path_bb = hir_cfg_alloc_block(env->func);
+        void *cond_br = hir_c_create_cond_branch_cpp(compare_type, NULL, slow_path_bb);
+        simplify_env_emit(env, cond_br);
+
+        IsInstanceSlowCtx slow_ctx = {obj_op, type_op, fs};
+        simplify_emit_cond_slow_path(env, result_reg, compare_type,
+            cond_br, isinstance_cond_slow_path_body, &slow_ctx);
+
+        /* Change output type from TBool to TCBool */
+        HirType t_cbool = HIR_TYPE_CBOOL;
+        void *orig_output = hir_c_output(instr);
+        hir_reg_set_type(orig_output, t_cbool);
+
+        return result_reg;
+    }
+
+    /* Phase 2: non-if path — emitCond */
+    IsInstanceFastCtx fast_ctx = {compare_type};
+    IsInstanceSlowCtx slow_ctx = {obj_op, type_op, fs};
+
+    void *cbool_res = simplify_emit_cond(env, compare_type,
+        isinstance_fast_path, &fast_ctx,
+        isinstance_slow_path, &slow_ctx);
+
+    return simplify_env_emit_primitive_box_bool(env, cbool_res);
+}
+
 /* ==== simplifyVectorCall ==== */
 void *simplify_vectorcall_c(SimplifyEnv *env, const void *instr) {
     /* Try static sub-handler */
@@ -2414,8 +2623,16 @@ void *simplify_vectorcall_c(SimplifyEnv *env, const void *instr) {
         return simplify_env_emit(env, gl);
     }
 
-    /* isinstance + resolveArgs paths stay in C++ (isinstance needs
-     * LivenessAnalysis for Phase 3 if-path optimization, and Phase 2
-     * shares setup with Phase 3 — can't split at C boundary). */
+    /* isinstance(obj, type) */
+    if (is_builtin_c(target, "isinstance") && n_operands - 1 == 2) {
+        void *type_op = hir_c_get_operand(instr, 2);
+        HirType type_op_type = hir_register_type(type_op);
+        HirType t_tuple = HIR_TYPE_TUPLE;
+        if (hir_type_is_subtype(type_op_type, t_type) &&
+            !hir_type_is_subtype(type_op_type, t_tuple)) {
+            return simplify_vectorcall_isinstance_c(env, instr);
+        }
+    }
+
     return NULL;
 }
