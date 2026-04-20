@@ -73,6 +73,20 @@ if ! "$SCRIPT_DIR/build_phoenix.sh" $BUILD_FLAGS; then
 fi
 echo "Build: PASS" | tee -a "$RESULTS_FILE"
 
+# Step 1b: _reg usage policy gate (no-FS DeoptBase factories banned in simplify_c.c)
+echo "" | tee -a "$RESULTS_FILE"
+echo "--- Step 1b: _reg Usage Policy ---" | tee -a "$RESULTS_FILE"
+REG_HITS=$(grep -n 'hir_c_create_guard_type_reg\|hir_c_create_guard_is_reg\|hir_c_create_vectorcall_reg\|hir_c_create_check_exc_reg\|hir_c_create_call_method_reg' "$CPYTHON_ROOT/Python/jit/hir/simplify_c.c" 2>/dev/null || true)
+if [ -n "$REG_HITS" ]; then
+    echo "GATE FAIL — banned no-FS _reg factories in simplify_c.c:" | tee -a "$RESULTS_FILE"
+    echo "$REG_HITS" | tee -a "$RESULTS_FILE"
+    echo "Use FS-aware alternatives (guard_type, guard_type_fs_reg, vectorcall_fs_reg)." | tee -a "$RESULTS_FILE"
+    GATE_PASS=0
+    FAILURES="$FAILURES _reg_policy:BLOCKED"
+else
+    echo "_reg policy: PASS (0 banned factories in simplify_c.c)" | tee -a "$RESULTS_FILE"
+fi
+
 # Step 2: Verify JIT compiles and executes
 echo "" | tee -a "$RESULTS_FILE"
 echo "--- Step 2: JIT Smoke Test ---" | tee -a "$RESULTS_FILE"
@@ -272,6 +286,109 @@ print('Wiring smoke: PASS')
         echo "Wiring smoke: FAIL" | tee -a "$RESULTS_FILE"
     else
         echo "Wiring smoke: PASS" | tee -a "$RESULTS_FILE"
+    fi
+
+    # Step 6b: emitCond wiring test (auto-compilation — exercises block bridges)
+    echo "" | tee -a "$RESULTS_FILE"
+    echo "--- Step 6b: emitCond Auto-Compile Wiring ---" | tee -a "$RESULTS_FILE"
+    EMITCOND_OUTPUT=$(ASAN_OPTIONS=detect_leaks=0 JIT_ENABLE=1 "$PYTHON" -c "
+import _cinderx, cinderjit
+cinderjit.auto()
+
+WARMUP = 1100
+
+# --- kLoadMethod emitCond path ---
+# Calling a method on a type triggers simplifyLoadTypeMethodCached
+# which uses emitCond for type method cache fast/slow path.
+class Widget:
+    __slots__ = ('x', 'y')
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+    def area(self):
+        return self.x * self.y
+
+def load_method_test():
+    w = Widget(3, 7)
+    return w.area()
+
+expected_lm = load_method_test()
+for _ in range(WARMUP):
+    load_method_test()
+result_lm = load_method_test()
+assert result_lm == expected_lm, f'load_method_test: {result_lm} != {expected_lm}'
+print(f'load_method_test: PASS (result={result_lm})')
+
+# --- kLoadAttr emitCond path ---
+# Instance attribute access on a class with inline dict triggers
+# simplifyLoadAttrSplitDict which uses emitCond for inline values check.
+class Point:
+    def __init__(self, x, y, z):
+        self.x = x
+        self.y = y
+        self.z = z
+
+def load_attr_test():
+    p = Point(10, 20, 30)
+    return p.x + p.y + p.z
+
+expected_la = load_attr_test()
+for _ in range(WARMUP):
+    load_attr_test()
+result_la = load_attr_test()
+assert result_la == expected_la, f'load_attr_test: {result_la} != {expected_la}'
+print(f'load_attr_test: PASS (result={result_la})')
+
+# --- kCompare isinstance emitCond path ---
+# isinstance() with a known type triggers simplifyVectorCall -> isinstance
+# which uses emitCond for type check fast/slow path.
+def isinstance_test():
+    results = []
+    results.append(isinstance(42, int))
+    results.append(isinstance('hello', str))
+    results.append(isinstance(3.14, int))
+    results.append(isinstance([], list))
+    results.append(isinstance({}, dict))
+    return tuple(results)
+
+expected_ii = isinstance_test()
+for _ in range(WARMUP):
+    isinstance_test()
+result_ii = isinstance_test()
+assert result_ii == expected_ii, f'isinstance_test: {result_ii} != {expected_ii}'
+print(f'isinstance_test: PASS (result={result_ii})')
+
+# --- Combined: method call on instance with dict attrs ---
+# Exercises both LoadMethod and LoadAttr in same compilation unit.
+class Counter:
+    def __init__(self, start=0):
+        self.count = start
+    def increment(self, n=1):
+        self.count += n
+        return self.count
+
+def combined_method_attr_test():
+    c = Counter(10)
+    c.increment(5)
+    c.increment(3)
+    return c.count
+
+expected_cm = combined_method_attr_test()
+for _ in range(WARMUP):
+    combined_method_attr_test()
+result_cm = combined_method_attr_test()
+assert result_cm == expected_cm, f'combined_method_attr_test: {result_cm} != {expected_cm}'
+print(f'combined_method_attr_test: PASS (result={result_cm})')
+
+print('emitCond wiring: PASS')
+" 2>&1 || true)
+    echo "$EMITCOND_OUTPUT" | tee -a "$RESULTS_FILE"
+    if ! echo "$EMITCOND_OUTPUT" | grep -q "emitCond wiring: PASS"; then
+        GATE_PASS=0
+        FAILURES="$FAILURES emitCond:FAIL"
+        echo "emitCond wiring: FAIL" | tee -a "$RESULTS_FILE"
+    else
+        echo "emitCond wiring: PASS" | tee -a "$RESULTS_FILE"
     fi
 fi
 
