@@ -880,6 +880,32 @@ static inline HirType hir_c_return_type(const void *instr) {
     return ((const HirReturn *)instr)->type;
 }
 
+/* Field accessors for pass.cpp outputType port */
+static inline HirType hir_c_bitcast_type(const void *instr) {
+    return ((const HirBitCast *)instr)->type;
+}
+static inline HirType hir_c_get_second_output_type(const void *instr) {
+    return ((const HirGetSecondOutput *)instr)->type;
+}
+static inline HirType hir_c_invoke_static_ret_type(const void *instr) {
+    return ((const HirInvokeStaticFunction *)instr)->ret_type;
+}
+static inline HirType hir_c_load_array_item_type(const void *instr) {
+    return ((const HirLoadArrayItem *)instr)->type;
+}
+static inline HirType hir_c_load_field_type(const void *instr) {
+    return ((const HirLoadField *)instr)->type;
+}
+static inline HirType hir_c_refine_type_type(const void *instr) {
+    return ((const HirRefineType *)instr)->type;
+}
+static inline int32_t hir_c_primitive_unary_op_kind(const void *instr) {
+    return ((const HirPrimitiveUnaryOp *)instr)->op;
+}
+static inline HirType hir_c_call_static_ret_type(const void *instr) {
+    return ((const HirCallStatic *)instr)->ret_type;
+}
+
 /* Bytecode offset setter */
 static inline void hir_c_set_bytecode_offset(void *instr, int32_t off) {
     ((HirInstrLayout *)instr)->bytecode_offset = off;
