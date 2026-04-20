@@ -11,6 +11,7 @@
 #include "pycore_global_strings.h"
 #include "cinderx/Jit/jit_config_c.h"
 #include "pycore_long.h"
+#include "structmember.h"
 
 /* Forward declarations (avoid hir_c_api.h typedef conflicts) */
 extern HirType hir_register_type(void *reg);
@@ -1763,7 +1764,82 @@ static void *simplify_load_attr_split_dict_c(SimplifyEnv *env, const void *instr
     return checked_attr;
 }
 
-/* ==== simplifyLoadAttrInstanceReceiver (partial: SplitDict only) ==== */
+/* ==== emitTypeAttrDeoptPatcher helper ==== */
+static void emit_type_attr_deopt_patcher(SimplifyEnv *env,
+        PyTypeObject *py_type, PyObject *attr_name, PyObject *descr,
+        void *receiver, const char *description) {
+    extern int _PyClassLoader_IsImmutable(PyObject *container);
+    if (_PyClassLoader_IsImmutable((PyObject *)py_type)) return;
+
+    extern void *hir_func_allocate_type_attr_deopt_patcher(
+        void *func, void *type, void *attr_name, void *method);
+    void *patcher = hir_func_allocate_type_attr_deopt_patcher(
+        env->func, py_type, attr_name, descr);
+    extern void *hir_c_create_deopt_patchpoint(void *patcher);
+    void *pp = hir_c_create_deopt_patchpoint(patcher);
+    simplify_env_emit(env, pp);
+    extern void hir_c_set_guilty_reg(void *instr, void *reg);
+    hir_c_set_guilty_reg(pp, receiver);
+    extern void hir_c_set_descr(void *instr, const char *descr);
+    hir_c_set_descr(pp, description);
+}
+
+/* ==== MemberDescr emitCond callbacks ==== */
+
+static void *member_descr_field_set(SimplifyEnv *env, void *ctx) {
+    void *field = ctx;
+    void *reg = hir_func_alloc_register(env->func);
+    HirType t_object = HIR_TYPE_OBJECT;
+    void *instr = hir_c_create_refine_type(reg, t_object, field);
+    return simplify_env_emit(env, instr);
+}
+
+static void *member_descr_field_null(SimplifyEnv *env, void *ctx) {
+    (void)ctx;
+    HirType t_nonetype = HIR_TYPE_NONETYPE;
+    return simplify_env_emit_load_const(env, t_nonetype);
+}
+
+/* ==== simplifyLoadAttrMemberDescr ==== */
+static void *simplify_load_attr_member_descr_c(SimplifyEnv *env,
+        const void *instr, void *receiver, HirType recv_type,
+        PyTypeObject *py_type, PyObject *attr_name, PyObject *descr, void *fs) {
+    if (Py_TYPE(descr) != &PyMemberDescr_Type) return NULL;
+
+    PyMemberDef *def = ((PyMemberDescrObject *)descr)->d_member;
+    if (def->flags & READ_RESTRICTED) return NULL;
+
+    if (def->type == T_OBJECT || def->type == T_OBJECT_EX) {
+        const char *name_cstr = PyUnicode_AsUTF8(attr_name);
+        if (name_cstr == NULL) {
+            PyErr_Clear();
+            name_cstr = "<unknown>";
+        }
+        emit_type_attr_deopt_patcher(env, py_type, attr_name, descr,
+                                     receiver, "member descriptor attribute");
+        simplify_env_emit_use_type(env, receiver, recv_type);
+        HirType t_optobj = HIR_TYPE_OPTOBJECT;
+        void *field = simplify_env_emit_load_field(env, receiver, name_cstr,
+            def->offset, t_optobj, 0);
+
+        if (def->type == T_OBJECT_EX) {
+            extern void *hir_c_create_check_field(void *func, void *src,
+                void *name, void *frame_state);
+            void *check = hir_c_create_check_field(env->func, field, attr_name, fs);
+            void *result = simplify_env_emit(env, check);
+            extern void hir_c_set_guilty_reg(void *instr, void *reg);
+            hir_c_set_guilty_reg(check, receiver);
+            return result;
+        }
+
+        return simplify_emit_cond(env, field,
+            member_descr_field_set, field,
+            member_descr_field_null, NULL);
+    }
+    return NULL;
+}
+
+/* ==== simplifyLoadAttrInstanceReceiver ==== */
 static void *simplify_load_attr_instance_c(SimplifyEnv *env, const void *instr) {
     void *receiver = hir_c_get_operand(instr, 0);
     HirType recv_type = hir_register_type(receiver);
@@ -1794,8 +1870,12 @@ static void *simplify_load_attr_instance_c(SimplifyEnv *env, const void *instr) 
         return simplify_load_attr_split_dict_c(env, instr, py_type, attr_name);
     }
 
-    /* Descriptor paths (memberDescr, property, genericDescr) — return NULL
-     * to fall through to C++ for now. */
+    /* Try descriptor handlers in order */
+    void *result = simplify_load_attr_member_descr_c(env, instr, receiver,
+        recv_type, py_type, attr_name, descr, fs);
+    if (result) return result;
+
+    /* Property + GenericDescr — return NULL to fall through to C++ */
     return NULL;
 }
 
