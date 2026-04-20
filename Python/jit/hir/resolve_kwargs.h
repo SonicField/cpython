@@ -3,6 +3,7 @@
 #pragma once
 
 #include "cinderx/Jit/hir/pass.h"
+#include "cinderx/Jit/hir/resolve_kwargs_c.h"
 
 namespace jit::hir {
 
@@ -21,7 +22,9 @@ class ResolveKwargs : public Pass {
  public:
   ResolveKwargs() : Pass("ResolveKwargs") {}
 
-  void Run(Function& irfunc) override;
+  void Run(Function& irfunc) override {
+    hir_resolve_kwargs_run(static_cast<void*>(&irfunc));
+  }
 
   static std::unique_ptr<ResolveKwargs> Factory() {
     return std::make_unique<ResolveKwargs>();

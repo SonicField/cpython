@@ -3,6 +3,7 @@
 #pragma once
 
 #include "cinderx/Jit/hir/pass.h"
+#include "cinderx/Jit/hir/licm_c.h"
 
 namespace jit::hir {
 
@@ -19,7 +20,9 @@ class LICM : public Pass {
  public:
   LICM() : Pass("LICM") {}
 
-  void Run(Function& irfunc) override;
+  void Run(Function& irfunc) override {
+    hir_licm_run(static_cast<void*>(&irfunc));
+  }
 
   static std::unique_ptr<LICM> Factory() {
     return std::make_unique<LICM>();

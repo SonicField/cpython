@@ -2414,5 +2414,8 @@ void *simplify_vectorcall_c(SimplifyEnv *env, const void *instr) {
         return simplify_env_emit(env, gl);
     }
 
+    /* isinstance + resolveArgs paths stay in C++ (isinstance needs
+     * LivenessAnalysis for Phase 3 if-path optimization, and Phase 2
+     * shares setup with Phase 3 — can't split at C boundary). */
     return NULL;
 }
