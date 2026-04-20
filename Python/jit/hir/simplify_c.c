@@ -1,6 +1,13 @@
 /* Copyright (c) Meta Platforms, Inc. and affiliates.
  *
  * Pure C simplify handlers — incremental port of simplify.cpp.
+ *
+ * CONSTANT FAMILIES — always use named constants, never raw integers:
+ *   HIR_PCMP_*       PrimitiveCompareOp (hir_instr_c.h:859)
+ *   HIR_BOP_*        BinaryOpKind       (hir_instr_c.h)
+ *   HIR_CALL_FLAG_*  CallFlags          (hir_instr_c.h:792)
+ *   HIR_TYPE_*       HirType constants  (hir_type_c.h)
+ *   HIR_OP_*         Opcode constants   (hir_instr_c.h)
  */
 
 #include "cinderx/Jit/hir/simplify_c.h"
