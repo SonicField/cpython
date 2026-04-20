@@ -1435,60 +1435,6 @@ static Register* resolveArgs(
 }
 
 
-// Translate VectorCall to CallStatic whenever possible, saving stack
-// manipulation costs (pushing args to stack).
-static Register* trySpecializeCCall(Env& env, const VectorCall* instr) {
-  if (instr->flags() & CallFlags::Awaited) {
-    // We can't pass the awaited flag outside of vectorcall.
-    return nullptr;
-  }
-  Register* callable = instr->func();
-  Type callable_type = callable->type();
-  HirType callable_hir_co = to_hir(callable_type);
-  PyObject* callable_obj = hir_type_as_object(&callable_hir_co);
-  if (callable_obj == nullptr) {
-    return nullptr;
-  }
-
-  // Non METH_STATIC and METH_CLASS tp_methods on types are stored as
-  // PyMethodDescr inside tp_dict. Check out:
-  // Objects/typeobject.c#type_add_method
-  if (Py_TYPE(callable_obj) == &PyMethodDescr_Type) {
-    auto meth = reinterpret_cast<PyMethodDescrObject*>(callable_obj);
-    PyMethodDef* def = meth->d_method;
-    if (def->ml_flags & METH_NOARGS && instr->numArgs() == 1) {
-      auto call = env.emitCallStaticInstr(
-          1, reinterpret_cast<void*>(def->ml_meth),
-          instr->output()->type() | TNullptr);
-      call->SetOperand(0, instr->arg(0));
-      return env.emitCheckExc(call->output(), *instr->frameState());
-    }
-    if (def->ml_flags & METH_O && instr->numArgs() == 2) {
-      auto call = env.emitCallStaticInstr(
-          2, reinterpret_cast<void*>(def->ml_meth),
-          instr->output()->type() | TNullptr);
-      call->SetOperand(0, instr->arg(0));
-      call->SetOperand(1, instr->arg(1));
-      return env.emitCheckExc(call->output(), *instr->frameState());
-    }
-  }
-  return nullptr;
-}
-
-Register* simplifyVectorCallStatic(Env& env, const VectorCall* instr) {
-  if (!(instr->flags() & CallFlags::Static)) {
-    return nullptr;
-  }
-  Register* func = instr->func();
-  if (isBuiltin(func, "list.append") && instr->numArgs() == 2) {
-    env.emitUseType(func, func->type());
-    env.emitListAppend(instr->arg(0), instr->arg(1), *instr->frameState());
-    return env.emitLoadConst(TNoneType);
-  }
-
-  return trySpecializeCCall(env, instr);
-}
-
 // Special case here where we are testing `if isinstance`. In that case we do
 // not want to go through the boxing and then unboxing that we are about to do.
 // Instead, we want to directly provide the result of the unboxed comparison.
@@ -1521,8 +1467,6 @@ std::optional<std::pair<Instr*, std::vector<Instr*>>> isVectorCallIfIsInstance(
         auto lu_at_condbranch = last_uses.find(&*current);
         if (lu_at_condbranch == last_uses.end() ||
             lu_at_condbranch->second.size() != 1) {
-          // If the CondBranch instruction is not the last use of the
-          // IsTruthy output, then we cannot perform this optimization.
           state = kFailed;
           break;
         }
@@ -1537,8 +1481,6 @@ std::optional<std::pair<Instr*, std::vector<Instr*>>> isVectorCallIfIsInstance(
           auto lu_at_istruthy = last_uses.find(&*current);
           if (lu_at_istruthy == last_uses.end() ||
               lu_at_istruthy->second.size() != 1) {
-            // If the IsTruthy instruction is not the last use of the VectorCall
-            // output, then we cannot perform this optimization.
             state = kFailed;
           } else {
             state = kIsTruthy;
@@ -1561,7 +1503,6 @@ std::optional<std::pair<Instr*, std::vector<Instr*>>> isVectorCallIfIsInstance(
         }
 
         if (current->IsSnapshot()) {
-          // Leave these snapshots in place.
           break;
         }
 
@@ -1573,241 +1514,14 @@ std::optional<std::pair<Instr*, std::vector<Instr*>>> isVectorCallIfIsInstance(
     }
   }
 
-  // If we found anything else between the VectorCall, IsTruthy, and CondBranch
-  // besides the expected instructions and some snapshots, then we cannot
-  // perform this optimization.
   return std::nullopt;
 }
 
-
-// Simplify VectorCall where the function operand was produced by
-// LoadAttrSpecial (used for __enter__/__aenter__ in with-statements).
-// If the receiver type is exact and the special method resolves to a
-// PyFunctionObject, replace the bound-method call with a static call
-// to the resolved function with self as the first argument.
-Register* simplifyVectorCallBoundMethod(Env& env, const VectorCall* instr) {
-#if PY_VERSION_HEX < 0x030C0000
-  (void)env;
-  (void)instr;
-  return nullptr;
-#else
-  // Only handle simple calls -- no kwargs, static, or awaited.
-  if (instr->flags() &
-      (CallFlags::KwArgs | CallFlags::Static | CallFlags::Awaited)) {
-    return nullptr;
-  }
-
-  // Check if the function operand was produced by LoadAttrSpecial.
-  Register* func_reg = instr->func();
-  Instr* func_def = func_reg->instr();
-  if (func_def == nullptr || !func_def->IsLoadAttrSpecial()) {
-    return nullptr;
-  }
-
-  auto load_attr_special = static_cast<const LoadAttrSpecial*>(func_def);
-  PyObject* attr_id = load_attr_special->id();
-
-  // Handle __enter__/__aenter__ and __exit__/__aexit__ -- the special methods
-  // used by with-statements. Resolving both sides lets the inliner eliminate
-  // all context-manager call overhead.
-  if (attr_id != &_Py_ID(__enter__) && attr_id != &_Py_ID(__aenter__) &&
-      attr_id != &_Py_ID(__exit__) && attr_id != &_Py_ID(__aexit__)) {
-    return nullptr;
-  }
-
-  // The receiver is the object being used as a context manager.
-  Register* receiver = load_attr_special->GetOperand(0);
-  Type receiver_type = receiver->type();
-  HirType recv_hir2 = to_hir(receiver_type);
-  PyTypeObject* py_type{hir_type_runtime_py_type(&recv_hir2)};
-
-  // Bail if receiver type is not exact or not ready.
-  if (!hir_type_is_exact(&recv_hir2) || py_type == nullptr ||
-      !PyType_HasFeature(py_type, Py_TPFLAGS_READY)) {
-    return nullptr;
-  }
-
-  // Ensure the type has a valid version tag for deopt safety.
-  if (getThreadedCompileContext().compileRunning()) {
-    if (!Ci_Type_HasValidVersionTag(py_type)) {
-      return nullptr;
-    }
-  } else if (!ensureVersionTag(py_type)) {
-    return nullptr;
-  }
-
-  // Resolve the special method through the MRO at compile time.
-  PyObject* method{typeLookupSafe(py_type, attr_id)};
-  if (method == nullptr) {
-    return nullptr;
-  }
-
-  // Only handle plain Python functions -- reject C method descriptors,
-  // classmethod, staticmethod, property, etc.
-  if (!PyFunction_Check(method)) {
-    return nullptr;
-  }
-
-  // Ensure a preloader exists for the resolved callee so the inliner can
-  // inline it. preloadFuncAndDeps only discovers globals and static
-  // invocations, not type attribute methods from LoadAttrSpecial.
-  // Safe to call here: in single-function mode we hold the GIL, and for
-  // trivial methods (e.g. __enter__(self): return self) the preloader
-  // matches no bytecodes -- no Python code execution occurs.
-  if (!getThreadedCompileContext().compileRunning()) {
-    PyFunctionObject* py_func = (PyFunctionObject*)method;
-    if (preloaderManager().find(py_func) == nullptr) {
-      auto callee_preloader = Preloader::makePreloader(py_func);
-      if (callee_preloader) {
-        preloaderManager().add(
-            (PyCodeObject*)py_func->func_code,
-            std::move(callee_preloader));
-      }
-    }
-  }
-
-  // Emit a Snapshot to provide a FrameState for the DeoptPatchpoint.
-  // bindGuards resets fs to nullptr on non-replayable instructions
-  // (LoadAttrSpecial), so our DeoptPatchpoint needs its own Snapshot.
-  env.emitSnapshot(*instr->frameState());
-
-  if (!_PyClassLoader_IsImmutable((PyObject*)py_type)) {
-    auto patchpoint = env.emitDeoptPatchpoint(
-        env.func.allocateCodePatcher<TypeAttrDeoptPatcher>(
-            py_type, (PyUnicodeObject*)attr_id, method));
-    hir_c_set_guilty_reg(patchpoint,receiver);
-    hir_c_set_descr(patchpoint,"LoadAttrSpecial method resolution");
-  }
-  HirType recv_unspec2 = hir_type_unspecialized(&recv_hir2);
-  env.emitUseType(receiver, Type::fromHirType(recv_unspec2));
-
-  // Load the resolved function as a constant.
-  Register* func_const = env.emitLoadConst(
-      Type::fromObject(env.func.env.addReference(method)));
-
-  // Build a new VectorCall with the function, self (receiver), and
-  // original arguments. Mark as Static since we're calling directly.
-  size_t orig_nargs = instr->numArgs();
-  auto new_call = env.emitVectorCallInstr(
-      2 + orig_nargs, instr->flags() | CallFlags::Static, *instr->frameState());
-  new_call->SetOperand(0, func_const);
-  new_call->SetOperand(1, receiver);
-  for (size_t i = 0; i < orig_nargs; ++i) {
-    new_call->SetOperand(2 + i, instr->arg(i));
-  }
-
-  return new_call->output();
-#endif
-}
-
-// Eliminate the function-identity GuardIs for calls to global functions that
-// are loaded via LoadGlobalCached.  Instead of checking function identity at
-// runtime (GuardIs), we install a GlobalDeoptPatcher that invalidates the
-// compiled code if the global is rebound.  The code-object GuardIs in the
-// inliner is kept as a safety net.
-//
-// Pattern matched:
-//   LoadGlobalCached -> GuardIs(expected_func) -> VectorCall
-// Replaced with:
-//   Snapshot -> DeoptPatchpoint(GlobalDeoptPatcher) -> LoadConst(expected_func) -> VectorCall(Static)
-Register* simplifyVectorCallGlobal(Env& env, const VectorCall* instr) {
-  // Only handle simple calls -- no kwargs, static, or awaited.
-  if (instr->flags() &
-      (CallFlags::KwArgs | CallFlags::Static | CallFlags::Awaited)) {
-    return nullptr;
-  }
-
-  // Check if the function operand was produced by a GuardIs.
-  Register* func_reg = instr->func();
-  Instr* func_def = func_reg->instr();
-  if (func_def == nullptr || !func_def->IsGuardIs()) {
-    return nullptr;
-  }
-
-  auto guard_is = static_cast<const GuardIs*>(func_def);
-
-  // Check if the GuardIs operand came from LoadGlobalCached.
-  Register* guarded_input = guard_is->GetOperand(0);
-  Instr* input_def = guarded_input->instr();
-  if (input_def == nullptr || !input_def->IsLoadGlobalCached()) {
-    return nullptr;
-  }
-
-  // Get the expected value from the GuardIs.
-  PyObject* expected = guard_is->target();
-  if (!PyFunction_Check(expected)) {
-    return nullptr;
-  }
-
-  // Get the globals dict and name from the LoadGlobalCached instruction.
-  auto load_global = static_cast<const LoadGlobalCached*>(input_def);
-  PyDictObject* globals{load_global->globals()};
-  PyObject* name = PyTuple_GET_ITEM(load_global->code()->co_names,
-                                     load_global->name_idx());
-  if (!PyUnicode_CheckExact(name)) {
-    return nullptr;
-  }
-  PyUnicodeObject* key_name = (PyUnicodeObject*)name;
-
-  // Don't simplify during threaded compilation -- we need the GIL to
-  // safely register watchers and access the preloader.
-  if (getThreadedCompileContext().compileRunning()) {
-    return nullptr;
-  }
-
-  // Emit a Snapshot to provide a FrameState for the DeoptPatchpoint.
-  env.emitSnapshot(*instr->frameState());
-
-  // Install a GlobalDeoptPatcher that fires if this global is rebound.
-  auto* patcher = env.func.allocateCodePatcher<GlobalDeoptPatcher>(
-      globals, key_name, (PyObject*)expected);
-  auto patchpoint = env.emitDeoptPatchpoint(patcher);
-  hir_c_set_guilty_reg(patchpoint,func_reg);
-  hir_c_set_descr(patchpoint,"Global callee guard elimination");
-
-  // Load the resolved function as a constant.  This gives the register
-  // TFunc[expected] type so the inliner can determine the inline target.
-  Register* func_const = env.emitLoadConst(
-      Type::fromObject(env.func.env.addReference(expected)));
-
-  // Build a new VectorCall with the constant function and original arguments.
-  size_t orig_nargs = instr->numArgs();
-  auto new_call = env.emitVectorCallInstr(
-      1 + orig_nargs, instr->flags() | CallFlags::Static, *instr->frameState());
-  new_call->SetOperand(0, func_const);
-  for (size_t i = 0; i < orig_nargs; ++i) {
-    new_call->SetOperand(1 + i, instr->arg(i));
-  }
-
-  return new_call->output();
-}
-
 Register* simplifyVectorCall(Env& env, const VectorCall* instr) {
-  if (Register* result = simplifyVectorCallStatic(env, instr)) {
-    return result;
-  }
-  if (Register* result = simplifyVectorCallBoundMethod(env, instr)) {
-    return result;
-  }
-  if (Register* result = simplifyVectorCallGlobal(env, instr)) {
-    return result;
-  }
   if (instr->flags() & CallFlags::KwArgs) {
     return nullptr;
   }
-
-  Register* target = instr->GetOperand(0);
-  Type target_type = target->type();
-  if (target_type == env.type_object && instr->NumOperands() == 2) {
-    env.emitUseType(target, env.type_object);
-    return env.emitLoadField(
-        instr->GetOperand(1), "ob_type", offsetof(PyObject, ob_type), TType);
-  }
-  if (isBuiltin(target, "len") && instr->numArgs() == 1) {
-    env.emitUseType(target, target->type());
-    return env.emitGetLength(instr->arg(0), *instr->frameState());
-  }
-  if (isBuiltin(target, "isinstance") && instr->numArgs() == 2 &&
+  if (isBuiltin(instr->GetOperand(0), "isinstance") && instr->numArgs() == 2 &&
       instr->GetOperand(2)->type() <= TType &&
       !(instr->GetOperand(2)->type() <= TTuple)) {
     auto obj_op = instr->GetOperand(1);
@@ -1878,6 +1592,7 @@ Register* simplifyVectorCall(Env& env, const VectorCall* instr) {
         });
     return env.emitPrimitiveBoxBool(cbool_res);
   }
+  Type target_type = instr->GetOperand(0)->type();
   HirType target_hir = to_hir(target_type);
   if (hir_type_has_value_spec(&target_hir, to_hir(TFunc))) {
     PyFunctionObject* func = (PyFunctionObject*)hir_type_object_spec(&target_hir);
