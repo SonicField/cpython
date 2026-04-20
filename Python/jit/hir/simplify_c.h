@@ -70,6 +70,7 @@ void *simplify_load_var_object_size_c(SimplifyEnv *env, const void *instr);
 
 /* Tier 3: emitCond-using handlers */
 void *simplify_load_method_c(SimplifyEnv *env, const void *instr);
+void *simplify_binary_op_c(SimplifyEnv *env, const void *instr);
 
 #ifdef __cplusplus
 }

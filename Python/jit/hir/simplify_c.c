@@ -1275,3 +1275,291 @@ void *simplify_load_method_c(SimplifyEnv *env, const void *instr) {
 
     return emit_load_method_cached(env, receiver, name_idx, fs);
 }
+
+/* ==== BinaryOp emit helpers ==== */
+
+static void *simplify_env_emit_dict_subscr(SimplifyEnv *env, void *lhs, void *rhs, void *fs) {
+    extern void *hir_c_create_dict_subscr(void *func, void *lhs, void *rhs, void *fs);
+    void *instr = hir_c_create_dict_subscr(env->func, lhs, rhs, fs);
+    return simplify_env_emit(env, instr);
+}
+
+static void *simplify_env_emit_index_unbox(SimplifyEnv *env, void *src, void *exc) {
+    void *reg = hir_func_alloc_register(env->func);
+    void *instr = hir_c_create_index_unbox(reg, src, exc);
+    return simplify_env_emit(env, instr);
+}
+
+static void simplify_env_emit_is_neg_and_err(SimplifyEnv *env, void *src, void *fs) {
+    extern void *hir_c_create_is_neg_and_err(void *func, void *src, void *fs);
+    void *instr = hir_c_create_is_neg_and_err(env->func, src, fs);
+    simplify_env_emit(env, instr);
+}
+
+static void *simplify_env_emit_check_sequence_bounds(SimplifyEnv *env,
+        void *seq, void *idx, void *fs) {
+    extern void *hir_c_create_check_sequence_bounds_reg(void *dst, void *seq, void *idx, void *fs);
+    void *reg = hir_func_alloc_register(env->func);
+    void *instr = hir_c_create_check_sequence_bounds_reg(reg, seq, idx, fs);
+    return simplify_env_emit(env, instr);
+}
+
+static void *simplify_env_emit_load_array_item(SimplifyEnv *env,
+        void *arr, void *idx, void *container, intptr_t offset, HirType type) {
+    extern void *hir_c_create_load_array_item(void *func, void *arr, void *idx,
+        void *container, intptr_t offset, HirType type);
+    void *instr = hir_c_create_load_array_item(env->func, arr, idx, container, offset, type);
+    return simplify_env_emit(env, instr);
+}
+
+static void *simplify_env_emit_unicode_subscr(SimplifyEnv *env,
+        void *lhs, void *idx, void *fs) {
+    extern void *hir_c_create_unicode_subscr(void *func, void *lhs, void *idx, void *fs);
+    void *instr = hir_c_create_unicode_subscr(env->func, lhs, idx, fs);
+    return simplify_env_emit(env, instr);
+}
+
+static void *simplify_env_emit_long_binary_op_deopt(SimplifyEnv *env,
+        int32_t op, void *lhs, void *rhs, void *fs) {
+    extern void *hir_c_create_long_binary_op(void *func, int32_t op,
+        void *lhs, void *rhs, void *fs);
+    void *instr = hir_c_create_long_binary_op(env->func, op, lhs, rhs, fs);
+    return simplify_env_emit(env, instr);
+}
+
+static void *simplify_env_emit_unicode_repeat(SimplifyEnv *env,
+        void *lhs, void *rhs, void *fs) {
+    extern void *hir_c_create_unicode_repeat(void *func, void *lhs, void *rhs, void *fs);
+    void *instr = hir_c_create_unicode_repeat(env->func, lhs, rhs, fs);
+    return simplify_env_emit(env, instr);
+}
+
+static void *simplify_env_emit_unicode_concat(SimplifyEnv *env,
+        void *lhs, void *rhs, void *fs) {
+    extern void *hir_c_create_unicode_concat(void *func, void *lhs, void *rhs, void *fs);
+    void *instr = hir_c_create_unicode_concat(env->func, lhs, rhs, fs);
+    return simplify_env_emit(env, instr);
+}
+
+/* ==== simplifyBinaryOp ==== */
+void *simplify_binary_op_c(SimplifyEnv *env, const void *instr) {
+    int32_t op = hir_c_binary_op_kind(instr);
+    void *lhs = hir_c_get_operand(instr, 0);
+    void *rhs = hir_c_get_operand(instr, 1);
+    HirType lhs_type = hir_register_type(lhs);
+    HirType rhs_type = hir_register_type(rhs);
+    void *fs = hir_c_get_frame_state(instr);
+    HirType t_long_exact = HIR_TYPE_LONGEXACT;
+    HirType t_float_exact = HIR_TYPE_FLOATEXACT;
+    HirType t_dict_exact = HIR_TYPE_DICTEXACT;
+    HirType t_unicode_exact = HIR_TYPE_UNICODEEXACT;
+    HirType t_tuple_exact = HIR_TYPE_TUPLEEXACT;
+    HirType t_list_exact = HIR_TYPE_LISTEXACT;
+    HirType t_object = HIR_TYPE_OBJECT;
+    HirType t_cptr = HIR_TYPE_CPTR;
+
+    /* Subscript paths */
+    if (op == HIR_BOP_Subscript) {
+        if (hir_type_is_subtype(lhs_type, t_dict_exact)) {
+            return simplify_env_emit_dict_subscr(env, lhs, rhs, fs);
+        }
+        if (!hir_type_is_subtype(rhs_type, t_long_exact)) return NULL;
+
+        /* Known tuple constant fold */
+        if (hir_type_is_subtype(lhs_type, t_tuple_exact) &&
+            hir_type_has_object_spec(&lhs_type) &&
+            hir_type_has_object_spec(&rhs_type)) {
+            int overflow;
+            Py_ssize_t index = PyLong_AsLongAndOverflow(
+                hir_type_object_spec(&rhs_type), &overflow);
+            if (!overflow) {
+                PyObject *lhs_obj = hir_type_object_spec(&lhs_type);
+                if (index >= 0 && index < PyTuple_GET_SIZE(lhs_obj)) {
+                    simplify_env_emit_use_type(env, lhs, lhs_type);
+                    simplify_env_emit_use_type(env, rhs, rhs_type);
+                    PyObject *item = PyTuple_GET_ITEM(lhs_obj, index);
+                    return simplify_env_emit_load_const_object(env, item);
+                }
+            }
+        }
+
+#ifndef Py_GIL_DISABLED
+        /* List/Tuple subscript → IndexUnbox + CheckBounds + LoadArrayItem */
+        if (hir_type_is_subtype(lhs_type, t_list_exact) ||
+            hir_type_is_subtype(lhs_type, t_tuple_exact)) {
+            HirType use_type = hir_type_is_subtype(lhs_type, t_list_exact)
+                ? t_list_exact : t_tuple_exact;
+            simplify_env_emit_use_type(env, lhs, use_type);
+            simplify_env_emit_use_type(env, rhs, t_long_exact);
+            void *right_index = simplify_env_emit_index_unbox(env, rhs, PyExc_IndexError);
+            simplify_env_emit_is_neg_and_err(env, right_index, fs);
+            void *adjusted_idx = simplify_env_emit_check_sequence_bounds(env, lhs, right_index, fs);
+            intptr_t offset = (intptr_t)offsetof(PyTupleObject, ob_item);
+            void *array = lhs;
+            if (hir_type_is_subtype(lhs_type, t_list_exact)) {
+                array = simplify_env_emit_load_field(env, lhs, "ob_item",
+                    (intptr_t)offsetof(PyListObject, ob_item), t_cptr, 0);
+                offset = 0;
+            }
+            return simplify_env_emit_load_array_item(env, array, adjusted_idx,
+                lhs, offset, t_object);
+        }
+#endif
+        /* Unicode subscript constant fold */
+        if (hir_type_is_subtype(lhs_type, t_unicode_exact) &&
+            hir_type_has_object_spec(&lhs_type) &&
+            hir_type_has_object_spec(&rhs_type)) {
+            int overflow;
+            Py_ssize_t index = PyLong_AsLongAndOverflow(
+                hir_type_object_spec(&rhs_type), &overflow);
+            if (!overflow && index >= 0 &&
+                index < PyUnicode_GET_LENGTH(hir_type_object_spec(&lhs_type))) {
+                simplify_env_emit_use_type(env, lhs, lhs_type);
+                simplify_env_emit_use_type(env, rhs, rhs_type);
+                Py_UCS4 ch = PyUnicode_READ_CHAR(hir_type_object_spec(&lhs_type), index);
+                extern void jit_compile_lock(void);
+                extern void jit_compile_unlock(void);
+                jit_compile_lock();
+                PyObject *result = PyUnicode_FromOrdinal(ch);
+                jit_compile_unlock();
+                if (result != NULL) {
+                    extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
+                    PyObject *ref = hir_func_add_reference(env->func, result);
+                    Py_DECREF(result);
+                    return simplify_env_emit_load_const(env, hir_type_from_object(ref));
+                }
+                PyErr_Clear();
+            }
+        }
+#ifndef Py_GIL_DISABLED
+        /* Unicode subscript runtime */
+        if (hir_type_is_subtype(lhs_type, t_unicode_exact)) {
+            simplify_env_emit_use_type(env, lhs, t_unicode_exact);
+            simplify_env_emit_use_type(env, rhs, t_long_exact);
+            void *unboxed_idx = simplify_env_emit_index_unbox(env, rhs, PyExc_IndexError);
+            simplify_env_emit_is_neg_and_err(env, unboxed_idx, fs);
+            void *adjusted_idx = simplify_env_emit_check_sequence_bounds(
+                env, lhs, unboxed_idx, fs);
+            return simplify_env_emit_unicode_subscr(env, lhs, adjusted_idx, fs);
+        }
+#endif
+        return NULL;
+    }
+
+    /* Long + Long → LongBinaryOp */
+    if (hir_type_is_subtype(lhs_type, t_long_exact) &&
+        hir_type_is_subtype(rhs_type, t_long_exact)) {
+        if (op == HIR_BOP_MatrixMultiply || op == HIR_BOP_Subscript)
+            return NULL;
+        simplify_env_emit_use_type(env, lhs, t_long_exact);
+        simplify_env_emit_use_type(env, rhs, t_long_exact);
+        return simplify_env_emit_long_binary_op_deopt(env, op, lhs, rhs, fs);
+    }
+
+    /* Float speculation */
+    if (op != HIR_BOP_Subscript && op != HIR_BOP_MatrixMultiply) {
+        if (hir_type_is_subtype(lhs_type, t_float_exact) &&
+            !hir_type_is_subtype(rhs_type, t_float_exact) &&
+            hir_type_could_be(&rhs_type, &t_float_exact)) {
+            if (float_slot_method(op) != NULL || op == HIR_BOP_Power) {
+                simplify_env_emit_use_type(env, lhs, t_float_exact);
+                void *guarded = simplify_env_emit_guard_type_deopt(env, t_float_exact, rhs, fs);
+                return simplify_env_emit_float_binary_op_deopt(env, op, lhs, guarded, fs);
+            }
+        }
+        if (hir_type_is_subtype(rhs_type, t_float_exact) &&
+            !hir_type_is_subtype(lhs_type, t_float_exact) &&
+            hir_type_could_be(&lhs_type, &t_float_exact)) {
+            if (float_slot_method(op) != NULL || op == HIR_BOP_Power) {
+                simplify_env_emit_use_type(env, rhs, t_float_exact);
+                void *guarded = simplify_env_emit_guard_type_deopt(env, t_float_exact, lhs, fs);
+                return simplify_env_emit_float_binary_op_deopt(env, op, guarded, rhs, fs);
+            }
+        }
+    }
+
+    /* Long speculation */
+    if (op != HIR_BOP_Subscript && op != HIR_BOP_MatrixMultiply) {
+        if (hir_type_is_subtype(lhs_type, t_long_exact) &&
+            !hir_type_is_subtype(rhs_type, t_long_exact) &&
+            hir_type_could_be(&rhs_type, &t_long_exact)) {
+            simplify_env_emit_use_type(env, lhs, t_long_exact);
+            void *guarded = simplify_env_emit_guard_type_deopt(env, t_long_exact, rhs, fs);
+            return simplify_env_emit_long_binary_op_deopt(env, op, lhs, guarded, fs);
+        }
+        if (hir_type_is_subtype(rhs_type, t_long_exact) &&
+            !hir_type_is_subtype(lhs_type, t_long_exact) &&
+            hir_type_could_be(&lhs_type, &t_long_exact)) {
+            simplify_env_emit_use_type(env, rhs, t_long_exact);
+            void *guarded = simplify_env_emit_guard_type_deopt(env, t_long_exact, lhs, fs);
+            return simplify_env_emit_long_binary_op_deopt(env, op, guarded, rhs, fs);
+        }
+    }
+
+    /* Float + Float → FloatBinaryOp */
+    if (hir_type_is_subtype(lhs_type, t_float_exact) &&
+        hir_type_is_subtype(rhs_type, t_float_exact) &&
+        (op == HIR_BOP_Power || float_slot_method(op) != NULL)) {
+        simplify_env_emit_use_type(env, lhs, t_float_exact);
+        simplify_env_emit_use_type(env, rhs, t_float_exact);
+        return simplify_env_emit_float_binary_op_deopt(env, op, lhs, rhs, fs);
+    }
+
+    /* Int-to-float constant fold */
+    {
+        void *float_reg = NULL, *int_reg = NULL;
+        if (hir_type_is_subtype(lhs_type, t_float_exact) &&
+            hir_type_is_subtype(rhs_type, t_long_exact) &&
+            hir_type_has_object_spec(&rhs_type)) {
+            float_reg = lhs; int_reg = rhs;
+        } else if (hir_type_is_subtype(rhs_type, t_float_exact) &&
+                   hir_type_is_subtype(lhs_type, t_long_exact) &&
+                   hir_type_has_object_spec(&lhs_type)) {
+            float_reg = rhs; int_reg = lhs;
+        }
+        if (float_reg != NULL &&
+            (op == HIR_BOP_Power || float_slot_method(op) != NULL)) {
+            extern int jit_compile_running(void);
+            if (jit_compile_running()) return NULL;
+            HirType int_type = hir_register_type(int_reg);
+            double dval = PyLong_AsDouble(hir_type_object_spec(&int_type));
+            if (dval != -1.0 || !PyErr_Occurred()) {
+                extern void jit_compile_lock(void);
+                extern void jit_compile_unlock(void);
+                jit_compile_lock();
+                PyObject *float_obj = PyFloat_FromDouble(dval);
+                jit_compile_unlock();
+                if (float_obj != NULL) {
+                    simplify_env_emit_use_type(env, float_reg, t_float_exact);
+                    simplify_env_emit_use_type(env, int_reg, int_type);
+                    extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
+                    PyObject *ref = hir_func_add_reference(env->func, float_obj);
+                    Py_DECREF(float_obj);
+                    void *float_const = simplify_env_emit_load_const(env, hir_type_from_object(ref));
+                    return simplify_env_emit_float_binary_op_deopt(env, op,
+                        (int_reg == lhs) ? float_const : lhs,
+                        (int_reg == rhs) ? float_const : rhs, fs);
+                }
+            }
+            PyErr_Clear();
+        }
+    }
+
+    /* Unicode multiply */
+    if (hir_type_is_subtype(lhs_type, t_unicode_exact) &&
+        hir_type_is_subtype(rhs_type, t_long_exact) &&
+        op == HIR_BOP_Multiply) {
+        void *unboxed_rhs = simplify_env_emit_index_unbox(env, rhs, PyExc_OverflowError);
+        simplify_env_emit_is_neg_and_err(env, unboxed_rhs, fs);
+        return simplify_env_emit_unicode_repeat(env, lhs, unboxed_rhs, fs);
+    }
+
+    /* Unicode concat */
+    if (hir_type_is_subtype(lhs_type, t_unicode_exact) &&
+        hir_type_is_subtype(rhs_type, t_unicode_exact) &&
+        op == HIR_BOP_Add) {
+        return simplify_env_emit_unicode_concat(env, lhs, rhs, fs);
+    }
+
+    return NULL;
+}
