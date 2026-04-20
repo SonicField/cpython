@@ -2004,7 +2004,8 @@ void *simplify_load_attr_c(SimplifyEnv *env, const void *instr) {
                                   type_attr_slow_path, &slow_ctx);
     }
 
-    return NULL;
+    /* Default: LoadAttrCached */
+    return emit_load_attr_cached(env, receiver, name_idx, fs);
 }
 
 /* ==== simplifyCallMethod ====
