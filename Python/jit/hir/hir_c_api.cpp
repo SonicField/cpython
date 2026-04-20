@@ -165,6 +165,14 @@ PyObject* hir_func_add_reference(HirFunction func, PyObject* obj) {
   return as_func(func)->env.addReference(obj);
 }
 
+int hir_func_env_allocate_type_method_cache(HirFunction func) {
+  return as_func(func)->env.allocateLoadTypeMethodCache();
+}
+
+int hir_func_env_allocate_type_attr_cache(HirFunction func) {
+  return as_func(func)->env.allocateLoadTypeAttrCache();
+}
+
 size_t hir_cfg_get_rpo(HirCFG cfg, HirBasicBlock *out, size_t capacity) {
   auto rpo = as_cfg(cfg)->GetRPOTraversal();
   size_t count = rpo.size() < capacity ? rpo.size() : capacity;

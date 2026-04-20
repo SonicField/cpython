@@ -2724,10 +2724,16 @@ Register* simplifyCIntToCBool(Env& env, const Instr* instr) {
 Register* simplifyInstr(Env& env, const Instr* instr) {
   auto make_c_env = [&]() -> SimplifyEnv {
     return {&env.func, env.block, const_cast<Instr*>(&*env.cursor),
-            env.bc_off.value(), 0};
+            env.bc_off.value(), 0, 0};
   };
   auto sync_c_env = [&](const SimplifyEnv& cenv) {
     if (cenv.optimized) env.optimized = true;
+    if (cenv.new_blocks) {
+      env.new_blocks += cenv.new_blocks;
+      env.block = static_cast<BasicBlock*>(cenv.block);
+      env.cursor = env.block->iterator_to(
+          *static_cast<Instr*>(cenv.cursor_instr));
+    }
   };
   switch (instr->opcode()) {
     case Opcode::kCheckVar:
@@ -2800,8 +2806,12 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
 #endif
 // TODO(T255263721) - Enable this again. See P2169673579 and P2184559031.
 #ifndef Py_GIL_DISABLED
-    case Opcode::kLoadMethod:
-      return simplifyLoadMethod(env, instr);
+    case Opcode::kLoadMethod: {
+      SimplifyEnv cenv = make_c_env();
+      auto *r = static_cast<Register*>(simplify_load_method_c(&cenv, instr));
+      sync_c_env(cenv);
+      return r;
+    }
 #endif
     case Opcode::kLoadField: {
       SimplifyEnv cenv = make_c_env();

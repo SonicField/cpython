@@ -15,13 +15,35 @@ extern HirType hir_register_type(void *reg);
 extern void *hir_func_alloc_register(void *func);
 extern void hir_c_insert_before(void *new_instr, void *before);
 extern HirType hir_output_type(void *instr);
+extern void *hir_bb_append_instr(void *bb, void *instr);
+extern void *hir_bb_first_instr(const void *bb);
+extern void *hir_cfg_alloc_block(void *func);
+extern void *hir_cfg_split_after(void *func, void *instr);
+extern void *hir_phi_create_2way(void *func, void *bb1, void *reg1,
+                                  void *bb2, void *reg2);
+extern void *hir_c_create_branch_cpp(void *target_block);
+extern void *hir_c_create_cond_branch_cpp(void *cond_reg,
+                                           void *true_block,
+                                           void *false_block);
+extern int hir_func_env_allocate_type_method_cache(void *func);
+extern int hir_func_env_allocate_type_attr_cache(void *func);
+extern void *hir_c_create_fill_type_method_cache(void *func,
+    void *receiver, int name_idx, int cache_id, void *fs);
+extern void *hir_c_create_load_method_cached(void *func,
+    void *receiver, int name_idx, void *fs);
+extern void *hir_c_create_load_module_method_cached(void *func,
+    void *receiver, int name_idx, void *fs);
 
 /* ---- SimplifyEnv: C equivalent of the C++ Env struct ---- */
 
 void *simplify_env_emit(SimplifyEnv *env, void *new_instr) {
     env->optimized = 1;
     hir_c_set_bytecode_offset(new_instr, env->bc_off);
-    hir_c_insert_before(new_instr, env->cursor_instr);
+    if (env->cursor_instr) {
+        hir_c_insert_before(new_instr, env->cursor_instr);
+    } else {
+        hir_bb_append_instr(env->block, new_instr);
+    }
     void *out = hir_c_output(new_instr);
     if (out) {
         HirType out_type = hir_output_type(new_instr);
@@ -1122,4 +1144,134 @@ void *simplify_primitive_box_bool_c(SimplifyEnv *env, const void *instr) {
         return simplify_env_emit_load_const(env, result_type);
     }
     return NULL;
+}
+
+/* ==== emitCond infrastructure ==== */
+
+void *simplify_emit_cond(SimplifyEnv *env, void *cond_reg,
+                         SimplifyCondBodyFn do_bb1, void *ctx1,
+                         SimplifyCondBodyFn do_bb2, void *ctx2) {
+    env->new_blocks += 3;
+
+    void *bb1 = hir_cfg_alloc_block(env->func);
+    void *bb2 = hir_cfg_alloc_block(env->func);
+
+    void *cond_br = hir_c_create_cond_branch_cpp(cond_reg, bb1, bb2);
+    simplify_env_emit(env, cond_br);
+
+    void *tail = hir_cfg_split_after(env->func, cond_br);
+
+    env->block = bb1;
+    env->cursor_instr = NULL;
+    void *bb1_reg = do_bb1(env, ctx1);
+    void *br1 = hir_c_create_branch_cpp(tail);
+    simplify_env_emit(env, br1);
+
+    env->block = bb2;
+    env->cursor_instr = NULL;
+    void *bb2_reg = do_bb2(env, ctx2);
+    void *br2 = hir_c_create_branch_cpp(tail);
+    simplify_env_emit(env, br2);
+
+    void *phi = hir_phi_create_2way(env->func, bb1, bb1_reg, bb2, bb2_reg);
+    env->block = tail;
+    env->cursor_instr = hir_bb_first_instr(tail);
+    return simplify_env_emit(env, phi);
+}
+
+/* ==== LoadMethod emit helpers ==== */
+
+static void *emit_primitive_compare_eq(SimplifyEnv *env, void *lhs, void *rhs) {
+    void *reg = hir_func_alloc_register(env->func);
+    void *instr = hir_c_create_primitive_compare(reg, HIR_PCMP_Equal, lhs, rhs);
+    return simplify_env_emit(env, instr);
+}
+
+static void *emit_load_type_method_cache_entry_type(SimplifyEnv *env, int cache_id) {
+    void *reg = hir_func_alloc_register(env->func);
+    void *instr = hir_c_create_load_type_method_cache_entry_type(reg, cache_id);
+    return simplify_env_emit(env, instr);
+}
+
+static void *emit_load_type_method_cache_entry_value(SimplifyEnv *env,
+                                                      int cache_id, void *receiver) {
+    void *reg = hir_func_alloc_register(env->func);
+    void *instr = hir_c_create_load_type_method_cache_entry_value(reg, cache_id, receiver);
+    return simplify_env_emit(env, instr);
+}
+
+static void *emit_fill_type_method_cache(SimplifyEnv *env, void *receiver,
+                                          int32_t name_idx, int32_t cache_id, void *fs) {
+    void *instr = hir_c_create_fill_type_method_cache(env->func, receiver,
+                                                       name_idx, cache_id, fs);
+    return simplify_env_emit(env, instr);
+}
+
+static void *emit_load_method_cached(SimplifyEnv *env, void *receiver,
+                                      int32_t name_idx, void *fs) {
+    void *instr = hir_c_create_load_method_cached(env->func, receiver, name_idx, fs);
+    return simplify_env_emit(env, instr);
+}
+
+static void *emit_load_module_method_cached(SimplifyEnv *env, void *receiver,
+                                             int32_t name_idx, void *fs) {
+    void *instr = hir_c_create_load_module_method_cached(env->func, receiver, name_idx, fs);
+    return simplify_env_emit(env, instr);
+}
+
+/* ==== simplifyLoadTypeMethodCached emitCond callbacks ==== */
+
+typedef struct {
+    int32_t cache_id;
+    void *receiver;
+} TypeMethodFastCtx;
+
+typedef struct {
+    int32_t cache_id;
+    void *receiver;
+    int32_t name_idx;
+    void *fs;
+} TypeMethodSlowCtx;
+
+static void *type_method_fast_path(SimplifyEnv *env, void *ctx) {
+    TypeMethodFastCtx *c = (TypeMethodFastCtx *)ctx;
+    return emit_load_type_method_cache_entry_value(env, c->cache_id, c->receiver);
+}
+
+static void *type_method_slow_path(SimplifyEnv *env, void *ctx) {
+    TypeMethodSlowCtx *c = (TypeMethodSlowCtx *)ctx;
+    return emit_fill_type_method_cache(env, c->receiver, c->name_idx, c->cache_id, c->fs);
+}
+
+/* ==== simplifyLoadMethod ==== */
+void *simplify_load_method_c(SimplifyEnv *env, const void *instr) {
+    if (!jit_get_config()->attr_caches) return NULL;
+
+    void *receiver = hir_c_get_operand(instr, 0);
+    HirType recv_type = hir_register_type(receiver);
+    int32_t name_idx = ((const HirLoadMethod *)instr)->name_idx;
+    void *fs = hir_c_get_frame_state(instr);
+
+    HirType t_type = HIR_TYPE_TYPE;
+    if (hir_type_is_subtype(recv_type, t_type)) {
+        int cache_id = hir_func_env_allocate_type_method_cache(env->func);
+        simplify_env_emit_use_type(env, receiver, t_type);
+        void *guard = emit_load_type_method_cache_entry_type(env, cache_id);
+        void *type_matches = emit_primitive_compare_eq(env, guard, receiver);
+
+        TypeMethodFastCtx fast_ctx = {cache_id, receiver};
+        TypeMethodSlowCtx slow_ctx = {cache_id, receiver, name_idx, fs};
+
+        return simplify_emit_cond(env, type_matches,
+                                  type_method_fast_path, &fast_ctx,
+                                  type_method_slow_path, &slow_ctx);
+    }
+
+    extern PyTypeObject Ci_StrictModule_Type;
+    PyTypeObject *pytype = hir_type_runtime_py_type(&recv_type);
+    if (pytype == &PyModule_Type || pytype == &Ci_StrictModule_Type) {
+        return emit_load_module_method_cached(env, receiver, name_idx, fs);
+    }
+
+    return emit_load_method_cached(env, receiver, name_idx, fs);
 }
