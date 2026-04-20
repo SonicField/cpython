@@ -21,6 +21,7 @@
 #include "cinderx/Jit/hir/preload.h"
 #include "cinderx/Jit/type_deopt_patchers.h"
 #include "cinderx/Jit/global_deopt_patcher.h"
+#include "cinderx/Jit/deopt.h"
 #include "cinderx/Jit/hir/cfg.h"
 #include "cinderx/Jit/hir/function.h"
 #include "cinderx/Jit/hir/instr_effects_c.h"
@@ -2411,6 +2412,29 @@ void hir_instr_destroy(HirInstr instr) {
 void hir_c_set_true_bb(HirInstr branch, void *new_true_block) {
   auto *cb = static_cast<CondBranchBase*>(as_instr(branch));
   cb->set_true_bb(static_cast<BasicBlock*>(new_true_block));
+}
+
+int hir_instr_is_deopt_base(void *instr) {
+  return as_instr(instr)->asDeoptBase() != nullptr ? 1 : 0;
+}
+
+void hir_deopt_emplace_live_reg(void *instr, void *reg, int ref_kind, int value_kind) {
+  auto *deopt = as_instr(instr)->asDeoptBase();
+  if (!deopt) return;
+  deopt->emplaceLiveReg(
+      static_cast<Register*>(reg),
+      static_cast<RefKind>(ref_kind),
+      static_cast<jit::hir::ValueKind>(value_kind));
+}
+
+void hir_deopt_sort_live_regs(void *instr) {
+  auto *deopt = as_instr(instr)->asDeoptBase();
+  if (deopt) deopt->sortLiveRegs();
+}
+
+int hir_deopt_value_kind(void *reg) {
+  return static_cast<int>(
+      jit::deoptValueKind(static_cast<Register*>(reg)->type()));
 }
 
 void hir_instr_replace_uses_of(void *instr, void *old_reg, void *new_reg) {

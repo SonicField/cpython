@@ -45,33 +45,33 @@ int phx_rc_is_guard_is(void *instr) {
 }
 
 void phx_rc_fill_deopt_live_regs(const PhxStateMap *live_regs, void *instr_ptr) {
-  auto& instr = *static_cast<Instr*>(instr_ptr);
-  auto deopt = instr.asDeoptBase();
-  if (deopt == nullptr) {
-    return;
-  }
+  extern int hir_instr_is_deopt_base(void *instr);
+  extern void hir_deopt_emplace_live_reg(void *instr, void *reg, int ref_kind, int value_kind);
+  extern void hir_deopt_sort_live_regs(void *instr);
+  extern int hir_deopt_value_kind(void *reg);
 
-  JIT_CHECK(deopt->live_regs().empty(), "Instruction should have no live regs");
+  if (!hir_instr_is_deopt_base(instr_ptr)) return;
+
+  HirType h_cptr = HIR_TYPE_CPTR;
 
   for (size_t idx = 0; idx < live_regs->capacity; idx++) {
     if (!live_regs->keys[idx]) continue;
     const PhxRegState& rstate = live_regs->values[idx];
-    auto ref_kind = static_cast<RefKind>(rstate.kind);
+    int ref_kind = rstate.kind;
 
     for (int i = 0, n = (int)rstate.n_copies; i < n; ++i) {
-      auto* reg = static_cast<Register*>(rstate.copies[i]);
-      HirType h_regtype = Type::toHirType(reg->type());
-      HirType h_cptr = Type::toHirType(TCPtr);
+      void* reg = rstate.copies[i];
+      HirType h_regtype = hir_register_type(reg);
       if (hir_type_could_be(&h_regtype, &h_cptr)) {
         continue;
       }
-      deopt->emplaceLiveReg(reg, ref_kind, jit::deoptValueKind(reg->type()));
-      if (ref_kind == RefKind::kOwned) {
-        ref_kind = RefKind::kBorrowed;
+      hir_deopt_emplace_live_reg(instr_ptr, reg, ref_kind, hir_deopt_value_kind(reg));
+      if (ref_kind == 0) { /* PHX_REF_OWNED = 0 */
+        ref_kind = 1; /* PHX_REF_BORROWED = 1 */
       }
     }
   }
-  deopt->sortLiveRegs();
+  hir_deopt_sort_live_regs(instr_ptr);
 }
 
 int phx_rc_merge_verify(const PhxRegState *c_dst, const PhxRegState *c_from,
