@@ -634,88 +634,6 @@ struct Env {
   }
 };
 
-static Register* resolveArgs(
-    Env& env,
-    const VectorCall* instr,
-    PyFunctionObject* target) {
-  PyCodeObject* code = (PyCodeObject*)target->func_code;
-  JIT_CHECK(!(code->co_flags & CO_VARARGS), "can't resolve varargs");
-  size_t co_argcount = static_cast<size_t>(code->co_argcount);
-  if (instr->numArgs() > co_argcount) {
-    return nullptr;
-  }
-
-  size_t num_positional = std::min(co_argcount, instr->numArgs());
-  std::vector<Register*> resolved_args(co_argcount, nullptr);
-
-  JIT_CHECK(!(code->co_flags & CO_VARKEYWORDS), "can't resolve varkwargs");
-
-  PyTupleObject* defaults = (PyTupleObject*)target->func_defaults;
-  size_t num_defaults =
-      defaults == nullptr ? 0 : static_cast<size_t>(PyTuple_GET_SIZE((PyObject*)defaults));
-
-  if (num_positional + num_defaults < co_argcount) {
-    return nullptr;
-  }
-  JIT_CHECK(code->co_kwonlyargcount == 0, " can't resolve kwonly args");
-  for (size_t i = 0; i < co_argcount; i++) {
-    if (i < num_positional) {
-      resolved_args[i] = instr->arg(i);
-    } else {
-      size_t num_non_defaults = co_argcount - num_defaults;
-      size_t default_idx = i - num_non_defaults;
-
-      ThreadedCompileSerialize guard;
-      auto def = PyTuple_GET_ITEM((PyObject*)defaults, default_idx);
-      JIT_CHECK(def != nullptr, "expected non-null default");
-      auto type = Type::fromObject(env.func.env.addReference(def));
-      resolved_args[i] = env.emitLoadConst(type);
-    }
-    JIT_CHECK(resolved_args.at(i) != nullptr, "expected non-null arg");
-  }
-
-  Register* defaults_obj = env.emitLoadField(
-      instr->GetOperand(0),
-      "func_defaults",
-      offsetof(PyFunctionObject, func_defaults),
-      TTuple);
-  env.emitGuardIs((PyObject*)defaults, defaults_obj);
-  auto new_instr = env.emitVectorCallInstr(
-      resolved_args.size() + 1, CallFlags::None, *instr->frameState());
-  Register* result = new_instr->output();
-
-  new_instr->SetOperand(0, instr->func());
-  for (size_t i = 0; i < resolved_args.size(); i++) {
-    new_instr->SetOperand(i + 1, resolved_args.at(i));
-  }
-  result->set_type(outputType(*new_instr));
-  return result;
-}
-
-Register* simplifyVectorCall(Env& env, const VectorCall* instr) {
-  if (instr->flags() & CallFlags::KwArgs) {
-    return nullptr;
-  }
-  Type target_type = instr->GetOperand(0)->type();
-  HirType target_hir = to_hir(target_type);
-  if (hir_type_has_value_spec(&target_hir, to_hir(TFunc))) {
-    PyFunctionObject* func = (PyFunctionObject*)hir_type_object_spec(&target_hir);
-    PyCodeObject* code = (PyCodeObject*)func->func_code;
-    if (code->co_kwonlyargcount > 0 || (code->co_flags & CO_VARARGS) ||
-        (code->co_flags & CO_VARKEYWORDS)) {
-      // TASK(T143644854): full argument resolution
-      return nullptr;
-    }
-
-    JIT_CHECK(
-        code->co_argcount >= 0,
-        "argcount must be greater than or equal to zero");
-    if (instr->numArgs() != static_cast<size_t>(code->co_argcount)) {
-      return resolveArgs(env, instr, func);
-    }
-  }
-  return nullptr;
-}
 
 Register* simplifyInstr(Env& env, const Instr* instr) {
   auto make_c_env = [&]() -> SimplifyEnv {
@@ -914,8 +832,7 @@ Register* simplifyInstr(Env& env, const Instr* instr) {
       SimplifyEnv cenv = make_c_env();
       auto *r = static_cast<Register*>(simplify_vectorcall_c(&cenv, instr));
       sync_c_env(cenv);
-      if (r) return r;
-      return simplifyVectorCall(env, static_cast<const VectorCall*>(instr));
+      return r;
     }
 
     case Opcode::kStoreSubscr: {
