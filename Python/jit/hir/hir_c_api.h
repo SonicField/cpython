@@ -63,6 +63,9 @@ void *hir_func_allocate_type_attr_deopt_patcher(
 /* Get the name object from a FrameState's code->co_names at name_idx */
 PyObject *hir_frame_state_get_name(void *frame_state, int name_idx);
 
+/* Allocate a TypeDeoptPatcher (watches any type modification) */
+void *hir_func_allocate_type_deopt_patcher(HirFunction func, void *type);
+
 /* Allocate a SplitDictDeoptPatcher for use with DeoptPatchpoint */
 void *hir_func_allocate_split_dict_deopt_patcher(
     HirFunction func, void *type, void *attr_name, void *keys);

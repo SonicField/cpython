@@ -1867,6 +1867,55 @@ static void *simplify_load_attr_property_c(SimplifyEnv *env,
     return simplify_env_emit(env, call);
 }
 
+/* ==== simplifyLoadAttrGenericDescriptor ==== */
+static void *simplify_load_attr_generic_descr_c(SimplifyEnv *env,
+        void *receiver, HirType recv_type, PyTypeObject *py_type,
+        PyObject *attr_name, PyObject *descr, void *fs) {
+    PyTypeObject *descr_type = Py_TYPE(descr);
+    descrgetfunc descr_get = descr_type->tp_descr_get;
+    descrsetfunc descr_set = descr_type->tp_descr_set;
+    if (descr_get == NULL || descr_set == NULL) return NULL;
+
+    emit_type_attr_deopt_patcher(env, py_type, attr_name, descr,
+                                 receiver, "generic descriptor attribute");
+
+    extern int _PyClassLoader_IsImmutable(PyObject *container);
+    if (!_PyClassLoader_IsImmutable((PyObject *)descr_type)) {
+        extern void *hir_func_allocate_type_deopt_patcher(void *func, void *type);
+        void *patcher = hir_func_allocate_type_deopt_patcher(env->func, descr_type);
+        extern void *hir_c_create_deopt_patchpoint(void *patcher);
+        void *pp = hir_c_create_deopt_patchpoint(patcher);
+        simplify_env_emit(env, pp);
+        extern void hir_c_set_guilty_reg(void *instr, void *reg);
+        hir_c_set_guilty_reg(pp, receiver);
+        extern void hir_c_set_descr(void *instr, const char *d);
+        hir_c_set_descr(pp, "tp_descr_get/tp_descr_set");
+    }
+
+    simplify_env_emit_use_type(env, receiver, recv_type);
+
+    extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
+    PyObject *descr_ref = hir_func_add_reference(env->func, descr);
+    void *descr_reg = simplify_env_emit_load_const(env, hir_type_from_object(descr_ref));
+
+    PyObject *type_ref = hir_func_add_reference(env->func, (PyObject *)py_type);
+    void *type_reg = simplify_env_emit_load_const(env, hir_type_from_object(type_ref));
+
+    HirType t_optobj = HIR_TYPE_OPTOBJECT;
+    extern void *hir_c_create_call_static(void *func, size_t n_ops,
+                                           void *addr, HirType ret_type);
+    void *call = hir_c_create_call_static(env->func, 3,
+                                           (void *)descr_get, t_optobj);
+    hir_c_set_operand(call, 0, descr_reg);
+    hir_c_set_operand(call, 1, receiver);
+    hir_c_set_operand(call, 2, type_reg);
+    void *call_out = simplify_env_emit(env, call);
+
+    extern void *hir_c_create_check_exc(void *func, void *src, void *fs);
+    void *check = hir_c_create_check_exc(env->func, call_out, fs);
+    return simplify_env_emit(env, check);
+}
+
 /* ==== simplifyLoadAttrInstanceReceiver ==== */
 static void *simplify_load_attr_instance_c(SimplifyEnv *env, const void *instr) {
     void *receiver = hir_c_get_operand(instr, 0);
@@ -1907,7 +1956,10 @@ static void *simplify_load_attr_instance_c(SimplifyEnv *env, const void *instr) 
         py_type, attr_name, descr, fs);
     if (result) return result;
 
-    /* GenericDescr — return NULL to fall through to C++ */
+    result = simplify_load_attr_generic_descr_c(env, receiver, recv_type,
+        py_type, attr_name, descr, fs);
+    if (result) return result;
+
     return NULL;
 }
 
