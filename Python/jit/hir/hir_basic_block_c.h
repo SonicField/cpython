@@ -91,6 +91,9 @@ typedef struct HirCFG {
     int _cfg_pad0;                    /* alignment padding */
 } HirCFG;
 
+/* CFG destructor (C port of CFG::~CFG) */
+void hir_cfg_destroy_c(HirCFG *cfg);
+
 /* ---- CFG block list operations ---- */
 
 static inline HirBasicBlock *hir_cfg_first_block(const HirCFG *cfg) {

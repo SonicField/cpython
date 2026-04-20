@@ -266,3 +266,27 @@ hir_bb_pop_front_instr(HirBasicBlock *bb) {
     hir_c_set_block(instr, NULL);
     return instr;
 }
+
+/* ---- CFG destructor (C port of CFG::~CFG) ---- */
+
+extern void hir_bb_destroy(void *block);
+
+void hir_cfg_destroy_c(HirCFG *cfg) {
+    while (1) {
+        HirBasicBlock *block = hir_cfg_first_block(cfg);
+        if (!block) break;
+        hir_cfg_remove_block(cfg, block);
+
+        /* Snapshot in_edges before clearing — set_to modifies via swap-and-pop */
+        size_t n_in = hir_bb_in_edges_count(block);
+        HirEdge *snapshot[256];
+        for (size_t i = 0; i < n_in && i < 256; i++) {
+            snapshot[i] = (HirEdge *)hir_bb_in_edge(block, i);
+        }
+        for (size_t i = 0; i < n_in && i < 256; i++) {
+            hir_edge_set_to(snapshot[i], NULL);
+        }
+
+        hir_bb_destroy(block);
+    }
+}

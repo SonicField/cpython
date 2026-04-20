@@ -60,24 +60,7 @@ void postorder_traverse(
 } // namespace
 
 CFG::~CFG() {
-  while (!blocks.IsEmpty()) {
-    BasicBlock* block = &(blocks.ExtractFront());
-    // This is the one situation where it's not a bug to delete a reachable
-    // block, since we're deleting everything. Clear block's incoming edges so
-    // its destructor doesn't complain.
-    // Snapshot: set_to(nullptr) modifies in_edges_ via swap-and-pop erase.
-    auto edges = block->in_edges();
-    size_t n = edges.size();
-    const Edge** snapshot = static_cast<const Edge**>(
-        alloca(n * sizeof(const Edge*)));
-    for (size_t i = 0; i < n; i++) {
-      snapshot[i] = edges[i];
-    }
-    for (size_t i = 0; i < n; i++) {
-      const_cast<Edge*>(snapshot[i])->set_to(nullptr);
-    }
-    delete block;
-  }
+  hir_cfg_destroy_c(reinterpret_cast<HirCFG*>(this));
 }
 
 BasicBlock* CFG::AllocateBlock() {
