@@ -35,7 +35,8 @@ int phx_rc_condbranch_check_type_is_wait_handle(void *instr) {
 }
 
 int phx_rc_is_passthrough(void *instr) {
-  return isPassthrough(*static_cast<Instr*>(instr)) ? 1 : 0;
+  extern int hir_is_passthrough_c(const void *instr);
+  return hir_is_passthrough_c(instr);
 }
 
 int phx_rc_is_guard_is(void *instr) {
@@ -102,7 +103,8 @@ int phx_rc_merge_verify(const PhxRegState *c_dst, const PhxRegState *c_from,
 }
 
 void *phx_rc_model_reg(void *reg) {
-  return modelReg(static_cast<Register*>(reg));
+  extern void *hir_model_reg_c(void *reg);
+  return hir_model_reg_c(reg);
 }
 
 size_t phx_rc_get_rpo(void *func_ptr, void **out, size_t capacity) {
