@@ -448,8 +448,18 @@ if [ "$ARM64" -eq 1 ]; then
     (cd "$CPYTHON_ROOT" && git bundle create "$BUNDLE_FILE" HEAD~200..HEAD 2>/dev/null)
     nbs-local-run "scp $BUNDLE_FILE $ARM64_HOST:$REMOTE_BUNDLE" 2>/dev/null
 
+    # Working-tree contamination guard: stash any uncommitted devgpu004 changes
+    # BEFORE the gate so 'git checkout --detach HEAD' cannot fail and stale edits
+    # cannot pollute the build. Restore (pop) AFTER the gate completes — PASS or
+    # FAIL — so the developer's in-flight work on devgpu004 is preserved.
+    # 'git stash push -u' is a no-op when the working tree is clean.
     ARM64_OUTPUT=$(nbs-remote-run "$ARM64_HOST" "
         cd $ARM64_DIR &&
+        echo STASH_PUSH_BEGIN;
+        ORIG_REF=\$(git symbolic-ref --short -q HEAD || git rev-parse HEAD);
+        echo ORIG_REF=\$ORIG_REF;
+        git stash push -u -m phoenix-gate-stash 2>&1 | tail -2;
+        echo STASH_PUSH_END;
         git checkout --detach HEAD 2>&1 | tail -1;
         git fetch $REMOTE_BUNDLE HEAD:arm64-gate-update 2>&1 | tail -3;
         git checkout arm64-gate-update 2>&1 | tail -3;
@@ -459,7 +469,20 @@ if [ "$ARM64" -eq 1 ]; then
         echo BUILD_ARM64=\$?;
         chmod +x python;
         JIT_ENABLE=1 ./python -m test test_phoenix_jit_arithmetic test_phoenix_jit_autocompile test_phoenix_jit_comparisons test_phoenix_jit_containers test_phoenix_jit_controlflow test_phoenix_jit_coverage test_phoenix_jit_functions test_phoenix_jit_generators test_phoenix_jit_loadattr_golden test_phoenix_float test_phoenix_hir_type test_phoenix_benchmark_correctness test_phoenix_deferred_compile test_phoenix_profiling_hooks test_phoenix_usetype_float 2>&1 | tail -10;
-        echo ARM64_EXIT=\$?
+        echo ARM64_EXIT=\$?;
+        echo STASH_POP_BEGIN;
+        # Restore the original branch BEFORE popping so the stash is applied to
+        # the same working tree it was captured from. Pop stash@{0} only if the
+        # most-recent stash carries our marker (defensive — never pop someone
+        # else's stash).
+        git checkout \"\$ORIG_REF\" 2>&1 | tail -2;
+        STASH_TOP=\$(git stash list 2>/dev/null | head -1);
+        if echo \"\$STASH_TOP\" | grep -q 'phoenix-gate-stash'; then
+            git stash pop 2>&1 | tail -3;
+        else
+            echo 'no phoenix-gate-stash on top of stash list — skipping pop';
+        fi;
+        echo STASH_POP_END
     " 2>&1 || echo "ARM64_REMOTE_FAIL")
 
     # Verify ARM64 commit matches x86_64 commit
