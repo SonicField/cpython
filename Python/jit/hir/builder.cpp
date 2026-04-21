@@ -4319,14 +4319,14 @@ void HIRBuilder::emitLoadAssertionError(
   phx_ptr_arr_push(&tc.frame.stack, result);
 }
 
+extern "C" void hir_builder_emit_load_class_c(void *tc, void *func, void *builder, PyCodeObject *code, int oparg);
+
 void HIRBuilder::emitLoadClass(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* tmp = temps_.AllocateStack();
-  auto pytype = preloader_.pyType(constArg(bc_instr));
-  auto pytype_as_pyobj = (PyObject*)pytype;
-  tc.emitLoadConst(tmp, Type::fromObject(pytype_as_pyobj));
-  phx_ptr_arr_push(&tc.frame.stack, tmp);
+  hir_builder_emit_load_class_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_),
+      static_cast<void*>(this), code_, bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_load_const_c(void *tc_ptr, void *func, PyCodeObject *code, int oparg);
