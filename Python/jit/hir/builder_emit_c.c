@@ -274,3 +274,37 @@ void hir_builder_emit_contains_op_c(PhxTranslationContext *tc, void *func, int o
     phx_tc_emit(tc, hir_c_create_compare_reg(result, op, left, right, &tc->frame));
     phx_ptr_arr_push(&tc->frame.stack, result);
 }
+
+/* emitStoreAttr — pop receiver + value, emit StoreAttr */
+extern void *hir_c_create_store_attr_reg(void *recv, void *val, int name_idx, void *fs);
+
+void hir_builder_emit_store_attr_c(PhxTranslationContext *tc, int oparg) {
+    void *receiver = phx_ptr_arr_pop(&tc->frame.stack);
+    void *value = phx_ptr_arr_pop(&tc->frame.stack);
+    phx_tc_emit(tc, hir_c_create_store_attr_reg(receiver, value, oparg, &tc->frame));
+}
+
+/* emitLoadType — pop instance, LoadField ob_type, push */
+extern void *hir_c_create_load_field_reg(void *dst, void *recv, const char *name,
+                                          intptr_t offset, HirType type, int borrowed);
+
+void hir_builder_emit_load_type_c(PhxTranslationContext *tc, void *func) {
+    void *instance = phx_ptr_arr_pop(&tc->frame.stack);
+    void *type_reg = hir_func_alloc_register(func);
+    HirType t_type = HIR_TYPE_TYPE;
+    phx_tc_emit(tc, hir_c_create_load_field_reg(type_reg, instance, "ob_type",
+        offsetof(PyObject, ob_type), t_type, 0));
+    phx_ptr_arr_push(&tc->frame.stack, type_reg);
+}
+
+/* emitCopyDictWithoutKeys — peek keys+subject, emit, replace top */
+extern void *hir_c_create_copy_dict_without_keys_reg(void *dst, void *subj, void *keys, void *fs);
+
+void hir_builder_emit_copy_dict_without_keys_c(PhxTranslationContext *tc, void *func) {
+    PhxPtrArray *stack = &tc->frame.stack;
+    void *keys = stack->data[stack->count - 1];
+    void *subject = stack->data[stack->count - 2];
+    void *rest = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_copy_dict_without_keys_reg(rest, subject, keys, &tc->frame));
+    stack->data[stack->count - 1] = rest;
+}

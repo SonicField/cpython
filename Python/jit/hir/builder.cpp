@@ -3923,13 +3923,10 @@ void HIRBuilder::emitToBool(TranslationContext& tc) {
   phx_ptr_arr_push(&tc.frame.stack, coerced_result);
 }
 
+extern "C" void hir_builder_emit_copy_dict_without_keys_c(void *tc, void *func);
+
 void HIRBuilder::emitCopyDictWithoutKeys(TranslationContext& tc) {
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* keys = static_cast<Register*>(stack.data[stack.count - 1]);
-  Register* subject = static_cast<Register*>(stack.data[stack.count - (1) - 1]);
-  Register* rest = temps_.AllocateStack();
-  tc.emitCopyDictWithoutKeys(rest, subject, keys, tc.frame);
-  stack.data[stack.count - (0) - 1] = rest;
+  hir_builder_emit_copy_dict_without_keys_c(static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
 
 extern "C" void hir_builder_emit_get_len_c(void *tc, void *func);
@@ -4578,14 +4575,12 @@ void HIRBuilder::emitStoreLocal(
   tc.emitAssign(dst, src);
 }
 
+extern "C" void hir_builder_emit_load_type_c(void *tc, void *func);
+
 void HIRBuilder::emitLoadType(
     TranslationContext& tc,
     const jit::BytecodeInstruction&) {
-  Register* instance = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  auto type = temps_.AllocateStack();
-  tc.emitLoadField(
-      type, instance, "ob_type", offsetof(PyObject, ob_type), TType);
-  phx_ptr_arr_push(&tc.frame.stack, type);
+  hir_builder_emit_load_type_c(static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
 
 void HIRBuilder::emitConvertPrimitive(
@@ -5337,13 +5332,12 @@ void HIRBuilder::emitPopJumpIfNone(
   tc.emitCondBranch(is_true, true_block, false_block);
 }
 
+extern "C" void hir_builder_emit_store_attr_c(void *tc, int oparg);
+
 void HIRBuilder::emitStoreAttr(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* receiver = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-
-  tc.emitStoreAttr(receiver, value, bc_instr.oparg(), tc.frame);
+  hir_builder_emit_store_attr_c(static_cast<void*>(&tc), bc_instr.oparg());
 }
 
 void HIRBuilder::moveOverwrittenStackRegisters(
