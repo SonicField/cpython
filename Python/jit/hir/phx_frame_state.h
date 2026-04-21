@@ -66,6 +66,44 @@ static inline void phx_frame_state_destroy(HirFrameStateLayout *fs) {
     }
 }
 
+/* ---- Block stack helpers (ExecutionBlock = {int opcode, int handler_off, int stack_level}) ---- */
+
+typedef struct {
+    int opcode;
+    int handler_off;
+    int stack_level;
+} PhxExecBlock;
+
+static inline void phx_block_stack_push(HirFrameStateLayout *fs,
+                                         int opcode, int handler_off, int stack_level) {
+    PhxExecBlock *data = (PhxExecBlock *)fs->block_stack_data;
+    if (fs->block_stack_count >= fs->block_stack_cap) {
+        size_t new_cap = fs->block_stack_cap ? fs->block_stack_cap * 2 : 4;
+        data = (PhxExecBlock *)realloc(data, new_cap * sizeof(PhxExecBlock));
+        fs->block_stack_data = data;
+        fs->block_stack_cap = new_cap;
+    }
+    data[fs->block_stack_count].opcode = opcode;
+    data[fs->block_stack_count].handler_off = handler_off;
+    data[fs->block_stack_count].stack_level = stack_level;
+    fs->block_stack_count++;
+}
+
+static inline PhxExecBlock phx_block_stack_top(const HirFrameStateLayout *fs) {
+    PhxExecBlock *data = (PhxExecBlock *)fs->block_stack_data;
+    return data[fs->block_stack_count - 1];
+}
+
+static inline PhxExecBlock phx_block_stack_pop(HirFrameStateLayout *fs) {
+    fs->block_stack_count--;
+    PhxExecBlock *data = (PhxExecBlock *)fs->block_stack_data;
+    return data[fs->block_stack_count];
+}
+
+static inline int phx_block_stack_is_empty(const HirFrameStateLayout *fs) {
+    return fs->block_stack_count == 0;
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

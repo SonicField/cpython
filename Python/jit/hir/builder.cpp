@@ -3055,11 +3055,10 @@ static std::optional<InPlaceOpKind> getInPlaceOpKindFromOparg(int oparg) {
   }
 }
 
+extern "C" void hir_builder_emit_push_null_c(void *tc, void *func);
+
 void HIRBuilder::emitPushNull(TranslationContext& tc) {
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* tmp = temps_.AllocateStack();
-  tc.emitLoadConst(tmp, TNullptr);
-  phx_ptr_arr_push(&stack, tmp);
+  hir_builder_emit_push_null_c(static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
 
 void HIRBuilder::emitAnyCall(
@@ -5781,16 +5780,10 @@ void HIRBuilder::emitAsyncForHeaderYieldFrom(
   tc.emitCondBranchIterNotDone(out, yf_cont_block, yf_done_block);
 }
 
+extern "C" void hir_builder_emit_end_async_for_c(void *tc);
+
 void HIRBuilder::emitEndAsyncFor(TranslationContext& tc) {
-  // Pop finally block and discard exhausted async iterator.
-  const ExecutionBlock& b = tc.frame.block_stack.top();
-  JIT_CHECK(
-      static_cast<int>(tc.frame.stack.count) == b.stack_level,
-      "Bad stack depth in END_ASYNC_FOR: block stack expects {}, stack is {}",
-      b.stack_level,
-      tc.frame.stack.count);
-  tc.frame.block_stack.pop();
-  static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
+  hir_builder_emit_end_async_for_c(static_cast<void*>(&tc));
 }
 
 void HIRBuilder::emitGetAIter(TranslationContext& tc) {

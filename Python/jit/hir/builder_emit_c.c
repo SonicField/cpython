@@ -173,3 +173,20 @@ void hir_builder_emit_swap_c(PhxTranslationContext *tc, int item_idx) {
     tc->frame.stack.data[tc->frame.stack.count - 1] = item;
     tc->frame.stack.data[tc->frame.stack.count - item_idx] = top;
 }
+
+/* emitPushNull — allocate reg, load nullptr, push to stack */
+void hir_builder_emit_push_null_c(
+        PhxTranslationContext *tc,
+        void *func) {
+    void *reg = hir_func_alloc_register(func);
+    HirType t_nullptr = HIR_TYPE_NULLPTR;
+    void *instr = hir_c_create_load_const(reg, t_nullptr);
+    phx_tc_emit(tc, instr);
+    phx_ptr_arr_push(&tc->frame.stack, reg);
+}
+
+/* emitEndAsyncFor — pop block_stack + pop stack (block-transition validation) */
+void hir_builder_emit_end_async_for_c(PhxTranslationContext *tc) {
+    phx_block_stack_pop(&tc->frame);
+    phx_ptr_arr_pop(&tc->frame.stack);
+}
