@@ -542,6 +542,61 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* ---- Tier 2 bridge externs (used by multiple emit methods) ---- */
+extern void *hir_builder_get_block_at_off(void *builder, int byte_offset);
+extern void *hir_c_create_cond_branch_cpp(void *cond_reg, void *true_bb, void *false_bb);
+extern void *hir_c_create_is_truthy_reg(void *dst, void *src, void *fs);
+
+/* emitJumpIf — peek var, IsTruthy or direct, conditional branch */
+void hir_builder_emit_jump_if_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder,
+        int opcode,
+        int jump_target,
+        int next_instr_offset) {
+    void *var = tc->frame.stack.data[tc->frame.stack.count - 1];
+    int true_off, false_off;
+    int check_truthy = 1;
+    switch (opcode) {
+#ifdef JUMP_IF_NONZERO_OR_POP
+        case JUMP_IF_NONZERO_OR_POP:
+            check_truthy = 0;
+            /* fallthrough */
+#endif
+#ifdef JUMP_IF_TRUE_OR_POP
+        case JUMP_IF_TRUE_OR_POP:
+#endif
+            true_off = jump_target;
+            false_off = next_instr_offset;
+            break;
+#ifdef JUMP_IF_ZERO_OR_POP
+        case JUMP_IF_ZERO_OR_POP:
+            check_truthy = 0;
+            /* fallthrough */
+#endif
+#ifdef JUMP_IF_FALSE_OR_POP
+        case JUMP_IF_FALSE_OR_POP:
+#endif
+            false_off = jump_target;
+            true_off = next_instr_offset;
+            break;
+        default:
+            true_off = jump_target;
+            false_off = next_instr_offset;
+            break;
+    }
+    void *true_block = hir_builder_get_block_at_off(builder, true_off);
+    void *false_block = hir_builder_get_block_at_off(builder, false_off);
+    if (check_truthy) {
+        void *tval = hir_func_alloc_register(func);
+        phx_tc_emit(tc, hir_c_create_is_truthy_reg(tval, var, &tc->frame));
+        phx_tc_emit(tc, hir_c_create_cond_branch_cpp(tval, true_block, false_block));
+    } else {
+        phx_tc_emit(tc, hir_c_create_cond_branch_cpp(var, true_block, false_block));
+    }
+}
+
 /* emitDictMerge — peek dict+func at depth, pop update, emit DictMerge */
 extern void *hir_c_create_dict_merge_reg(void *dst, void *dict, void *update, void *func, void *fs);
 
@@ -635,9 +690,6 @@ void hir_builder_emit_build_const_key_map_c(PhxTranslationContext *tc, void *fun
 }
 
 /* emitPopJumpIf — pop var, compute true/false blocks, conditional branch */
-extern void *hir_builder_get_block_at_off(void *builder, int byte_offset);
-extern void *hir_c_create_cond_branch_cpp(void *cond_reg, void *true_bb, void *false_bb);
-extern void *hir_c_create_is_truthy_reg(void *dst, void *src, void *fs);
 
 void hir_builder_emit_pop_jump_if_c(
         PhxTranslationContext *tc,

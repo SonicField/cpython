@@ -3863,53 +3863,17 @@ void HIRBuilder::emitGetLen(TranslationContext& tc) {
   hir_builder_emit_get_len_c(static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
 
+extern "C" void hir_builder_emit_jump_if_c(void *tc, void *func, void *builder, int opcode, int jump_target, int next_instr_offset);
+
 void HIRBuilder::emitJumpIf(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* var = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - 1]);
-
-  BCOffset true_offset, false_offset;
-  bool check_truthy = true;
-  auto opcode = bc_instr.opcode();
-  switch (opcode) {
-    case JUMP_IF_NONZERO_OR_POP:
-      check_truthy = false;
-      [[fallthrough]];
-    case JUMP_IF_TRUE_OR_POP: {
-      true_offset = bc_instr.getJumpTarget();
-      false_offset = bc_instr.nextInstrOffset();
-      break;
-    }
-    case JUMP_IF_ZERO_OR_POP:
-      check_truthy = false;
-      [[fallthrough]];
-    case JUMP_IF_FALSE_OR_POP: {
-      false_offset = bc_instr.getJumpTarget();
-      true_offset = bc_instr.nextInstrOffset();
-      break;
-    }
-    default: {
-      // NOTREACHED
-      JIT_ABORT(
-          "Trying to translate non-jump-if bytecode {} ({})",
-          opcode,
-          opcodeName(opcode));
-    }
-  }
-
-  BasicBlock* true_block = getBlockAtOff(true_offset);
-  BasicBlock* false_block = getBlockAtOff(false_offset);
-
-  if (check_truthy) {
-    Register* tval = temps_.AllocateNonStack();
-    // Registers that hold the result of `IsTruthy` are guaranteed to never be
-    // the home of a value left on the stack at the end of a basic block, so we
-    // don't need to worry about potentially storing a PyObject in them.
-    tc.emitIsTruthy(tval, var, tc.frame);
-    tc.emitCondBranch(tval, true_block, false_block);
-  } else {
-    tc.emitCondBranch(var, true_block, false_block);
-  }
+  hir_builder_emit_jump_if_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_),
+      static_cast<void*>(this),
+      bc_instr.opcode(),
+      bc_instr.getJumpTarget().value(),
+      bc_instr.nextInstrOffset().value());
 }
 
 namespace {
