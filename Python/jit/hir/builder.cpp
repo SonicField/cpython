@@ -3446,13 +3446,13 @@ void HIRBuilder::emitBuildSlice(
   tc.emitVariadic<BuildSlice>(temps_, num_operands);
 }
 
+extern "C" void hir_builder_emit_list_append_c(void *tc, void *func, int oparg);
+
 void HIRBuilder::emitListAppend(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto item = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  auto list = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - bc_instr.oparg()]);
-  auto dst = temps_.AllocateStack();
-  tc.emitListAppend(dst, list, item, tc.frame);
+  hir_builder_emit_list_append_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
 void HIRBuilder::emitLoadIterableArg(
@@ -4327,10 +4327,11 @@ void HIRBuilder::emitMakeCell(TranslationContext& tc, int local_idx) {
   tc.emitAssign(local, cell);
 }
 
+extern "C" void hir_builder_emit_copy_c(void *tc, int item_idx);
+
 void HIRBuilder::emitCopy(TranslationContext& tc, int item_idx) {
   JIT_CHECK(item_idx > 0, "The index ({}) must be positive!", item_idx);
-  Register* item = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - (item_idx)]);
-  phx_ptr_arr_push(&tc.frame.stack, item);
+  hir_builder_emit_copy_c(static_cast<void*>(&tc), item_idx);
 }
 
 void HIRBuilder::emitCopyFreeVars(TranslationContext& tc, int nfreevars) {
@@ -4358,13 +4359,12 @@ void HIRBuilder::emitCopyFreeVars(TranslationContext& tc, int nfreevars) {
   }
 }
 
+extern "C" void hir_builder_emit_swap_c(void *tc, int item_idx);
+
 void HIRBuilder::emitSwap(TranslationContext& tc, int item_idx) {
   JIT_CHECK(
       item_idx >= 2, "The index ({}) must be greater or equal to 2.", item_idx);
-  Register* item = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - (item_idx)]);
-  Register* top = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - 1]);
-  tc.frame.stack.data[tc.frame.stack.count - (0) - 1] = item;
-  tc.frame.stack.data[tc.frame.stack.count - (item_idx - 1) - 1] = top;
+  hir_builder_emit_swap_c(static_cast<void*>(&tc), item_idx);
 }
 
 void HIRBuilder::emitLoadDeref(
@@ -4431,50 +4431,32 @@ void HIRBuilder::emitLoadConst(
   hir_builder_emit_load_const_c(static_cast<void*>(&tc), static_cast<void*>(current_func_), code_, bc_instr.oparg());
 }
 
+extern "C" void hir_builder_emit_load_fast_c(void *tc, void *func, PyCodeObject *code, int opcode, int oparg);
+
 void HIRBuilder::emitLoadFast(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  int var_idx = bc_instr.oparg();
-  Register* var = static_cast<Register*>(tc.frame.localsplus.data[var_idx]);
-  // Pre-3.12, LOAD_FAST behaves like LOAD_FAST_CHECK.
-  if (bc_instr.opcode() == LOAD_FAST_CHECK || PY_VERSION_HEX < 0x030C0000) {
-    tc.emitCheckVar(var, var, getVarname(code_, var_idx), tc.frame);
-  }
-  phx_ptr_arr_push(&tc.frame.stack, var);
-  if (bc_instr.opcode() == LOAD_FAST_AND_CLEAR) {
-    moveOverwrittenStackRegisters(tc, var);
-    tc.emitLoadConst(var, TNullptr);
-  }
+  hir_builder_emit_load_fast_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_),
+      code_, bc_instr.opcode(), bc_instr.oparg());
 }
+
+extern "C" void hir_builder_emit_load_fast_load_fast_c(void *tc, int oparg);
 
 void HIRBuilder::emitLoadFastLoadFast(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  int var_idx1 = bc_instr.oparg() >> 4;
-  int var_idx2 = bc_instr.oparg() & 0xf;
-  size_t localsplus_size = tc.frame.localsplus.count;
-  JIT_CHECK(
-      var_idx1 < localsplus_size && var_idx2 < localsplus_size,
-      "LOAD_FAST_LOAD_FAST ({}, {}) out of bounds for localsplus array size {}",
-      var_idx1,
-      var_idx2,
-      tc.frame.localsplus.count);
-  Register* var1 = static_cast<Register*>(tc.frame.localsplus.data[var_idx1]);
-  phx_ptr_arr_push(&tc.frame.stack, var1);
-
-  Register* var2 = static_cast<Register*>(tc.frame.localsplus.data[var_idx2]);
-  phx_ptr_arr_push(&tc.frame.stack, var2);
+  hir_builder_emit_load_fast_load_fast_c(
+      static_cast<void*>(&tc), bc_instr.oparg());
 }
+
+extern "C" void hir_builder_emit_load_local_c(void *tc, PyCodeObject *code, int oparg);
 
 void HIRBuilder::emitLoadLocal(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  PyObject* index_and_descr =
-      PyTuple_GET_ITEM(code_->co_consts, bc_instr.oparg());
-  int index = PyLong_AsLong(PyTuple_GET_ITEM(index_and_descr, 0));
-
-  auto var = static_cast<Register*>(tc.frame.localsplus.data[index]);
-  phx_ptr_arr_push(&tc.frame.stack, var);
+  hir_builder_emit_load_local_c(
+      static_cast<void*>(&tc), code_, bc_instr.oparg());
 }
 
 void HIRBuilder::emitLoadSmallInt(
@@ -5291,50 +5273,22 @@ void HIRBuilder::emitStoreFast(
   hir_builder_emit_store_fast_c(static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
+extern "C" void hir_builder_emit_store_fast_store_fast_c(void *tc, void *func, int oparg);
+
 void HIRBuilder::emitStoreFastStoreFast(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  int var_idx1 = bc_instr.oparg() >> 4;
-  int var_idx2 = bc_instr.oparg() & 0xf;
-  size_t localsplus_size = tc.frame.localsplus.count;
-  JIT_CHECK(
-      var_idx1 < localsplus_size && var_idx2 < localsplus_size,
-      "STORE_FAST_STORE_FAST ({}, {}) out of bounds for localsplus array size "
-      "{}",
-      var_idx1,
-      var_idx2,
-      tc.frame.localsplus.count);
-  Register* src = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* dst = static_cast<Register*>(tc.frame.localsplus.data[var_idx1]);
-  moveOverwrittenStackRegisters(tc, dst);
-  tc.emitAssign(dst, src);
-
-  src = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  dst = static_cast<Register*>(tc.frame.localsplus.data[var_idx2]);
-  moveOverwrittenStackRegisters(tc, dst);
-  tc.emitAssign(dst, src);
+  hir_builder_emit_store_fast_store_fast_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
+
+extern "C" void hir_builder_emit_store_fast_load_fast_c(void *tc, void *func, int oparg);
 
 void HIRBuilder::emitStoreFastLoadFast(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  int var_idx1 = bc_instr.oparg() >> 4;
-  int var_idx2 = bc_instr.oparg() & 0xf;
-  size_t localsplus_size = tc.frame.localsplus.count;
-  JIT_CHECK(
-      var_idx1 < localsplus_size && var_idx2 < localsplus_size,
-      "STORE_FAST_LOAD_FAST ({}, {}) out of bounds for localsplus array size "
-      "{}",
-      var_idx1,
-      var_idx2,
-      tc.frame.localsplus.count);
-  Register* src = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* dst = static_cast<Register*>(tc.frame.localsplus.data[var_idx1]);
-  moveOverwrittenStackRegisters(tc, dst);
-  tc.emitAssign(dst, src);
-
-  Register* var = static_cast<Register*>(tc.frame.localsplus.data[var_idx2]);
-  phx_ptr_arr_push(&tc.frame.stack, var);
+  hir_builder_emit_store_fast_load_fast_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
 void HIRBuilder::emitBinarySlice(TranslationContext& tc) {
@@ -5357,33 +5311,13 @@ void HIRBuilder::emitStoreSlice(TranslationContext& tc) {
   tc.emitStoreSubscr(container, slice, values, tc.frame);
 }
 
+extern "C" void hir_builder_emit_store_subscr_c(void *tc, int specialized_opcode);
+
 void HIRBuilder::emitStoreSubscr(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  PhxPtrArray& stack = tc.frame.stack;
-  if (jit_get_config()->specialized_opcodes) {
-    // Bug 7 fix: Snapshot BEFORE popping operands — deopt re-executes instruction
-    tc.emitSnapshot();
-  }
-  Register* sub = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* container = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-
-  if (jit_get_config()->specialized_opcodes) {
-    switch (bc_instr.specializedOpcode()) {
-      case STORE_SUBSCR_DICT:
-        tc.emitGuardType(container, TDictExact, container);
-        break;
-      case STORE_SUBSCR_LIST_INT:
-        tc.emitGuardType(container, TListExact, container);
-        tc.emitGuardType(sub, TLongExact, sub);
-        break;
-      default:
-        break;
-    }
-  }
-
-  tc.emitStoreSubscr(container, sub, value, tc.frame);
+  hir_builder_emit_store_subscr_c(
+      static_cast<void*>(&tc), bc_instr.specializedOpcode());
 }
 
 void HIRBuilder::emitGetIter(
@@ -6078,51 +6012,38 @@ void HIRBuilder::emitFormatValue(
   phx_ptr_arr_push(&tc.frame.stack, dst);
 }
 
+extern "C" void hir_builder_emit_format_with_spec_c(void *tc, void *func);
+
 void HIRBuilder::emitFormatWithSpec(TranslationContext& tc) {
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* fmt_spec = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* out = temps_.AllocateStack();
-  tc.emitFormatWithSpec(out, value, fmt_spec, tc.frame);
-  phx_ptr_arr_push(&stack, out);
+  hir_builder_emit_format_with_spec_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
+
+extern "C" void hir_builder_emit_map_add_c(void *tc, void *func, int oparg);
 
 void HIRBuilder::emitMapAdd(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto oparg = bc_instr.oparg();
-  PhxPtrArray& stack = tc.frame.stack;
-  auto value = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  auto key = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-
-  auto map = static_cast<Register*>(stack.data[stack.count - (oparg)]);
-
-  auto result = temps_.AllocateStack();
-  tc.emitSetDictItem(result, map, key, value, tc.frame);
+  hir_builder_emit_map_add_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
+
+extern "C" void hir_builder_emit_set_add_c(void *tc, void *func, int oparg);
 
 void HIRBuilder::emitSetAdd(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto oparg = bc_instr.oparg();
-  PhxPtrArray& stack = tc.frame.stack;
-
-  auto* v = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  auto* set = static_cast<Register*>(stack.data[stack.count - (oparg)]);
-
-  auto result = temps_.AllocateStack();
-  tc.emitSetSetItem(result, set, v, tc.frame);
+  hir_builder_emit_set_add_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
+
+extern "C" void hir_builder_emit_set_update_c(void *tc, void *func, int oparg);
 
 void HIRBuilder::emitSetUpdate(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto oparg = bc_instr.oparg();
-  PhxPtrArray& stack = tc.frame.stack;
-  auto* iterable = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  auto* set = static_cast<Register*>(stack.data[stack.count - (oparg)]);
-  auto result = temps_.AllocateStack();
-  tc.emitSetUpdate(result, set, iterable, tc.frame);
+  hir_builder_emit_set_update_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
 void HIRBuilder::emitDispatchEagerCoroResult(

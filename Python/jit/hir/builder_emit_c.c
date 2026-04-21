@@ -355,6 +355,109 @@ void hir_builder_emit_copy_dict_without_keys_c(PhxTranslationContext *tc, void *
     stack->data[stack->count - 1] = rest;
 }
 
+/* emitStoreSubscr — snapshot, pop sub+container+value, guard types, emit StoreSubscr */
+extern void *hir_c_create_snapshot(void *frame_state);
+extern void *hir_c_create_guard_type_reg(void *dst, HirType target, void *src);
+extern void *hir_c_create_store_subscr_reg(void *container, void *sub, void *value, void *fs);
+
+void hir_builder_emit_store_subscr_c(
+        PhxTranslationContext *tc,
+        int specialized_opcode) {
+    PhxPtrArray *stack = &tc->frame.stack;
+
+    if (jit_get_config()->specialized_opcodes) {
+        phx_tc_emit(tc, hir_c_create_snapshot(&tc->frame));
+    }
+
+    void *sub = phx_ptr_arr_pop(stack);
+    void *container = phx_ptr_arr_pop(stack);
+    void *value = phx_ptr_arr_pop(stack);
+
+    if (jit_get_config()->specialized_opcodes) {
+        switch (specialized_opcode) {
+            case STORE_SUBSCR_DICT: {
+                HirType t_dict = hir_type_from_pytype(&PyDict_Type, 1);
+                phx_tc_emit(tc, hir_c_create_guard_type_reg(container, t_dict, container));
+                break;
+            }
+            case STORE_SUBSCR_LIST_INT: {
+                HirType t_list = hir_type_from_pytype(&PyList_Type, 1);
+                HirType t_long = hir_type_from_pytype(&PyLong_Type, 1);
+                phx_tc_emit(tc, hir_c_create_guard_type_reg(container, t_list, container));
+                phx_tc_emit(tc, hir_c_create_guard_type_reg(sub, t_long, sub));
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, sub, value, &tc->frame));
+}
+
+/* emitFormatWithSpec — pop fmt_spec+value, emit FormatWithSpec, push */
+extern void *hir_c_create_format_with_spec_reg(void *dst, void *value, void *fmt_spec, void *fs);
+
+void hir_builder_emit_format_with_spec_c(PhxTranslationContext *tc, void *func) {
+    void *fmt_spec = phx_ptr_arr_pop(&tc->frame.stack);
+    void *value = phx_ptr_arr_pop(&tc->frame.stack);
+    void *out = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_format_with_spec_reg(out, value, fmt_spec, &tc->frame));
+    phx_ptr_arr_push(&tc->frame.stack, out);
+}
+
+/* emitMapAdd — pop value+key, peek map at depth, emit SetDictItem */
+extern void *hir_c_create_set_dict_item_reg(void *dst, void *dict, void *key, void *value, void *fs);
+
+void hir_builder_emit_map_add_c(PhxTranslationContext *tc, void *func, int oparg) {
+    void *value = phx_ptr_arr_pop(&tc->frame.stack);
+    void *key = phx_ptr_arr_pop(&tc->frame.stack);
+    void *map = tc->frame.stack.data[tc->frame.stack.count - oparg];
+    void *dst = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_set_dict_item_reg(dst, map, key, value, &tc->frame));
+}
+
+/* emitSetAdd — pop value, peek set at depth, emit SetSetItem */
+extern void *hir_c_create_set_set_item_reg(void *dst, void *set, void *item, void *fs);
+
+void hir_builder_emit_set_add_c(PhxTranslationContext *tc, void *func, int oparg) {
+    void *item = phx_ptr_arr_pop(&tc->frame.stack);
+    void *set = tc->frame.stack.data[tc->frame.stack.count - oparg];
+    void *dst = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_set_set_item_reg(dst, set, item, &tc->frame));
+}
+
+/* emitSetUpdate — pop iterable, peek set at depth, emit SetUpdate */
+extern void *hir_c_create_set_update_reg(void *dst, void *set, void *iter, void *fs);
+
+void hir_builder_emit_set_update_c(PhxTranslationContext *tc, void *func, int oparg) {
+    void *iterable = phx_ptr_arr_pop(&tc->frame.stack);
+    void *set = tc->frame.stack.data[tc->frame.stack.count - oparg];
+    void *dst = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_set_update_reg(dst, set, iterable, &tc->frame));
+}
+
+/* emitListAppend — pop item, peek list at depth, emit ListAppend */
+extern void *hir_c_create_list_append_reg(void *dst, void *list, void *item, void *fs);
+
+void hir_builder_emit_list_append_c(PhxTranslationContext *tc, void *func, int oparg) {
+    void *item = phx_ptr_arr_pop(&tc->frame.stack);
+    void *list = tc->frame.stack.data[tc->frame.stack.count - oparg];
+    void *dst = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_list_append_reg(dst, list, item, &tc->frame));
+}
+
+/* emitLoadLocal — co_consts index lookup, localsplus read, push */
+void hir_builder_emit_load_local_c(
+        PhxTranslationContext *tc,
+        PyCodeObject *code,
+        int oparg) {
+    PyObject *index_and_descr = PyTuple_GET_ITEM(code->co_consts, oparg);
+    int index = (int)PyLong_AsLong(PyTuple_GET_ITEM(index_and_descr, 0));
+    void *var = tc->frame.localsplus.data[index];
+    phx_ptr_arr_push(&tc->frame.stack, var);
+}
+
 /* emitToBool — pop, IsTruthy, PrimitiveBoxBool, push */
 extern void *hir_c_create_is_truthy_reg(void *dst, void *src, void *fs);
 
@@ -405,8 +508,6 @@ void hir_builder_emit_in_place_op_c(
 }
 
 /* emitCompareOp — specialized guard types, compare, optional ToBool */
-extern void *hir_c_create_snapshot(void *frame_state);
-extern void *hir_c_create_guard_type_reg(void *dst, HirType target, void *src);
 
 void hir_builder_emit_compare_op_c(
         PhxTranslationContext *tc,
