@@ -444,7 +444,10 @@ if [ "$ARM64" -eq 1 ]; then
 
     # Sync current HEAD to ARM64 via git bundle + SCP
     BUNDLE_FILE="$CPYTHON_ROOT/arm64-gate-bundle.bundle"
-    REMOTE_BUNDLE="$ARM64_DIR/arm64-gate-bundle.bundle"
+    # Place the bundle OUTSIDE the cpython working tree so the new
+    # 'git stash push -u' below does not stash it as an untracked file
+    # — which would leave 'git fetch' with no bundle to read.
+    REMOTE_BUNDLE="/tmp/arm64-gate-bundle.bundle"
     (cd "$CPYTHON_ROOT" && git bundle create "$BUNDLE_FILE" HEAD~200..HEAD 2>/dev/null)
     nbs-local-run "scp $BUNDLE_FILE $ARM64_HOST:$REMOTE_BUNDLE" 2>/dev/null
 
