@@ -438,20 +438,32 @@ if [ "$ARM64" -eq 1 ]; then
     ARM64_HOST="alexturner@devgpu004.kcm2.facebook.com"
     ARM64_DIR="~/local/phoenix/cpython"
 
-    # Sync current HEAD to ARM64 via git bundle
+    # Sync current HEAD to ARM64 via git bundle + SCP
     BUNDLE_FILE="$CPYTHON_ROOT/arm64-gate-bundle.bundle"
+    REMOTE_BUNDLE="$ARM64_DIR/arm64-gate-bundle.bundle"
     (cd "$CPYTHON_ROOT" && git bundle create "$BUNDLE_FILE" HEAD~5..HEAD 2>/dev/null)
+    nbs-local-run "scp $BUNDLE_FILE $ARM64_HOST:$REMOTE_BUNDLE" 2>/dev/null
 
     ARM64_OUTPUT=$(nbs-remote-run "$ARM64_HOST" "
         cd $ARM64_DIR &&
-        git fetch $BUNDLE_FILE phoenix-asm-integration:arm64-gate-update 2>/dev/null;
-        git checkout arm64-gate-update 2>/dev/null;
+        git fetch $REMOTE_BUNDLE phoenix-asm-integration:arm64-gate-update 2>&1 | tail -3;
+        git checkout arm64-gate-update 2>&1 | tail -3;
+        ARM64_COMMIT=\$(git rev-parse --short HEAD);
+        echo ARM64_COMMIT=\$ARM64_COMMIT;
         scripts/build_phoenix.sh --clean 2>&1 | tail -5;
         echo BUILD_ARM64=\$?;
         chmod +x python;
         JIT_ENABLE=1 ./python -m test test_phoenix_jit_arithmetic test_phoenix_jit_autocompile test_phoenix_jit_comparisons test_phoenix_jit_containers test_phoenix_jit_controlflow test_phoenix_jit_coverage test_phoenix_jit_functions test_phoenix_jit_generators test_phoenix_float test_phoenix_hir_type test_phoenix_benchmark_correctness test_phoenix_deferred_compile test_phoenix_profiling_hooks test_phoenix_usetype_float 2>&1 | tail -10;
         echo ARM64_EXIT=\$?
     " 2>&1 || echo "ARM64_REMOTE_FAIL")
+
+    # Verify ARM64 commit matches x86_64 commit
+    ARM64_COMMIT_HASH=$(echo "$ARM64_OUTPUT" | grep -oP 'ARM64_COMMIT=\K\S+')
+    if [ -n "$ARM64_COMMIT_HASH" ] && [ "$ARM64_COMMIT_HASH" != "$COMMIT_HASH" ]; then
+        echo "GATE FAIL — ARM64 commit $ARM64_COMMIT_HASH does not match x86_64 commit $COMMIT_HASH" | tee -a "$RESULTS_FILE"
+        GATE_PASS=0
+        FAILURES="$FAILURES ARM64:commit_mismatch($ARM64_COMMIT_HASH)"
+    fi
 
     echo "$ARM64_OUTPUT" | tee -a "$RESULTS_FILE"
 
