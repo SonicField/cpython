@@ -4563,16 +4563,12 @@ void HIRBuilder::emitLoadSmallInt(
 #endif
 }
 
+extern "C" void hir_builder_emit_store_local_c(void *tc, void *func, PyCodeObject *code, int oparg);
+
 void HIRBuilder::emitStoreLocal(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* src = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  PyObject* index_and_descr =
-      PyTuple_GET_ITEM(code_->co_consts, bc_instr.oparg());
-  int index = PyLong_AsLong(PyTuple_GET_ITEM(index_and_descr, 0));
-  auto dst = static_cast<Register*>(tc.frame.localsplus.data[index]);
-  moveOverwrittenStackRegisters(tc, dst);
-  tc.emitAssign(dst, src);
+  hir_builder_emit_store_local_c(static_cast<void*>(&tc), static_cast<void*>(current_func_), code_, bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_load_type_c(void *tc, void *func);
@@ -4583,14 +4579,12 @@ void HIRBuilder::emitLoadType(
   hir_builder_emit_load_type_c(static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
 
+extern "C" void hir_builder_emit_convert_primitive_c(void *tc, void *func, int oparg);
+
 void HIRBuilder::emitConvertPrimitive(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* val = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* out = temps_.AllocateStack();
-  Type to_type = prim_type_to_type(bc_instr.oparg() >> 4);
-  tc.emitIntConvert(out, val, to_type);
-  phx_ptr_arr_push(&tc.frame.stack, out);
+  hir_builder_emit_convert_primitive_c(static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
 void HIRBuilder::emitPrimitiveLoadConst(

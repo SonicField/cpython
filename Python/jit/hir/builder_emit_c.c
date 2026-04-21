@@ -275,6 +275,35 @@ void hir_builder_emit_contains_op_c(PhxTranslationContext *tc, void *func, int o
     phx_ptr_arr_push(&tc->frame.stack, result);
 }
 
+/* emitStoreLocal — pop, co_consts index lookup, localsplus write, Assign */
+void hir_builder_emit_store_local_c(
+        PhxTranslationContext *tc,
+        void *func,
+        PyCodeObject *code,
+        int oparg) {
+    void *src = phx_ptr_arr_pop(&tc->frame.stack);
+    PyObject *index_and_descr = PyTuple_GET_ITEM(code->co_consts, oparg);
+    int index = (int)PyLong_AsLong(PyTuple_GET_ITEM(index_and_descr, 0));
+    void *dst = tc->frame.localsplus.data[index];
+    phx_move_overwritten_stack_regs(tc, func, dst);
+    phx_tc_emit(tc, hir_assign_create(dst, src));
+}
+
+/* emitConvertPrimitive — pop, IntConvert, push */
+extern void *hir_c_create_int_convert_reg(void *dst, void *src, HirType type);
+extern HirType hir_prim_type_to_type(int prim_type);
+
+void hir_builder_emit_convert_primitive_c(
+        PhxTranslationContext *tc,
+        void *func,
+        int oparg) {
+    void *val = phx_ptr_arr_pop(&tc->frame.stack);
+    void *out = hir_func_alloc_register(func);
+    HirType to_type = hir_prim_type_to_type(oparg >> 4);
+    phx_tc_emit(tc, hir_c_create_int_convert_reg(out, val, to_type));
+    phx_ptr_arr_push(&tc->frame.stack, out);
+}
+
 /* emitStoreAttr — pop receiver + value, emit StoreAttr */
 extern void *hir_c_create_store_attr_reg(void *recv, void *val, int name_idx, void *fs);
 
