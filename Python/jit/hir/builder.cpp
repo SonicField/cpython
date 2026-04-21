@@ -5975,25 +5975,13 @@ void HIRBuilder::emitBuildString(
   tc.emitVariadicDeopt(HIR_OP_BuildString, temps_, num_operands);
 }
 
+extern "C" void hir_builder_emit_format_value_c(void *tc, void *func, int oparg);
+
 void HIRBuilder::emitFormatValue(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto oparg = bc_instr.oparg();
-
-  int have_fmt_spec = (oparg & FVS_MASK) == FVS_HAVE_SPEC;
-  Register* fmt_spec;
-  if (have_fmt_spec) {
-    fmt_spec = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  } else {
-    fmt_spec = temps_.AllocateStack();
-    tc.emitLoadConst(fmt_spec, TNullptr);
-  }
-  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* dst = temps_.AllocateStack();
-  int which_conversion = oparg & FVC_MASK;
-
-  tc.emitFormatValue(dst, fmt_spec, value, which_conversion, tc.frame);
-  phx_ptr_arr_push(&tc.frame.stack, dst);
+  hir_builder_emit_format_value_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_format_with_spec_c(void *tc, void *func);

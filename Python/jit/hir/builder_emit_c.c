@@ -493,6 +493,26 @@ void hir_builder_emit_set_update_c(PhxTranslationContext *tc, void *func, int op
     phx_tc_emit(tc, hir_c_create_set_update_reg(dst, set, iterable, &tc->frame));
 }
 
+/* emitFormatValue — pop fmt_spec (if present), pop value, FormatValue, push */
+extern void *hir_c_create_format_value_reg(void *dst, void *fmt, void *val, int32_t conv, void *fs);
+
+void hir_builder_emit_format_value_c(PhxTranslationContext *tc, void *func, int oparg) {
+    int have_fmt_spec = (oparg & 0x04) == 0x04; /* FVS_HAVE_SPEC=4, FVS_MASK=4 */
+    void *fmt_spec;
+    if (have_fmt_spec) {
+        fmt_spec = phx_ptr_arr_pop(&tc->frame.stack);
+    } else {
+        fmt_spec = hir_func_alloc_register(func);
+        HirType t_nullptr = HIR_TYPE_NULLPTR;
+        phx_tc_emit(tc, hir_c_create_load_const(fmt_spec, t_nullptr));
+    }
+    void *value = phx_ptr_arr_pop(&tc->frame.stack);
+    void *dst = hir_func_alloc_register(func);
+    int which_conversion = oparg & 0x03; /* FVC_MASK=3 */
+    phx_tc_emit(tc, hir_c_create_format_value_reg(dst, fmt_spec, value, which_conversion, &tc->frame));
+    phx_ptr_arr_push(&tc->frame.stack, dst);
+}
+
 /* emitListExtend — pop iterable, peek list at depth, emit ListExtend */
 extern void *hir_c_create_list_extend_reg(void *dst, void *list, void *iter, void *fs);
 
