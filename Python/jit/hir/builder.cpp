@@ -3843,6 +3843,8 @@ void HIRBuilder::emitDeleteAttr(
   hir_builder_emit_delete_attr_c(static_cast<void*>(&tc), bc_instr.oparg());
 }
 
+extern "C" void hir_builder_emit_load_attr_generic_c(void *tc, void *func, void *receiver, int name_idx);
+
 void HIRBuilder::emitLoadAttr(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
@@ -4086,9 +4088,9 @@ void HIRBuilder::emitLoadAttr(
     }
   }
 
-  Register* result = temps_.AllocateStack();
-  tc.emitLoadAttr2(result, receiver, name_idx, tc.frame);
-  phx_ptr_arr_push(&tc.frame.stack, result);
+  hir_builder_emit_load_attr_generic_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_),
+      static_cast<void*>(receiver), name_idx);
 }
 
 void HIRBuilder::emitLoadMethod(TranslationContext& tc, int name_idx) {

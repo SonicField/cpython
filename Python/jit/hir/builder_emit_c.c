@@ -542,6 +542,16 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitLoadAttr generic — non-specialized LoadAttr2 fallback */
+extern void *hir_c_create_load_attr_reg2(void *dst, void *receiver, int32_t name_idx, void *fs);
+
+void hir_builder_emit_load_attr_generic_c(PhxTranslationContext *tc, void *func,
+                                           void *receiver, int name_idx) {
+    void *result = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_load_attr_reg2(result, receiver, name_idx, &tc->frame));
+    phx_ptr_arr_push(&tc->frame.stack, result);
+}
+
 /* emitBinaryOp — specialized guards + oparg dispatch + BinaryOp/InPlaceOp */
 extern void *hir_c_create_binary_op_reg(void *dst, int32_t op, void *left, void *right, void *fs);
 extern void *hir_c_create_in_place_op_reg(void *dst, int32_t op_kind,
