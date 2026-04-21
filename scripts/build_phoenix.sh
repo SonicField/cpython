@@ -97,9 +97,9 @@ if [ -f "$BUILD_DIR/CMakeCache.txt" ] && [ "$CLEAN" -eq 0 ]; then
     fi
 fi
 
-# Step 2: Configure CPython (generates pyconfig.h needed by cmake) (hermetic — always reconfigure)
-# ARM64: no LTO (causes issues on aarch64 devgpu builds)
-# x86_64: LTO enabled for production performance
+# Step 2: Configure CPython (generates pyconfig.h needed by cmake)
+# Skip configure if pyconfig.h already exists and is valid (has SIZEOF_VOID_P defined).
+# This handles environments where configure fails (e.g., cannot run compiled programs).
 echo "--- Configuring CPython ---"
 cd "$CPYTHON_ROOT"
 PYDEBUG_FLAG="--without-pydebug"
@@ -110,24 +110,28 @@ fi
 if [ "$ASAN" -eq 1 ]; then
     ASAN_FLAG="--with-address-sanitizer"
 fi
-if [ "$ARCH" = "aarch64" ]; then
-    echo "ARM64 detected — configuring without LTO"
-    if ! CC="$PHOENIX_CC $GCC_INSTALL_FLAG" CXX="$PHOENIX_CXX $GCC_INSTALL_FLAG" ./configure $PYDEBUG_FLAG $ASAN_FLAG --without-lto; then
-        echo "FAIL: configure failed"
-        exit 1
-    fi
+if [ -f pyconfig.h ] && grep -q '#define SIZEOF_VOID_P' pyconfig.h && [ "$CLEAN" -eq 0 ]; then
+    echo "pyconfig.h exists and is valid — skipping configure"
 else
-    if [ "$PYDEBUG" -eq 1 ]; then
-        echo "x86_64 detected — configuring without LTO (pydebug)"
+    if [ "$ARCH" = "aarch64" ]; then
+        echo "ARM64 detected — configuring without LTO"
         if ! CC="$PHOENIX_CC $GCC_INSTALL_FLAG" CXX="$PHOENIX_CXX $GCC_INSTALL_FLAG" ./configure $PYDEBUG_FLAG $ASAN_FLAG --without-lto; then
             echo "FAIL: configure failed"
             exit 1
         fi
     else
-        echo "x86_64 detected — configuring with LTO"
-        if ! CC="$PHOENIX_CC $GCC_INSTALL_FLAG" CXX="$PHOENIX_CXX $GCC_INSTALL_FLAG" ./configure $PYDEBUG_FLAG $ASAN_FLAG --with-lto; then
-            echo "FAIL: configure failed"
-            exit 1
+        if [ "$PYDEBUG" -eq 1 ]; then
+            echo "x86_64 detected — configuring without LTO (pydebug)"
+            if ! CC="$PHOENIX_CC $GCC_INSTALL_FLAG" CXX="$PHOENIX_CXX $GCC_INSTALL_FLAG" ./configure $PYDEBUG_FLAG $ASAN_FLAG --without-lto; then
+                echo "FAIL: configure failed"
+                exit 1
+            fi
+        else
+            echo "x86_64 detected — configuring with LTO"
+            if ! CC="$PHOENIX_CC $GCC_INSTALL_FLAG" CXX="$PHOENIX_CXX $GCC_INSTALL_FLAG" ./configure $PYDEBUG_FLAG $ASAN_FLAG --with-lto; then
+                echo "FAIL: configure failed"
+                exit 1
+            fi
         fi
     fi
 fi
