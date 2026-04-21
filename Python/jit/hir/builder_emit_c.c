@@ -542,6 +542,29 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitImportName — pop fromlist+level, emit ImportName or EagerImportName */
+extern void *hir_c_create_import_name_reg(void *dst, int32_t name_idx, void *fromlist, void *level, void *fs);
+extern void *hir_c_create_eager_import_name_reg(void *dst, int32_t name_idx, void *fromlist, void *level, void *fs);
+
+void hir_builder_emit_import_name_c(PhxTranslationContext *tc, void *func, int opcode, int oparg) {
+    void *fromlist = phx_ptr_arr_pop(&tc->frame.stack);
+    void *level = phx_ptr_arr_pop(&tc->frame.stack);
+    void *res = hir_func_alloc_register(func);
+#ifdef EAGER_IMPORT_NAME
+    if (opcode == EAGER_IMPORT_NAME) {
+        phx_tc_emit(tc, hir_c_create_eager_import_name_reg(res, oparg, fromlist, level, &tc->frame));
+    } else
+#endif
+    {
+        int name_idx = oparg;
+#if PY_VERSION_HEX >= 0x030F0000
+        name_idx = oparg >> 2;
+#endif
+        phx_tc_emit(tc, hir_c_create_import_name_reg(res, name_idx, fromlist, level, &tc->frame));
+    }
+    phx_ptr_arr_push(&tc->frame.stack, res);
+}
+
 /* emitCallEx — pop kwargs/args/func, emit CallEx */
 extern void *hir_c_create_call_ex_reg(void *dst, void *func_r, void *pargs, void *kwargs, uint32_t flags, void *fs);
 

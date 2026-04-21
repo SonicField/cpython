@@ -5556,20 +5556,14 @@ int importNameIdx(int oparg) {
   }
 }
 
+extern "C" void hir_builder_emit_import_name_c(void *tc, void *func, int opcode, int oparg);
+
 void HIRBuilder::emitImportName(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* fromlist = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* level = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* res = temps_.AllocateStack();
-  if (bc_instr.opcode() == EAGER_IMPORT_NAME) {
-    tc.emitEagerImportName(res, bc_instr.oparg(), fromlist, level, tc.frame);
-  } else {
-    tc.emitImportName(
-        res, importNameIdx(bc_instr.oparg()), fromlist, level, tc.frame);
-  }
-  phx_ptr_arr_push(&stack, res);
+  hir_builder_emit_import_name_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_),
+      bc_instr.opcode(), bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_raise_varargs_c(void *tc);
