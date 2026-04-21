@@ -3200,34 +3200,14 @@ void HIRBuilder::emitAnyCall(
   }
 }
 
+extern "C" void hir_builder_emit_call_intrinsic_c(void *tc, void *func, int opcode, int oparg);
+
 void HIRBuilder::emitCallInstrinsic(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto oparg = bc_instr.oparg();
-  auto num_operands = 1;
-
-  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* res = temps_.AllocateStack();
-  std::vector<Register*> args;
-#if PY_VERSION_HEX >= 0x030C0000
-  if (bc_instr.opcode() == CALL_INTRINSIC_2) {
-    JIT_CHECK(
-        oparg <= MAX_INTRINSIC_2,
-        "Invalid oparg for binary intrinsic function: {}",
-        oparg);
-    Register* value2 = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-    args.push_back(value2);
-    num_operands = 2;
-  } else {
-    JIT_CHECK(
-        oparg <= MAX_INTRINSIC_1,
-        "Invalid oparg for unary intrinsic function: {}",
-        oparg);
-  }
-#endif
-  args.push_back(value);
-  tc.emitCallIntrinsic(num_operands, res, oparg, args);
-  phx_ptr_arr_push(&tc.frame.stack, res);
+  hir_builder_emit_call_intrinsic_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_),
+      bc_instr.opcode(), bc_instr.oparg());
 }
 
 void HIRBuilder::emitResume(
@@ -5564,14 +5544,14 @@ void HIRBuilder::emitUnpackSequence(
   }
 }
 
+extern "C" void hir_builder_emit_setup_finally_c(void *tc, int handler_off);
+
 void HIRBuilder::emitSetupFinally(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   BCOffset handler_off =
       bc_instr.nextInstrOffset() + BCIndex{bc_instr.oparg()}.asOffset();
-  int stack_level = tc.frame.stack.count;
-  tc.frame.block_stack.push(
-      ExecutionBlock{SETUP_FINALLY, handler_off, stack_level});
+  hir_builder_emit_setup_finally_c(static_cast<void*>(&tc), handler_off.value());
 }
 
 void HIRBuilder::emitAsyncForHeaderYieldFrom(
@@ -6324,40 +6304,13 @@ void HIRBuilder::emitLoadSpecial(
   phx_ptr_arr_push(&stack, null_or_self);
 }
 
+extern "C" void hir_builder_emit_set_function_attribute_c(void *tc, int oparg);
+
 void HIRBuilder::emitSetFunctionAttribute(
     TranslationContext& tc,
     const BytecodeInstruction& bc_instr) {
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* func = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-
-  // Map the bytecode oparg to FunctionAttr enum
-  FunctionAttr attr;
-  switch (bc_instr.oparg()) {
-    case MAKE_FUNCTION_DEFAULTS:
-      attr = FunctionAttr::kDefaults;
-      break;
-    case MAKE_FUNCTION_KWDEFAULTS:
-      attr = FunctionAttr::kKwDefaults;
-      break;
-    case MAKE_FUNCTION_ANNOTATIONS:
-      attr = FunctionAttr::kAnnotations;
-      break;
-    case MAKE_FUNCTION_CLOSURE:
-      attr = FunctionAttr::kClosure;
-      break;
-#if PY_VERSION_HEX >= 0x030E0000
-    case MAKE_FUNCTION_ANNOTATE:
-      attr = FunctionAttr::kAnnotate;
-      break;
-#endif
-    default:
-      JIT_ABORT(
-          "Unsupported SET_FUNCTION_ATTRIBUTE oparg: {}", bc_instr.oparg());
-  }
-
-  tc.emitSetFunctionAttr(value, func, attr);
-  phx_ptr_arr_push(&stack, func);
+  hir_builder_emit_set_function_attribute_c(
+      static_cast<void*>(&tc), bc_instr.oparg());
 }
 
 void HIRBuilder::emitLoadBuildClass(TranslationContext& tc) {

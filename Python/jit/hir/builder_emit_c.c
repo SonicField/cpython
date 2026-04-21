@@ -493,6 +493,74 @@ void hir_builder_emit_set_update_c(PhxTranslationContext *tc, void *func, int op
     phx_tc_emit(tc, hir_c_create_set_update_reg(dst, set, iterable, &tc->frame));
 }
 
+/* emitSetupFinally — push block_stack entry */
+void hir_builder_emit_setup_finally_c(PhxTranslationContext *tc, int handler_off) {
+    int stack_level = (int)tc->frame.stack.count;
+    phx_block_stack_push(&tc->frame, SETUP_FINALLY, handler_off, stack_level);
+}
+
+/* emitCallIntrinsic — pop 1-2 args, emit CallIntrinsic, push result */
+extern void *hir_c_create_call_intrinsic_reg2(size_t n, void *dst, int32_t index, void **operands);
+
+void hir_builder_emit_call_intrinsic_c(PhxTranslationContext *tc, void *func,
+                                        int opcode, int oparg) {
+    void *value = phx_ptr_arr_pop(&tc->frame.stack);
+    void *res = hir_func_alloc_register(func);
+    void *args[2];
+    int num_operands = 1;
+#if PY_VERSION_HEX >= 0x030C0000
+    if (opcode == CALL_INTRINSIC_2) {
+        void *value2 = phx_ptr_arr_pop(&tc->frame.stack);
+        args[0] = value2;
+        args[1] = value;
+        num_operands = 2;
+    } else {
+        args[0] = value;
+    }
+#else
+    args[0] = value;
+#endif
+    phx_tc_emit(tc, hir_c_create_call_intrinsic_reg2(num_operands, res, oparg, args));
+    phx_ptr_arr_push(&tc->frame.stack, res);
+}
+
+/* emitSetFunctionAttribute — pop func+value, map oparg→FunctionAttr, emit */
+extern void *hir_c_create_set_function_attr_reg(void *value, void *base, int32_t field);
+
+/* FunctionAttr enum values (must match C++ enum class FunctionAttr in hir.h) */
+#define FUNC_ATTR_CLOSURE     0
+#define FUNC_ATTR_ANNOTATIONS 1
+#define FUNC_ATTR_KWDEFAULTS  2
+#define FUNC_ATTR_DEFAULTS    3
+#define FUNC_ATTR_ANNOTATE    4
+
+/* MAKE_FUNCTION_* constants from py-portability.h */
+#ifndef MAKE_FUNCTION_DEFAULTS
+#define MAKE_FUNCTION_DEFAULTS    0x01
+#define MAKE_FUNCTION_KWDEFAULTS  0x02
+#define MAKE_FUNCTION_ANNOTATIONS 0x04
+#define MAKE_FUNCTION_CLOSURE     0x08
+#endif
+#ifndef MAKE_FUNCTION_ANNOTATE
+#define MAKE_FUNCTION_ANNOTATE    0x10
+#endif
+
+void hir_builder_emit_set_function_attribute_c(PhxTranslationContext *tc, int oparg) {
+    void *func = phx_ptr_arr_pop(&tc->frame.stack);
+    void *value = phx_ptr_arr_pop(&tc->frame.stack);
+    int32_t attr;
+    switch (oparg) {
+        case MAKE_FUNCTION_DEFAULTS:    attr = FUNC_ATTR_DEFAULTS; break;
+        case MAKE_FUNCTION_KWDEFAULTS:  attr = FUNC_ATTR_KWDEFAULTS; break;
+        case MAKE_FUNCTION_ANNOTATIONS: attr = FUNC_ATTR_ANNOTATIONS; break;
+        case MAKE_FUNCTION_CLOSURE:     attr = FUNC_ATTR_CLOSURE; break;
+        case MAKE_FUNCTION_ANNOTATE:    attr = FUNC_ATTR_ANNOTATE; break;
+        default: attr = -1; break;
+    }
+    phx_tc_emit(tc, hir_c_create_set_function_attr_reg(value, func, attr));
+    phx_ptr_arr_push(&tc->frame.stack, func);
+}
+
 /* emitGetAIter — pop obj, emit GetAIter, push */
 extern void *hir_c_create_get_a_iter_reg(void *dst, void *src, void *fs);
 
