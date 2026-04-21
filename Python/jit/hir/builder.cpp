@@ -4709,12 +4709,13 @@ void HIRBuilder::emitFastLen(
       bc_instr.oparg(), bc_instr.baseOffset().value());
 }
 
+extern "C" void hir_builder_emit_refine_type_c(void *tc, void *builder, PyCodeObject *code, int oparg);
+
 void HIRBuilder::emitRefineType(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Type type = preloader_.type(constArg(bc_instr));
-  Register* dst = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - 1]);
-  tc.emitRefineType(dst, type, dst);
+  hir_builder_emit_refine_type_c(
+      static_cast<void*>(&tc), static_cast<void*>(this), code_, bc_instr.oparg());
 }
 
 void HIRBuilder::emitSequenceGet(

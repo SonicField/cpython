@@ -542,6 +542,18 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitRefineType — refine stack top to preloaded type */
+extern HirType hir_builder_preloader_type(void *builder, PyObject *descr);
+extern void *hir_c_create_refine_type_reg(void *dst, HirType type, void *src);
+
+void hir_builder_emit_refine_type_c(PhxTranslationContext *tc, void *builder,
+                                     PyCodeObject *code, int oparg) {
+    PyObject *descr = PyTuple_GET_ITEM(code->co_consts, oparg);
+    HirType type = hir_builder_preloader_type(builder, descr);
+    void *dst = tc->frame.stack.data[tc->frame.stack.count - 1];
+    phx_tc_emit(tc, hir_c_create_refine_type_reg(dst, type, dst));
+}
+
 /* emitLoadClass — load preloaded class as constant */
 extern void *hir_builder_preloader_py_type(void *builder, PyObject *descr);
 void hir_builder_emit_load_class_c(PhxTranslationContext *tc, void *func, void *builder,
@@ -681,7 +693,6 @@ void hir_builder_emit_unpack_ex_c(PhxTranslationContext *tc, void *func, int opa
 extern void *hir_c_create_deopt(void);
 extern void *hir_c_create_branch_cpp(void *target_block);
 extern void *hir_c_create_cond_branch_check_type_cpp(void *target, HirType type, void *true_bb, void *false_bb);
-extern void *hir_c_create_refine_type_reg(void *dst, HirType type, void *src);
 extern void *hir_c_create_load_field_reg(void *dst, void *recv, const char *name, intptr_t offset, HirType type, int borrowed);
 extern void *hir_cfg_alloc_block(void *func);
 
