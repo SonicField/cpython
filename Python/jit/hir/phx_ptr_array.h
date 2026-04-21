@@ -54,6 +54,14 @@ static inline void phx_ptr_arr_reserve(PhxPtrArray *a, size_t n) {
         a->capacity = n;
     }
 }
+static inline void phx_ptr_arr_copy(PhxPtrArray *dst, const PhxPtrArray *src) {
+    phx_ptr_arr_init(dst);
+    if (src->count > 0) {
+        phx_ptr_arr_reserve(dst, src->count);
+        memcpy(dst->data, src->data, src->count * sizeof(void *));
+        dst->count = src->count;
+    }
+}
 
 #ifdef __cplusplus
 } /* extern "C" */
