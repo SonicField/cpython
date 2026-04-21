@@ -101,36 +101,6 @@ class ForwardDataflowAnalysis : public DataflowAnalysis {
   void Run() override;
 };
 
-class LivenessAnalysis : public BackwardDataflowAnalysis {
- public:
-  explicit LivenessAnalysis(const Function& irfunc)
-      : BackwardDataflowAnalysis(irfunc) {}
-
-  bool IsLiveIn(const BasicBlock* cfg_block, Register* reg);
-  bool IsLiveOut(const BasicBlock* cfg_block, Register* reg);
-
-  using LastUses =
-      std::unordered_map<const Instr*, std::unordered_set<Register*>>;
-
-  // Compute and return a map indicating which values die after which
-  // instructions. Must be called after Run().
-  LastUses GetLastUses();
-
- protected:
-  void ComputeGenKill(
-      const BasicBlock* block,
-      RegisterSet& gen,
-      RegisterSet& kill) final;
-  jit::util::BitVector ComputeNewIn(
-      const jit::optimizer::DataFlowBlock* block) final;
-  jit::util::BitVector ComputeNewOut(
-      const jit::optimizer::DataFlowBlock* block) final;
-  void setUninitialized(jit::optimizer::DataFlowBlock* block) final;
-
-  std::string name() final {
-    return "LivenessAnalysis";
-  }
-};
 
 // This computes which registers have been initialized at a basic block.
 //
