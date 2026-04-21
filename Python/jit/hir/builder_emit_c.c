@@ -493,6 +493,80 @@ void hir_builder_emit_set_update_c(PhxTranslationContext *tc, void *func, int op
     phx_tc_emit(tc, hir_c_create_set_update_reg(dst, set, iterable, &tc->frame));
 }
 
+/* emitPopJumpIf — pop var, compute true/false blocks, conditional branch */
+extern void *hir_builder_get_block_at_off(void *builder, int byte_offset);
+extern void *hir_c_create_cond_branch_cpp(void *cond_reg, void *true_bb, void *false_bb);
+extern void *hir_c_create_is_truthy_reg(void *dst, void *src, void *fs);
+
+void hir_builder_emit_pop_jump_if_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder,
+        int opcode,
+        int jump_target,
+        int next_instr_offset) {
+    void *var = phx_ptr_arr_pop(&tc->frame.stack);
+    int true_off, false_off;
+    switch (opcode) {
+#ifdef POP_JUMP_IF_ZERO
+        case POP_JUMP_IF_ZERO:
+#endif
+        case POP_JUMP_IF_FALSE:
+            true_off = next_instr_offset;
+            false_off = jump_target;
+            break;
+#ifdef POP_JUMP_IF_NONZERO
+        case POP_JUMP_IF_NONZERO:
+#endif
+        case POP_JUMP_IF_TRUE:
+            true_off = jump_target;
+            false_off = next_instr_offset;
+            break;
+        default:
+            true_off = next_instr_offset;
+            false_off = jump_target;
+            break;
+    }
+    void *true_block = hir_builder_get_block_at_off(builder, true_off);
+    void *false_block = hir_builder_get_block_at_off(builder, false_off);
+
+    if (opcode == POP_JUMP_IF_FALSE || opcode == POP_JUMP_IF_TRUE) {
+        void *is_true = hir_func_alloc_register(func);
+#if PY_VERSION_HEX >= 0x030E0000
+        void *const_true = hir_func_alloc_register(func);
+        HirType t_true = hir_type_from_object(Py_True);
+        phx_tc_emit(tc, hir_c_create_load_const(const_true, t_true));
+        phx_tc_emit(tc, hir_c_create_primitive_compare(is_true, HIR_PCMP_Equal, var, const_true));
+#else
+        phx_tc_emit(tc, hir_c_create_is_truthy_reg(is_true, var, &tc->frame));
+#endif
+        phx_tc_emit(tc, hir_c_create_cond_branch_cpp(is_true, true_block, false_block));
+    } else {
+        phx_tc_emit(tc, hir_c_create_cond_branch_cpp(var, true_block, false_block));
+    }
+}
+
+/* emitPopJumpIfNone — pop var, compare to None, conditional branch */
+void hir_builder_emit_pop_jump_if_none_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder,
+        int opcode,
+        int jump_target,
+        int next_instr_offset) {
+    void *var = phx_ptr_arr_pop(&tc->frame.stack);
+    void *true_block = hir_builder_get_block_at_off(builder, jump_target);
+    void *false_block = hir_builder_get_block_at_off(builder, next_instr_offset);
+
+    void *none = hir_func_alloc_register(func);
+    HirType t_none = hir_type_from_object(Py_None);
+    phx_tc_emit(tc, hir_c_create_load_const(none, t_none));
+    void *is_true = hir_func_alloc_register(func);
+    int32_t op = (opcode == POP_JUMP_IF_NONE) ? HIR_PCMP_Equal : HIR_PCMP_NotEqual;
+    phx_tc_emit(tc, hir_c_create_primitive_compare(is_true, op, var, none));
+    phx_tc_emit(tc, hir_c_create_cond_branch_cpp(is_true, true_block, false_block));
+}
+
 /* emitSetupFinally — push block_stack entry */
 void hir_builder_emit_setup_finally_c(PhxTranslationContext *tc, int handler_off) {
     int stack_level = (int)tc->frame.stack.count;
@@ -672,7 +746,6 @@ void hir_builder_emit_load_local_c(
 }
 
 /* emitToBool — pop, IsTruthy, PrimitiveBoxBool, push */
-extern void *hir_c_create_is_truthy_reg(void *dst, void *src, void *fs);
 
 void hir_builder_emit_to_bool_c(PhxTranslationContext *tc, void *func) {
     void *operand = phx_ptr_arr_pop(&tc->frame.stack);

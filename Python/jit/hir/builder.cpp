@@ -5133,74 +5133,30 @@ void HIRBuilder::emitBuildConstKeyMap(
   phx_ptr_arr_push(&stack, dict);
 }
 
+extern "C" void hir_builder_emit_pop_jump_if_c(void *tc, void *func, void *builder, int opcode, int jump_target, int next_instr_offset);
+
 void HIRBuilder::emitPopJumpIf(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* var = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  BCOffset true_offset, false_offset;
-  auto opcode = bc_instr.opcode();
-  switch (opcode) {
-    case POP_JUMP_IF_ZERO:
-    case POP_JUMP_IF_FALSE: {
-      true_offset = bc_instr.nextInstrOffset();
-      false_offset = bc_instr.getJumpTarget();
-      break;
-    }
-    case POP_JUMP_IF_NONZERO:
-    case POP_JUMP_IF_TRUE: {
-      true_offset = bc_instr.getJumpTarget();
-      false_offset = bc_instr.nextInstrOffset();
-      break;
-    }
-    default: {
-      // NOTREACHED
-      JIT_ABORT(
-          "Trying to translate non pop-jump bytecode {} ({})",
-          opcode,
-          opcodeName(opcode));
-    }
-  }
-
-  BasicBlock* true_block = getBlockAtOff(true_offset);
-  BasicBlock* false_block = getBlockAtOff(false_offset);
-
-  if (bc_instr.opcode() == POP_JUMP_IF_FALSE ||
-      bc_instr.opcode() == POP_JUMP_IF_TRUE) {
-    Register* is_true = temps_.AllocateNonStack();
-    // In 3.14+ coercion to exactly Py_True or Py_False is performed by earlier
-    // instructions. See GH-106008.
-    if constexpr (PY_VERSION_HEX >= 0x030E0000) {
-      Register* const_true = temps_.AllocateNonStack();
-      tc.emitLoadConst(const_true, Type::fromObject(Py_True));
-      tc.emitPrimitiveCompare(
-          is_true, PrimitiveCompareOp::kEqual, var, const_true);
-    } else {
-      tc.emitIsTruthy(is_true, var, tc.frame);
-    }
-    tc.emitCondBranch(is_true, true_block, false_block);
-  } else {
-    tc.emitCondBranch(var, true_block, false_block);
-  }
+  hir_builder_emit_pop_jump_if_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_),
+      static_cast<void*>(this),
+      bc_instr.opcode(),
+      bc_instr.getJumpTarget().value(),
+      bc_instr.nextInstrOffset().value());
 }
+
+extern "C" void hir_builder_emit_pop_jump_if_none_c(void *tc, void *func, void *builder, int opcode, int jump_target, int next_instr_offset);
 
 void HIRBuilder::emitPopJumpIfNone(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* var = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  BCOffset true_offset = bc_instr.getJumpTarget();
-  BCOffset false_offset = bc_instr.nextInstrOffset();
-
-  BasicBlock* true_block = getBlockAtOff(true_offset);
-  BasicBlock* false_block = getBlockAtOff(false_offset);
-
-  auto none = temps_.AllocateNonStack();
-  tc.emitLoadConst(none, Type::fromObject(Py_None));
-  auto is_true = temps_.AllocateNonStack();
-  auto op = bc_instr.opcode() == POP_JUMP_IF_NONE
-      ? PrimitiveCompareOp::kEqual
-      : PrimitiveCompareOp::kNotEqual;
-  tc.emitPrimitiveCompare(is_true, op, var, none);
-  tc.emitCondBranch(is_true, true_block, false_block);
+  hir_builder_emit_pop_jump_if_none_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_),
+      static_cast<void*>(this),
+      bc_instr.opcode(),
+      bc_instr.getJumpTarget().value(),
+      bc_instr.nextInstrOffset().value());
 }
 
 extern "C" void hir_builder_emit_store_attr_c(void *tc, int oparg);
