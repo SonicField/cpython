@@ -542,6 +542,17 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitLoadAssertionError — load AssertionError as constant */
+extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
+
+void hir_builder_emit_load_assertion_error_c(PhxTranslationContext *tc, void *func) {
+    void *result = hir_func_alloc_register(func);
+    PyObject *ref = hir_func_add_reference(func, PyExc_AssertionError);
+    HirType type = hir_type_from_object(ref);
+    phx_tc_emit(tc, hir_c_create_load_const(result, type));
+    phx_ptr_arr_push(&tc->frame.stack, result);
+}
+
 /* emitRefineType — refine stack top to preloaded type */
 extern HirType hir_builder_preloader_type(void *builder, PyObject *descr);
 extern void *hir_c_create_refine_type_reg(void *dst, HirType type, void *src);

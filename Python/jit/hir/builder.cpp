@@ -4310,13 +4310,13 @@ void HIRBuilder::emitStoreDeref(
   hir_builder_emit_store_deref_c(static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
+extern "C" void hir_builder_emit_load_assertion_error_c(void *tc, void *func);
+
 void HIRBuilder::emitLoadAssertionError(
     TranslationContext& tc,
     Environment& env) {
-  Register* result = temps_.AllocateStack();
-  tc.emitLoadConst(
-      result, Type::fromObject(env.addReference(PyExc_AssertionError)));
-  phx_ptr_arr_push(&tc.frame.stack, result);
+  hir_builder_emit_load_assertion_error_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
 
 extern "C" void hir_builder_emit_load_class_c(void *tc, void *func, void *builder, PyCodeObject *code, int oparg);
