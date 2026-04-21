@@ -4514,17 +4514,12 @@ void HIRBuilder::emitLoadClass(
   phx_ptr_arr_push(&tc.frame.stack, tmp);
 }
 
+extern "C" void hir_builder_emit_load_const_c(void *tc_ptr, void *func, PyCodeObject *code, int oparg);
+
 void HIRBuilder::emitLoadConst(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* tmp = temps_.AllocateStack();
-  JIT_CHECK(
-      bc_instr.oparg() < PyTuple_Size(code_->co_consts),
-      "LOAD_CONST index out of bounds");
-  tc.emitLoadConst(
-      tmp,
-      Type::fromObject(PyTuple_GET_ITEM(code_->co_consts, bc_instr.oparg())));
-  phx_ptr_arr_push(&tc.frame.stack, tmp);
+  hir_builder_emit_load_const_c(static_cast<void*>(&tc), static_cast<void*>(current_func_), code_, bc_instr.oparg());
 }
 
 void HIRBuilder::emitLoadFast(
@@ -5388,14 +5383,12 @@ void HIRBuilder::moveOverwrittenStackRegisters(
     }
   }
 }
+extern "C" void hir_builder_emit_store_fast_c(void *tc_ptr, void *func, int oparg);
+
 void HIRBuilder::emitStoreFast(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* src = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* dst = static_cast<Register*>(tc.frame.localsplus.data[bc_instr.oparg()]);
-  JIT_DCHECK(dst != nullptr, "no register");
-  moveOverwrittenStackRegisters(tc, dst);
-  tc.emitAssign(dst, src);
+  hir_builder_emit_store_fast_c(static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
 void HIRBuilder::emitStoreFastStoreFast(
