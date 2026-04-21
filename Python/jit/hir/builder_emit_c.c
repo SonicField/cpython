@@ -493,6 +493,44 @@ void hir_builder_emit_set_update_c(PhxTranslationContext *tc, void *func, int op
     phx_tc_emit(tc, hir_c_create_set_update_reg(dst, set, iterable, &tc->frame));
 }
 
+/* emitListExtend — pop iterable, peek list at depth, emit ListExtend */
+extern void *hir_c_create_list_extend_reg(void *dst, void *list, void *iter, void *fs);
+
+void hir_builder_emit_list_extend_c(PhxTranslationContext *tc, void *func, int oparg) {
+    void *iterable = phx_ptr_arr_pop(&tc->frame.stack);
+    void *list = tc->frame.stack.data[tc->frame.stack.count - oparg];
+    void *none = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_list_extend_reg(none, list, iterable, &tc->frame));
+}
+
+/* emitListToTuple — pop list, emit MakeTupleFromList, push tuple */
+extern void *hir_c_create_make_tuple_from_list_reg(void *dst, void *list, void *fs);
+
+void hir_builder_emit_list_to_tuple_c(PhxTranslationContext *tc, void *func) {
+    void *list = phx_ptr_arr_pop(&tc->frame.stack);
+    void *tuple = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_make_tuple_from_list_reg(tuple, list, &tc->frame));
+    phx_ptr_arr_push(&tc->frame.stack, tuple);
+}
+
+/* emitMakeCell — allocate cell, MakeCell + moveOverwritten + Assign */
+extern void *hir_c_create_make_cell_reg(void *dst, void *src, void *fs);
+
+void hir_builder_emit_make_cell_c(PhxTranslationContext *tc, void *func, int local_idx) {
+    void *local = tc->frame.localsplus.data[local_idx];
+    void *cell = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_make_cell_reg(cell, local, &tc->frame));
+    phx_move_overwritten_stack_regs(tc, func, local);
+    phx_tc_emit(tc, hir_assign_create(local, cell));
+}
+
+/* emitRaiseVarargs — emit Raise */
+extern void *hir_c_create_raise_reg(void *fs);
+
+void hir_builder_emit_raise_varargs_c(PhxTranslationContext *tc) {
+    phx_tc_emit(tc, hir_c_create_raise_reg(&tc->frame));
+}
+
 /* emitListAppend — pop item, peek list at depth, emit ListAppend */
 extern void *hir_c_create_list_append_reg(void *dst, void *list, void *item, void *fs);
 

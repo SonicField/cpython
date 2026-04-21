@@ -4319,12 +4319,11 @@ void HIRBuilder::emitLoadMethodOrAttrSuper(
   phx_ptr_arr_push(&tc.frame.stack, method_instance);
 }
 
+extern "C" void hir_builder_emit_make_cell_c(void *tc, void *func, int local_idx);
+
 void HIRBuilder::emitMakeCell(TranslationContext& tc, int local_idx) {
-  Register* local = static_cast<Register*>(tc.frame.localsplus.data[local_idx]);
-  Register* cell = temps_.AllocateNonStack();
-  tc.emitMakeCell(cell, local, tc.frame);
-  moveOverwrittenStackRegisters(tc, local);
-  tc.emitAssign(local, cell);
+  hir_builder_emit_make_cell_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), local_idx);
 }
 
 extern "C" void hir_builder_emit_copy_c(void *tc, int item_idx);
@@ -5029,20 +5028,20 @@ void HIRBuilder::emitMakeListTuple(
   phx_ptr_arr_push(&tc.frame.stack, dst);
 }
 
+extern "C" void hir_builder_emit_list_extend_c(void *tc, void *func, int oparg);
+
 void HIRBuilder::emitListExtend(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* iterable = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* list = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - bc_instr.oparg()]);
-  Register* none = temps_.AllocateStack();
-  tc.emitListExtend(none, list, iterable, tc.frame);
+  hir_builder_emit_list_extend_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
+extern "C" void hir_builder_emit_list_to_tuple_c(void *tc, void *func);
+
 void HIRBuilder::emitListToTuple(TranslationContext& tc) {
-  Register* list = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* tuple = temps_.AllocateStack();
-  tc.emitMakeTupleFromList(tuple, list, tc.frame);
-  phx_ptr_arr_push(&tc.frame.stack, tuple);
+  hir_builder_emit_list_to_tuple_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
 
 void HIRBuilder::emitBuildCheckedList(
@@ -5808,8 +5807,10 @@ void HIRBuilder::emitImportName(
   phx_ptr_arr_push(&stack, res);
 }
 
+extern "C" void hir_builder_emit_raise_varargs_c(void *tc);
+
 void HIRBuilder::emitRaiseVarargs(TranslationContext& tc) {
-  tc.emitRaise(tc.frame);
+  hir_builder_emit_raise_varargs_c(static_cast<void*>(&tc));
 }
 
 void HIRBuilder::emitYieldFrom(TranslationContext& tc, Register* out) {
