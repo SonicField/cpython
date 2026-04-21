@@ -5326,28 +5326,14 @@ void HIRBuilder::emitLoadField(
       static_cast<void*>(this), code_, bc_instr.oparg());
 }
 
+extern "C" void hir_builder_emit_store_field_c(void *tc, void *func, void *builder, PyCodeObject *code, int oparg);
+
 void HIRBuilder::emitStoreField(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto& [offset, type, name] = preloader_.fieldInfo(constArg(bc_instr));
-  const char* field_name = PyUnicode_AsUTF8((PyObject*)name);
-  if (field_name == nullptr) {
-    PyErr_Clear();
-    field_name = "";
-  }
-
-  Register* receiver = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* previous = temps_.AllocateStack();
-  if (type <= TPrimitive) {
-    Register* converted = temps_.AllocateStack();
-    tc.emitLoadConst(previous, TNullptr);
-    tc.emitIntConvert(converted, value, type);
-    value = converted;
-  } else {
-    tc.emitLoadField(previous, receiver, field_name, offset, type, false);
-  }
-  tc.emitStoreField(receiver, field_name, offset, value, type, previous);
+  hir_builder_emit_store_field_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_),
+      static_cast<void*>(this), code_, bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_cast_c(void *tc, void *func, void *builder, PyCodeObject *code, int oparg);

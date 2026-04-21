@@ -542,6 +542,43 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitStoreField — pop receiver+value, fieldInfo lookup, StoreField */
+extern void hir_builder_preloader_field_info(void *builder, PyObject *descr,
+                                              intptr_t *offset_out, HirType *type_out,
+                                              PyObject **name_out);
+extern void *hir_c_create_store_field_reg(void *receiver, const char *name, intptr_t offset, void *value, HirType type, void *previous);
+extern void *hir_c_create_int_convert_reg(void *dst, void *src, HirType type);
+
+void hir_builder_emit_store_field_c(PhxTranslationContext *tc, void *func, void *builder,
+                                     PyCodeObject *code, int oparg) {
+    PyObject *descr = PyTuple_GET_ITEM(code->co_consts, oparg);
+    intptr_t offset;
+    HirType type;
+    PyObject *name;
+    hir_builder_preloader_field_info(builder, descr, &offset, &type, &name);
+    const char *field_name = PyUnicode_AsUTF8(name);
+    if (field_name == NULL) {
+        PyErr_Clear();
+        field_name = "";
+    }
+
+    void *receiver = phx_ptr_arr_pop(&tc->frame.stack);
+    void *value = phx_ptr_arr_pop(&tc->frame.stack);
+    void *previous = hir_func_alloc_register(func);
+
+    HirType t_prim = (HirType)HIR_TYPE_PRIMITIVE;
+    if ((hir_type_bits(&type) & ~hir_type_bits(&t_prim)) == 0 && hir_type_bits(&type) != 0) {
+        void *converted = hir_func_alloc_register(func);
+        HirType t_nullptr = (HirType)HIR_TYPE_NULLPTR;
+        phx_tc_emit(tc, hir_c_create_load_const(previous, t_nullptr));
+        phx_tc_emit(tc, hir_c_create_int_convert_reg(converted, value, type));
+        value = converted;
+    } else {
+        phx_tc_emit(tc, hir_c_create_load_field_reg(previous, receiver, field_name, offset, type, 0));
+    }
+    phx_tc_emit(tc, hir_c_create_store_field_reg(receiver, field_name, offset, value, type, previous));
+}
+
 /* emitMakeFunction — pop code (+qualname pre-3.11), MakeFunction + SetFunctionAttr */
 extern void *hir_c_create_make_function_reg(void *dst, void *code, void *qualname, void *fs);
 extern void *hir_c_create_set_function_attr_reg(void *value, void *base, int32_t field);
@@ -825,9 +862,6 @@ void hir_builder_emit_match_keys_c(PhxTranslationContext *tc, void *func) {
 }
 
 /* emitLoadField — load field from receiver using preloader fieldInfo */
-extern void hir_builder_preloader_field_info(void *builder, PyObject *descr,
-                                              intptr_t *offset_out, HirType *type_out,
-                                              PyObject **name_out);
 extern void *hir_c_create_check_field_reg(void *dst, void *src, void *name, void *fs);
 extern void hir_c_set_guilty_reg(void *instr, void *reg);
 extern int hir_type_could_be(const HirType *a, const HirType *b);
