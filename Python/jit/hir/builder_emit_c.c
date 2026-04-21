@@ -542,6 +542,32 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitAsyncForHeaderYieldFrom — yield from async for header */
+extern void *hir_builder_get_block_at_off(void *builder, int byte_offset);
+extern void *hir_c_create_cond_branch_iter_not_done_cpp(void *val, void *body, void *footer);
+extern void *hir_c_create_set_current_awaiter_reg(void *src);
+extern void *hir_c_create_yield_from_handle_stop_async_reg(void *dst, void *send, void *awaitable, void *fs);
+
+void hir_builder_emit_async_for_header_yield_from_c(
+        PhxTranslationContext *tc, void *func, void *builder,
+        PyCodeObject *code, int next_instr_offset) {
+    void *send_value = phx_ptr_arr_pop(&tc->frame.stack);
+    void *awaitable = tc->frame.stack.data[tc->frame.stack.count - 1];
+    void *out = hir_func_alloc_register(func);
+    if (code->co_flags & CO_COROUTINE) {
+        phx_tc_emit(tc, hir_c_create_set_current_awaiter_reg(awaitable));
+    }
+    phx_tc_emit(tc, hir_c_create_yield_from_handle_stop_async_reg(out, send_value, awaitable, &tc->frame));
+    phx_ptr_arr_pop(&tc->frame.stack);
+    phx_ptr_arr_push(&tc->frame.stack, out);
+
+    void *yf_cont_block = hir_builder_get_block_at_off(builder, next_instr_offset);
+    PhxExecBlock *top = (PhxExecBlock *)tc->frame.block_stack_data;
+    int handler_off = top[tc->frame.block_stack_count - 1].handler_off;
+    void *yf_done_block = hir_builder_get_block_at_off(builder, handler_off);
+    phx_tc_emit(tc, hir_c_create_cond_branch_iter_not_done_cpp(out, yf_cont_block, yf_done_block));
+}
+
 /* emitStoreField — pop receiver+value, fieldInfo lookup, StoreField */
 extern void hir_builder_preloader_field_info(void *builder, PyObject *descr,
                                               intptr_t *offset_out, HirType *type_out,

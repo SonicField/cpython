@@ -5186,24 +5186,15 @@ void HIRBuilder::emitSetupFinally(
   hir_builder_emit_setup_finally_c(static_cast<void*>(&tc), handler_off.value());
 }
 
+extern "C" void hir_builder_emit_async_for_header_yield_from_c(void *tc, void *func, void *builder, PyCodeObject *code, int next_instr_offset);
+
 void HIRBuilder::emitAsyncForHeaderYieldFrom(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* send_value = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* awaitable = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - 1]);
-  Register* out = temps_.AllocateStack();
-  if (code_->co_flags & CO_COROUTINE) {
-    tc.emitSetCurrentAwaiter(awaitable);
-  }
-  tc.emitYieldFromHandleStopAsyncIteration(
-      out, send_value, awaitable, tc.frame);
-  static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  phx_ptr_arr_push(&tc.frame.stack, out);
-
-  BasicBlock* yf_cont_block = getBlockAtOff(bc_instr.nextInstrOffset());
-  BCOffset handler_off{tc.frame.block_stack.top().handler_off};
-  BasicBlock* yf_done_block = getBlockAtOff(handler_off);
-  tc.emitCondBranchIterNotDone(out, yf_cont_block, yf_done_block);
+  hir_builder_emit_async_for_header_yield_from_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_),
+      static_cast<void*>(this), code_,
+      bc_instr.nextInstrOffset().value());
 }
 
 extern "C" void hir_builder_emit_end_async_for_c(void *tc);
