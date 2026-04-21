@@ -542,6 +542,30 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitForIter — peek iterator, InvokeIterNext, CondBranchIterNotDone */
+extern void *hir_builder_get_block_at_off(void *builder, int byte_offset);
+extern void *hir_c_create_invoke_iter_next_reg(void *dst, void *iter, void *fs);
+extern void *hir_c_create_cond_branch_iter_not_done_cpp(void *val, void *body, void *footer);
+
+void hir_builder_emit_for_iter_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder,
+        int jump_target,
+        int next_instr_offset) {
+#if PY_VERSION_HEX >= 0x030F0000
+    void *iterator = tc->frame.stack.data[tc->frame.stack.count - 2];
+#else
+    void *iterator = tc->frame.stack.data[tc->frame.stack.count - 1];
+#endif
+    void *next_val = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_invoke_iter_next_reg(next_val, iterator, &tc->frame));
+    phx_ptr_arr_push(&tc->frame.stack, next_val);
+    void *footer = hir_builder_get_block_at_off(builder, jump_target);
+    void *body = hir_builder_get_block_at_off(builder, next_instr_offset);
+    phx_tc_emit(tc, hir_c_create_cond_branch_iter_not_done_cpp(next_val, body, footer));
+}
+
 /* emitUnpackEx — unpack with star: seq → tuple, load items */
 extern void *hir_c_create_unpack_ex_to_tuple_reg(void *dst, void *seq, int32_t before, int32_t after, void *fs);
 extern void *hir_c_create_load_tuple_item_reg(void *dst, void *tuple, int32_t idx);

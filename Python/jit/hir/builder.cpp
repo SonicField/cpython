@@ -5159,21 +5159,16 @@ void HIRBuilder::emitGetIter(
   }
 }
 
+extern "C" void hir_builder_emit_for_iter_c(void *tc, void *func, void *builder, int jump_target, int next_instr_offset);
+
 void HIRBuilder::emitForIter(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* iterator;
-  if constexpr (PY_VERSION_HEX >= 0x030F0000) {
-    iterator = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - (1) - 1]);
-  } else {
-    iterator = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - 1]);
-  }
-  Register* next_val = temps_.AllocateStack();
-  tc.emitInvokeIterNext(next_val, iterator, tc.frame);
-  phx_ptr_arr_push(&tc.frame.stack, next_val);
-  BasicBlock* footer = getBlockAtOff(bc_instr.getJumpTarget());
-  BasicBlock* body = getBlockAtOff(bc_instr.nextInstrOffset());
-  tc.emitCondBranchIterNotDone(next_val, body, footer);
+  hir_builder_emit_for_iter_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_),
+      static_cast<void*>(this),
+      bc_instr.getJumpTarget().value(),
+      bc_instr.nextInstrOffset().value());
 }
 
 void HIRBuilder::emitGetYieldFromIter(CFG& cfg, TranslationContext& tc) {
