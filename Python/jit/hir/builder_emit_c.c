@@ -542,6 +542,24 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitUnpackEx — unpack with star: seq → tuple, load items */
+extern void *hir_c_create_unpack_ex_to_tuple_reg(void *dst, void *seq, int32_t before, int32_t after, void *fs);
+extern void *hir_c_create_load_tuple_item_reg(void *dst, void *tuple, int32_t idx);
+
+void hir_builder_emit_unpack_ex_c(PhxTranslationContext *tc, void *func, int oparg) {
+    int arg_before = oparg & 0xff;
+    int arg_after = oparg >> 8;
+    void *seq = phx_ptr_arr_pop(&tc->frame.stack);
+    void *tuple = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_unpack_ex_to_tuple_reg(tuple, seq, arg_before, arg_after, &tc->frame));
+    int total_args = arg_before + arg_after + 1;
+    for (int i = total_args - 1; i >= 0; i--) {
+        void *item = hir_func_alloc_register(func);
+        phx_tc_emit(tc, hir_c_create_load_tuple_item_reg(item, tuple, i));
+        phx_ptr_arr_push(&tc->frame.stack, item);
+    }
+}
+
 /* emitFastLen — type-dispatch LoadField with optional inexact deopt path */
 extern void *hir_c_create_deopt(void);
 extern void *hir_c_create_branch_cpp(void *target_block);
@@ -751,7 +769,6 @@ void hir_builder_emit_build_set_c(PhxTranslationContext *tc, void *func, int opa
 }
 
 /* emitBuildConstKeyMap — allocate dict, pop keys tuple, fill from stack */
-extern void *hir_c_create_load_tuple_item_reg(void *dst, void *tuple, int32_t idx);
 
 void hir_builder_emit_build_const_key_map_c(PhxTranslationContext *tc, void *func, int oparg) {
     int dict_size = oparg;

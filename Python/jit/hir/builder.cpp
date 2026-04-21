@@ -5225,25 +5225,13 @@ void HIRBuilder::emitGetYieldFromIter(CFG& cfg, TranslationContext& tc) {
   phx_ptr_arr_push(&tc.frame.stack, iter_out);
 }
 
+extern "C" void hir_builder_emit_unpack_ex_c(void *tc, void *func, int oparg);
+
 void HIRBuilder::emitUnpackEx(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  int oparg = bc_instr.oparg();
-  int arg_before = oparg & 0xff;
-  int arg_after = oparg >> 8;
-
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* seq = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-
-  Register* tuple = temps_.AllocateStack();
-  tc.emitUnpackExToTuple(tuple, seq, arg_before, arg_after, tc.frame);
-
-  int total_args = arg_before + arg_after + 1;
-  for (int i = total_args - 1; i >= 0; i--) {
-    Register* item = temps_.AllocateStack();
-    tc.emitLoadTupleItem(item, tuple, i);
-    phx_ptr_arr_push(&stack, item);
-  }
+  hir_builder_emit_unpack_ex_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
 void HIRBuilder::emitUnpackSequence(
