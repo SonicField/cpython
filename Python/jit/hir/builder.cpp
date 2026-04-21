@@ -5972,29 +5972,13 @@ void HIRBuilder::emitSend(
   tc.emitCondBranch(is_done, done_block, continue_block);
 }
 
+extern "C" void hir_builder_emit_build_interpolation_c(void *tc, void *func, int oparg);
+
 void HIRBuilder::emitBuildInterpolation(
     [[maybe_unused]] TranslationContext& tc,
     [[maybe_unused]] const jit::BytecodeInstruction& bc_instr) {
-#if PY_VERSION_HEX >= 0x030E0000
-  PhxPtrArray& stack = tc.frame.stack;
-  auto oparg = bc_instr.oparg();
-  int conversion = oparg >> 2;
-
-  Register* format;
-  if (oparg & 1) {
-    format = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  } else {
-    PyObject* empty = &_Py_STR(empty);
-    format = temps_.AllocateStack();
-    tc.emitLoadConst(format, Type::fromObject(empty));
-  }
-
-  Register* str = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* out = temps_.AllocateStack();
-  tc.emitBuildInterpolation(out, value, str, format, conversion, tc.frame);
-  phx_ptr_arr_push(&stack, out);
-#endif
+  hir_builder_emit_build_interpolation_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_build_template_c(void *tc, void *func);

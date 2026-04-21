@@ -542,6 +542,31 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitBuildInterpolation — 3.14+ string interpolation */
+extern void *hir_c_create_build_interpolation_reg(void *dst, void *val, void *str, void *fmt, int32_t conv, void *fs);
+
+void hir_builder_emit_build_interpolation_c(PhxTranslationContext *tc, void *func, int oparg) {
+#if PY_VERSION_HEX >= 0x030E0000
+    int conversion = oparg >> 2;
+    void *format;
+    if (oparg & 1) {
+        format = phx_ptr_arr_pop(&tc->frame.stack);
+    } else {
+        PyObject *empty = &_Py_STR(empty);
+        format = hir_func_alloc_register(func);
+        HirType type = hir_type_from_object(empty);
+        phx_tc_emit(tc, hir_c_create_load_const(format, type));
+    }
+    void *str = phx_ptr_arr_pop(&tc->frame.stack);
+    void *value = phx_ptr_arr_pop(&tc->frame.stack);
+    void *out = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_build_interpolation_reg(out, value, str, format, conversion, &tc->frame));
+    phx_ptr_arr_push(&tc->frame.stack, out);
+#else
+    (void)tc; (void)func; (void)oparg;
+#endif
+}
+
 /* emitLoadAssertionError — load AssertionError as constant */
 extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
 
