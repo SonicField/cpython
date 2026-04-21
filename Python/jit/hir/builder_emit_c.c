@@ -542,6 +542,19 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitLoadSmallInt — 3.14+ small int constant */
+void hir_builder_emit_load_small_int_c(PhxTranslationContext *tc, void *func, int oparg) {
+#if PY_VERSION_HEX >= 0x030E0000
+    void *tmp = hir_func_alloc_register(func);
+    PyObject *obj = (PyObject *)&_PyLong_SMALL_INTS[_PY_NSMALLNEGINTS + oparg];
+    HirType type = hir_type_from_object(obj);
+    phx_tc_emit(tc, hir_c_create_load_const(tmp, type));
+    phx_ptr_arr_push(&tc->frame.stack, tmp);
+#else
+    (void)tc; (void)func; (void)oparg;
+#endif
+}
+
 /* emitBuildInterpolation — 3.14+ string interpolation */
 extern void *hir_c_create_build_interpolation_reg(void *dst, void *val, void *str, void *fmt, int32_t conv, void *fs);
 

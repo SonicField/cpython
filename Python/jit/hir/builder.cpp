@@ -4365,22 +4365,13 @@ void HIRBuilder::emitLoadLocal(
       static_cast<void*>(&tc), code_, bc_instr.oparg());
 }
 
+extern "C" void hir_builder_emit_load_small_int_c(void *tc, void *func, int oparg);
+
 void HIRBuilder::emitLoadSmallInt(
     [[maybe_unused]] TranslationContext& tc,
     [[maybe_unused]] const jit::BytecodeInstruction& bc_instr) {
-#if PY_VERSION_HEX >= 0x030E0000
-  Register* tmp = temps_.AllocateStack();
-  JIT_CHECK(
-      bc_instr.oparg() < _PY_NSMALLPOSINTS, "LOAD_SMALL_INT out of range");
-  tc.emitLoadConst(
-      tmp,
-      Type::fromObject(
-          reinterpret_cast<PyObject*>(
-              &_PyLong_SMALL_INTS[_PY_NSMALLNEGINTS + bc_instr.oparg()])));
-  phx_ptr_arr_push(&tc.frame.stack, tmp);
-#else
-  JIT_ABORT("LOAD_SMALL_INT not supported on this Python version");
-#endif
+  hir_builder_emit_load_small_int_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_store_local_c(void *tc, void *func, PyCodeObject *code, int oparg);
