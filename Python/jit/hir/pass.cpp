@@ -2,13 +2,6 @@
 
 #include "cinderx/Jit/hir/pass.h"
 
-#include "cinderx/Jit/hir/hir_c_api.h"
-#include "cinderx/Jit/hir/hir_instr_c.h"
-#include "cinderx/Jit/hir/hir_type_c.h"
-#include "cinderx/Jit/context.h"
-#include "cinderx/Jit/hir/analysis.h"
-#include "cinderx/Jit/hir/printer.h"
-
 extern "C" void hir_simplify_redundant_cond_branches_c(void *cfg);
 extern "C" void hir_reflow_types_c(void *func, void *start_block);
 extern "C" int hir_remove_trampoline_blocks_c(void *cfg);
