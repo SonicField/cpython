@@ -73,6 +73,12 @@ void Compiler::runPasses(jit::hir::Function& irfunc, PassConfig config) {
   PostPassFunction callback =
       [](hir::Function&, std::string_view, std::size_t) {};
   runPasses(irfunc, config, callback);
+  if (getenv("PHOENIX_GOLDEN_CAPTURE")) {
+    fmt::print(stderr, "GOLDEN_HIR_FINAL {}\n", irfunc.fullname);
+    fmt::print(stderr, "{}\n", irfunc);
+    fmt::print(stderr, "END_GOLDEN_HIR_FINAL\n");
+    std::fflush(stderr);
+  }
 }
 
 void Compiler::runPasses(
@@ -133,12 +139,6 @@ void Compiler::runPasses(
       "Optimized HIR for {}:\n{}",
       irfunc.fullname,
       irfunc);
-
-#ifdef PHOENIX_GOLDEN_CAPTURE
-  fmt::print(stderr, "GOLDEN_HIR_FINAL {}\n", irfunc.fullname);
-  fmt::print(stderr, "{}", irfunc);
-  fmt::print(stderr, "END_GOLDEN_HIR_FINAL\n");
-#endif
 }
 
 std::optional<CompiledFunctionData> Compiler::Compile(
@@ -230,6 +230,12 @@ std::optional<CompiledFunctionData> Compiler::Compile(
       "HIR transformations",
       Compiler::runPasses(*irfunc, config))
 
+  if (getenv("PHOENIX_GOLDEN_CAPTURE")) {
+    fmt::print(stderr, "GOLDEN_HIR_COMPILE {}\n", irfunc->fullname);
+    fmt::print(stderr, "{}\n", *irfunc);
+    fmt::print(stderr, "END_GOLDEN_HIR_COMPILE\n");
+    std::fflush(stderr);
+  }
   hir::OpcodeCounts hir_opcode_counts = hir::count_opcodes(*irfunc);
 
   auto ngen = ngen_factory_(irfunc.get());
