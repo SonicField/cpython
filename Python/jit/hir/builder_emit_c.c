@@ -542,6 +542,19 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitTpAlloc — allocate object from type (via preloader) */
+extern void *hir_c_create_tp_alloc_reg(void *dst, void *pytype, void *fs);
+extern void *hir_builder_preloader_py_type(void *builder, PyObject *descr);
+
+void hir_builder_emit_tp_alloc_c(PhxTranslationContext *tc, void *func, void *builder,
+                                  PyCodeObject *code, int oparg) {
+    PyObject *descr = PyTuple_GET_ITEM(code->co_consts, oparg);
+    void *pytype = hir_builder_preloader_py_type(builder, descr);
+    void *result = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_tp_alloc_reg(result, pytype, &tc->frame));
+    phx_ptr_arr_push(&tc->frame.stack, result);
+}
+
 /* emitImportName — pop fromlist+level, emit ImportName or EagerImportName */
 extern void *hir_c_create_import_name_reg(void *dst, int32_t name_idx, void *fromlist, void *level, void *fs);
 extern void *hir_c_create_eager_import_name_reg(void *dst, int32_t name_idx, void *fromlist, void *level, void *fs);

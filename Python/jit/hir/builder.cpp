@@ -5528,14 +5528,14 @@ void HIRBuilder::emitCast(
   phx_ptr_arr_push(&tc.frame.stack, result);
 }
 
+extern "C" void hir_builder_emit_tp_alloc_c(void *tc, void *func, void *builder, PyCodeObject *code, int oparg);
+
 void HIRBuilder::emitTpAlloc(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto pytype = preloader_.pyType(constArg(bc_instr));
-
-  Register* result = temps_.AllocateStack();
-  tc.emitTpAlloc(result, pytype, tc.frame);
-  phx_ptr_arr_push(&tc.frame.stack, result);
+  hir_builder_emit_tp_alloc_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_),
+      static_cast<void*>(this), code_, bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_import_from_c(void *tc, void *func, int oparg);
