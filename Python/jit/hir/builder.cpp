@@ -3362,23 +3362,12 @@ void HIRBuilder::emitBinaryOp(
   phx_ptr_arr_push(&stack, result);
 }
 
+extern "C" void hir_builder_emit_in_place_op_c(void *tc, void *func, int opcode);
+
 void HIRBuilder::emitInPlaceOp(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* right = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* left = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* result = temps_.AllocateStack();
-  int opcode = bc_instr.opcode();
-  auto opt_op_kind = getInPlaceOpKindFromOpcode(opcode);
-  JIT_CHECK(
-      opt_op_kind.has_value(),
-      "Unrecognized opcode {} ({}) for inplace operation",
-      opcode,
-      opcodeName(opcode));
-  InPlaceOpKind op_kind = *opt_op_kind;
-  tc.emitInPlaceOp(result, op_kind, left, right, tc.frame);
-  phx_ptr_arr_push(&stack, result);
+  hir_builder_emit_in_place_op_c(static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.opcode());
 }
 
 static inline UnaryOpKind get_unary_op_kind(
@@ -3864,63 +3853,20 @@ void HIRBuilder::emitContainsOp(TranslationContext& tc, int oparg) {
   hir_builder_emit_contains_op_c(static_cast<void*>(&tc), static_cast<void*>(current_func_), oparg);
 }
 
+extern "C" void hir_builder_emit_compare_op_c(void *tc, void *func, int oparg, int specialized_opcode);
+
 void HIRBuilder::emitCompareOp(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  int compare_op = bc_instr.oparg();
-
-  if constexpr (PY_VERSION_HEX >= 0x030E0000) {
-    compare_op >>= 5;
-  } else if constexpr (PY_VERSION_HEX >= 0x030B0000) {
-    compare_op >>= 4;
-  }
-
-  JIT_CHECK(compare_op >= Py_LT, "Invalid op {}", compare_op);
-  JIT_CHECK(compare_op <= Py_GE, "Invalid op {}", compare_op);
-  PhxPtrArray& stack = tc.frame.stack;
-  if (jit_get_config()->specialized_opcodes) {
-    // Bug 7 fix: Snapshot BEFORE popping operands — deopt re-executes instruction
-    tc.emitSnapshot();
-  }
-  Register* right = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* left = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* result = temps_.AllocateStack();
-  CompareOp op = static_cast<CompareOp>(compare_op);
-
-  if (jit_get_config()->specialized_opcodes) {
-    switch (bc_instr.specializedOpcode()) {
-      case COMPARE_OP_FLOAT:
-        tc.emitGuardType(left, TFloatExact, left);
-        tc.emitGuardType(right, TFloatExact, right);
-        break;
-      case COMPARE_OP_INT:
-        tc.emitGuardType(left, TLongExact, left);
-        tc.emitGuardType(right, TLongExact, right);
-        break;
-      case COMPARE_OP_STR:
-        tc.emitGuardType(left, TUnicodeExact, left);
-        tc.emitGuardType(right, TUnicodeExact, right);
-        break;
-      default:
-        break;
-    }
-  }
-
-  tc.emitCompare(result, op, left, right, tc.frame);
-  phx_ptr_arr_push(&stack, result);
-  if (PY_VERSION_HEX >= 0x030E0000 && bc_instr.oparg() & 0x10) {
-    emitToBool(tc);
-  }
+  hir_builder_emit_compare_op_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_),
+      bc_instr.oparg(), bc_instr.specializedOpcode());
 }
 
-void HIRBuilder::emitToBool(TranslationContext& tc) {
-  Register* operand = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* truthy_result = temps_.AllocateStack();
-  tc.emitIsTruthy(truthy_result, operand, tc.frame);
+extern "C" void hir_builder_emit_to_bool_c(void *tc, void *func);
 
-  Register* coerced_result = temps_.AllocateStack();
-  tc.emitPrimitiveBoxBool(coerced_result, truthy_result);
-  phx_ptr_arr_push(&tc.frame.stack, coerced_result);
+void HIRBuilder::emitToBool(TranslationContext& tc) {
+  hir_builder_emit_to_bool_c(static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
 
 extern "C" void hir_builder_emit_copy_dict_without_keys_c(void *tc, void *func);

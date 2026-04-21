@@ -9,6 +9,8 @@
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_basic_block_c.h"
 #include "cinderx/Jit/hir/phx_frame_state.h"
+#include "cinderx/Jit/hir/hir_type_c.h"
+#include "cinderx/Jit/jit_config_c.h"
 #include "Python.h"
 #include "opcode.h"
 
@@ -351,4 +353,114 @@ void hir_builder_emit_copy_dict_without_keys_c(PhxTranslationContext *tc, void *
     void *rest = hir_func_alloc_register(func);
     phx_tc_emit(tc, hir_c_create_copy_dict_without_keys_reg(rest, subject, keys, &tc->frame));
     stack->data[stack->count - 1] = rest;
+}
+
+/* emitToBool — pop, IsTruthy, PrimitiveBoxBool, push */
+extern void *hir_c_create_is_truthy_reg(void *dst, void *src, void *fs);
+
+void hir_builder_emit_to_bool_c(PhxTranslationContext *tc, void *func) {
+    void *operand = phx_ptr_arr_pop(&tc->frame.stack);
+    void *truthy_result = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_is_truthy_reg(truthy_result, operand, &tc->frame));
+    void *coerced_result = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_primitive_box_bool(coerced_result, truthy_result));
+    phx_ptr_arr_push(&tc->frame.stack, coerced_result);
+}
+
+/* emitInPlaceOp — pop right+left, map opcode→kind, emit InPlaceOp, push */
+extern void *hir_c_create_in_place_op_reg(void *dst, int32_t op_kind,
+                                           void *left, void *right, void *fs);
+
+static int32_t get_inplace_op_kind_from_opcode_c(int opcode) {
+    switch (opcode) {
+#ifdef INPLACE_ADD
+        case INPLACE_ADD:            return HIR_IOP_Add;
+        case INPLACE_AND:            return HIR_IOP_And;
+        case INPLACE_FLOOR_DIVIDE:   return HIR_IOP_FloorDivide;
+        case INPLACE_LSHIFT:         return HIR_IOP_LShift;
+        case INPLACE_MATRIX_MULTIPLY: return HIR_IOP_MatrixMultiply;
+        case INPLACE_MODULO:         return HIR_IOP_Modulo;
+        case INPLACE_MULTIPLY:       return HIR_IOP_Multiply;
+        case INPLACE_OR:             return HIR_IOP_Or;
+        case INPLACE_POWER:          return HIR_IOP_Power;
+        case INPLACE_RSHIFT:         return HIR_IOP_RShift;
+        case INPLACE_SUBTRACT:       return HIR_IOP_Subtract;
+        case INPLACE_TRUE_DIVIDE:    return HIR_IOP_TrueDivide;
+        case INPLACE_XOR:            return HIR_IOP_Xor;
+#endif
+        default:                     return -1;
+    }
+}
+
+void hir_builder_emit_in_place_op_c(
+        PhxTranslationContext *tc,
+        void *func,
+        int opcode) {
+    void *right = phx_ptr_arr_pop(&tc->frame.stack);
+    void *left = phx_ptr_arr_pop(&tc->frame.stack);
+    void *result = hir_func_alloc_register(func);
+    int32_t op_kind = get_inplace_op_kind_from_opcode_c(opcode);
+    phx_tc_emit(tc, hir_c_create_in_place_op_reg(result, op_kind, left, right, &tc->frame));
+    phx_ptr_arr_push(&tc->frame.stack, result);
+}
+
+/* emitCompareOp — specialized guard types, compare, optional ToBool */
+extern void *hir_c_create_snapshot(void *frame_state);
+extern void *hir_c_create_guard_type_reg(void *dst, HirType target, void *src);
+
+void hir_builder_emit_compare_op_c(
+        PhxTranslationContext *tc,
+        void *func,
+        int oparg,
+        int specialized_opcode) {
+    int compare_op = oparg;
+#if PY_VERSION_HEX >= 0x030E0000
+    compare_op >>= 5;
+#elif PY_VERSION_HEX >= 0x030B0000
+    compare_op >>= 4;
+#endif
+
+    PhxPtrArray *stack = &tc->frame.stack;
+
+    if (jit_get_config()->specialized_opcodes) {
+        phx_tc_emit(tc, hir_c_create_snapshot(&tc->frame));
+    }
+
+    void *right = phx_ptr_arr_pop(stack);
+    void *left = phx_ptr_arr_pop(stack);
+    void *result = hir_func_alloc_register(func);
+
+    if (jit_get_config()->specialized_opcodes) {
+        switch (specialized_opcode) {
+            case COMPARE_OP_FLOAT: {
+                HirType t_float = hir_type_from_pytype(&PyFloat_Type, 1);
+                phx_tc_emit(tc, hir_c_create_guard_type_reg(left, t_float, left));
+                phx_tc_emit(tc, hir_c_create_guard_type_reg(right, t_float, right));
+                break;
+            }
+            case COMPARE_OP_INT: {
+                HirType t_long = hir_type_from_pytype(&PyLong_Type, 1);
+                phx_tc_emit(tc, hir_c_create_guard_type_reg(left, t_long, left));
+                phx_tc_emit(tc, hir_c_create_guard_type_reg(right, t_long, right));
+                break;
+            }
+            case COMPARE_OP_STR: {
+                HirType t_unicode = hir_type_from_pytype(&PyUnicode_Type, 1);
+                phx_tc_emit(tc, hir_c_create_guard_type_reg(left, t_unicode, left));
+                phx_tc_emit(tc, hir_c_create_guard_type_reg(right, t_unicode, right));
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    phx_tc_emit(tc, hir_c_create_compare_reg(result, (int32_t)compare_op, left, right, &tc->frame));
+    phx_ptr_arr_push(stack, result);
+
+#if PY_VERSION_HEX >= 0x030E0000
+    if (oparg & 0x10) {
+        hir_builder_emit_to_bool_c(tc, func);
+    }
+#endif
 }
