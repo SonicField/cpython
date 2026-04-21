@@ -305,6 +305,22 @@ static inline HirType hir_type_from_cdouble(double d) {
     return t;
 }
 
+static inline HirType hir_type_from_cint(int64_t val, HirType base) {
+    HirType t = base;
+    t.bits_and_flags = (t.bits_and_flags & ~HIR_TYPE_SPEC_MASK) |
+                       ((uint64_t)HIR_SPEC_INT << HIR_TYPE_SPEC_SHIFT);
+    t.int_val = (intptr_t)val;
+    return t;
+}
+
+static inline HirType hir_type_from_cuint(uint64_t val, HirType base) {
+    HirType t = base;
+    t.bits_and_flags = (t.bits_and_flags & ~HIR_TYPE_SPEC_MASK) |
+                       ((uint64_t)HIR_SPEC_INT << HIR_TYPE_SPEC_SHIFT);
+    t.int_val = (intptr_t)val;
+    return t;
+}
+
 /* Return the type with specialization stripped (spec_kind=Top, spec_val=0).
  * C equivalent of Type::unspecialized(). */
 static inline HirType hir_type_unspecialized(const HirType *t) {

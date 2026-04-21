@@ -1646,13 +1646,7 @@ static void *type_attr_slow_path(SimplifyEnv *env, void *ctx) {
  * returns NULL to fall through to C++ simplifyLoadAttrInstanceReceiver.
  * Returns: register or NULL. Sets env->optimized if handled. */
 /* ==== Type construction helpers ==== */
-static inline HirType hir_type_from_cuint(uint64_t val, HirType base) {
-    HirType t = base;
-    t.bits_and_flags = (t.bits_and_flags & ~HIR_TYPE_SPEC_MASK) |
-                       ((uint64_t)HIR_SPEC_INT << HIR_TYPE_SPEC_SHIFT);
-    t.int_val = (intptr_t)val;
-    return t;
-}
+/* hir_type_from_cuint moved to hir_type_c.h */
 
 static inline HirType hir_type_from_cptr(void *ptr) {
     HirType t = HIR_TYPE_CPTR;
