@@ -2,7 +2,6 @@
 
 #include "cinderx/Jit/hir/pass.h"
 
-extern "C" void hir_simplify_redundant_cond_branches_c(void *cfg);
 extern "C" void hir_reflow_types_c(void *func, void *start_block);
 extern "C" int hir_remove_trampoline_blocks_c(void *cfg);
 extern "C" int hir_remove_unreachable_blocks_c(void *func);
