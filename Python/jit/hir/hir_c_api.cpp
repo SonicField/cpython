@@ -2616,4 +2616,13 @@ void *hir_builder_preloader_py_type(void *builder, PyObject *descr) {
   return b->preloader().pyType(descr);
 }
 
+void *hir_builder_preloader_preloaded_type(void *builder, PyObject *descr,
+                                            int *optional_out, int *exact_out) {
+  auto *b = static_cast<jit::hir::HIRBuilder*>(builder);
+  auto const& pt = b->preloader().preloadedType(descr);
+  *optional_out = pt.optional ? 1 : 0;
+  *exact_out = pt.exact ? 1 : 0;
+  return pt.type.get();
+}
+
 } /* extern "C" */

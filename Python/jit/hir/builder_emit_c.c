@@ -542,6 +542,21 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitCast — cast value to preloaded type */
+extern void *hir_c_create_cast_reg(void *dst, void *recv, void *pytype, int optional, int exact, void *fs);
+extern void *hir_builder_preloader_preloaded_type(void *builder, PyObject *descr, int *optional_out, int *exact_out);
+
+void hir_builder_emit_cast_c(PhxTranslationContext *tc, void *func, void *builder,
+                              PyCodeObject *code, int oparg) {
+    PyObject *descr = PyTuple_GET_ITEM(code->co_consts, oparg);
+    int optional, exact;
+    void *pytype = hir_builder_preloader_preloaded_type(builder, descr, &optional, &exact);
+    void *value = phx_ptr_arr_pop(&tc->frame.stack);
+    void *result = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_cast_reg(result, value, pytype, optional, exact, &tc->frame));
+    phx_ptr_arr_push(&tc->frame.stack, result);
+}
+
 /* emitTpAlloc — allocate object from type (via preloader) */
 extern void *hir_c_create_tp_alloc_reg(void *dst, void *pytype, void *fs);
 extern void *hir_builder_preloader_py_type(void *builder, PyObject *descr);

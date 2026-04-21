@@ -801,6 +801,10 @@ HirType hir_builder_preloader_type(void *builder, PyObject *descr);
 /* Get the Preloader's pyType(PyObject* descr) as PyTypeObject*. */
 void *hir_builder_preloader_py_type(void *builder, PyObject *descr);
 
+/* Get the Preloader's preloadedType fields (type, optional, exact). */
+void *hir_builder_preloader_preloaded_type(void *builder, PyObject *descr,
+                                            int *optional_out, int *exact_out);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

@@ -5512,20 +5512,14 @@ void HIRBuilder::emitStoreField(
   tc.emitStoreField(receiver, field_name, offset, value, type, previous);
 }
 
+extern "C" void hir_builder_emit_cast_c(void *tc, void *func, void *builder, PyCodeObject *code, int oparg);
+
 void HIRBuilder::emitCast(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto const& preloaded_type = preloader_.preloadedType(constArg(bc_instr));
-  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* result = temps_.AllocateStack();
-  tc.emitCast(
-      result,
-      value,
-      preloaded_type.type,
-      preloaded_type.optional,
-      preloaded_type.exact,
-      tc.frame);
-  phx_ptr_arr_push(&tc.frame.stack, result);
+  hir_builder_emit_cast_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_),
+      static_cast<void*>(this), code_, bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_tp_alloc_c(void *tc, void *func, void *builder, PyCodeObject *code, int oparg);
