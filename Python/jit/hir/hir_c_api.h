@@ -586,9 +586,6 @@ void hir_instr_replace_with(HirInstr old_instr, HirInstr new_instr);
 /* Get the last instruction in a block. Returns NULL if empty. */
 HirInstr hir_block_back(HirBasicBlock block);
 
-/* Get an instruction's block. */
-HirBasicBlock hir_instr_block(HirInstr instr);
-
 /* Get an instruction's operand by index. */
 HirRegister hir_instr_get_operand(HirInstr instr, size_t i);
 

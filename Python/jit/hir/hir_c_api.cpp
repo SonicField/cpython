@@ -680,8 +680,6 @@ HirInstr hir_block_back(HirBasicBlock block) {
   return &bb->back();
 }
 
-/* hir_instr_block deleted — use hir_c_block from hir_instr_c.h */
-
 HirRegister hir_instr_get_operand(HirInstr instr, size_t i) {
   return as_instr(instr)->GetOperand(i);
 }
