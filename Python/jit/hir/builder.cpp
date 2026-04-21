@@ -4450,26 +4450,12 @@ void HIRBuilder::emitLoadDeref(
   phx_ptr_arr_push(&tc.frame.stack, dst);
 }
 
+extern "C" void hir_builder_emit_store_deref_c(void *tc, void *func, int oparg);
+
 void HIRBuilder::emitStoreDeref(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  // <3.11, the oparg was the cell index.  >=3.11 it's the same index as any
-  // other local / frame value.
-  int idx = bc_instr.oparg();
-  if constexpr (PY_VERSION_HEX < 0x030B0000) {
-    idx += tc.frame.nlocals;
-  }
-
-  Register* old = temps_.AllocateStack();
-  Register* dst = static_cast<Register*>(tc.frame.localsplus.data[idx]);
-  Register* src = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-#ifdef Py_GIL_DISABLED
-  // Use atomic swap for thread-safe cell access in FT-Python.
-  tc.emitSwapCellItem(old, dst, src);
-#else
-  tc.emitStealCellItem(old, dst);
-  tc.emitSetCellItem(dst, src, old);
-#endif
+  hir_builder_emit_store_deref_c(static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
 void HIRBuilder::emitLoadAssertionError(

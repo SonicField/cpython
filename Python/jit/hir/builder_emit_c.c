@@ -304,6 +304,21 @@ void hir_builder_emit_convert_primitive_c(
     phx_ptr_arr_push(&tc->frame.stack, out);
 }
 
+/* emitStoreDeref — pop value, StealCellItem + SetCellItem */
+extern void *hir_c_create_steal_cell_item_reg(void *dst, void *cell);
+extern void *hir_c_create_set_cell_item_reg(void *cell, void *value, void *old);
+
+void hir_builder_emit_store_deref_c(
+        PhxTranslationContext *tc,
+        void *func,
+        int oparg) {
+    void *old = hir_func_alloc_register(func);
+    void *dst = tc->frame.localsplus.data[oparg];
+    void *src = phx_ptr_arr_pop(&tc->frame.stack);
+    phx_tc_emit(tc, hir_c_create_steal_cell_item_reg(old, dst));
+    phx_tc_emit(tc, hir_c_create_set_cell_item_reg(dst, src, old));
+}
+
 /* emitStoreAttr — pop receiver + value, emit StoreAttr */
 extern void *hir_c_create_store_attr_reg(void *recv, void *val, int name_idx, void *fs);
 
