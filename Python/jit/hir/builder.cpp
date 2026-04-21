@@ -4093,14 +4093,11 @@ void HIRBuilder::emitLoadAttr(
       static_cast<void*>(receiver), name_idx);
 }
 
+extern "C" void hir_builder_emit_load_method_c(void *tc, void *func, int name_idx);
+
 void HIRBuilder::emitLoadMethod(TranslationContext& tc, int name_idx) {
-  Register* receiver = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* result = temps_.AllocateStack();
-  Register* method_instance = temps_.AllocateStack();
-  tc.emitLoadMethod(result, receiver, name_idx, tc.frame);
-  tc.emitGetSecondOutput(method_instance, TOptObject, result);
-  phx_ptr_arr_push(&tc.frame.stack, result);
-  phx_ptr_arr_push(&tc.frame.stack, method_instance);
+  hir_builder_emit_load_method_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), name_idx);
 }
 
 void HIRBuilder::emitLoadMethodOrAttrSuper(

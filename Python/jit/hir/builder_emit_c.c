@@ -542,6 +542,22 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitLoadMethod — pop receiver, LoadMethod + GetSecondOutput, push 2 */
+extern void *hir_c_create_load_method_reg(void *dst, void *receiver, int32_t name_idx, void *fs);
+extern void *hir_c_create_get_second_output_reg(void *dst, HirType type, void *src);
+extern HirType hir_type_union(HirType a, HirType b);
+
+void hir_builder_emit_load_method_c(PhxTranslationContext *tc, void *func, int name_idx) {
+    void *receiver = phx_ptr_arr_pop(&tc->frame.stack);
+    void *result = hir_func_alloc_register(func);
+    void *method_instance = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_load_method_reg(result, receiver, name_idx, &tc->frame));
+    HirType t_opt_object = hir_type_union((HirType)HIR_TYPE_OBJECT, (HirType)HIR_TYPE_NULLPTR);
+    phx_tc_emit(tc, hir_c_create_get_second_output_reg(method_instance, t_opt_object, result));
+    phx_ptr_arr_push(&tc->frame.stack, result);
+    phx_ptr_arr_push(&tc->frame.stack, method_instance);
+}
+
 /* emitLoadAttr generic — non-specialized LoadAttr2 fallback */
 extern void *hir_c_create_load_attr_reg2(void *dst, void *receiver, int32_t name_idx, void *fs);
 
