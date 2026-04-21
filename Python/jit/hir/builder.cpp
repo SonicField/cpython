@@ -4721,65 +4721,15 @@ void HIRBuilder::emitPrimitiveUnaryOp(
   phx_ptr_arr_push(&tc.frame.stack, result);
 }
 
+extern "C" void hir_builder_emit_fast_len_c(void *tc, void *func, int oparg, int bc_offset);
+
 void HIRBuilder::emitFastLen(
     CFG& cfg,
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto result = temps_.AllocateStack();
-  Register* collection;
-  auto oparg = bc_instr.oparg();
-  int inexact = oparg & FAST_LEN_INEXACT;
-  std::size_t offset = 0;
-  auto type = TBottom;
-
-  oparg &= ~FAST_LEN_INEXACT;
-  const char* name = "";
-  if (oparg == FAST_LEN_LIST) {
-    type = TListExact;
-    offset = offsetof(PyVarObject, ob_size);
-    name = "ob_size";
-  } else if (oparg == FAST_LEN_TUPLE) {
-    type = TTupleExact;
-    offset = offsetof(PyVarObject, ob_size);
-    name = "ob_size";
-  } else if (oparg == FAST_LEN_ARRAY) {
-    type = TArray;
-    offset = offsetof(PyVarObject, ob_size);
-    name = "ob_size";
-  } else if (oparg == FAST_LEN_DICT) {
-    type = TDictExact;
-    offset = offsetof(PyDictObject, ma_used);
-    name = "ma_used";
-  } else if (oparg == FAST_LEN_SET) {
-    type = TSetExact;
-    offset = offsetof(PySetObject, used);
-    name = "used";
-  } else if (oparg == FAST_LEN_STR) {
-    type = TUnicodeExact;
-    // Note: In debug mode, the interpreter has an assert that
-    // ensures the string is "ready", check PyUnicode_GET_LENGTH
-    offset = offsetof(PyASCIIObject, length);
-    name = "length";
-  }
-  JIT_CHECK(offset > 0, "Bad oparg for FAST_LEN");
-
-  if (inexact) {
-    TranslationContext deopt_path{cfg.AllocateBlock(), tc.frame};
-    deopt_path.frame.cur_instr_offs = bc_instr.baseOffset();
-    deopt_path.emitSnapshot();
-    deopt_path.emitDeopt();
-    collection = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-    BasicBlock* fast_path = cfg.AllocateBlock();
-    tc.emitCondBranchCheckType(collection, type, fast_path, deopt_path.block);
-    tc.block = fast_path;
-    // TASK(T105038867): Remove once we have RefineTypeInsertion
-    tc.emitRefineType(collection, type, collection);
-  } else {
-    collection = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  }
-
-  tc.emitLoadField(result, collection, name, offset, TCInt64);
-  phx_ptr_arr_push(&tc.frame.stack, result);
+  hir_builder_emit_fast_len_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_),
+      bc_instr.oparg(), bc_instr.baseOffset().value());
 }
 
 void HIRBuilder::emitRefineType(

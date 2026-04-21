@@ -542,6 +542,87 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitFastLen — type-dispatch LoadField with optional inexact deopt path */
+extern void *hir_c_create_deopt(void);
+extern void *hir_c_create_branch_cpp(void *target_block);
+extern void *hir_c_create_cond_branch_check_type_cpp(void *target, HirType type, void *true_bb, void *false_bb);
+extern void *hir_c_create_refine_type_reg(void *dst, HirType type, void *src);
+extern void *hir_c_create_load_field_reg(void *dst, void *recv, const char *name, intptr_t offset, HirType type, int borrowed);
+extern void *hir_cfg_alloc_block(void *func);
+
+#ifndef FAST_LEN_LIST
+#define FAST_LEN_LIST     0
+#define FAST_LEN_TUPLE    1
+#define FAST_LEN_ARRAY    2
+#define FAST_LEN_DICT     3
+#define FAST_LEN_SET      4
+#define FAST_LEN_STR      5
+#define FAST_LEN_INEXACT  0x80
+#endif
+
+void hir_builder_emit_fast_len_c(
+        PhxTranslationContext *tc,
+        void *func,
+        int oparg,
+        int bc_offset) {
+    void *result = hir_func_alloc_register(func);
+    int inexact = oparg & FAST_LEN_INEXACT;
+    oparg &= ~FAST_LEN_INEXACT;
+    intptr_t offset = 0;
+    HirType type = {0};
+    const char *name = "";
+
+    if (oparg == FAST_LEN_LIST) {
+        type = hir_type_from_pytype(&PyList_Type, 1);
+        offset = offsetof(PyVarObject, ob_size);
+        name = "ob_size";
+    } else if (oparg == FAST_LEN_TUPLE) {
+        type = hir_type_from_pytype(&PyTuple_Type, 1);
+        offset = offsetof(PyVarObject, ob_size);
+        name = "ob_size";
+    } else if (oparg == FAST_LEN_ARRAY) {
+        type = (HirType)HIR_TYPE_ARRAY;
+        offset = offsetof(PyVarObject, ob_size);
+        name = "ob_size";
+    } else if (oparg == FAST_LEN_DICT) {
+        type = hir_type_from_pytype(&PyDict_Type, 1);
+        offset = offsetof(PyDictObject, ma_used);
+        name = "ma_used";
+    } else if (oparg == FAST_LEN_SET) {
+        type = hir_type_from_pytype(&PySet_Type, 1);
+        offset = offsetof(PySetObject, used);
+        name = "used";
+    } else if (oparg == FAST_LEN_STR) {
+        type = hir_type_from_pytype(&PyUnicode_Type, 1);
+        offset = offsetof(PyASCIIObject, length);
+        name = "length";
+    }
+
+    void *collection;
+    if (inexact) {
+        void *deopt_block = hir_cfg_alloc_block(func);
+        PhxTranslationContext deopt_tc;
+        deopt_tc.block = deopt_block;
+        phx_frame_state_copy(&deopt_tc.frame, &tc->frame);
+        deopt_tc.frame.cur_instr_offs = bc_offset;
+        phx_tc_emit(&deopt_tc, hir_c_create_snapshot(&deopt_tc.frame));
+        phx_tc_emit(&deopt_tc, hir_c_create_deopt());
+        phx_frame_state_destroy(&deopt_tc.frame);
+
+        collection = phx_ptr_arr_pop(&tc->frame.stack);
+        void *fast_path = hir_cfg_alloc_block(func);
+        phx_tc_emit(tc, hir_c_create_cond_branch_check_type_cpp(collection, type, fast_path, deopt_block));
+        tc->block = fast_path;
+        phx_tc_emit(tc, hir_c_create_refine_type_reg(collection, type, collection));
+    } else {
+        collection = phx_ptr_arr_pop(&tc->frame.stack);
+    }
+
+    HirType t_cint64 = (HirType)HIR_TYPE_CINT64;
+    phx_tc_emit(tc, hir_c_create_load_field_reg(result, collection, name, offset, t_cint64, 0));
+    phx_ptr_arr_push(&tc->frame.stack, result);
+}
+
 /* ---- Tier 2 bridge externs (used by multiple emit methods) ---- */
 extern void *hir_builder_get_block_at_off(void *builder, int byte_offset);
 extern void *hir_c_create_cond_branch_cpp(void *cond_reg, void *true_bb, void *false_bb);
