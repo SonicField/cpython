@@ -542,6 +542,39 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitLoadField — load field from receiver using preloader fieldInfo */
+extern void hir_builder_preloader_field_info(void *builder, PyObject *descr,
+                                              intptr_t *offset_out, HirType *type_out,
+                                              PyObject **name_out);
+extern void *hir_c_create_check_field_reg(void *dst, void *src, void *name, void *fs);
+extern void hir_c_set_guilty_reg(void *instr, void *reg);
+extern int hir_type_could_be(const HirType *a, const HirType *b);
+
+void hir_builder_emit_load_field_c(PhxTranslationContext *tc, void *func, void *builder,
+                                    PyCodeObject *code, int oparg) {
+    PyObject *descr = PyTuple_GET_ITEM(code->co_consts, oparg);
+    intptr_t offset;
+    HirType type;
+    PyObject *name;
+    hir_builder_preloader_field_info(builder, descr, &offset, &type, &name);
+
+    void *receiver = phx_ptr_arr_pop(&tc->frame.stack);
+    void *result = hir_func_alloc_register(func);
+    const char *field_name = PyUnicode_AsUTF8(name);
+    if (field_name == NULL) {
+        PyErr_Clear();
+        field_name = "";
+    }
+    phx_tc_emit(tc, hir_c_create_load_field_reg(result, receiver, field_name, offset, type, 0));
+    HirType h_null = (HirType)HIR_TYPE_NULLPTR;
+    if (hir_type_could_be(&type, &h_null)) {
+        void *cf = hir_c_create_check_field_reg(result, result, name, &tc->frame);
+        hir_c_set_guilty_reg(cf, receiver);
+        phx_tc_emit(tc, cf);
+    }
+    phx_ptr_arr_push(&tc->frame.stack, result);
+}
+
 /* emitSetupAsyncWith — pop top, setup finally, push top back */
 extern void hir_builder_emit_setup_finally_c(PhxTranslationContext *tc, int handler_off);
 void hir_builder_emit_setup_async_with_c(PhxTranslationContext *tc, int handler_off) {

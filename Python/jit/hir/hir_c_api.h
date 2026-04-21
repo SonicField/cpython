@@ -810,6 +810,11 @@ void *hir_builder_preloader_globals(void *builder);
 /* Get the Preloader's builtins() as PyDictObject*. */
 void *hir_builder_preloader_builtins(void *builder);
 
+/* Get the Preloader's fieldInfo (offset, type, name). */
+void hir_builder_preloader_field_info(void *builder, PyObject *descr,
+                                       intptr_t *offset_out, HirType *type_out,
+                                       PyObject **name_out);
+
 /* Get the Preloader's preloadedType fields (type, optional, exact). */
 void *hir_builder_preloader_preloaded_type(void *builder, PyObject *descr,
                                             int *optional_out, int *exact_out);

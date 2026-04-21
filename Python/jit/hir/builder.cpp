@@ -5431,25 +5431,14 @@ void HIRBuilder::emitSetupWith(
   phx_ptr_arr_push(&tc.frame.stack, enter_result);
 }
 
+extern "C" void hir_builder_emit_load_field_c(void *tc, void *func, void *builder, PyCodeObject *code, int oparg);
+
 void HIRBuilder::emitLoadField(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto& [offset, type, name] = preloader_.fieldInfo(constArg(bc_instr));
-
-  Register* receiver = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* result = temps_.AllocateStack();
-  const char* field_name = PyUnicode_AsUTF8((PyObject*)name);
-  if (field_name == nullptr) {
-    PyErr_Clear();
-    field_name = "";
-  }
-  tc.emitLoadField(result, receiver, field_name, offset, type);
-  HirType h_type = to_hir(type), h_null = to_hir(TNullptr);
-  if (hir_type_could_be(&h_type, &h_null)) {
-    auto* cf = tc.emitCheckField(result, result, (PyObject*)name, tc.frame);
-    cf->setGuiltyReg(receiver);
-  }
-  phx_ptr_arr_push(&tc.frame.stack, result);
+  hir_builder_emit_load_field_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_),
+      static_cast<void*>(this), code_, bc_instr.oparg());
 }
 
 void HIRBuilder::emitStoreField(

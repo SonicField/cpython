@@ -2631,6 +2631,16 @@ void *hir_builder_preloader_builtins(void *builder) {
   return b->preloader().builtins();
 }
 
+void hir_builder_preloader_field_info(void *builder, PyObject *descr,
+                                       intptr_t *offset_out, HirType *type_out,
+                                       PyObject **name_out) {
+  auto *b = static_cast<jit::hir::HIRBuilder*>(builder);
+  auto& [offset, type, name] = b->preloader().fieldInfo(descr);
+  *offset_out = offset;
+  *type_out = Type::toHirType(type);
+  *name_out = (PyObject*)name;
+}
+
 void *hir_builder_preloader_preloaded_type(void *builder, PyObject *descr,
                                             int *optional_out, int *exact_out) {
   auto *b = static_cast<jit::hir::HIRBuilder*>(builder);
