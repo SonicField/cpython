@@ -455,7 +455,7 @@ if [ "$ARM64" -eq 1 ]; then
         git checkout arm64-gate-update 2>&1 | tail -3;
         ARM64_COMMIT=\$(git rev-parse --short HEAD);
         echo ARM64_COMMIT=\$ARM64_COMMIT;
-        scripts/build_phoenix.sh --clean 2>&1 | tail -5;
+        scripts/build_phoenix.sh 2>&1 | tail -5;
         echo BUILD_ARM64=\$?;
         chmod +x python;
         JIT_ENABLE=1 ./python -m test test_phoenix_jit_arithmetic test_phoenix_jit_autocompile test_phoenix_jit_comparisons test_phoenix_jit_containers test_phoenix_jit_controlflow test_phoenix_jit_coverage test_phoenix_jit_functions test_phoenix_jit_generators test_phoenix_float test_phoenix_hir_type test_phoenix_benchmark_correctness test_phoenix_deferred_compile test_phoenix_profiling_hooks test_phoenix_usetype_float 2>&1 | tail -10;
