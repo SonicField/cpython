@@ -133,6 +133,12 @@ void Compiler::runPasses(
       "Optimized HIR for {}:\n{}",
       irfunc.fullname,
       irfunc);
+
+#ifdef PHOENIX_GOLDEN_CAPTURE
+  fmt::print(stderr, "GOLDEN_HIR_FINAL {}\n", irfunc.fullname);
+  fmt::print(stderr, "{}", irfunc);
+  fmt::print(stderr, "END_GOLDEN_HIR_FINAL\n");
+#endif
 }
 
 std::optional<CompiledFunctionData> Compiler::Compile(

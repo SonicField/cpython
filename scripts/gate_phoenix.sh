@@ -73,6 +73,10 @@ if ! "$SCRIPT_DIR/build_phoenix.sh" $BUILD_FLAGS; then
 fi
 echo "Build: PASS" | tee -a "$RESULTS_FILE"
 
+# Copy binary to avoid "Text file busy" if another process holds the original
+cp "$PYTHON" "${PYTHON}_gate" 2>/dev/null || true
+PYTHON="${PYTHON}_gate"
+
 # Step 1b: _reg usage policy gate (no-FS DeoptBase factories banned in simplify_c.c)
 echo "" | tee -a "$RESULTS_FILE"
 echo "--- Step 1b: _reg Usage Policy ---" | tee -a "$RESULTS_FILE"
