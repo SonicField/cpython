@@ -6029,23 +6029,14 @@ void HIRBuilder::emitLoadBuildClass(TranslationContext& tc) {
   phx_ptr_arr_push(&tc.frame.stack, result);
 }
 
+extern "C" void hir_builder_emit_store_global_c(void *tc, void *func, PyCodeObject *code, int oparg);
+
 void HIRBuilder::emitStoreGlobal(
     TranslationContext& tc,
     const BytecodeInstruction& bc_instr) {
-  Register* globals = temps_.AllocateNonStack();
-  Register* key = temps_.AllocateNonStack();
-
-  tc.emitLoadConst(globals, Type::fromObject((PyObject*)tc.frame.globals));
-  // Starting at the preloader the JIT seems to assume globals will be a
-  // dictionary, however I'm not sure there's any guarantee of this.
-  Register* globals_dict = temps_.AllocateNonStack();
-  tc.emitGuardType(globals_dict, TDictExact, globals, tc.frame);
-  tc.emitLoadConst(
-      key,
-      Type::fromObject(PyTuple_GET_ITEM(code_->co_names, bc_instr.oparg())));
-  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* result = temps_.AllocateNonStack();
-  tc.emitSetDictItem(result, globals_dict, key, value, tc.frame);
+  hir_builder_emit_store_global_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_),
+      code_, bc_instr.oparg());
 }
 
 void HIRBuilder::insertRunPeriodicActivites(

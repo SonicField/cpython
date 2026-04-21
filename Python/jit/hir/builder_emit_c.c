@@ -542,6 +542,32 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitStoreGlobal — store to global variable via dict */
+extern void *hir_c_create_guard_type_fs_reg(void *dst, HirType type, void *src, void *fs);
+
+void hir_builder_emit_store_global_c(PhxTranslationContext *tc, void *func,
+                                      PyCodeObject *code, int oparg) {
+    void *globals_reg = hir_func_alloc_register(func);
+    void *key_reg = hir_func_alloc_register(func);
+
+    HirType t_globals = hir_type_from_object((PyObject *)tc->frame.globals);
+    phx_tc_emit(tc, hir_c_create_load_const(globals_reg, t_globals));
+
+    void *globals_dict = hir_func_alloc_register(func);
+    HirType t_dict = hir_type_from_pytype(&PyDict_Type, 1);
+    void *guard = hir_c_create_guard_type_reg(globals_dict, t_dict, globals_reg);
+    hir_deopt_set_frame_state(guard, &tc->frame);
+    phx_tc_emit(tc, guard);
+
+    PyObject *name = PyTuple_GET_ITEM(code->co_names, oparg);
+    HirType t_key = hir_type_from_object(name);
+    phx_tc_emit(tc, hir_c_create_load_const(key_reg, t_key));
+
+    void *value = phx_ptr_arr_pop(&tc->frame.stack);
+    void *result = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_set_dict_item_reg(result, globals_dict, key_reg, value, &tc->frame));
+}
+
 /* emitLoadGlobal — load global variable with optional fast path */
 extern PyObject *hir_builder_preloader_global(void *builder, int name_idx);
 extern void *hir_builder_preloader_globals(void *builder);
