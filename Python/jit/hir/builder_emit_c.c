@@ -493,6 +493,55 @@ void hir_builder_emit_set_update_c(PhxTranslationContext *tc, void *func, int op
     phx_tc_emit(tc, hir_c_create_set_update_reg(dst, set, iterable, &tc->frame));
 }
 
+/* Generic variadic deopt emit — C equivalent of emitVariadicDeopt */
+extern void hir_deopt_set_frame_state(void *deopt_instr, const void *frame_state);
+
+static void phx_emit_variadic_deopt(PhxTranslationContext *tc, void *func,
+                                     int opcode, size_t num_operands) {
+    void *out = hir_func_alloc_register(func);
+    void *instr = hir_c_alloc_instr(sizeof(HirDeoptLayout), num_operands);
+    hir_c_init_deopt(instr, opcode);
+    hir_c_set_output(instr, out);
+    for (size_t i = num_operands; i > 0; i--) {
+        void *operand = phx_ptr_arr_pop(&tc->frame.stack);
+        hir_c_set_operand(instr, i - 1, operand);
+    }
+    hir_deopt_set_frame_state(instr, &tc->frame);
+    phx_ptr_arr_push(&tc->frame.stack, out);
+    phx_tc_emit(tc, instr);
+}
+
+/* emitBuildSlice — variadic BuildSlice */
+void hir_builder_emit_build_slice_c(PhxTranslationContext *tc, void *func, int oparg) {
+    phx_emit_variadic_deopt(tc, func, HIR_OP_BuildSlice, (size_t)oparg);
+}
+
+/* emitBuildString — variadic BuildString */
+void hir_builder_emit_build_string_c(PhxTranslationContext *tc, void *func, int oparg) {
+    phx_emit_variadic_deopt(tc, func, HIR_OP_BuildString, (size_t)oparg);
+}
+
+/* emitBinarySlice — BuildSlice(2) + pop container + BinaryOp(kSubscript) */
+extern void *hir_c_create_binary_op_reg(void *dst, int32_t op, void *left, void *right, void *fs);
+
+void hir_builder_emit_binary_slice_c(PhxTranslationContext *tc, void *func) {
+    phx_emit_variadic_deopt(tc, func, HIR_OP_BuildSlice, 2);
+    void *slice = phx_ptr_arr_pop(&tc->frame.stack);
+    void *container = phx_ptr_arr_pop(&tc->frame.stack);
+    void *result = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_binary_op_reg(result, HIR_BOP_Subscript, container, slice, &tc->frame));
+    phx_ptr_arr_push(&tc->frame.stack, result);
+}
+
+/* emitStoreSlice — BuildSlice(2) + pop slice+container+values + StoreSubscr */
+void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
+    phx_emit_variadic_deopt(tc, func, HIR_OP_BuildSlice, 2);
+    void *slice = phx_ptr_arr_pop(&tc->frame.stack);
+    void *container = phx_ptr_arr_pop(&tc->frame.stack);
+    void *values = phx_ptr_arr_pop(&tc->frame.stack);
+    phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
+}
+
 /* emitPopJumpIf — pop var, compute true/false blocks, conditional branch */
 extern void *hir_builder_get_block_at_off(void *builder, int byte_offset);
 extern void *hir_c_create_cond_branch_cpp(void *cond_reg, void *true_bb, void *false_bb);

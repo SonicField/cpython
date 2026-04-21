@@ -3419,11 +3419,13 @@ void HIRBuilder::emitCallEx(
   phx_ptr_arr_push(&stack, dst);
 }
 
+extern "C" void hir_builder_emit_build_slice_c(void *tc, void *func, int oparg);
+
 void HIRBuilder::emitBuildSlice(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  std::size_t num_operands = static_cast<std::size_t>(bc_instr.oparg());
-  tc.emitVariadic<BuildSlice>(temps_, num_operands);
+  hir_builder_emit_build_slice_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_list_append_c(void *tc, void *func, int oparg);
@@ -5210,24 +5212,18 @@ void HIRBuilder::emitStoreFastLoadFast(
       static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
+extern "C" void hir_builder_emit_binary_slice_c(void *tc, void *func);
+
 void HIRBuilder::emitBinarySlice(TranslationContext& tc) {
-  PhxPtrArray& stack = tc.frame.stack;
-  tc.emitVariadic<BuildSlice>(temps_, 2);
-  Register* slice = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* container = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* result = temps_.AllocateStack();
-  tc.emitBinaryOp(
-      result, BinaryOpKind::kSubscript, container, slice, tc.frame);
-  phx_ptr_arr_push(&tc.frame.stack, result);
+  hir_builder_emit_binary_slice_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
 
+extern "C" void hir_builder_emit_store_slice_c(void *tc, void *func);
+
 void HIRBuilder::emitStoreSlice(TranslationContext& tc) {
-  PhxPtrArray& stack = tc.frame.stack;
-  tc.emitVariadic<BuildSlice>(temps_, 2);
-  Register* slice = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* container = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* values = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  tc.emitStoreSubscr(container, slice, values, tc.frame);
+  hir_builder_emit_store_slice_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
 
 extern "C" void hir_builder_emit_store_subscr_c(void *tc, int specialized_opcode);
@@ -5904,11 +5900,13 @@ void HIRBuilder::emitGetAwaitable(
   tc.block = block_done;
 }
 
+extern "C" void hir_builder_emit_build_string_c(void *tc, void *func, int oparg);
+
 void HIRBuilder::emitBuildString(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto num_operands = bc_instr.oparg();
-  tc.emitVariadicDeopt(HIR_OP_BuildString, temps_, num_operands);
+  hir_builder_emit_build_string_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_format_value_c(void *tc, void *func, int oparg);
