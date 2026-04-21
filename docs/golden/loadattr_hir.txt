@@ -78,7 +78,7 @@ fun __main__:attr_probe {
     v59:CPtr = LoadField<ma_keys@32, CPtr, owned> v58
     Decref v58
     v60:CUInt32 = LoadField<dk_version@12, CUInt32, owned> v59
-    v61:CUInt32[37] = LoadConst<CUInt32[37]>
+    v61:CUInt32[N] = LoadConst<CUInt32[N]>
     v62:CBool = PrimitiveCompare<Equal> v60 v61
     Guard v62 {
       LiveValues<7> b:v29 b:v30 unc:v32 o:v42 o:v53 b:v56 bool:v62
@@ -222,7 +222,7 @@ fun __main__:attr_probe {
     v59:CPtr = LoadField<ma_keys@32, CPtr, owned> v58
     Decref v58
     v60:CUInt32 = LoadField<dk_version@12, CUInt32, owned> v59
-    v61:CUInt32[37] = LoadConst<CUInt32[37]>
+    v61:CUInt32[N] = LoadConst<CUInt32[N]>
     v62:CBool = PrimitiveCompare<Equal> v60 v61
     Guard v62 {
       LiveValues<7> b:v29 b:v30 unc:v32 o:v42 o:v53 b:v56 bool:v62

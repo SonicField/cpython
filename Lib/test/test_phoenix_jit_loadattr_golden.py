@@ -135,9 +135,22 @@ HARNESS_SOURCE = textwrap.dedent(
 # stays stable.
 _PTR_RE = re.compile(r"0x[0-9a-fA-F]{6,}")
 
+# LOAD_ATTR_MODULE embeds the module dict's `dk_version` (a monotonic
+# counter bumped on every dict-key mutation) into the HIR as
+# `LoadConst<CUInt32[N]>`. N depends on how many dict mutations happened
+# during interpreter startup, which is architecture- and import-order
+# dependent (x86_64 saw 37, ARM64 saw 46). Canonicalize the embedded
+# integer on `CUInt32[N]` annotations so the golden stays cross-arch
+# stable. Other integer-specialized constant types (CUInt64[N], CInt64[N])
+# encode stable shape information (slot index, key hash) and are NOT
+# canonicalized — divergence in those values is a real regression signal.
+_DK_VERSION_RE = re.compile(r"CUInt32\[\d+\]")
+
 
 def _canonicalize(text: str) -> str:
-    return _PTR_RE.sub("0xPTR", text)
+    text = _PTR_RE.sub("0xPTR", text)
+    text = _DK_VERSION_RE.sub("CUInt32[N]", text)
+    return text
 
 
 def _extract_blocks(stderr_text: str) -> str:
