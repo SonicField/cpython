@@ -5404,13 +5404,15 @@ void HIRBuilder::emitBeforeWith(
 #endif
 }
 
+extern "C" void hir_builder_emit_setup_async_with_c(void *tc, int handler_off);
+
 void HIRBuilder::emitSetupAsyncWith(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  // The finally block should be above the result of __aenter__.
-  Register* top = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  emitSetupFinally(tc, bc_instr);
-  phx_ptr_arr_push(&tc.frame.stack, top);
+  BCOffset handler_off =
+      bc_instr.nextInstrOffset() + BCIndex{bc_instr.oparg()}.asOffset();
+  hir_builder_emit_setup_async_with_c(
+      static_cast<void*>(&tc), handler_off.value());
 }
 
 void HIRBuilder::emitSetupWith(

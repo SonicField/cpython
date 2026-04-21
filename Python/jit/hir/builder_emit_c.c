@@ -542,6 +542,14 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitSetupAsyncWith — pop top, setup finally, push top back */
+extern void hir_builder_emit_setup_finally_c(PhxTranslationContext *tc, int handler_off);
+void hir_builder_emit_setup_async_with_c(PhxTranslationContext *tc, int handler_off) {
+    void *top = phx_ptr_arr_pop(&tc->frame.stack);
+    hir_builder_emit_setup_finally_c(tc, handler_off);
+    phx_ptr_arr_push(&tc->frame.stack, top);
+}
+
 /* emitLoadBuildClass — load __build_class__ from builtins */
 extern void *hir_c_create_dict_subscr_reg(void *dst, void *dict, void *key, void *fs);
 
