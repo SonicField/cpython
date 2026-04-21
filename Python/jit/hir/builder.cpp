@@ -3244,102 +3244,20 @@ void HIRBuilder::emitKwNames(
       kwnames_, Type::fromObject(PyTuple_GET_ITEM(code_->co_consts, index)));
 }
 
+extern "C" int hir_builder_emit_binary_op_c(void *tc, void *func, int opcode, int oparg, int specialized_opcode);
+
 void HIRBuilder::emitBinaryOp(
     CFG& cfg,
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  PhxPtrArray& stack = tc.frame.stack;
-  if (jit_get_config()->specialized_opcodes) {
-    // Bug 7 fix: Snapshot BEFORE popping operands — deopt re-executes instruction
-    tc.emitSnapshot();
+  if (hir_builder_emit_binary_op_c(
+          static_cast<void*>(&tc), static_cast<void*>(current_func_),
+          bc_instr.opcode(), bc_instr.oparg(), bc_instr.specializedOpcode())) {
+    return;
   }
-  Register* right = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* left = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* result = temps_.AllocateStack();
-
-  int opcode = bc_instr.opcode();
-  int oparg = bc_instr.oparg();
-
-  if (jit_get_config()->specialized_opcodes) {
-    switch (bc_instr.specializedOpcode()) {
-      case BINARY_OP_ADD_INT:
-      case BINARY_OP_MULTIPLY_INT:
-      case BINARY_OP_SUBTRACT_INT:
-        tc.emitGuardType(left, TLongExact, left);
-        tc.emitGuardType(right, TLongExact, right);
-        break;
-      case BINARY_OP_ADD_FLOAT:
-      case BINARY_OP_MULTIPLY_FLOAT:
-      case BINARY_OP_SUBTRACT_FLOAT:
-        tc.emitGuardType(left, TFloatExact, left);
-        tc.emitGuardType(right, TFloatExact, right);
-        break;
-      case BINARY_OP_ADD_UNICODE:
-        tc.emitGuardType(left, TUnicodeExact, left);
-        tc.emitGuardType(right, TUnicodeExact, right);
-        break;
-      case BINARY_SUBSCR_DICT:
-        tc.emitGuardType(left, TDictExact, left);
-        break;
-      case BINARY_SUBSCR_LIST_INT:
-        tc.emitGuardType(left, TListExact, left);
-        tc.emitGuardType(right, TLongExact, right);
-        break;
-      case BINARY_SUBSCR_TUPLE_INT:
-        tc.emitGuardType(left, TTupleExact, left);
-        tc.emitGuardType(right, TLongExact, right);
-        break;
-      default:
-        break;
-    }
-  }
-
-  BinaryOpKind op_kind;
-  if (opcode == BINARY_OP) {
-    auto opt_op_kind = getBinaryOpKindFromOparg(oparg);
-    if (opt_op_kind) {
-      op_kind = *opt_op_kind;
-    } else {
-      // BINARY_OP can also contain inplace opargs.
-      auto inplace_opt_op_kind = getInPlaceOpKindFromOparg(oparg);
-      JIT_CHECK(
-          inplace_opt_op_kind.has_value(),
-          "Unrecognized oparg for BINARY_OP: {}",
-          oparg);
-      InPlaceOpKind inplace_op_kind = *inplace_opt_op_kind;
-      tc.emitInPlaceOp(result, inplace_op_kind, left, right, tc.frame);
-      phx_ptr_arr_push(&stack, result);
-      return;
-    }
-  } else {
-    auto opt_op_kind = getBinaryOpKindFromOpcode(opcode);
-    JIT_CHECK(
-        opt_op_kind.has_value(),
-        "Unrecognized opcode {} ({}) for binary operation",
-        opcode,
-        opcodeName(opcode));
-    op_kind = *opt_op_kind;
-  }
-
-  // B2: For subscript inside try block with simple except pattern,
-  // emit inline exception match instead of BinaryOp (which auto-deopts).
-  if (op_kind == BinaryOpKind::kSubscript) {
-    BCOffset cur_off = bc_instr.baseOffset();
-    auto* handler = findExceptionHandler(cur_off);
-    if (handler != nullptr) {
-      SimpleExceptInfo info;
-      if (getSimpleExceptInfo(*handler, info)) {
-        emitInlineExceptionMatch(
-            cfg, tc, bc_instr, *handler, info,
-            left, right, result);
-        phx_ptr_arr_push(&stack, result);
-        return;
-      }
-    }
-  }
-
-  tc.emitBinaryOp(result, op_kind, left, right, tc.frame);
-  phx_ptr_arr_push(&stack, result);
+  // Fallback: unrecognized oparg (shouldn't happen in practice)
+  JIT_ABORT("emitBinaryOp: C handler returned 0 for opcode {} oparg {}",
+            bc_instr.opcode(), bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_in_place_op_c(void *tc, void *func, int opcode);

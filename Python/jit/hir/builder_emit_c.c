@@ -542,6 +542,158 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitBinaryOp — specialized guards + oparg dispatch + BinaryOp/InPlaceOp */
+extern void *hir_c_create_binary_op_reg(void *dst, int32_t op, void *left, void *right, void *fs);
+extern void *hir_c_create_in_place_op_reg(void *dst, int32_t op_kind,
+                                           void *left, void *right, void *fs);
+
+static int32_t get_binary_op_kind_from_oparg_c(int oparg) {
+    switch (oparg) {
+        case NB_ADD:              return HIR_BOP_Add;
+        case NB_AND:              return HIR_BOP_And;
+        case NB_FLOOR_DIVIDE:     return HIR_BOP_FloorDivide;
+        case NB_LSHIFT:           return HIR_BOP_LShift;
+        case NB_MATRIX_MULTIPLY:  return HIR_BOP_MatrixMultiply;
+        case NB_MULTIPLY:         return HIR_BOP_Multiply;
+        case NB_REMAINDER:        return HIR_BOP_Modulo;
+        case NB_OR:               return HIR_BOP_Or;
+        case NB_POWER:            return HIR_BOP_Power;
+        case NB_RSHIFT:           return HIR_BOP_RShift;
+        case NB_SUBTRACT:         return HIR_BOP_Subtract;
+        case NB_TRUE_DIVIDE:      return HIR_BOP_TrueDivide;
+        case NB_XOR:              return HIR_BOP_Xor;
+        default:                  return -1;
+    }
+}
+
+static int32_t get_inplace_op_kind_from_oparg_c(int oparg) {
+    switch (oparg) {
+        case NB_INPLACE_ADD:            return HIR_IOP_Add;
+        case NB_INPLACE_AND:            return HIR_IOP_And;
+        case NB_INPLACE_FLOOR_DIVIDE:   return HIR_IOP_FloorDivide;
+        case NB_INPLACE_LSHIFT:         return HIR_IOP_LShift;
+        case NB_INPLACE_MATRIX_MULTIPLY: return HIR_IOP_MatrixMultiply;
+        case NB_INPLACE_MULTIPLY:       return HIR_IOP_Multiply;
+        case NB_INPLACE_REMAINDER:      return HIR_IOP_Modulo;
+        case NB_INPLACE_OR:             return HIR_IOP_Or;
+        case NB_INPLACE_POWER:          return HIR_IOP_Power;
+        case NB_INPLACE_RSHIFT:         return HIR_IOP_RShift;
+        case NB_INPLACE_SUBTRACT:       return HIR_IOP_Subtract;
+        case NB_INPLACE_TRUE_DIVIDE:    return HIR_IOP_TrueDivide;
+        case NB_INPLACE_XOR:            return HIR_IOP_Xor;
+        default:                        return -1;
+    }
+}
+
+/* Returns 1 if handled in C, 0 if B2 exception path needs C++ callback */
+int hir_builder_emit_binary_op_c(
+        PhxTranslationContext *tc,
+        void *func,
+        int opcode,
+        int oparg,
+        int specialized_opcode) {
+    PhxPtrArray *stack = &tc->frame.stack;
+
+    if (jit_get_config()->specialized_opcodes) {
+        phx_tc_emit(tc, hir_c_create_snapshot(&tc->frame));
+    }
+
+    void *right = phx_ptr_arr_pop(stack);
+    void *left = phx_ptr_arr_pop(stack);
+    void *result = hir_func_alloc_register(func);
+
+    if (jit_get_config()->specialized_opcodes) {
+        switch (specialized_opcode) {
+#ifdef BINARY_OP_ADD_INT
+            case BINARY_OP_ADD_INT:
+            case BINARY_OP_MULTIPLY_INT:
+            case BINARY_OP_SUBTRACT_INT: {
+                HirType t_long = hir_type_from_pytype(&PyLong_Type, 1);
+                phx_tc_emit(tc, hir_c_create_guard_type_reg(left, t_long, left));
+                phx_tc_emit(tc, hir_c_create_guard_type_reg(right, t_long, right));
+                break;
+            }
+            case BINARY_OP_ADD_FLOAT:
+            case BINARY_OP_MULTIPLY_FLOAT:
+            case BINARY_OP_SUBTRACT_FLOAT: {
+                HirType t_float = hir_type_from_pytype(&PyFloat_Type, 1);
+                phx_tc_emit(tc, hir_c_create_guard_type_reg(left, t_float, left));
+                phx_tc_emit(tc, hir_c_create_guard_type_reg(right, t_float, right));
+                break;
+            }
+            case BINARY_OP_ADD_UNICODE: {
+                HirType t_unicode = hir_type_from_pytype(&PyUnicode_Type, 1);
+                phx_tc_emit(tc, hir_c_create_guard_type_reg(left, t_unicode, left));
+                phx_tc_emit(tc, hir_c_create_guard_type_reg(right, t_unicode, right));
+                break;
+            }
+#endif
+#ifdef BINARY_SUBSCR_DICT
+            case BINARY_SUBSCR_DICT: {
+                HirType t_dict = hir_type_from_pytype(&PyDict_Type, 1);
+                phx_tc_emit(tc, hir_c_create_guard_type_reg(left, t_dict, left));
+                break;
+            }
+            case BINARY_SUBSCR_LIST_INT: {
+                HirType t_list = hir_type_from_pytype(&PyList_Type, 1);
+                HirType t_long = hir_type_from_pytype(&PyLong_Type, 1);
+                phx_tc_emit(tc, hir_c_create_guard_type_reg(left, t_list, left));
+                phx_tc_emit(tc, hir_c_create_guard_type_reg(right, t_long, right));
+                break;
+            }
+            case BINARY_SUBSCR_TUPLE_INT: {
+                HirType t_tuple = hir_type_from_pytype(&PyTuple_Type, 1);
+                HirType t_long = hir_type_from_pytype(&PyLong_Type, 1);
+                phx_tc_emit(tc, hir_c_create_guard_type_reg(left, t_tuple, left));
+                phx_tc_emit(tc, hir_c_create_guard_type_reg(right, t_long, right));
+                break;
+            }
+#endif
+            default:
+                break;
+        }
+    }
+
+    int32_t op_kind;
+    if (opcode == BINARY_OP) {
+        op_kind = get_binary_op_kind_from_oparg_c(oparg);
+        if (op_kind < 0) {
+            int32_t inplace_kind = get_inplace_op_kind_from_oparg_c(oparg);
+            if (inplace_kind >= 0) {
+                phx_tc_emit(tc, hir_c_create_in_place_op_reg(result, inplace_kind, left, right, &tc->frame));
+                phx_ptr_arr_push(stack, result);
+                return 1;
+            }
+            return 0;
+        }
+    } else {
+        /* Legacy BINARY_* opcodes — map opcode to op_kind */
+        switch (opcode) {
+#ifdef BINARY_ADD
+            case BINARY_ADD:            op_kind = HIR_BOP_Add; break;
+            case BINARY_AND:            op_kind = HIR_BOP_And; break;
+            case BINARY_FLOOR_DIVIDE:   op_kind = HIR_BOP_FloorDivide; break;
+            case BINARY_LSHIFT:         op_kind = HIR_BOP_LShift; break;
+            case BINARY_MATRIX_MULTIPLY: op_kind = HIR_BOP_MatrixMultiply; break;
+            case BINARY_MODULO:         op_kind = HIR_BOP_Modulo; break;
+            case BINARY_MULTIPLY:       op_kind = HIR_BOP_Multiply; break;
+            case BINARY_OR:             op_kind = HIR_BOP_Or; break;
+            case BINARY_POWER:          op_kind = HIR_BOP_Power; break;
+            case BINARY_RSHIFT:         op_kind = HIR_BOP_RShift; break;
+            case BINARY_SUBTRACT:       op_kind = HIR_BOP_Subtract; break;
+            case BINARY_TRUE_DIVIDE:    op_kind = HIR_BOP_TrueDivide; break;
+            case BINARY_XOR:            op_kind = HIR_BOP_Xor; break;
+#endif
+            case BINARY_SUBSCR:         op_kind = HIR_BOP_Subscript; break;
+            default:                    return 0;
+        }
+    }
+
+    phx_tc_emit(tc, hir_c_create_binary_op_reg(result, op_kind, left, right, &tc->frame));
+    phx_ptr_arr_push(stack, result);
+    return 1;
+}
+
 /* emitMatchKeys — match keys, branch on None result */
 extern void *hir_c_create_match_keys_reg(void *dst, void *subj, void *keys, void *fs);
 extern void *hir_cfg_alloc_block(void *func);
