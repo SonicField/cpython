@@ -16,6 +16,13 @@
 extern "C" {
 #endif
 
+/* Block stack element — must match C++ ExecutionBlock layout */
+typedef struct {
+    int opcode;
+    int handler_off;
+    int stack_level;
+} PhxExecBlock;
+
 static inline void phx_frame_state_init(HirFrameStateLayout *fs,
                                          void *code, int nlocals,
                                          void *globals, void *builtins) {
@@ -42,19 +49,17 @@ static inline void phx_frame_state_copy(HirFrameStateLayout *dst,
     phx_ptr_arr_copy(&dst->localsplus, &src->localsplus);
     phx_ptr_arr_copy(&dst->stack, &src->stack);
 
-    /* Block stack: deep copy (ExecutionBlock = 12 bytes each) */
-    #define PHX_EXEC_BLOCK_SIZE 12
+    /* Block stack: deep copy */
     dst->block_stack_count = src->block_stack_count;
     dst->block_stack_cap = src->block_stack_cap;
     if (src->block_stack_data && src->block_stack_cap > 0) {
-        size_t bs_size = src->block_stack_cap * PHX_EXEC_BLOCK_SIZE;
+        size_t bs_size = src->block_stack_cap * sizeof(PhxExecBlock);
         dst->block_stack_data = malloc(bs_size);
         memcpy(dst->block_stack_data, src->block_stack_data,
-               src->block_stack_count * PHX_EXEC_BLOCK_SIZE);
+               src->block_stack_count * sizeof(PhxExecBlock));
     } else {
         dst->block_stack_data = NULL;
     }
-    #undef PHX_EXEC_BLOCK_SIZE
 }
 
 static inline void phx_frame_state_destroy(HirFrameStateLayout *fs) {
@@ -66,13 +71,7 @@ static inline void phx_frame_state_destroy(HirFrameStateLayout *fs) {
     }
 }
 
-/* ---- Block stack helpers (ExecutionBlock = {int opcode, int handler_off, int stack_level}) ---- */
-
-typedef struct {
-    int opcode;
-    int handler_off;
-    int stack_level;
-} PhxExecBlock;
+/* ---- Block stack helpers ---- */
 
 static inline void phx_block_stack_push(HirFrameStateLayout *fs,
                                          int opcode, int handler_off, int stack_level) {

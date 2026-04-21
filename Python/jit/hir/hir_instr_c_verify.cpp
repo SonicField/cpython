@@ -6,6 +6,7 @@
 
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_basic_block_c.h"
+#include "cinderx/Jit/hir/phx_frame_state.h"
 #include "cinderx/Jit/hir/hir.h"
 #include "cinderx/Jit/hir/cfg.h"
 #include "cinderx/Jit/hir/frame_state.h"
@@ -67,6 +68,7 @@ static_assert(offsetof(HirFrameStateLayout, stack) == offsetof(FrameState, stack
 static_assert(offsetof(HirFrameStateLayout, block_stack_data) == offsetof(FrameState, block_stack));
 static_assert(offsetof(HirFrameStateLayout, code) == offsetof(FrameState, code));
 static_assert(offsetof(HirFrameStateLayout, globals) == offsetof(FrameState, globals));
+static_assert(sizeof(PhxExecBlock) == sizeof(ExecutionBlock), "PhxExecBlock must match ExecutionBlock size");
 static_assert(offsetof(HirFrameStateLayout, builtins) == offsetof(FrameState, builtins));
 static_assert(offsetof(HirFrameStateLayout, parent) == offsetof(FrameState, parent));
 

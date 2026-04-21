@@ -441,12 +441,13 @@ if [ "$ARM64" -eq 1 ]; then
     # Sync current HEAD to ARM64 via git bundle + SCP
     BUNDLE_FILE="$CPYTHON_ROOT/arm64-gate-bundle.bundle"
     REMOTE_BUNDLE="$ARM64_DIR/arm64-gate-bundle.bundle"
-    (cd "$CPYTHON_ROOT" && git bundle create "$BUNDLE_FILE" HEAD~5..HEAD 2>/dev/null)
+    (cd "$CPYTHON_ROOT" && git bundle create "$BUNDLE_FILE" HEAD~200..HEAD 2>/dev/null)
     nbs-local-run "scp $BUNDLE_FILE $ARM64_HOST:$REMOTE_BUNDLE" 2>/dev/null
 
     ARM64_OUTPUT=$(nbs-remote-run "$ARM64_HOST" "
         cd $ARM64_DIR &&
-        git fetch $REMOTE_BUNDLE phoenix-asm-integration:arm64-gate-update 2>&1 | tail -3;
+        git checkout --detach HEAD 2>&1 | tail -1;
+        git fetch $REMOTE_BUNDLE HEAD:arm64-gate-update 2>&1 | tail -3;
         git checkout arm64-gate-update 2>&1 | tail -3;
         ARM64_COMMIT=\$(git rev-parse --short HEAD);
         echo ARM64_COMMIT=\$ARM64_COMMIT;
@@ -458,7 +459,7 @@ if [ "$ARM64" -eq 1 ]; then
     " 2>&1 || echo "ARM64_REMOTE_FAIL")
 
     # Verify ARM64 commit matches x86_64 commit
-    ARM64_COMMIT_HASH=$(echo "$ARM64_OUTPUT" | grep -oP 'ARM64_COMMIT=\K\S+')
+    ARM64_COMMIT_HASH=$(echo "$ARM64_OUTPUT" | grep -v '^\$>' | grep -oP 'ARM64_COMMIT=\K\S+' | head -1)
     if [ -n "$ARM64_COMMIT_HASH" ] && [ "$ARM64_COMMIT_HASH" != "$COMMIT_HASH" ]; then
         echo "GATE FAIL — ARM64 commit $ARM64_COMMIT_HASH does not match x86_64 commit $COMMIT_HASH" | tee -a "$RESULTS_FILE"
         GATE_PASS=0
