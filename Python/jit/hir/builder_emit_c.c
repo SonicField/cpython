@@ -542,6 +542,67 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitLoadGlobal — load global variable with optional fast path */
+extern PyObject *hir_builder_preloader_global(void *builder, int name_idx);
+extern void *hir_builder_preloader_globals(void *builder);
+extern void *hir_builder_preloader_builtins(void *builder);
+extern void *hir_c_create_load_global_cached_reg(void *dst, void *code, void *builtins, void *globals, int32_t name_idx);
+extern void *hir_c_create_guard_is_reg(void *dst, void *target, void *src);
+extern void *hir_c_create_load_global_reg(void *dst, int32_t name_idx, void *fs);
+extern void hir_c_set_descr(void *instr, const char *descr);
+
+void hir_builder_emit_load_global_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder,
+        PyCodeObject *code,
+        int opcode,
+        int oparg) {
+    int name_idx;
+#if PY_VERSION_HEX >= 0x030B0000
+    name_idx = oparg >> 1;
+#else
+    name_idx = oparg;
+#endif
+
+#if PY_VERSION_HEX >= 0x030B0000 && PY_VERSION_HEX < 0x030E0000
+    if (oparg & 1) {
+        hir_builder_emit_push_null_c(tc, func);
+    }
+#endif
+
+    void *result = hir_func_alloc_register(func);
+
+    int fast_path_used = 0;
+    if (jit_get_config()->stable_frame) {
+        PyObject *value = hir_builder_preloader_global(builder, name_idx);
+        if (value != NULL) {
+            void *builtins = hir_builder_preloader_builtins(builder);
+            void *globals = hir_builder_preloader_globals(builder);
+            phx_tc_emit(tc, hir_c_create_load_global_cached_reg(
+                result, code, builtins, globals, name_idx));
+            void *guard = hir_c_create_guard_is_reg(result, value, result);
+            PyObject *name = PyTuple_GET_ITEM(code->co_names, name_idx);
+            const char *name_str = PyUnicode_AsUTF8(name);
+            hir_c_set_descr(guard, name_str);
+            phx_tc_emit(tc, guard);
+            fast_path_used = 1;
+        }
+    }
+
+    if (!fast_path_used) {
+        phx_tc_emit(tc, hir_c_create_load_global_reg(result, name_idx, &tc->frame));
+    }
+
+    phx_ptr_arr_push(&tc->frame.stack, result);
+
+#if PY_VERSION_HEX >= 0x030E0000
+    if (oparg & 1) {
+        hir_builder_emit_push_null_c(tc, func);
+    }
+#endif
+}
+
 /* emitLoadSmallInt — 3.14+ small int constant */
 void hir_builder_emit_load_small_int_c(PhxTranslationContext *tc, void *func, int oparg) {
 #if PY_VERSION_HEX >= 0x030E0000

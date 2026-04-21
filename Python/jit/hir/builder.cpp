@@ -4793,45 +4793,15 @@ void HIRBuilder::emitSequenceSet(
       element_type_from_seq_type(oparg));
 }
 
+extern "C" void hir_builder_emit_load_global_c(void *tc, void *func, void *builder, PyCodeObject *code, int opcode, int oparg);
+
 void HIRBuilder::emitLoadGlobal(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  int name_idx = loadGlobalIndex(bc_instr.oparg());
-  Register* result = temps_.AllocateStack();
-
-  if constexpr (PY_VERSION_HEX >= 0x030B0000 && PY_VERSION_HEX < 0x030E0000) {
-    if (bc_instr.oparg() & 1) {
-      emitPushNull(tc);
-    }
-  }
-
-  auto try_fast_path = [&] {
-    if (!jit_get_config()->stable_frame) {
-      return false;
-    }
-    PyObject* value = preloader_.global(name_idx);
-    if (value == nullptr) {
-      return false;
-    }
-    tc.emitLoadGlobalCached(
-        result, code_, preloader_.builtins(), preloader_.globals(), name_idx);
-    auto guard_is = tc.emitGuardIs(result, value, result);
-    PyObject* name = PyTuple_GET_ITEM(code_->co_names, name_idx);
-    guard_is->setDescr(fmt::format("LOAD_GLOBAL: {}", PyUnicode_AsUTF8(name)));
-    return true;
-  };
-
-  if (!try_fast_path()) {
-    tc.emitLoadGlobal(result, name_idx, tc.frame);
-  }
-
-  phx_ptr_arr_push(&tc.frame.stack, result);
-
-  if constexpr (PY_VERSION_HEX >= 0x030E0000) {
-    if (bc_instr.oparg() & 1) {
-      emitPushNull(tc);
-    }
-  }
+  hir_builder_emit_load_global_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_),
+      static_cast<void*>(this), code_,
+      bc_instr.opcode(), bc_instr.oparg());
 }
 
 void HIRBuilder::emitMakeFunction(

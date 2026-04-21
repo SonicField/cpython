@@ -801,6 +801,15 @@ HirType hir_builder_preloader_type(void *builder, PyObject *descr);
 /* Get the Preloader's pyType(PyObject* descr) as PyTypeObject*. */
 void *hir_builder_preloader_py_type(void *builder, PyObject *descr);
 
+/* Get the Preloader's global(name_idx) — returns PyObject* or NULL. */
+PyObject *hir_builder_preloader_global(void *builder, int name_idx);
+
+/* Get the Preloader's globals() as PyDictObject*. */
+void *hir_builder_preloader_globals(void *builder);
+
+/* Get the Preloader's builtins() as PyDictObject*. */
+void *hir_builder_preloader_builtins(void *builder);
+
 /* Get the Preloader's preloadedType fields (type, optional, exact). */
 void *hir_builder_preloader_preloaded_type(void *builder, PyObject *descr,
                                             int *optional_out, int *exact_out);

@@ -2616,6 +2616,21 @@ void *hir_builder_preloader_py_type(void *builder, PyObject *descr) {
   return b->preloader().pyType(descr);
 }
 
+PyObject *hir_builder_preloader_global(void *builder, int name_idx) {
+  auto *b = static_cast<jit::hir::HIRBuilder*>(builder);
+  return b->preloader().global(name_idx);
+}
+
+void *hir_builder_preloader_globals(void *builder) {
+  auto *b = static_cast<jit::hir::HIRBuilder*>(builder);
+  return b->preloader().globals();
+}
+
+void *hir_builder_preloader_builtins(void *builder) {
+  auto *b = static_cast<jit::hir::HIRBuilder*>(builder);
+  return b->preloader().builtins();
+}
+
 void *hir_builder_preloader_preloaded_type(void *builder, PyObject *descr,
                                             int *optional_out, int *exact_out) {
   auto *b = static_cast<jit::hir::HIRBuilder*>(builder);
