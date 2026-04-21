@@ -66,6 +66,8 @@ static_assert(offsetof(HirFrameStateLayout, nlocals) == offsetof(FrameState, nlo
 static_assert(offsetof(HirFrameStateLayout, stack) == offsetof(FrameState, stack));
 static_assert(offsetof(HirFrameStateLayout, block_stack_data) == offsetof(FrameState, block_stack));
 static_assert(offsetof(HirFrameStateLayout, code) == offsetof(FrameState, code));
+static_assert(offsetof(HirFrameStateLayout, globals) == offsetof(FrameState, globals));
+static_assert(offsetof(HirFrameStateLayout, builtins) == offsetof(FrameState, builtins));
 static_assert(offsetof(HirFrameStateLayout, parent) == offsetof(FrameState, parent));
 
 /* Phase E2: Environment layout verification */

@@ -3403,26 +3403,17 @@ static inline UnaryOpKind get_unary_op_kind(
   JIT_ABORT("Unhandled unary op {} ({})", opcode, opcodeName(opcode));
 }
 
+extern "C" void hir_builder_emit_unary_not_c(void *tc, void *func);
+extern "C" void hir_builder_emit_unary_op_c(void *tc, void *func, int opcode);
+
 void HIRBuilder::emitUnaryNot(TranslationContext& tc) {
-  Register* operand = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* is_false = temps_.AllocateNonStack();
-  Register* const_false = temps_.AllocateNonStack();
-  Register* result = temps_.AllocateStack();
-  tc.emitLoadConst(const_false, Type::fromObject(Py_False));
-  tc.emitPrimitiveCompare(
-      is_false, PrimitiveCompareOp::kEqual, const_false, operand);
-  tc.emitPrimitiveBoxBool(result, is_false);
-  phx_ptr_arr_push(&tc.frame.stack, result);
+  hir_builder_emit_unary_not_c(static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
 
 void HIRBuilder::emitUnaryOp(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* operand = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* result = temps_.AllocateStack();
-  UnaryOpKind op_kind = get_unary_op_kind(bc_instr);
-  tc.emitUnaryOp(result, op_kind, operand, tc.frame);
-  phx_ptr_arr_push(&tc.frame.stack, result);
+  hir_builder_emit_unary_op_c(static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.opcode());
 }
 
 void HIRBuilder::emitCallEx(
@@ -3862,27 +3853,15 @@ bool HIRBuilder::emitInvokeMethod(
   return true;
 }
 
+extern "C" void hir_builder_emit_is_op_c(void *tc, void *func, int oparg);
+extern "C" void hir_builder_emit_contains_op_c(void *tc, void *func, int oparg);
+
 void HIRBuilder::emitIsOp(TranslationContext& tc, int oparg) {
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* right = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* left = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* unboxed_result = temps_.AllocateStack();
-  Register* result = temps_.AllocateStack();
-  auto op =
-      oparg == 0 ? PrimitiveCompareOp::kEqual : PrimitiveCompareOp::kNotEqual;
-  tc.emitPrimitiveCompare(unboxed_result, op, left, right);
-  tc.emitPrimitiveBoxBool(result, unboxed_result);
-  phx_ptr_arr_push(&stack, result);
+  hir_builder_emit_is_op_c(static_cast<void*>(&tc), static_cast<void*>(current_func_), oparg);
 }
 
 void HIRBuilder::emitContainsOp(TranslationContext& tc, int oparg) {
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* right = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* left = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* result = temps_.AllocateStack();
-  CompareOp op = oparg == 0 ? CompareOp::kIn : CompareOp::kNotIn;
-  tc.emitCompare(result, op, left, right, tc.frame);
-  phx_ptr_arr_push(&stack, result);
+  hir_builder_emit_contains_op_c(static_cast<void*>(&tc), static_cast<void*>(current_func_), oparg);
 }
 
 void HIRBuilder::emitCompareOp(
@@ -3953,13 +3932,10 @@ void HIRBuilder::emitCopyDictWithoutKeys(TranslationContext& tc) {
   stack.data[stack.count - (0) - 1] = rest;
 }
 
+extern "C" void hir_builder_emit_get_len_c(void *tc, void *func);
+
 void HIRBuilder::emitGetLen(TranslationContext& tc) {
-  FrameState state = tc.frame;
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* obj = static_cast<Register*>(stack.data[stack.count - 1]);
-  Register* result = temps_.AllocateStack();
-  tc.emitGetLength(result, obj, state);
-  phx_ptr_arr_push(&stack, result);
+  hir_builder_emit_get_len_c(static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
 
 void HIRBuilder::emitJumpIf(
@@ -4075,11 +4051,12 @@ PyTypeObject* findTypeByVersionTag(uint32_t version) {
 
 } // namespace
 
+extern "C" void hir_builder_emit_delete_attr_c(void *tc, int oparg);
+
 void HIRBuilder::emitDeleteAttr(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* receiver = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  tc.emitDeleteAttr(receiver, bc_instr.oparg(), tc.frame);
+  hir_builder_emit_delete_attr_c(static_cast<void*>(&tc), bc_instr.oparg());
 }
 
 void HIRBuilder::emitLoadAttr(

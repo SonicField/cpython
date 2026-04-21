@@ -190,3 +190,87 @@ void hir_builder_emit_end_async_for_c(PhxTranslationContext *tc) {
     phx_block_stack_pop(&tc->frame);
     phx_ptr_arr_pop(&tc->frame.stack);
 }
+
+/* emitGetLen — exercises phx_frame_state_copy (FrameState deep copy validation) */
+extern void *hir_c_create_get_length_reg(void *dst, void *src, void *fs);
+
+void hir_builder_emit_get_len_c(PhxTranslationContext *tc, void *func) {
+    HirFrameStateLayout state_copy;
+    phx_frame_state_copy(&state_copy, &tc->frame);
+
+    void *obj = tc->frame.stack.data[tc->frame.stack.count - 1];
+    void *result = hir_func_alloc_register(func);
+    void *instr = hir_c_create_get_length_reg(result, obj, &state_copy);
+    phx_tc_emit(tc, instr);
+    phx_ptr_arr_push(&tc->frame.stack, result);
+
+    phx_frame_state_destroy(&state_copy);
+}
+
+/* emitIsOp — 2 pops, PrimitiveCompare + PrimitiveBoxBool, 1 push */
+extern void *hir_c_create_primitive_compare(void *dst, int32_t op, void *left, void *right);
+extern void *hir_c_create_primitive_box_bool(void *dst, void *src);
+
+void hir_builder_emit_is_op_c(PhxTranslationContext *tc, void *func, int oparg) {
+    void *right = phx_ptr_arr_pop(&tc->frame.stack);
+    void *left = phx_ptr_arr_pop(&tc->frame.stack);
+    void *unboxed = hir_func_alloc_register(func);
+    void *result = hir_func_alloc_register(func);
+    int32_t op = (oparg == 0) ? 2 : 3; /* HIR_PCMP_Equal=2, HIR_PCMP_NotEqual=3 */
+    phx_tc_emit(tc, hir_c_create_primitive_compare(unboxed, op, left, right));
+    phx_tc_emit(tc, hir_c_create_primitive_box_bool(result, unboxed));
+    phx_ptr_arr_push(&tc->frame.stack, result);
+}
+
+/* emitContainsOp — 2 pops, Compare, 1 push */
+extern void *hir_c_create_compare_reg(void *dst, int32_t op, void *left, void *right, void *fs);
+
+/* emitDeleteAttr — pop receiver, emit DeleteAttr */
+extern void *hir_c_create_delete_attr_reg(void *recv, int name_idx, void *fs);
+
+void hir_builder_emit_delete_attr_c(PhxTranslationContext *tc, int oparg) {
+    void *receiver = phx_ptr_arr_pop(&tc->frame.stack);
+    phx_tc_emit(tc, hir_c_create_delete_attr_reg(receiver, oparg, &tc->frame));
+}
+
+/* emitUnaryOp — pop, map opcode→kind, emit UnaryOp, push */
+extern void *hir_c_create_unary_op_reg(void *dst, int32_t op, void *operand, void *fs);
+
+static int32_t get_unary_op_kind_c(int opcode) {
+    switch (opcode) {
+        case UNARY_NOT: return 0;       /* kNot */
+        case UNARY_NEGATIVE: return 1;  /* kNegate */
+        case UNARY_INVERT: return 3;    /* kInvert */
+        default: return -1;
+    }
+}
+
+void hir_builder_emit_unary_op_c(PhxTranslationContext *tc, void *func, int opcode) {
+    void *operand = phx_ptr_arr_pop(&tc->frame.stack);
+    void *result = hir_func_alloc_register(func);
+    int32_t op_kind = get_unary_op_kind_c(opcode);
+    phx_tc_emit(tc, hir_c_create_unary_op_reg(result, op_kind, operand, &tc->frame));
+    phx_ptr_arr_push(&tc->frame.stack, result);
+}
+
+/* emitUnaryNot — LoadConst(False), PrimitiveCompare(Equal), PrimitiveBoxBool */
+void hir_builder_emit_unary_not_c(PhxTranslationContext *tc, void *func) {
+    void *operand = phx_ptr_arr_pop(&tc->frame.stack);
+    void *const_false = hir_func_alloc_register(func);
+    void *is_false = hir_func_alloc_register(func);
+    void *result = hir_func_alloc_register(func);
+    HirType t_false = hir_type_from_object(Py_False);
+    phx_tc_emit(tc, hir_c_create_load_const(const_false, t_false));
+    phx_tc_emit(tc, hir_c_create_primitive_compare(is_false, 2, const_false, operand)); /* kEqual=2 */
+    phx_tc_emit(tc, hir_c_create_primitive_box_bool(result, is_false));
+    phx_ptr_arr_push(&tc->frame.stack, result);
+}
+
+void hir_builder_emit_contains_op_c(PhxTranslationContext *tc, void *func, int oparg) {
+    void *right = phx_ptr_arr_pop(&tc->frame.stack);
+    void *left = phx_ptr_arr_pop(&tc->frame.stack);
+    void *result = hir_func_alloc_register(func);
+    int32_t op = (oparg == 0) ? 6 : 7; /* CompareOp::kIn=6, kNotIn=7 */
+    phx_tc_emit(tc, hir_c_create_compare_reg(result, op, left, right, &tc->frame));
+    phx_ptr_arr_push(&tc->frame.stack, result);
+}
