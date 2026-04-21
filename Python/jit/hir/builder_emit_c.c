@@ -493,6 +493,37 @@ void hir_builder_emit_set_update_c(PhxTranslationContext *tc, void *func, int op
     phx_tc_emit(tc, hir_c_create_set_update_reg(dst, set, iterable, &tc->frame));
 }
 
+/* emitGetAIter — pop obj, emit GetAIter, push */
+extern void *hir_c_create_get_a_iter_reg(void *dst, void *src, void *fs);
+
+void hir_builder_emit_get_aiter_c(PhxTranslationContext *tc, void *func) {
+    void *obj = phx_ptr_arr_pop(&tc->frame.stack);
+    void *out = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_get_a_iter_reg(out, obj, &tc->frame));
+    phx_ptr_arr_push(&tc->frame.stack, out);
+}
+
+/* emitGetANext — peek obj, emit GetANext, push */
+extern void *hir_c_create_get_a_next_reg(void *dst, void *src, void *fs);
+
+void hir_builder_emit_get_anext_c(PhxTranslationContext *tc, void *func) {
+    void *obj = tc->frame.stack.data[tc->frame.stack.count - 1];
+    void *out = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_get_a_next_reg(out, obj, &tc->frame));
+    phx_ptr_arr_push(&tc->frame.stack, out);
+}
+
+/* emitBuildTemplate — pop interpolations+strings, emit BuildTemplate, push */
+extern void *hir_c_create_build_template_reg(void *strings, void *interps, void *dst, void *fs);
+
+void hir_builder_emit_build_template_c(PhxTranslationContext *tc, void *func) {
+    void *interpolations = phx_ptr_arr_pop(&tc->frame.stack);
+    void *strings = phx_ptr_arr_pop(&tc->frame.stack);
+    void *out = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_build_template_reg(strings, interpolations, out, &tc->frame));
+    phx_ptr_arr_push(&tc->frame.stack, out);
+}
+
 /* emitFormatValue — pop fmt_spec (if present), pop value, FormatValue, push */
 extern void *hir_c_create_format_value_reg(void *dst, void *fmt, void *val, int32_t conv, void *fs);
 

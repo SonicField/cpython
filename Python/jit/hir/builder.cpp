@@ -5600,18 +5600,18 @@ void HIRBuilder::emitEndAsyncFor(TranslationContext& tc) {
   hir_builder_emit_end_async_for_c(static_cast<void*>(&tc));
 }
 
+extern "C" void hir_builder_emit_get_aiter_c(void *tc, void *func);
+
 void HIRBuilder::emitGetAIter(TranslationContext& tc) {
-  Register* obj = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* out = temps_.AllocateStack();
-  tc.emitGetAIter(out, obj, tc.frame);
-  phx_ptr_arr_push(&tc.frame.stack, out);
+  hir_builder_emit_get_aiter_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
 
+extern "C" void hir_builder_emit_get_anext_c(void *tc, void *func);
+
 void HIRBuilder::emitGetANext(TranslationContext& tc) {
-  Register* obj = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - 1]);
-  Register* out = temps_.AllocateStack();
-  tc.emitGetANext(out, obj, tc.frame);
-  phx_ptr_arr_push(&tc.frame.stack, out);
+  hir_builder_emit_get_anext_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
 
 Register* HIRBuilder::emitSetupWithCommon(
@@ -6260,13 +6260,11 @@ void HIRBuilder::emitBuildInterpolation(
 #endif
 }
 
+extern "C" void hir_builder_emit_build_template_c(void *tc, void *func);
+
 void HIRBuilder::emitBuildTemplate(TranslationContext& tc) {
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* interpolations = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* strings = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* out = temps_.AllocateStack();
-  tc.emitBuildTemplate(strings, interpolations, out, tc.frame);
-  phx_ptr_arr_push(&stack, out);
+  hir_builder_emit_build_template_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
 
 extern "C" void hir_builder_emit_convert_value_c(void *tc, void *func, int oparg);
