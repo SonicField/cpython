@@ -13,6 +13,8 @@
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
+
+extern "C" void *hir_builder_get_block_at_off(void *builder, int byte_offset);
 #include <vector>
 
 namespace jit::hir {
@@ -93,6 +95,7 @@ struct InlineResult {
 };
 
 class HIRBuilder {
+  friend void* ::hir_builder_get_block_at_off(void*, int);
  public:
   explicit HIRBuilder(const Preloader& preloader)
       : code_(preloader.code()), preloader_(preloader) {}

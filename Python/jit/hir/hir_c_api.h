@@ -779,6 +779,11 @@ void hir_instr_insert_after(void *instr, void *after);
 /* Insert N instructions after original, copy bytecodeOffset, unlink original. */
 void hir_instr_expand_into(void *original, void **expansion, size_t count);
 
+/* ---- Builder bridges (Tier 2 emit conversion) ---- */
+
+/* Get the BasicBlock* for a given bytecode offset from the builder's block map. */
+void *hir_builder_get_block_at_off(void *builder, int byte_offset);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

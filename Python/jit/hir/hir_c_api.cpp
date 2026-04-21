@@ -2580,3 +2580,15 @@ void hir_deopt_set_frame_state(void *deopt_instr, const void *frame_state) {
 }
 
 } /* extern "C" */
+
+/* Builder bridges — defined outside extern "C" to use C++ includes */
+#include "cinderx/Jit/hir/builder.h"
+
+extern "C" {
+
+void *hir_builder_get_block_at_off(void *builder, int byte_offset) {
+  auto *b = static_cast<jit::hir::HIRBuilder*>(builder);
+  return b->getBlockAtOff(jit::BCOffset{byte_offset});
+}
+
+} /* extern "C" */
