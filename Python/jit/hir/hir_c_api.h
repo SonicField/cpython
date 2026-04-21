@@ -784,6 +784,23 @@ void hir_instr_expand_into(void *original, void **expansion, size_t count);
 /* Get the BasicBlock* for a given bytecode offset from the builder's block map. */
 void *hir_builder_get_block_at_off(void *builder, int byte_offset);
 
+/* ---- Preloader bridges (Tier 4 emit conversion) ---- */
+
+/* Get the Preloader's annotations (HirAnnotationIndex*). */
+void *hir_builder_preloader_annotations(void *builder);
+
+/* Get the Preloader's numArgs. */
+int hir_builder_preloader_num_args(void *builder);
+
+/* Get the Preloader's return type as HirType. */
+HirType hir_builder_preloader_return_type(void *builder);
+
+/* Get the Preloader's type(PyObject* descr) as HirType. */
+HirType hir_builder_preloader_type(void *builder, PyObject *descr);
+
+/* Get the Preloader's pyType(PyObject* descr) as PyTypeObject*. */
+void *hir_builder_preloader_py_type(void *builder, PyObject *descr);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

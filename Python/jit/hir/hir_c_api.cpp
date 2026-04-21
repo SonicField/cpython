@@ -2591,4 +2591,29 @@ void *hir_builder_get_block_at_off(void *builder, int byte_offset) {
   return b->getBlockAtOff(jit::BCOffset{byte_offset});
 }
 
+void *hir_builder_preloader_annotations(void *builder) {
+  auto *b = static_cast<jit::hir::HIRBuilder*>(builder);
+  return b->preloader().annotations();
+}
+
+int hir_builder_preloader_num_args(void *builder) {
+  auto *b = static_cast<jit::hir::HIRBuilder*>(builder);
+  return b->preloader().numArgs();
+}
+
+HirType hir_builder_preloader_return_type(void *builder) {
+  auto *b = static_cast<jit::hir::HIRBuilder*>(builder);
+  return Type::toHirType(b->preloader().returnType());
+}
+
+HirType hir_builder_preloader_type(void *builder, PyObject *descr) {
+  auto *b = static_cast<jit::hir::HIRBuilder*>(builder);
+  return Type::toHirType(b->preloader().type(descr));
+}
+
+void *hir_builder_preloader_py_type(void *builder, PyObject *descr) {
+  auto *b = static_cast<jit::hir::HIRBuilder*>(builder);
+  return b->preloader().pyType(descr);
+}
+
 } /* extern "C" */
