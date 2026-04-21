@@ -167,34 +167,4 @@ class LivenessAnalysis : public BackwardDataflowAnalysis {
 // In both cases:
 //   Out(B) = Gen(B) U (In(B) - Kill(B))
 //
-class AssignmentAnalysis : public ForwardDataflowAnalysis {
- public:
-  AssignmentAnalysis(const Function& irfunc, bool is_definite);
-
-  bool IsAssignedIn(const BasicBlock* cfg_block, Register* reg);
-  bool IsAssignedOut(const BasicBlock* cfg_block, Register* reg);
-
- protected:
-  void ComputeGenKill(
-      const BasicBlock* block,
-      RegisterSet& gen,
-      RegisterSet& kill) final;
-  jit::util::BitVector ComputeNewIn(
-      const jit::optimizer::DataFlowBlock* block) final;
-  jit::util::BitVector ComputeNewOut(
-      const jit::optimizer::DataFlowBlock* block) final;
-  void setUninitialized(jit::optimizer::DataFlowBlock* block) final;
-
-  std::string name() final {
-    return fmt::format(
-        "{}AssignmentAnalysis", is_definite_ ? "Definite" : "Maybe");
-  }
-
-  RegisterSet args_;
-
-  bool is_definite_;
-};
-
-// Find the immediate dominator of each block, stored in a mapping from block
-// ids to blocks. The mapping returns nullptr if the block has no dominator.
 } // namespace jit::hir
