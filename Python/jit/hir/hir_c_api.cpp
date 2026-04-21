@@ -2650,4 +2650,39 @@ void *hir_builder_preloader_preloaded_type(void *builder, PyObject *descr,
   return pt.type.get();
 }
 
+void hir_builder_get_attr_cache(void *builder, int instr_idx,
+                                 uint32_t *version_out, uint16_t *index_out) {
+  auto *b = static_cast<jit::hir::HIRBuilder*>(builder);
+  PyCodeObject *code = b->preloader().code();
+  _Py_CODEUNIT *code_units = (_Py_CODEUNIT *)code->co_code_adaptive;
+  const _PyAttrCache *cache =
+      reinterpret_cast<const _PyAttrCache *>(&code_units[instr_idx + 1]);
+  *version_out = cache->version[0] | (static_cast<uint32_t>(cache->version[1]) << 16);
+  *index_out = cache->index;
+}
+
+static PyTypeObject *findTypeByVersionTagWalk(PyTypeObject *type, uint32_t version) {
+  if (type->tp_version_tag == version) {
+    return type;
+  }
+  PyObject *subclasses = (PyObject *)type->tp_subclasses;
+  if (subclasses == nullptr) {
+    return nullptr;
+  }
+  Py_ssize_t pos = 0;
+  PyObject *ref;
+  while (PyDict_Next(subclasses, &pos, nullptr, &ref)) {
+    PyObject *subtype_obj = PyWeakref_GET_OBJECT(ref);
+    if (subtype_obj == Py_None) continue;
+    PyTypeObject *subtype = (PyTypeObject *)subtype_obj;
+    PyTypeObject *found = findTypeByVersionTagWalk(subtype, version);
+    if (found) return found;
+  }
+  return nullptr;
+}
+
+PyTypeObject *hir_find_type_by_version_tag(uint32_t version) {
+  return findTypeByVersionTagWalk(&PyBaseObject_Type, version);
+}
+
 } /* extern "C" */

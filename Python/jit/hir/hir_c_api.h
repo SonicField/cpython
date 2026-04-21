@@ -784,6 +784,14 @@ void hir_instr_expand_into(void *original, void **expansion, size_t count);
 /* Get the BasicBlock* for a given bytecode offset from the builder's block map. */
 void *hir_builder_get_block_at_off(void *builder, int byte_offset);
 
+/* Read _PyAttrCache inline cache from bytecode at instr_idx.
+ * Returns version (uint32) and index (uint16). */
+void hir_builder_get_attr_cache(void *builder, int instr_idx,
+                                 uint32_t *version_out, uint16_t *index_out);
+
+/* Find a PyTypeObject by its tp_version_tag. Returns NULL if not found. */
+PyTypeObject *hir_find_type_by_version_tag(uint32_t version);
+
 /* ---- Preloader bridges (Tier 4 emit conversion) ---- */
 
 /* Get the Preloader's annotations (HirAnnotationIndex*). */
