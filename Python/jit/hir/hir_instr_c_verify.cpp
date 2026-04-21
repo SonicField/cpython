@@ -69,6 +69,9 @@ static_assert(offsetof(HirFrameStateLayout, block_stack_data) == offsetof(FrameS
 static_assert(offsetof(HirFrameStateLayout, code) == offsetof(FrameState, code));
 static_assert(offsetof(HirFrameStateLayout, globals) == offsetof(FrameState, globals));
 static_assert(sizeof(PhxExecBlock) == sizeof(ExecutionBlock), "PhxExecBlock must match ExecutionBlock size");
+static_assert(offsetof(PhxExecBlock, opcode) == offsetof(ExecutionBlock, opcode));
+static_assert(offsetof(PhxExecBlock, handler_off) == offsetof(ExecutionBlock, handler_off));
+static_assert(offsetof(PhxExecBlock, stack_level) == offsetof(ExecutionBlock, stack_level));
 static_assert(offsetof(HirFrameStateLayout, builtins) == offsetof(FrameState, builtins));
 static_assert(offsetof(HirFrameStateLayout, parent) == offsetof(FrameState, parent));
 
