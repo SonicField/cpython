@@ -542,6 +542,27 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitMakeListTuple — allocate list/tuple, fill operands from stack */
+extern void *hir_c_create_make_tuple_reg(size_t n, void *dst, void *fs);
+extern void *hir_c_create_make_list_reg(size_t n, void *dst, void *fs);
+
+void hir_builder_emit_make_list_tuple_c(PhxTranslationContext *tc, void *func, int opcode, int oparg) {
+    size_t num_elems = (size_t)oparg;
+    void *dst = hir_func_alloc_register(func);
+    void *instr;
+    if (opcode == BUILD_TUPLE) {
+        instr = hir_c_create_make_tuple_reg(num_elems, dst, &tc->frame);
+    } else {
+        instr = hir_c_create_make_list_reg(num_elems, dst, &tc->frame);
+    }
+    for (size_t i = num_elems; i > 0; i--) {
+        void *opnd = phx_ptr_arr_pop(&tc->frame.stack);
+        hir_c_set_operand(instr, i - 1, opnd);
+    }
+    phx_tc_emit(tc, instr);
+    phx_ptr_arr_push(&tc->frame.stack, dst);
+}
+
 /* emitBuildMap — allocate dict, fill key/value pairs from stack */
 extern void *hir_c_create_make_dict_reg(void *dst, int32_t dict_size, void *fs);
 

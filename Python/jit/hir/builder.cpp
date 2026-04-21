@@ -4992,22 +4992,14 @@ void HIRBuilder::emitMakeFunction(
   phx_ptr_arr_push(&tc.frame.stack, func);
 }
 
+extern "C" void hir_builder_emit_make_list_tuple_c(void *tc, void *func, int opcode, int oparg);
+
 void HIRBuilder::emitMakeListTuple(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto num_elems = static_cast<size_t>(bc_instr.oparg());
-  auto dst = temps_.AllocateStack();
-  Instr* instr;
-  if (bc_instr.opcode() == BUILD_TUPLE) {
-    instr = tc.emitMakeTuple(num_elems, dst, tc.frame);
-  } else {
-    instr = tc.emitMakeList(num_elems, dst, tc.frame);
-  }
-  for (size_t i = num_elems; i > 0; i--) {
-    auto opnd = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-    instr->SetOperand(i - 1, opnd);
-  }
-  phx_ptr_arr_push(&tc.frame.stack, dst);
+  hir_builder_emit_make_list_tuple_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_),
+      bc_instr.opcode(), bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_list_extend_c(void *tc, void *func, int oparg);
