@@ -6015,18 +6015,11 @@ void HIRBuilder::emitSetFunctionAttribute(
       static_cast<void*>(&tc), bc_instr.oparg());
 }
 
+extern "C" void hir_builder_emit_load_build_class_c(void *tc, void *func);
+
 void HIRBuilder::emitLoadBuildClass(TranslationContext& tc) {
-  Register* result = temps_.AllocateStack();
-  Register* builtins = temps_.AllocateNonStack();
-  Register* key = temps_.AllocateNonStack();
-  tc.emitLoadConst(builtins, Type::fromObject((PyObject*)tc.frame.builtins));
-  // Starting at the preloader the JIT seems to assume builtins will be a
-  // dictionary, however I'm not sure there's any guarantee of this.
-  Register* builtins_dict = temps_.AllocateNonStack();
-  tc.emitGuardType(builtins_dict, TDictExact, builtins, tc.frame);
-  tc.emitLoadConst(key, Type::fromObject(getContext()->strBuildClass()));
-  tc.emitDictSubscr(result, builtins_dict, key, tc.frame);
-  phx_ptr_arr_push(&tc.frame.stack, result);
+  hir_builder_emit_load_build_class_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
 
 extern "C" void hir_builder_emit_store_global_c(void *tc, void *func, PyCodeObject *code, int oparg);

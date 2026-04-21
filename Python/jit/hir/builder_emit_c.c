@@ -542,6 +542,34 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitLoadBuildClass — load __build_class__ from builtins */
+extern void *hir_c_create_dict_subscr_reg(void *dst, void *dict, void *key, void *fs);
+
+void hir_builder_emit_load_build_class_c(PhxTranslationContext *tc, void *func) {
+    void *result = hir_func_alloc_register(func);
+    void *builtins_reg = hir_func_alloc_register(func);
+    void *key_reg = hir_func_alloc_register(func);
+
+    HirType t_builtins = hir_type_from_object((PyObject *)tc->frame.builtins);
+    phx_tc_emit(tc, hir_c_create_load_const(builtins_reg, t_builtins));
+
+    void *builtins_dict = hir_func_alloc_register(func);
+    HirType t_dict = hir_type_from_pytype(&PyDict_Type, 1);
+    void *guard = hir_c_create_guard_type_reg(builtins_dict, t_dict, builtins_reg);
+    hir_deopt_set_frame_state(guard, &tc->frame);
+    phx_tc_emit(tc, guard);
+
+    static PyObject *build_class_str = NULL;
+    if (build_class_str == NULL) {
+        build_class_str = PyUnicode_InternFromString("__build_class__");
+    }
+    HirType t_key = hir_type_from_object(build_class_str);
+    phx_tc_emit(tc, hir_c_create_load_const(key_reg, t_key));
+
+    phx_tc_emit(tc, hir_c_create_dict_subscr_reg(result, builtins_dict, key_reg, &tc->frame));
+    phx_ptr_arr_push(&tc->frame.stack, result);
+}
+
 /* emitStoreGlobal — store to global variable via dict */
 extern void *hir_c_create_guard_type_fs_reg(void *dst, HirType type, void *src, void *fs);
 
