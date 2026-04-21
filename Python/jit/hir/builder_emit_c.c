@@ -542,6 +542,62 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitMatchKeys — match keys, branch on None result */
+extern void *hir_c_create_match_keys_reg(void *dst, void *subj, void *keys, void *fs);
+extern void *hir_cfg_alloc_block(void *func);
+extern void *hir_c_create_cond_branch_cpp(void *cond_reg, void *true_bb, void *false_bb);
+extern void *hir_c_create_branch_cpp(void *target_block);
+extern void *hir_c_create_refine_type_reg(void *dst, HirType type, void *src);
+
+void hir_builder_emit_match_keys_c(PhxTranslationContext *tc, void *func) {
+    PhxPtrArray *stack = &tc->frame.stack;
+    void *keys = stack->data[stack->count - 1];
+    void *subject = stack->data[stack->count - 2];
+
+    void *values_or_none = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_match_keys_reg(values_or_none, subject, keys, &tc->frame));
+    phx_ptr_arr_push(stack, values_or_none);
+
+    void *none = hir_func_alloc_register(func);
+    HirType t_none = hir_type_from_object(Py_None);
+    phx_tc_emit(tc, hir_c_create_load_const(none, t_none));
+    void *is_none = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_primitive_compare(is_none, HIR_PCMP_Equal, values_or_none, none));
+
+    void *true_block = hir_cfg_alloc_block(func);
+    void *false_block = hir_cfg_alloc_block(func);
+    void *done = hir_cfg_alloc_block(func);
+
+    phx_tc_emit(tc, hir_c_create_cond_branch_cpp(is_none, true_block, false_block));
+
+#if PY_VERSION_HEX < 0x030C0000
+    void *if_success = hir_func_alloc_register(func);
+#endif
+
+    tc->block = true_block;
+    HirType t_nonetype = (HirType)HIR_TYPE_NONETYPE;
+    phx_tc_emit(tc, hir_c_create_refine_type_reg(values_or_none, t_nonetype, values_or_none));
+#if PY_VERSION_HEX < 0x030C0000
+    HirType t_false = hir_type_from_object(Py_False);
+    phx_tc_emit(tc, hir_c_create_load_const(if_success, t_false));
+#endif
+    phx_tc_emit(tc, hir_c_create_branch_cpp(done));
+
+    tc->block = false_block;
+    HirType t_tuple = hir_type_from_pytype(&PyTuple_Type, 1);
+    phx_tc_emit(tc, hir_c_create_refine_type_reg(values_or_none, t_tuple, values_or_none));
+#if PY_VERSION_HEX < 0x030C0000
+    HirType t_true = hir_type_from_object(Py_True);
+    phx_tc_emit(tc, hir_c_create_load_const(if_success, t_true));
+#endif
+    phx_tc_emit(tc, hir_c_create_branch_cpp(done));
+
+#if PY_VERSION_HEX < 0x030C0000
+    phx_ptr_arr_push(stack, if_success);
+#endif
+    tc->block = done;
+}
+
 /* emitLoadField — load field from receiver using preloader fieldInfo */
 extern void hir_builder_preloader_field_info(void *builder, PyObject *descr,
                                               intptr_t *offset_out, HirType *type_out,

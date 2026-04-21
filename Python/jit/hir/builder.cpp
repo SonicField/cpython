@@ -5847,47 +5847,11 @@ void HIRBuilder::emitMatchClass(
   tc.block = done;
 }
 
+extern "C" void hir_builder_emit_match_keys_c(void *tc, void *func);
+
 void HIRBuilder::emitMatchKeys(CFG& cfg, TranslationContext& tc) {
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* keys = static_cast<Register*>(stack.data[stack.count - 1]);
-  Register* subject = static_cast<Register*>(stack.data[stack.count - (1) - 1]);
-
-  auto values_or_none = temps_.AllocateStack();
-  tc.emitMatchKeys(values_or_none, subject, keys, tc.frame);
-  phx_ptr_arr_push(&stack, values_or_none);
-
-  auto none = temps_.AllocateStack();
-  tc.emitLoadConst(none, Type::fromObject(Py_None));
-  auto is_none = temps_.AllocateStack();
-  tc.emitPrimitiveCompare(
-      is_none, PrimitiveCompareOp::kEqual, values_or_none, none);
-
-  auto true_block = cfg.AllocateBlock();
-  auto false_block = cfg.AllocateBlock();
-  auto done = cfg.AllocateBlock();
-
-  tc.emitCondBranch(is_none, true_block, false_block);
-  Register* if_success = nullptr;
-  if constexpr (PY_VERSION_HEX < 0x030C0000) {
-    if_success = temps_.AllocateStack();
-  }
-  tc.block = true_block;
-  tc.emitRefineType(values_or_none, TNoneType, values_or_none);
-  if constexpr (PY_VERSION_HEX < 0x030C0000) {
-    tc.emitLoadConst(if_success, Type::fromObject(Py_False));
-  }
-  tc.emitBranch(done);
-
-  tc.block = false_block;
-  tc.emitRefineType(values_or_none, TTupleExact, values_or_none);
-  if constexpr (PY_VERSION_HEX < 0x030C0000) {
-    tc.emitLoadConst(if_success, Type::fromObject(Py_True));
-  }
-  tc.emitBranch(done);
-  if constexpr (PY_VERSION_HEX < 0x030C0000) {
-    phx_ptr_arr_push(&stack, if_success);
-  }
-  tc.block = done;
+  hir_builder_emit_match_keys_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
 
 extern "C" void hir_builder_emit_dict_update_c(void *tc, void *func, int oparg);
