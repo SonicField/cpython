@@ -287,11 +287,6 @@ HirInstr hir_block_append(HirBasicBlock block, HirInstr instr) {
   return as_block(block)->Append(as_instr(instr));
 }
 
-HirInstr hir_block_append_at(HirBasicBlock block, HirInstr instr, int32_t bc_off) {
-  as_instr(instr)->setBytecodeOffset(jit::BCOffset{bc_off});
-  return as_block(block)->Append(as_instr(instr));
-}
-
 HirInstr hir_block_pop_front(HirBasicBlock block) {
   return as_block(block)->pop_front();
 }
@@ -348,21 +343,6 @@ HirOperandType hir_c_get_operand_type(HirInstr instr, size_t i) {
 }
 
 /* ---- Operand use visitation ---- */
-
-void hir_instr_visit_uses(HirInstr instr,
-                          int (*callback)(HirRegister *reg_slot, void *ctx),
-                          void *ctx) {
-  as_instr(instr)->visitUses([callback, ctx](Register*& reg) -> bool {
-    /* The callback receives a pointer to the register pointer.
-     * It can read *reg_slot to get the current register, or
-     * write *reg_slot to replace the operand (copy propagation). */
-    HirRegister reg_as_handle = static_cast<HirRegister>(reg);
-    int result = callback(&reg_as_handle, ctx);
-    /* If the callback changed the handle, write it back. */
-    reg = static_cast<Register*>(reg_as_handle);
-    return result != 0;
-  });
-}
 
 int hir_c_visit_deopt_extension(void *instr_ptr,
                                 int (*callback)(void **reg_slot, void *ctx),
@@ -463,12 +443,6 @@ int hir_is_passthrough(HirInstr instr) {
 int hir_operands_must_match(HirInstr instr, size_t operand_idx) {
   OperandType op_type = as_instr(instr)->GetOperandType(operand_idx);
   return operandsMustMatch(op_type) ? 1 : 0;
-}
-
-int hir_register_type_matches_operand(HirInstr instr, size_t operand_idx, HirRegister reg) {
-  OperandType expected = as_instr(instr)->GetOperandType(operand_idx);
-  Type reg_type = as_reg(reg)->type();
-  return registerTypeMatches(reg_type, expected) ? 1 : 0;
 }
 
 int hir_type_matches_operand(HirInstr instr, size_t operand_idx,

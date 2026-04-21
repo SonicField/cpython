@@ -105,10 +105,6 @@ HirInstr hir_block_terminator(HirBasicBlock block);
 /* Append an instruction to the end of the block. Returns the instr. */
 HirInstr hir_block_append(HirBasicBlock block, HirInstr instr);
 
-/* Append instruction to block and set its bytecode offset.
- * Convenience for factory functions (alloc + init + append). */
-HirInstr hir_block_append_at(HirBasicBlock block, HirInstr instr, int32_t bc_off);
-
 /* Remove and return the first instruction. */
 HirInstr hir_block_pop_front(HirBasicBlock block);
 
@@ -151,9 +147,6 @@ void hir_instr_delete(HirInstr instr);
  *
  * Callback returns 1 to continue, 0 to stop early.
  * ctx is passed through to the callback unchanged. */
-void hir_instr_visit_uses(HirInstr instr,
-                          int (*callback)(HirRegister *reg_slot, void *ctx),
-                          void *ctx);
 
 /* Visit DeoptBase/Snapshot extension uses (frame_state, live_regs, guilty_reg).
  * Called by hir_c_visit_uses after operand array iteration.
@@ -633,11 +626,8 @@ int hir_is_passthrough(HirInstr instr);
 /* Check if an operand constraint requires exact type match (primitives). */
 int hir_operands_must_match(HirInstr instr, size_t operand_idx);
 
-/* Check if a register's type satisfies the expected operand constraint. */
-int hir_register_type_matches_operand(HirInstr instr, size_t operand_idx, HirRegister reg);
-
 /* Check if a given type satisfies the expected operand constraint.
- * Like hir_register_type_matches_operand but takes an explicit type
+ * Takes an explicit type
  * instead of reading from the register. */
 int hir_type_matches_operand(HirInstr instr, size_t operand_idx,
                              const HirType *type);
