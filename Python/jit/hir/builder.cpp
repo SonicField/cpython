@@ -4367,33 +4367,17 @@ void HIRBuilder::emitSwap(TranslationContext& tc, int item_idx) {
   hir_builder_emit_swap_c(static_cast<void*>(&tc), item_idx);
 }
 
+extern "C" void hir_builder_emit_load_deref_c(void *tc, void *func, PyCodeObject *code, int oparg);
+
 void HIRBuilder::emitLoadDeref(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  // <3.11, the oparg was the cell index.  >=3.11 it's the same index as any
-  // other local / frame value.
   int idx = bc_instr.oparg();
   if constexpr (PY_VERSION_HEX < 0x030B0000) {
     idx += tc.frame.nlocals;
   }
-
-  Register* src = static_cast<Register*>(tc.frame.localsplus.data[idx]);
-  Register* dst = temps_.AllocateStack();
-
-  tc.emitLoadCellItem(dst, src);
-
-  PyObject* name = getVarname(code_, idx);
-#if PY_VERSION_HEX < 0x030C0000
-  tc.emitCheckVar(dst, dst, name, tc.frame);
-#else
-  if (idx < PyCode_GetFirstFree(code_)) {
-    tc.emitCheckVar(dst, dst, name, tc.frame);
-  } else {
-    tc.emitCheckFreevar(dst, dst, name, tc.frame);
-  }
-#endif
-
-  phx_ptr_arr_push(&tc.frame.stack, dst);
+  hir_builder_emit_load_deref_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), code_, idx);
 }
 
 extern "C" void hir_builder_emit_store_deref_c(void *tc, void *func, int oparg);
@@ -5790,14 +5774,13 @@ void HIRBuilder::emitTpAlloc(
   phx_ptr_arr_push(&tc.frame.stack, result);
 }
 
+extern "C" void hir_builder_emit_import_from_c(void *tc, void *func, int oparg);
+
 void HIRBuilder::emitImportFrom(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* name = static_cast<Register*>(stack.data[stack.count - 1]);
-  Register* res = temps_.AllocateStack();
-  tc.emitImportFrom(res, name, bc_instr.oparg(), tc.frame);
-  phx_ptr_arr_push(&stack, res);
+  hir_builder_emit_import_from_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
 // Adjusts the oparg for import name to be the name index.
@@ -6210,14 +6193,13 @@ void HIRBuilder::emitMatchKeys(CFG& cfg, TranslationContext& tc) {
   tc.block = done;
 }
 
+extern "C" void hir_builder_emit_dict_update_c(void *tc, void *func, int oparg);
+
 void HIRBuilder::emitDictUpdate(
     TranslationContext& tc,
     const BytecodeInstruction& bc_instr) {
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* update = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* dict = static_cast<Register*>(stack.data[stack.count - bc_instr.oparg()]);
-  Register* out = temps_.AllocateStack();
-  tc.emitDictUpdate(out, dict, update, tc.frame);
+  hir_builder_emit_dict_update_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
 void HIRBuilder::emitDictMerge(
@@ -6298,14 +6280,13 @@ void HIRBuilder::emitBuildTemplate(TranslationContext& tc) {
   phx_ptr_arr_push(&stack, out);
 }
 
+extern "C" void hir_builder_emit_convert_value_c(void *tc, void *func, int oparg);
+
 void HIRBuilder::emitConvertValue(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* out = temps_.AllocateStack();
-  tc.emitConvertValue(out, value, bc_instr.oparg(), tc.frame);
-  phx_ptr_arr_push(&stack, out);
+  hir_builder_emit_convert_value_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
 void HIRBuilder::emitFormatSimple(CFG& cfg, TranslationContext& tc) {

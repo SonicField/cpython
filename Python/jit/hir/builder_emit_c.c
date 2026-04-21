@@ -355,6 +355,62 @@ void hir_builder_emit_copy_dict_without_keys_c(PhxTranslationContext *tc, void *
     stack->data[stack->count - 1] = rest;
 }
 
+/* emitImportFrom — peek name, emit ImportFrom, push */
+extern void *hir_c_create_import_from_reg(void *dst, void *name, int name_idx, void *fs);
+
+void hir_builder_emit_import_from_c(PhxTranslationContext *tc, void *func, int oparg) {
+    void *name = tc->frame.stack.data[tc->frame.stack.count - 1];
+    void *res = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_import_from_reg(res, name, oparg, &tc->frame));
+    phx_ptr_arr_push(&tc->frame.stack, res);
+}
+
+/* emitLoadDeref — localsplus cell read, LoadCellItem + CheckVar/CheckFreevar */
+extern void *hir_c_create_load_cell_item_reg(void *dst, void *src);
+extern void *hir_c_create_check_freevar_reg(void *dst, void *src, void *name, void *fs);
+
+void hir_builder_emit_load_deref_c(
+        PhxTranslationContext *tc,
+        void *func,
+        PyCodeObject *code,
+        int oparg) {
+    int idx = oparg;
+    void *src = tc->frame.localsplus.data[idx];
+    void *dst = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_load_cell_item_reg(dst, src));
+    PyObject *name = get_varname(code, idx);
+#if PY_VERSION_HEX < 0x030C0000
+    phx_tc_emit(tc, hir_c_create_check_var_reg(dst, dst, name, &tc->frame));
+#else
+    if (idx < PyCode_GetFirstFree(code)) {
+        phx_tc_emit(tc, hir_c_create_check_var_reg(dst, dst, name, &tc->frame));
+    } else {
+        phx_tc_emit(tc, hir_c_create_check_freevar_reg(dst, dst, name, &tc->frame));
+    }
+#endif
+    phx_ptr_arr_push(&tc->frame.stack, dst);
+}
+
+/* emitDictUpdate — pop update, peek dict at depth, emit DictUpdate */
+extern void *hir_c_create_dict_update_reg(void *dst, void *dict, void *update, void *fs);
+
+void hir_builder_emit_dict_update_c(PhxTranslationContext *tc, void *func, int oparg) {
+    void *update = phx_ptr_arr_pop(&tc->frame.stack);
+    void *dict = tc->frame.stack.data[tc->frame.stack.count - oparg];
+    void *dst = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_dict_update_reg(dst, dict, update, &tc->frame));
+}
+
+/* emitConvertValue — pop value, emit ConvertValue, push */
+extern void *hir_c_create_convert_value_reg(void *dst, void *value, int conversion, void *fs);
+
+void hir_builder_emit_convert_value_c(PhxTranslationContext *tc, void *func, int oparg) {
+    void *value = phx_ptr_arr_pop(&tc->frame.stack);
+    void *out = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_convert_value_reg(out, value, oparg, &tc->frame));
+    phx_ptr_arr_push(&tc->frame.stack, out);
+}
+
 /* emitStoreSubscr — snapshot, pop sub+container+value, guard types, emit StoreSubscr */
 extern void *hir_c_create_snapshot(void *frame_state);
 extern void *hir_c_create_guard_type_reg(void *dst, HirType target, void *src);
