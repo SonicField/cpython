@@ -703,7 +703,6 @@ size_t hir_type_to_string(const HirType *type, char *buf, size_t bufsz,
 
 /* Returns the may_store AliasClass bitmask. 0 means no stores. */
 int hir_memory_effects_may_store(HirInstr instr);
-int hir_has_arbitrary_execution_c(HirInstr instr);
 
 /* ---- CFG / pass utilities ---- */
 

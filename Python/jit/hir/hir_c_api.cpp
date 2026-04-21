@@ -620,9 +620,6 @@ int hir_memory_effects_may_store(HirInstr instr) {
   return (int)c_effects.may_store;
 }
 
-int hir_has_arbitrary_execution_c(HirInstr instr) {
-  return hir_has_arbitrary_execution(instr);
-}
 
 /* ---- CFG / pass utilities ---- */
 
@@ -2460,22 +2457,6 @@ size_t hir_bb_in_edges_list(void *block, void **out_from, size_t capacity) {
     out_from[n++] = edge->from();
   }
   return n;
-}
-
-int hir_dom_dominates(void *dom_state, void *block, void *target) {
-  auto *target_bb = static_cast<BasicBlock*>(target);
-  auto *block_bb = static_cast<BasicBlock*>(block);
-  // Walk idom chain from target — if we reach block, it dominates
-  int cur_id = target_bb->id;
-  while (cur_id >= 0) {
-    if (cur_id == block_bb->id) return 1;
-    void *idom = phx_dom_idom(dom_state, cur_id);
-    if (idom == NULL) break;
-    int new_id = static_cast<BasicBlock*>(idom)->id;
-    if (new_id == cur_id) break; // entry block
-    cur_id = new_id;
-  }
-  return 0;
 }
 
 void *hir_cfg_allocate_unlinked_block(void *cfg) {
