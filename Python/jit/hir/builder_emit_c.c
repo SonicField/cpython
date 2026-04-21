@@ -542,6 +542,37 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitCallEx — pop kwargs/args/func, emit CallEx */
+extern void *hir_c_create_call_ex_reg(void *dst, void *func_r, void *pargs, void *kwargs, uint32_t flags, void *fs);
+
+void hir_builder_emit_call_ex_c(PhxTranslationContext *tc, void *func, int oparg, uint32_t flags) {
+    void *dst = hir_func_alloc_register(func);
+    PhxPtrArray *stack = &tc->frame.stack;
+    int has_kwargs = (PY_VERSION_HEX >= 0x030E0000) || (oparg & 0x1);
+    void *kwargs;
+    if (has_kwargs) {
+        kwargs = phx_ptr_arr_pop(stack);
+        flags |= 0x1; /* CallFlags::KwArgs = 1 */
+    } else {
+        kwargs = hir_func_alloc_register(func);
+        HirType t_nullptr = (HirType)HIR_TYPE_NULLPTR;
+        phx_tc_emit(tc, hir_c_create_load_const(kwargs, t_nullptr));
+    }
+    void *pargs = phx_ptr_arr_pop(stack);
+    void *func_r;
+#if PY_VERSION_HEX >= 0x030E0000
+    phx_ptr_arr_pop(stack); /* unused */
+    func_r = phx_ptr_arr_pop(stack);
+#elif PY_VERSION_HEX >= 0x030C0000
+    func_r = phx_ptr_arr_pop(stack);
+    phx_ptr_arr_pop(stack); /* unused */
+#else
+    func_r = phx_ptr_arr_pop(stack);
+#endif
+    phx_tc_emit(tc, hir_c_create_call_ex_reg(dst, func_r, pargs, kwargs, flags, &tc->frame));
+    phx_ptr_arr_push(stack, dst);
+}
+
 /* emitForIter — peek iterator, InvokeIterNext, CondBranchIterNotDone */
 extern void *hir_builder_get_block_at_off(void *builder, int byte_offset);
 extern void *hir_c_create_invoke_iter_next_reg(void *dst, void *iter, void *fs);

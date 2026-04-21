@@ -3385,38 +3385,15 @@ void HIRBuilder::emitUnaryOp(
   hir_builder_emit_unary_op_c(static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.opcode());
 }
 
+extern "C" void hir_builder_emit_call_ex_c(void *tc, void *func, int oparg, uint32_t flags);
+
 void HIRBuilder::emitCallEx(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr,
     CallFlags flags) {
-  Register* dst = temps_.AllocateStack();
-  PhxPtrArray& stack = tc.frame.stack;
-  // In 3.14+ we always have kwargs on the stack but it may be null.
-  bool has_kwargs = (PY_VERSION_HEX >= 0x030E0000) || bc_instr.oparg() & 0x1;
-  Register* kwargs = nullptr;
-  if (has_kwargs) {
-    kwargs = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-    flags |= CallFlags::KwArgs;
-  } else {
-    Register* nullp = temps_.AllocateNonStack();
-    tc.emitLoadConst(nullp, TNullptr);
-    kwargs = nullp;
-  }
-  Register* pargs = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* func;
-  // CALL_FUNCTION_EX has an unused value on the stack, starting with 3.12.
-  // In 3.14 this swapped location.
-  if constexpr (PY_VERSION_HEX >= 0x030E0000) {
-    static_cast<Register*>(phx_ptr_arr_pop(&stack));
-    func = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  } else if constexpr (PY_VERSION_HEX >= 0x030C0000) {
-    func = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-    static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  } else {
-    func = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  }
-  tc.emitCallEx(dst, func, pargs, kwargs, flags, tc.frame);
-  phx_ptr_arr_push(&stack, dst);
+  hir_builder_emit_call_ex_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_),
+      bc_instr.oparg(), static_cast<uint32_t>(flags));
 }
 
 extern "C" void hir_builder_emit_build_slice_c(void *tc, void *func, int oparg);
