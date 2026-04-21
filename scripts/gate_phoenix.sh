@@ -277,6 +277,27 @@ def length_checks():
     return (len([1,2,3]), len('hello'), len({1:2, 3:4}),
             len((1,2,3,4)), len({1,2,3}))
 
+# Rotating wiring-gate additions per supervisor 23:32:03Z (push 37 batch).
+# Cover recently-converted Tier-5 emit methods on the force_compile path
+# (no warmup → exercises GENERIC unspecialized opcode dispatch in builder C).
+def binop_arithmetic(x, y):
+    # emitBinaryOp generic: chained BINARY_OP across +,-,*,//,%
+    return x + y - (y * 2) + (x // 2) - (y % 3)
+
+def load_attr_generic():
+    # emitLoadAttr generic: attribute access pre-specialization
+    import sys
+    # Self-validating: compare two paths to the same value
+    a = sys.maxsize
+    b = sys.maxsize
+    return (a == b, a > 0, type(a).__name__)
+
+def make_function_with_defaults(seed):
+    # emitMakeFunction: positional defaults + kw-only defaults + annotation
+    def inner(a, b=2, *, c=3, d=4) -> int:
+        return a + b + c + d
+    return inner(seed)
+
 tests = [
     (straight_add, (3, 4), 7),
     (recursive_fib, (10,), 55),
@@ -291,6 +312,9 @@ tests = [
     (dict_store, (), True),
     (truthy_checks, (), (True, False, True, False, True, False, True, False, False, True, False)),
     (length_checks, (), (3, 5, 2, 4, 3)),
+    (binop_arithmetic, (10, 3), 10 + 3 - (3*2) + (10//2) - (3%3)),
+    (load_attr_generic, (), (True, True, 'int')),
+    (make_function_with_defaults, (1,), 10),
 ]
 for func, args, expected in tests:
     cinderjit.force_compile(func)

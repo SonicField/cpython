@@ -4932,55 +4932,17 @@ void HIRBuilder::emitStoreSubscr(
       static_cast<void*>(&tc), bc_instr.specializedOpcode());
 }
 
+extern "C" void hir_builder_emit_get_iter_c(
+    void *tc, void *func, int next_specialized_opcode, int next_instr_baseoff);
+
 void HIRBuilder::emitGetIter(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* iterable = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* result = temps_.AllocateStack();
-  tc.emitGetIter(result, iterable, tc.frame);
-  // FOR_ITER specialisation: if the next instruction is a specialised FOR_ITER,
-  // guard the iterator type here (once, before the loop) rather than inside
-  // the loop body. This enables the Simplify pass to replace generic
-  // InvokeIterNext with CallStatic(JITRT_InvokeIterNext).
-  if (jit_get_config()->specialized_opcodes) {
-    // Bug 7 fix: The Snapshot/GuardType FrameState must reflect the
-    // interpreter state AT FOR_ITER (not GET_ITER), because:
-    // - GET_ITER already executed successfully (we have a valid iterator)
-    // - If the type guard fails, the interpreter should resume at FOR_ITER
-    //   with the iterator on the stack (FOR_ITER handles any iterator type)
-    // - The old code had cur_instr_offs=GET_ITER with iterable popped,
-    //   causing the interpreter to re-execute GET_ITER with garbage stack.
-    phx_ptr_arr_push(&tc.frame.stack, result);  // iterator must be on stack for FOR_ITER
-    auto saved_offs = tc.frame.cur_instr_offs;
-    tc.frame.cur_instr_offs = bc_instr.nextInstr().baseOffset();  // FOR_ITER
-    tc.emitSnapshot();
-    auto next_instr = bc_instr.nextInstr();
-    auto next_opcode = next_instr.specializedOpcode();
-    if (next_opcode == FOR_ITER_RANGE &&
-        jit::g_range_iterator_type != nullptr) {
-      Type range_iter_type =
-          Type::fromTypeExact(jit::g_range_iterator_type);
-      tc.emitGuardType(result, range_iter_type, result, tc.frame);
-    } else if (next_opcode == FOR_ITER_LIST &&
-               jit::g_list_iterator_type != nullptr) {
-      Type list_iter_type =
-          Type::fromTypeExact(jit::g_list_iterator_type);
-      tc.emitGuardType(result, list_iter_type, result, tc.frame);
-    } else if (next_opcode == FOR_ITER_TUPLE &&
-               jit::g_tuple_iterator_type != nullptr) {
-      Type tuple_iter_type =
-          Type::fromTypeExact(jit::g_tuple_iterator_type);
-      tc.emitGuardType(result, tuple_iter_type, result, tc.frame);
-    }
-    tc.frame.cur_instr_offs = saved_offs;  // restore for subsequent processing
-    // result already pushed above - do NOT push again
-  } else {
-    phx_ptr_arr_push(&tc.frame.stack, result);
-  }
-  if constexpr (PY_VERSION_HEX >= 0x030F0000) {
-    // TASK(T243355471): We should support virtual indexing
-    emitPushNull(tc);
-  }
+  auto next_instr = bc_instr.nextInstr();
+  hir_builder_emit_get_iter_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_),
+      next_instr.specializedOpcode(),
+      next_instr.baseOffset().value());
 }
 
 extern "C" void hir_builder_emit_for_iter_c(void *tc, void *func, void *builder, int jump_target, int next_instr_offset);

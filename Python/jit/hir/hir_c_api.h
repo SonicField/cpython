@@ -794,7 +794,11 @@ PyTypeObject *hir_find_type_by_version_tag(uint32_t version);
 
 /* ---- Preloader bridges (Tier 4 emit conversion) ---- */
 
-/* Get the Preloader's annotations (HirAnnotationIndex*). */
+/* Get the Preloader's annotations (HirAnnotationIndex*). The returned
+ * pointer is OWNED by the Preloader (its lifetime ends with the
+ * Preloader's destructor at preload.h:92). The caller MUST NOT call
+ * hir_annotation_index_destroy on it. May return NULL if the function
+ * has no annotations — caller must guard. */
 void *hir_builder_preloader_annotations(void *builder);
 
 /* Get the Preloader's numArgs. */

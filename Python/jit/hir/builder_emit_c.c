@@ -1194,6 +1194,52 @@ void hir_builder_emit_call_ex_c(PhxTranslationContext *tc, void *func, int oparg
     phx_ptr_arr_push(stack, dst);
 }
 
+/* emitGetIter — pop iterable, GetIter, push iter; FOR_ITER specialisation guard */
+extern void *hir_c_create_get_iter_reg(void *dst, void *src, void *frame_state);
+extern void *hir_c_create_guard_type_fs_reg(void *dst, HirType type, void *src, void *fs);
+extern PyTypeObject *jit_g_range_iterator_type;
+extern PyTypeObject *jit_g_list_iterator_type;
+extern PyTypeObject *jit_g_tuple_iterator_type;
+
+void hir_builder_emit_get_iter_c(
+        PhxTranslationContext *tc, void *func,
+        int next_specialized_opcode, int next_instr_baseoff) {
+    void *iterable = phx_ptr_arr_pop(&tc->frame.stack);
+    void *result = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_get_iter_reg(result, iterable, &tc->frame));
+
+    if (jit_get_config()->specialized_opcodes) {
+        /* The Snapshot/GuardType FrameState must reflect interpreter state AT
+         * FOR_ITER (not GET_ITER): if the type guard fails, the interpreter
+         * must resume at FOR_ITER with the iterator on the stack. */
+        phx_ptr_arr_push(&tc->frame.stack, result);
+        int32_t saved_offs = tc->frame.cur_instr_offs;
+        tc->frame.cur_instr_offs = next_instr_baseoff;
+        phx_tc_emit(tc, hir_c_create_snapshot(&tc->frame));
+        if (next_specialized_opcode == FOR_ITER_RANGE &&
+                jit_g_range_iterator_type != NULL) {
+            HirType t = hir_type_from_pytype(jit_g_range_iterator_type, 1);
+            phx_tc_emit(tc, hir_c_create_guard_type_fs_reg(result, t, result, &tc->frame));
+        } else if (next_specialized_opcode == FOR_ITER_LIST &&
+                jit_g_list_iterator_type != NULL) {
+            HirType t = hir_type_from_pytype(jit_g_list_iterator_type, 1);
+            phx_tc_emit(tc, hir_c_create_guard_type_fs_reg(result, t, result, &tc->frame));
+        } else if (next_specialized_opcode == FOR_ITER_TUPLE &&
+                jit_g_tuple_iterator_type != NULL) {
+            HirType t = hir_type_from_pytype(jit_g_tuple_iterator_type, 1);
+            phx_tc_emit(tc, hir_c_create_guard_type_fs_reg(result, t, result, &tc->frame));
+        }
+        tc->frame.cur_instr_offs = saved_offs;
+        /* result already pushed above — do NOT push again */
+    } else {
+        phx_ptr_arr_push(&tc->frame.stack, result);
+    }
+
+#if PY_VERSION_HEX >= 0x030F0000
+    hir_builder_emit_push_null_c(tc, func);
+#endif
+}
+
 /* emitForIter — peek iterator, InvokeIterNext, CondBranchIterNotDone */
 extern void *hir_builder_get_block_at_off(void *builder, int byte_offset);
 extern void *hir_c_create_invoke_iter_next_reg(void *dst, void *iter, void *fs);
