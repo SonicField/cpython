@@ -4721,45 +4721,13 @@ void HIRBuilder::emitLoadGlobal(
       bc_instr.opcode(), bc_instr.oparg());
 }
 
+extern "C" void hir_builder_emit_make_function_c(void *tc, void *func, int oparg);
+
 void HIRBuilder::emitMakeFunction(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  int oparg = bc_instr.oparg();
-  Register* func = temps_.AllocateStack();
-
-  // In 3.10 the function's qualname is on the stack.  In 3.11+ it's computed
-  // from the code object, so we use a sentinel Nullptr value here.
-  Register* qualname = nullptr;
-  if constexpr (PY_VERSION_HEX < 0x030B0000) {
-    qualname = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  } else {
-    qualname = temps_.AllocateNonStack();
-    tc.emitLoadConst(qualname, TNullptr);
-  }
-
-  Register* codeobj = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-
-  // make a function
-  tc.emitMakeFunction(func, codeobj, qualname, tc.frame);
-
-  if (oparg & MAKE_FUNCTION_CLOSURE) {
-    Register* closure = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-    tc.emitSetFunctionAttr(closure, func, FunctionAttr::kClosure);
-  }
-  if (oparg & MAKE_FUNCTION_ANNOTATIONS) {
-    Register* annotations = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-    tc.emitSetFunctionAttr(annotations, func, FunctionAttr::kAnnotations);
-  }
-  if (oparg & MAKE_FUNCTION_KWDEFAULTS) {
-    Register* kwdefaults = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-    tc.emitSetFunctionAttr(kwdefaults, func, FunctionAttr::kKwDefaults);
-  }
-  if (oparg & MAKE_FUNCTION_DEFAULTS) {
-    Register* defaults = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-    tc.emitSetFunctionAttr(defaults, func, FunctionAttr::kDefaults);
-  }
-
-  phx_ptr_arr_push(&tc.frame.stack, func);
+  hir_builder_emit_make_function_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_make_list_tuple_c(void *tc, void *func, int opcode, int oparg);

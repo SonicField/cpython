@@ -542,6 +542,54 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitMakeFunction — pop code (+qualname pre-3.11), MakeFunction + SetFunctionAttr */
+extern void *hir_c_create_make_function_reg(void *dst, void *code, void *qualname, void *fs);
+extern void *hir_c_create_set_function_attr_reg(void *value, void *base, int32_t field);
+#ifndef MAKE_FUNCTION_DEFAULTS
+#define MAKE_FUNCTION_DEFAULTS    0x01
+#define MAKE_FUNCTION_KWDEFAULTS  0x02
+#define MAKE_FUNCTION_ANNOTATIONS 0x04
+#define MAKE_FUNCTION_CLOSURE     0x08
+#endif
+#ifndef FUNC_ATTR_CLOSURE
+#define FUNC_ATTR_CLOSURE     0
+#define FUNC_ATTR_ANNOTATIONS 1
+#define FUNC_ATTR_KWDEFAULTS  2
+#define FUNC_ATTR_DEFAULTS    3
+#endif
+
+void hir_builder_emit_make_function_c(PhxTranslationContext *tc, void *func, int oparg) {
+    void *func_reg = hir_func_alloc_register(func);
+    void *qualname;
+#if PY_VERSION_HEX < 0x030B0000
+    qualname = phx_ptr_arr_pop(&tc->frame.stack);
+#else
+    qualname = hir_func_alloc_register(func);
+    HirType t_nullptr = (HirType)HIR_TYPE_NULLPTR;
+    phx_tc_emit(tc, hir_c_create_load_const(qualname, t_nullptr));
+#endif
+    void *codeobj = phx_ptr_arr_pop(&tc->frame.stack);
+    phx_tc_emit(tc, hir_c_create_make_function_reg(func_reg, codeobj, qualname, &tc->frame));
+
+    if (oparg & MAKE_FUNCTION_CLOSURE) {
+        void *closure = phx_ptr_arr_pop(&tc->frame.stack);
+        phx_tc_emit(tc, hir_c_create_set_function_attr_reg(closure, func_reg, FUNC_ATTR_CLOSURE));
+    }
+    if (oparg & MAKE_FUNCTION_ANNOTATIONS) {
+        void *annotations = phx_ptr_arr_pop(&tc->frame.stack);
+        phx_tc_emit(tc, hir_c_create_set_function_attr_reg(annotations, func_reg, FUNC_ATTR_ANNOTATIONS));
+    }
+    if (oparg & MAKE_FUNCTION_KWDEFAULTS) {
+        void *kwdefaults = phx_ptr_arr_pop(&tc->frame.stack);
+        phx_tc_emit(tc, hir_c_create_set_function_attr_reg(kwdefaults, func_reg, FUNC_ATTR_KWDEFAULTS));
+    }
+    if (oparg & MAKE_FUNCTION_DEFAULTS) {
+        void *defaults = phx_ptr_arr_pop(&tc->frame.stack);
+        phx_tc_emit(tc, hir_c_create_set_function_attr_reg(defaults, func_reg, FUNC_ATTR_DEFAULTS));
+    }
+    phx_ptr_arr_push(&tc->frame.stack, func_reg);
+}
+
 /* emitLoadMethod — pop receiver, LoadMethod + GetSecondOutput, push 2 */
 extern void *hir_c_create_load_method_reg(void *dst, void *receiver, int32_t name_idx, void *fs);
 extern void *hir_c_create_get_second_output_reg(void *dst, HirType type, void *src);
