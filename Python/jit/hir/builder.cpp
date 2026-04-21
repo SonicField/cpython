@@ -1016,6 +1016,10 @@ struct HIRBuilder::TranslationContext {
 };
 
 void HIRBuilder::addInitialYield(TranslationContext& tc) {
+  static_assert(offsetof(TranslationContext, block) == 0,
+      "TranslationContext::block must be at offset 0 for PhxTranslationContext cast");
+  static_assert(offsetof(TranslationContext, frame) == sizeof(void*),
+      "TranslationContext::frame must follow block for PhxTranslationContext cast");
   auto out = temps_.AllocateNonStack();
   tc.emitInitialYield(out, tc.frame);
 }

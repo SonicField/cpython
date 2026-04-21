@@ -10,6 +10,7 @@
 #include "cinderx/Jit/hir/hir_basic_block_c.h"
 #include "cinderx/Jit/hir/phx_frame_state.h"
 #include "Python.h"
+#include "opcode.h"
 
 /* ---- PhxTranslationContext ---- */
 
@@ -84,4 +85,91 @@ void hir_builder_emit_store_fast_c(
     phx_move_overwritten_stack_regs(tc, func, dst);
     void *assign = hir_assign_create(dst, src);
     phx_tc_emit(tc, assign);
+}
+
+/* emitLoadFast — localsplus read + optional CheckVar + stack push */
+extern void *hir_c_create_check_var_reg(void *dst, void *src, PyObject *name, void *fs);
+
+static PyObject *get_varname(PyCodeObject *code, int idx) {
+    return PyTuple_GET_ITEM(code->co_localsplusnames, idx);
+}
+
+void hir_builder_emit_load_fast_c(
+        PhxTranslationContext *tc,
+        void *func,
+        PyCodeObject *code,
+        int opcode,
+        int oparg) {
+    void *var = tc->frame.localsplus.data[oparg];
+    if (opcode == LOAD_FAST_CHECK) {
+        void *chk = hir_c_create_check_var_reg(var, var, get_varname(code, oparg), &tc->frame);
+        phx_tc_emit(tc, chk);
+    }
+    phx_ptr_arr_push(&tc->frame.stack, var);
+    if (opcode == LOAD_FAST_AND_CLEAR) {
+        phx_move_overwritten_stack_regs(tc, func, var);
+        HirType t_nullptr = HIR_TYPE_NULLPTR;
+        void *lc = hir_c_create_load_const(var, t_nullptr);
+        phx_tc_emit(tc, lc);
+    }
+}
+
+/* emitLoadFastLoadFast — 2 localsplus reads + 2 stack pushes */
+void hir_builder_emit_load_fast_load_fast_c(
+        PhxTranslationContext *tc,
+        int oparg) {
+    int var_idx1 = oparg >> 4;
+    int var_idx2 = oparg & 0xf;
+    void *var1 = tc->frame.localsplus.data[var_idx1];
+    phx_ptr_arr_push(&tc->frame.stack, var1);
+    void *var2 = tc->frame.localsplus.data[var_idx2];
+    phx_ptr_arr_push(&tc->frame.stack, var2);
+}
+
+/* emitStoreFastStoreFast — 2 stack pops + 2 localsplus writes */
+void hir_builder_emit_store_fast_store_fast_c(
+        PhxTranslationContext *tc,
+        void *func,
+        int oparg) {
+    int var_idx1 = oparg >> 4;
+    int var_idx2 = oparg & 0xf;
+    void *src1 = phx_ptr_arr_pop(&tc->frame.stack);
+    void *dst1 = tc->frame.localsplus.data[var_idx1];
+    phx_move_overwritten_stack_regs(tc, func, dst1);
+    phx_tc_emit(tc, hir_assign_create(dst1, src1));
+
+    void *src2 = phx_ptr_arr_pop(&tc->frame.stack);
+    void *dst2 = tc->frame.localsplus.data[var_idx2];
+    phx_move_overwritten_stack_regs(tc, func, dst2);
+    phx_tc_emit(tc, hir_assign_create(dst2, src2));
+}
+
+/* emitStoreFastLoadFast — 1 store + 1 load */
+void hir_builder_emit_store_fast_load_fast_c(
+        PhxTranslationContext *tc,
+        void *func,
+        int oparg) {
+    int store_idx = oparg >> 4;
+    int load_idx = oparg & 0xf;
+    void *src = phx_ptr_arr_pop(&tc->frame.stack);
+    void *dst = tc->frame.localsplus.data[store_idx];
+    phx_move_overwritten_stack_regs(tc, func, dst);
+    phx_tc_emit(tc, hir_assign_create(dst, src));
+
+    void *var = tc->frame.localsplus.data[load_idx];
+    phx_ptr_arr_push(&tc->frame.stack, var);
+}
+
+/* emitCopy — duplicate stack item at depth */
+void hir_builder_emit_copy_c(PhxTranslationContext *tc, int item_idx) {
+    void *item = tc->frame.stack.data[tc->frame.stack.count - item_idx];
+    phx_ptr_arr_push(&tc->frame.stack, item);
+}
+
+/* emitSwap — swap top with item at depth */
+void hir_builder_emit_swap_c(PhxTranslationContext *tc, int item_idx) {
+    void *item = tc->frame.stack.data[tc->frame.stack.count - item_idx];
+    void *top = tc->frame.stack.data[tc->frame.stack.count - 1];
+    tc->frame.stack.data[tc->frame.stack.count - 1] = item;
+    tc->frame.stack.data[tc->frame.stack.count - item_idx] = top;
 }
