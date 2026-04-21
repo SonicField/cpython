@@ -5075,64 +5075,31 @@ void HIRBuilder::emitBuildCheckedMap(
   phx_ptr_arr_push(&stack, dict);
 }
 
+extern "C" void hir_builder_emit_build_map_c(void *tc, void *func, int oparg);
+
 void HIRBuilder::emitBuildMap(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto dict_size = bc_instr.oparg();
-  Register* dict = temps_.AllocateStack();
-  tc.emitMakeDict(dict, dict_size, tc.frame);
-  // Fill dict
-  PhxPtrArray& stack = tc.frame.stack;
-  for (auto i = stack.count - dict_size * 2, end = stack.count; i < end;
-       i += 2) {
-    auto key = static_cast<Register*>(stack.data[i]);
-    auto value = static_cast<Register*>(stack.data[i + 1]);
-    auto result = temps_.AllocateStack();
-    tc.emitSetDictItem(result, dict, key, value, tc.frame);
-  }
-  stack.count -= (dict_size * 2);
-  phx_ptr_arr_push(&stack, dict);
+  hir_builder_emit_build_map_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
+
+extern "C" void hir_builder_emit_build_set_c(void *tc, void *func, int oparg);
 
 void HIRBuilder::emitBuildSet(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* set = temps_.AllocateStack();
-  tc.emitMakeSet(set, tc.frame);
-
-  int oparg = bc_instr.oparg();
-  for (int i = oparg; i > 0; i--) {
-    auto item = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - (i)]);
-
-    auto result = temps_.AllocateStack();
-    tc.emitSetSetItem(result, set, item, tc.frame);
-  }
-
-  tc.frame.stack.count -= (oparg);
-
-  phx_ptr_arr_push(&tc.frame.stack, set);
+  hir_builder_emit_build_set_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
+
+extern "C" void hir_builder_emit_build_const_key_map_c(void *tc, void *func, int oparg);
 
 void HIRBuilder::emitBuildConstKeyMap(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto dict_size = bc_instr.oparg();
-  Register* dict = temps_.AllocateStack();
-  tc.emitMakeDict(dict, dict_size, tc.frame);
-  // Fill dict
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* keys = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  // ceval.c checks the type and size of the keys tuple before proceeding; we
-  // intentionally skip that here.
-  for (auto i = 0; i < dict_size; ++i) {
-    Register* key = temps_.AllocateStack();
-    tc.emitLoadTupleItem(key, keys, i);
-    Register* value = static_cast<Register*>(stack.data[stack.count - dict_size + i]);
-    Register* result = temps_.AllocateStack();
-    tc.emitSetDictItem(result, dict, key, value, tc.frame);
-  }
-  stack.count -= (dict_size);
-  phx_ptr_arr_push(&stack, dict);
+  hir_builder_emit_build_const_key_map_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_pop_jump_if_c(void *tc, void *func, void *builder, int opcode, int jump_target, int next_instr_offset);

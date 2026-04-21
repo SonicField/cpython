@@ -542,6 +542,60 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitBuildMap — allocate dict, fill key/value pairs from stack */
+extern void *hir_c_create_make_dict_reg(void *dst, int32_t dict_size, void *fs);
+
+void hir_builder_emit_build_map_c(PhxTranslationContext *tc, void *func, int oparg) {
+    int dict_size = oparg;
+    void *dict = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_make_dict_reg(dict, dict_size, &tc->frame));
+    PhxPtrArray *stack = &tc->frame.stack;
+    for (size_t i = stack->count - dict_size * 2, end = stack->count; i < end; i += 2) {
+        void *key = stack->data[i];
+        void *value = stack->data[i + 1];
+        void *result = hir_func_alloc_register(func);
+        phx_tc_emit(tc, hir_c_create_set_dict_item_reg(result, dict, key, value, &tc->frame));
+    }
+    stack->count -= (dict_size * 2);
+    phx_ptr_arr_push(stack, dict);
+}
+
+/* emitBuildSet — allocate set, add items from stack */
+extern void *hir_c_create_make_set_reg(void *dst, void *fs);
+
+void hir_builder_emit_build_set_c(PhxTranslationContext *tc, void *func, int oparg) {
+    void *set = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_make_set_reg(set, &tc->frame));
+    PhxPtrArray *stack = &tc->frame.stack;
+    for (int i = oparg; i > 0; i--) {
+        void *item = stack->data[stack->count - i];
+        void *result = hir_func_alloc_register(func);
+        phx_tc_emit(tc, hir_c_create_set_set_item_reg(result, set, item, &tc->frame));
+    }
+    stack->count -= oparg;
+    phx_ptr_arr_push(stack, set);
+}
+
+/* emitBuildConstKeyMap — allocate dict, pop keys tuple, fill from stack */
+extern void *hir_c_create_load_tuple_item_reg(void *dst, void *tuple, int32_t idx);
+
+void hir_builder_emit_build_const_key_map_c(PhxTranslationContext *tc, void *func, int oparg) {
+    int dict_size = oparg;
+    void *dict = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_make_dict_reg(dict, dict_size, &tc->frame));
+    PhxPtrArray *stack = &tc->frame.stack;
+    void *keys = phx_ptr_arr_pop(stack);
+    for (int i = 0; i < dict_size; i++) {
+        void *key = hir_func_alloc_register(func);
+        phx_tc_emit(tc, hir_c_create_load_tuple_item_reg(key, keys, i));
+        void *value = stack->data[stack->count - dict_size + i];
+        void *result = hir_func_alloc_register(func);
+        phx_tc_emit(tc, hir_c_create_set_dict_item_reg(result, dict, key, value, &tc->frame));
+    }
+    stack->count -= dict_size;
+    phx_ptr_arr_push(stack, dict);
+}
+
 /* emitPopJumpIf — pop var, compute true/false blocks, conditional branch */
 extern void *hir_builder_get_block_at_off(void *builder, int byte_offset);
 extern void *hir_c_create_cond_branch_cpp(void *cond_reg, void *true_bb, void *false_bb);
