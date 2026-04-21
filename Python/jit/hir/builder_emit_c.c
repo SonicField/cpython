@@ -542,6 +542,23 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
     phx_tc_emit(tc, hir_c_create_store_subscr_reg(container, slice, values, &tc->frame));
 }
 
+/* emitDictMerge — peek dict+func at depth, pop update, emit DictMerge */
+extern void *hir_c_create_dict_merge_reg(void *dst, void *dict, void *update, void *func, void *fs);
+
+void hir_builder_emit_dict_merge_c(PhxTranslationContext *tc, void *func_reg, int oparg) {
+    PhxPtrArray *stack = &tc->frame.stack;
+#if PY_VERSION_HEX < 0x030E0000
+    void *dict = stack->data[stack->count - oparg - 1];
+    void *callable = stack->data[stack->count - oparg - 3];
+#else
+    void *dict = stack->data[stack->count - 2];
+    void *callable = stack->data[stack->count - 5];
+#endif
+    void *update = phx_ptr_arr_pop(stack);
+    void *out = hir_func_alloc_register(func_reg);
+    phx_tc_emit(tc, hir_c_create_dict_merge_reg(out, dict, update, callable, &tc->frame));
+}
+
 /* emitMakeListTuple — allocate list/tuple, fill operands from stack */
 extern void *hir_c_create_make_tuple_reg(size_t n, void *dst, void *fs);
 extern void *hir_c_create_make_list_reg(size_t n, void *dst, void *fs);

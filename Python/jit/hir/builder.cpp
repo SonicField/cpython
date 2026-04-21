@@ -6084,32 +6084,13 @@ void HIRBuilder::emitDictUpdate(
       static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
+extern "C" void hir_builder_emit_dict_merge_c(void *tc, void *func, int oparg);
+
 void HIRBuilder::emitDictMerge(
     TranslationContext& tc,
     const BytecodeInstruction& bc_instr) {
-  PhxPtrArray& stack = tc.frame.stack;
-  Register *dict, *func;
-  if constexpr (PY_VERSION_HEX < 0x030E0000) {
-    dict = static_cast<Register*>(stack.data[stack.count - bc_instr.oparg() - 1]);
-    func = static_cast<Register*>(stack.data[stack.count - bc_instr.oparg() - 3]);
-  } else {
-    // According to bytecodes.c, at this point on the stack we have:
-    //  update (top of the stack)
-    //  [unused if oparg is 0]
-    //  dict
-    //  unused
-    //  unused
-    //  callable
-    // Looking at codegen.c for 3.14, oparg is only ever 1 so the optional
-    // "unused" slot is never present. So the 1 and 4 offsets skip to "dict" and
-    // "callable" respectively.
-    JIT_CHECK(bc_instr.oparg() == 1, "oparg must be 1");
-    dict = static_cast<Register*>(stack.data[stack.count - (1) - 1]);
-    func = static_cast<Register*>(stack.data[stack.count - (4) - 1]);
-  }
-  Register* update = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* out = temps_.AllocateStack();
-  tc.emitDictMerge(out, dict, update, func, tc.frame);
+  hir_builder_emit_dict_merge_c(
+      static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
 void HIRBuilder::emitSend(
