@@ -13,3 +13,27 @@ Pre-Step-B reality:
 Per theologian [chat 19:29Z] acceptance flip: BUILD_EXIT=0 = baseline PASS
 
 Bonus pre-existing drift (no mutation needed): pass_output_type_c.c local externs use 'void *block' for hir_bb_*; canonical hir_c_api.h post-Step-A uses 'struct HirBasicBlock *block'. ABI-compat at 8 bytes silently links today.
+
+=== POST-STEP-B (post-Step-B substantive close, dual-mutation .h+.cpp at HEAD ab0764195ee24b3b378192b54f7eac340da60fd3) ===
+Mutation: hir_c_insert_before added 3rd arg (void *unused_drift_param) in BOTH .h (line 740) and .cpp (line 2349)
+
+BUILD_EXIT=2  ← DRIFT CAUGHT at compile time = §1b drift surface CLOSED by Step B
+
+Compile errors (6 call sites across 3 §1b TUs):
+  Python/jit/hir/licm_c.c:244:50 — too few arguments to function call, expected 3, have 2
+  Python/jit/hir/pass_output_type_c.c:981:53 — too few arguments to function call, expected 3, have 2
+  Python/jit/hir/pass_output_type_c.c:989:48 — too few arguments to function call, expected 3, have 2
+  Python/jit/hir/pass_output_type_c.c:1054:59 — too few arguments to function call, expected 3, have 2
+  Python/jit/hir/simplify_c.c:40:57 — too few arguments to function call, expected 3, have 2
+  Python/jit/hir/simplify_c.c:2829:54 — too few arguments to function call, expected 3, have 2
+
+Post-Step-B reality:
+- hir_c_api.cpp compiles header+impl-consistent on new sig
+- §1b TUs (licm_c.c + pass_output_type_c.c + simplify_c.c) NO LONGER hold local externs (deleted in Step B-1/B-3/B-5)
+- Each §1b TU now #includes hir_c_api.h directly → sees canonical 3-arg sig
+- 2-arg call sites at the 6 listed locations fail with clear 'too few arguments' compile error
+- Drift caught BEFORE link, no silent runtime UB possible
+
+§5.3 acceptance per spec §5: PASS end-to-end (PRE-STEP-B BUILD_EXIT=0 + POST-STEP-B BUILD_EXIT≠0 with errors at expected §1b TUs).
+
+Authorship: testkeeper executed procedure (chat L2327); generalist commits artifact per role boundary (push 67 precedent).
