@@ -1,0 +1,15 @@
+=== BASELINE (pre-Step-B, dual-mutation .h+.cpp at HEAD 2ed74a92a8840b2f87d470740de44bd665872baf) ===
+Mutation: hir_c_insert_before added 3rd arg (void *unused_drift_param) in BOTH .h (line 726) and .cpp (line 2349)
+
+BUILD_EXIT=0  ← DRIFT UNDETECTED at compile time = §1b drift surface CONFIRMED
+
+Pre-Step-B reality:
+- hir_c_api.cpp compiles fine (header + impl agree on new sig)
+- §1b TUs (licm_c.c + pass_output_type_c.c) use local extern decls (still 2-arg signature)
+- Their callers compile fine against the local extern
+- Linker resolves 'hir_c_insert_before' by name → finds 3-arg impl
+- Result: silent runtime UB if these call sites execute (extra arg never passed; impl reads garbage)
+
+Per theologian [chat 19:29Z] acceptance flip: BUILD_EXIT=0 = baseline PASS
+
+Bonus pre-existing drift (no mutation needed): pass_output_type_c.c local externs use 'void *block' for hir_bb_*; canonical hir_c_api.h post-Step-A uses 'struct HirBasicBlock *block'. ABI-compat at 8 bytes silently links today.
