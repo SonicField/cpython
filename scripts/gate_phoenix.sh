@@ -280,22 +280,24 @@ def length_checks():
 # Rotating wiring-gate additions per supervisor 23:32:03Z (push 37 batch).
 # Cover recently-converted Tier-5 emit methods on the force_compile path
 # (no warmup → exercises GENERIC unspecialized opcode dispatch in builder C).
+# MINIMAL-BYTECODE rule (supervisor 00:04:55Z, theologian 00:04:50Z): each
+# function's force_compile failure must be attributable to ONE emit-method
+# family. Inseparable predecessors (LOAD_GLOBAL before LOAD_ATTR; SET_FUNCTION_ATTRIBUTE
+# after MAKE_FUNCTION) are permitted; independent additional exercises are not.
 def binop_arithmetic(x, y):
     # emitBinaryOp generic: chained BINARY_OP across +,-,*,//,%
     return x + y - (y * 2) + (x // 2) - (y % 3)
 
 def load_attr_generic():
-    # emitLoadAttr generic: attribute access pre-specialization (no IMPORT_NAME opcode).
-    # Self-validating: compare two paths to the same value.
-    a = sys.maxsize
-    b = sys.maxsize
-    return (a == b, a > 0, type(a).__name__)
+    # emitLoadAttr generic: LOAD_GLOBAL sys → LOAD_ATTR maxsize → RETURN_VALUE.
+    return sys.maxsize
 
-def make_function_with_defaults(seed):
-    # emitMakeFunction: positional defaults + kw-only defaults + annotation
-    def inner(a, b=2, *, c=3, d=4) -> int:
-        return a + b + c + d
-    return inner(seed)
+def make_function_with_defaults():
+    # emitMakeFunction: MAKE_FUNCTION + SET_FUNCTION_ATTRIBUTE(defaults) + RETURN_VALUE.
+    # Inner is data; not force_compiled. CALL is OUTSIDE this function.
+    def inner(a=1):
+        return a + 1
+    return inner
 
 tests = [
     (straight_add, (3, 4), 7),
@@ -312,8 +314,7 @@ tests = [
     (truthy_checks, (), (True, False, True, False, True, False, True, False, False, True, False)),
     (length_checks, (), (3, 5, 2, 4, 3)),
     (binop_arithmetic, (10, 3), 10 + 3 - (3*2) + (10//2) - (3%3)),
-    (load_attr_generic, (), (True, True, 'int')),
-    (make_function_with_defaults, (1,), 10),
+    (load_attr_generic, (), sys.maxsize),
 ]
 for func, args, expected in tests:
     cinderjit.force_compile(func)
@@ -321,6 +322,16 @@ for func, args, expected in tests:
     result = func(*args)
     assert result == expected, f'{func.__name__}: got {result}, expected {expected}'
     print(f'{func.__name__}: PASS')
+
+# Special-case make_function_with_defaults: force_compile target = OUTER (MAKE_FUNCTION
+# + SET_FUNCTION_ATTRIBUTE family). Inner-function invocation happens OUTSIDE the JIT'd
+# code so the force_compile failure mode is unambiguously attributable to emitMakeFunction.
+cinderjit.force_compile(make_function_with_defaults)
+assert cinderjit.is_jit_compiled(make_function_with_defaults), 'make_function_with_defaults not compiled'
+_inner = make_function_with_defaults()
+assert _inner() == 2 and _inner(5) == 6, f'make_function_with_defaults inner: {_inner()}, {_inner(5)}'
+print('make_function_with_defaults: PASS')
+
 print('Wiring smoke: PASS')
 " 2>&1 || true)
     WIRING_EXIT=$?
