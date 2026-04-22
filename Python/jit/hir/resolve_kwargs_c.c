@@ -3,6 +3,7 @@
  * Pure C ResolveKwargs — resolve keyword arguments to positional order.
  */
 
+#include "cinderx/Jit/hir/hir_c_api.h"
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_basic_block_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
@@ -11,14 +12,8 @@
 
 #include <string.h>
 
-/* Forward declarations (avoid hir_c_api.h typedef conflicts) */
-typedef void* HirFunction;
-extern void *hir_func_cfg_ptr(HirFunction func);
+/* Forward decl for non-lint-pattern extern (W25 scope is lint-pattern only). */
 extern HirType hir_register_type(void *reg);
-extern void hir_instr_replace_with(void *old_instr, void *new_instr);
-extern void *hir_c_create_vectorcall_reg(size_t n_operands, void *dst, uint32_t flags);
-extern void *hir_c_create_call_method_reg(size_t n_operands, void *dst, uint32_t flags);
-extern void hir_c_copy_frame_state(void *dst, void *src);
 
 /* ---- Pointer array ---- */
 

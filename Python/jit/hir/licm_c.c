@@ -4,17 +4,15 @@
  */
 
 #include "cinderx/Jit/hir/dominator_c.h"
+#include "cinderx/Jit/hir/hir_c_api.h"
 #include "cinderx/Jit/hir/hir_cfg_rpo_c.h"
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_basic_block_c.h"
 #include "cinderx/Common/jit_log_c.h"
 #include "Python.h"
 
-/* Forward declarations to avoid hir_c_api.h typedef conflicts */
-extern void *hir_func_cfg_ptr(HirFunction func);
+/* Forward decl for non-lint-pattern extern (W25 scope is lint-pattern only). */
 extern void *hir_reg_instr(void *reg);
-extern void hir_instr_unlink(void *instr);
-extern void hir_c_insert_before(void *new_instr, void *before);
 
 #include <string.h>
 

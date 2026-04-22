@@ -5,6 +5,7 @@
  */
 
 #include "cinderx/Jit/hir/ssaify_c.h"
+#include "cinderx/Jit/hir/hir_c_api.h"
 #include "cinderx/Jit/hir/hir_cfg_rpo_c.h"
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_basic_block_c.h"
@@ -13,8 +14,8 @@
 
 #include <string.h>
 
-/* Forward declarations for opaque API functions (avoid hir_c_api.h conflict) */
-extern void *hir_func_alloc_register(void *func);
+/* Forward decls for non-lint-pattern externs (W25 scope is lint-pattern only;
+ * these are tracked separately as out-of-scope cleanup candidates). */
 extern void hir_reflow_types(void *func);
 extern void hir_phi_elimination_run(void *func);
 
