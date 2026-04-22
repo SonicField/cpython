@@ -185,24 +185,57 @@ type) or an intentional cast (add `static_cast` / `reinterpret_cast`).
 
 ## 5. Falsification
 
-### 5.1 §5.3 type-only re-run post-W25b (PRIMARY acceptance)
+### 5.1 §5.3 type-only re-run post-W25b (PRIMARY acceptance — REVISED)
 
-**Goal:** confirm that the same TYPE-ONLY mutation that BUILD_EXIT=0'd at
-HEAD `dac46b963e` (push 78) now BUILD_EXIT=2 post-W25b.
+**Empirical finding (2026-04-22, post-W25b HEAD `69ae101f36`, testkeeper
+[chat L2415]):** the original §5.3 mutation on `hir_c_insert_before`
+returned `BUILD_EXIT=0` post-W25b — drift NOT detected. Root cause:
+existing §1b call sites use raw `void *` LOCALS (legacy opacity pattern),
+not typed `HirInstr` handles. C99 §6.3.2.3 allows implicit conversion
+between `void *` and any object pointer type; this BYPASSES
+`-Werror=incompatible-pointer-types`. Example `licm_c.c:240`:
 
-**Procedure:** repeat `docs/w25-step-b-mutation-test.md` §4 mutation
-(`hir_c_insert_before` 2nd arg `HirInstr` → `struct HirBasicBlock *` in both
-`.h`+`.cpp`) at post-W25b HEAD. Build. Capture `BUILD_EXIT`.
+```c
+void *instr = to_hoist.data[i];                            /* raw void* local */
+hir_c_insert_before(instr, terminator);                    /* void* → typed param: implicit, no diagnostic */
+```
 
-**Acceptance:**
-- BUILD_EXIT=2 with compile errors at the 6 §1b call sites that the W25 §5.3
-  arity-mutation already exposed (licm_c.c:244, pass_output_type_c.c:981/989/
-  1054, simplify_c.c:40/2829) → W25b CLOSES the void*-typedef drift class
-- BUILD_EXIT=0 (UNEXPECTED) → W25b implementation incomplete; investigate
+W25b promotes the API typedefs (`HirInstr`/`HirRegister`/`HirFunction` →
+distinct opaque struct ptrs). It does NOT change caller-side `void *`
+local variable declarations. When raw `void *` meets typed parameter,
+C99 implicit conversion masks the drift.
 
-**Why this works:** post-W25b, `HirInstr` is `struct HirInstrOpaque *`, distinct
-from `struct HirBasicBlock *`. C99 implicit conversion no longer applies between
-the two pointer types — compiler must error.
+**Two distinct drift classes (revised understanding):**
+
+1. **typedef-mismatch class** — caller declares typed handle (e.g.
+   `HirInstr foo`), passes to function expecting different typed handle
+   (e.g. `struct HirBasicBlock *`). W25b CLOSES this via
+   `-Werror=incompatible-pointer-types`.
+2. **void*-locals class** — caller declares raw `void *` local, passes to
+   function expecting struct ptr. W25b does NOT close this; C99 implicit
+   conversion is legal and silent. ACCEPTED-RESIDUAL per
+   theologian [chat L2417] + supervisor; future workstream W25c.
+
+**REVISED PRIMARY acceptance — narrower falsifier exercises class (1) only:**
+
+Test TU `Python/jit/hir/w25b_typed_locals_check.c` (committed as
+`724763ddfc`, generalist [chat L2419]) declares HirInstr/HirRegister/
+HirFunction typed locals + makes API calls through them. Mutation per
+`docs/w25-step-b-mutation-test.md` §4 applied at HEAD `724763ddfc`:
+
+- Positive (no mutation): compile-clean, BUILD_EXIT=0
+- Negative (mutation applied): BUILD_EXIT=2 with
+  `[-Werror,-Wincompatible-pointer-types]` at
+  `w25b_typed_locals_check.c:50` — drift CAUGHT for class (1)
+
+**Acceptance status:** W25b CLOSES typedef-mismatch class (1).
+**ACCEPTED-RESIDUAL:** void*-locals class (2) — see §7 + future W25c.
+
+**Discipline going forward:** new bridge callers introduced in Tier 6
+INVOKE_* Phase 2 SHOULD use typed handles (`HirInstr foo = ...`) not raw
+`void *` locals (`void *foo = ...`). Code-review enforcement, not lint.
+Existing void*-locals are intentional opacity from legacy patterns; not
+latent bugs but uncovered drift surface.
 
 ### 5.2 Distinct-handle cross-assignment test (regression test)
 
@@ -264,6 +297,19 @@ want to disturb (revert Step A' and reassess).
 
 ## 7. What this does NOT solve
 
+- **void*-locals class drift (ACCEPTED-RESIDUAL, future W25c):** when a
+  caller declares `void *foo` (instead of `HirInstr foo`) and passes `foo`
+  to a function expecting `HirInstr` or other typed handle, C99 §6.3.2.3
+  implicit conversion masks the type-mismatch even with
+  `-Werror=incompatible-pointer-types`. Empirical proof at HEAD
+  `69ae101f36` (testkeeper [chat L2415]): the §1b call sites pre-existing
+  void*-local pattern (~830 raw void* locals across 8 §1b TUs per
+  generalist [chat L2417] survey, ~200-400 hold typed handles) bypass W25b
+  protection. **W25c future workstream:** convert §1b void*-locals to
+  typed handles for full closure. ~30-90min batch per generalist scope
+  estimate. Lower priority unless this class causes a real bug — existing
+  void*-locals are intentional opacity from legacy patterns, not latent
+  bugs.
 - Drift on direct-access struct pointers (`HirInstrLayout *` etc.) — these are
   used by .c TUs that read fields directly. Not a typical drift surface; the
   Layout structs are layout-validated via `static_assert` in
