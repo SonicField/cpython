@@ -3068,37 +3068,44 @@ extern int hir_builder_emit_binary_op_c(
  * LOAD_CONST, STORE_FAST, BINARY_OP, RETURN_CONST, RETURN_VALUE,
  * JUMP_BACKWARD, JUMP_BACKWARD_NO_INTERRUPT — handled cases. Default → deopt. */
 
-void hir_builder_emit_inline_exception_match_c(
+/* Shared helper — emits the exc_match → match_dispatch → deopt sequence
+ * shared by emitInlineExceptionMatch and emitCallExceptionHandler.
+ *
+ * Caller pre-conditions:
+ *   - tc points to the OUTER block + frame (will be source for exc_tc/deopt_tc copy)
+ *   - exc_match_block already allocated and reachable via CondBranch from caller
+ *
+ * Caller post-conditions (NOT done here):
+ *   - tc->block is NOT updated — caller sets to ok_block + emits P5
+ *
+ * Helper guarantees:
+ *   - PA D-1774910012 invariant: Py_None placeholder pushed before dispatch,
+ *     POP_EXCEPT case pops it. SHARED across both callers (single source of truth).
+ *   - PB invariants: exc_tc.frame ← tc.frame; match_tc.frame ← exc_tc.frame;
+ *     deopt_tc.frame ← tc.frame (NOT exc_tc.frame).
+ *   - PE invariant: phx_frame_state_destroy on EXACTLY 3 TCs.
+ *
+ * deopt_left_repush + deopt_right_repush: optional registers to push onto
+ * deopt_tc.frame.stack BEFORE Snapshot. Pass NULL to skip. Used by
+ * emitInlineExceptionMatch (re-push left+right for BINARY_SUBSCR offset);
+ * emitCallExceptionHandler passes NULL,NULL (call-result already popped). */
+static void emit_except_match_body_c(
         PhxTranslationContext *tc,
         void *func,
         void *builder,
         int bc_base_offset,
         int handler_depth,
-        void *exc_type_obj,           /* SimpleExceptInfo::exc_type */
-        int except_body_offset,       /* SimpleExceptInfo::except_body */
-        HirType return_type,          /* preloader_.returnType() */
-        void *left,
-        void *right,
-        void *result,
-        void *getitem_fn,             /* JITRT_DictGetItem or PyObject_GetItem */
-        void *match_and_clear_fn,     /* JITRT_MatchAndClearException */
+        void *exc_match_block,
+        void *exc_type_obj,
+        int except_body_offset,
+        HirType return_type,
+        void *match_and_clear_fn,
         const OpcodeArrayEntry *opcodes,
-        size_t opcode_count) {
-    HirType t_opt_object = HIR_TYPE_OPTOBJECT;
-    HirType t_object = HIR_TYPE_OBJECT;
+        size_t opcode_count,
+        void *deopt_left_repush,
+        void *deopt_right_repush) {
     HirType t_cint32 = (HirType)HIR_TYPE_CINT32;
     HirType t_nonetype = HIR_TYPE_NONETYPE;
-
-    /* P1: getitem CallStatic dispatch. */
-    void *getitem_call = hir_c_create_call_static_reg(
-        2, result, getitem_fn, t_opt_object);
-    hir_c_set_operand(getitem_call, 0, left);
-    hir_c_set_operand(getitem_call, 1, right);
-    phx_tc_emit(tc, getitem_call);
-
-    void *ok_block = hir_cfg_alloc_block(func);
-    void *exc_match_block = hir_cfg_alloc_block(func);
-    phx_tc_emit(tc, hir_c_create_cond_branch_cpp(result, ok_block, exc_match_block));
 
     /* P2: exc_tc setup — copy from tc.frame, depth-trim. */
     PhxTranslationContext exc_tc;
@@ -3137,7 +3144,9 @@ void hir_builder_emit_inline_exception_match_c(
 
     /* (PA D-1774910012) Push Py_None placeholder BEFORE dispatch loop.
      * POP_EXCEPT case pops this placeholder. If skipped, closure
-     * LOAD_DEREF in except blocks corrupts exc_info chain post-threshold. */
+     * LOAD_DEREF in except blocks corrupts exc_info chain post-threshold.
+     * THIS IS THE SHARED-HELPER PAYOFF: invariant lives in EXACTLY ONE
+     * place across both callers. */
     void *prev_exc_reg = hir_builder_temps_alloc_stack(builder);
     phx_tc_emit(&match_tc, hir_c_create_load_const(prev_exc_reg, t_nonetype));
     phx_ptr_arr_push(&match_tc.frame.stack, prev_exc_reg);
@@ -3212,25 +3221,126 @@ void hir_builder_emit_inline_exception_match_c(
     }
 match_loop_done:;
 
-    /* P4: deopt_tc setup — copy from TC.FRAME (NOT exc_tc per PB). */
+    /* P4: deopt_tc setup — copy from TC.FRAME (NOT exc_tc per PB.b). */
     PhxTranslationContext deopt_tc;
     deopt_tc.block = deopt_block;
     phx_frame_state_copy(&deopt_tc.frame, &tc->frame);
-    /* Re-push left + right (interpreter expects them at BINARY_SUBSCR offset). */
-    phx_ptr_arr_push(&deopt_tc.frame.stack, left);
-    phx_ptr_arr_push(&deopt_tc.frame.stack, right);
+    /* Optional re-push for callers whose deopt offset expects extra
+     * stack items (e.g. inline-match re-pushes left+right for
+     * BINARY_SUBSCR offset; call-handler skips since the call-result
+     * was already popped on the C++ side). */
+    if (deopt_left_repush != NULL) {
+        phx_ptr_arr_push(&deopt_tc.frame.stack, deopt_left_repush);
+    }
+    if (deopt_right_repush != NULL) {
+        phx_ptr_arr_push(&deopt_tc.frame.stack, deopt_right_repush);
+    }
     deopt_tc.frame.cur_instr_offs = bc_base_offset;
     phx_tc_emit(&deopt_tc, hir_c_create_snapshot(&deopt_tc.frame));
     phx_tc_emit(&deopt_tc, hir_c_create_deopt());
 
-    /* P5: ok block — RefineType in-place SSA-rename. */
-    tc->block = ok_block;
-    phx_tc_emit(tc, hir_c_create_refine_type_reg(result, t_object, result));
-
-    /* (PF) frame_state_destroy on ALL 3 TCs. */
+    /* (PE) frame_state_destroy on ALL 3 TCs. */
     phx_frame_state_destroy(&exc_tc.frame);
     phx_frame_state_destroy(&match_tc.frame);
     phx_frame_state_destroy(&deopt_tc.frame);
+}
+
+void hir_builder_emit_inline_exception_match_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder,
+        int bc_base_offset,
+        int handler_depth,
+        void *exc_type_obj,           /* SimpleExceptInfo::exc_type */
+        int except_body_offset,       /* SimpleExceptInfo::except_body */
+        HirType return_type,          /* preloader_.returnType() */
+        void *left,
+        void *right,
+        void *result,
+        void *getitem_fn,             /* JITRT_DictGetItem or PyObject_GetItem */
+        void *match_and_clear_fn,     /* JITRT_MatchAndClearException */
+        const OpcodeArrayEntry *opcodes,
+        size_t opcode_count) {
+    HirType t_opt_object = HIR_TYPE_OPTOBJECT;
+    HirType t_object = HIR_TYPE_OBJECT;
+
+    /* P1: getitem CallStatic dispatch. */
+    void *getitem_call = hir_c_create_call_static_reg(
+        2, result, getitem_fn, t_opt_object);
+    hir_c_set_operand(getitem_call, 0, left);
+    hir_c_set_operand(getitem_call, 1, right);
+    phx_tc_emit(tc, getitem_call);
+
+    void *ok_block = hir_cfg_alloc_block(func);
+    void *exc_match_block = hir_cfg_alloc_block(func);
+    phx_tc_emit(tc, hir_c_create_cond_branch_cpp(result, ok_block, exc_match_block));
+
+    /* P2-P4 + PE: shared body. Re-push left+right for BINARY_SUBSCR offset. */
+    emit_except_match_body_c(
+        tc, func, builder,
+        bc_base_offset, handler_depth, exc_match_block,
+        exc_type_obj, except_body_offset, return_type,
+        match_and_clear_fn, opcodes, opcode_count,
+        /*deopt_left_repush=*/left, /*deopt_right_repush=*/right);
+
+    /* P5: ok block — RefineType in-place SSA-rename. */
+    tc->block = ok_block;
+    phx_tc_emit(tc, hir_c_create_refine_type_reg(result, t_object, result));
+}
+
+/* emitCallExceptionHandler — CALL exception-match inline handler.
+ * Sibling of emitInlineExceptionMatch (~95% shared). Mirrors C++
+ * HIRBuilder::emitCallExceptionHandler @ builder.cpp:1426.
+ *
+ * Theologian PTE pre-audit (chat 2026-04-22 16:53Z): 26 invariants
+ * SHARED with inline-match (P2+P3+P4 phases via shared helper) +
+ * 3 UNIQUE (D1: pre-amble setSuppressExceptionDeopt + pop; D2: deopt
+ * has ZERO re-pushes; D3: P5 RefineType + push result back). ZERO new
+ * bridges per gate verdict. Shared-helper option (a) per STRONG lean:
+ * D-1774910012 PA invariant lives in exactly one C body.
+ *
+ * 3 separate PhxTranslationContext objects (PB pitfall): exc_tc copies
+ * from tc.frame (post-pop); match_tc copies from EXC_TC.FRAME; deopt_tc
+ * copies from TC.FRAME (NOT exc_tc). All 3 destroyed in helper (PE). */
+void hir_builder_emit_call_exception_handler_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder,
+        int bc_base_offset,
+        int handler_depth,
+        void *exc_type_obj,
+        int except_body_offset,
+        HirType return_type,
+        void *result,
+        void *match_and_clear_fn,
+        const OpcodeArrayEntry *opcodes,
+        size_t opcode_count) {
+    HirType t_object = HIR_TYPE_OBJECT;
+
+    /* (D1) Pre-amble (setSuppressExceptionDeopt + pop result) is done on
+     * the C++ stub side BEFORE this C body — see builder.cpp emitter.
+     * The C body's first action is the ok/exc branch on result. */
+
+    void *ok_block = hir_cfg_alloc_block(func);
+    void *exc_match_block = hir_cfg_alloc_block(func);
+    phx_tc_emit(tc, hir_c_create_cond_branch_cpp(result, ok_block, exc_match_block));
+
+    /* (D2) P2-P4 + PE: shared body. NO deopt re-push (call-result was
+     * popped on C++ side; deopt offset = CALL itself, no extra stack). */
+    emit_except_match_body_c(
+        tc, func, builder,
+        bc_base_offset, handler_depth, exc_match_block,
+        exc_type_obj, except_body_offset, return_type,
+        match_and_clear_fn, opcodes, opcode_count,
+        /*deopt_left_repush=*/NULL, /*deopt_right_repush=*/NULL);
+
+    /* (D3) P5: ok block — RefineType + push result back to OUTER tc stack.
+     * RefineType is in-place SSA-rename; the result reg is then re-pushed
+     * since emitAnyCall's pre-amble pop discarded it from the stack
+     * (call_instr->setSuppressExceptionDeopt flow). */
+    tc->block = ok_block;
+    phx_tc_emit(tc, hir_c_create_refine_type_reg(result, t_object, result));
+    phx_ptr_arr_push(&tc->frame.stack, result);
 }
 
 

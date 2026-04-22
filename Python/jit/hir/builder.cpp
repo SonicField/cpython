@@ -1423,165 +1423,85 @@ void HIRBuilder::emitInlineExceptionMatch(
 }
 
 
+extern "C" void hir_builder_emit_call_exception_handler_c(
+    void* tc, void* func, void* builder,
+    int bc_base_offset,
+    int handler_depth,
+    void* exc_type_obj,
+    int except_body_offset,
+    HirType return_type,
+    void* result,
+    void* match_and_clear_fn,
+    const OpcodeArrayEntry_CXX* opcodes,
+    size_t opcode_count);
+
 void HIRBuilder::emitCallExceptionHandler(
-    CFG& cfg,
+    CFG& /*cfg*/,
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr,
     const ExceptionTableEntry& handler,
     const SimpleExceptInfo& info,
     DeoptBase* call_instr,
     Register* result) {
-  // Suppress the auto null-check deopt in LIR codegen. We handle
-  // exceptions inline via CondBranch instead. FrameState is preserved
-  // for Simplify, register allocation, and other deopt paths.
+  // (D1) Pre-amble — must happen on C++ side BEFORE the C body runs:
+  //   1. Suppress the auto null-check deopt in LIR codegen. The C body
+  //      handles exceptions inline via CondBranch. FrameState is
+  //      preserved for Simplify, register allocation, other deopt paths.
+  //   2. Pop the result that emitAnyCall pushed onto the stack — the C
+  //      body's deopt path expects a clean stack at the CALL offset.
   call_instr->setSuppressExceptionDeopt(true);
-
-  // Pop the result that emitAnyCall pushed onto the stack.
   static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
 
-  BasicBlock* ok_block = cfg.AllocateBlock();
-  BasicBlock* exc_match_block = cfg.AllocateBlock();
-
-  // Branch: non-null -> success, null -> exception path
-  tc.emitCondBranch(result, ok_block, exc_match_block);
-
-  // === Exception match block ===
-  {
-    TranslationContext exc_tc{exc_match_block, tc.frame};
-
-    // Pop excess stack items above handler depth.
-    // Refcount insertion will handle decrement automatically.
-    while (static_cast<int>(exc_tc.frame.stack.count) > handler.depth) {
-      static_cast<Register*>(phx_ptr_arr_pop(&exc_tc.frame.stack));
+  // Build OpcodeArray identical-shape to emitInlineExceptionMatch — the
+  // dispatch loop in the shared C helper expects this layout. Pre-resolves
+  // const_obj (LOAD_CONST/RETURN_CONST) + jump_target_block (JUMP_BACKWARD*)
+  // to keep PyCodeObject + getBlockAtOff access on the C++ side.
+  std::vector<OpcodeArrayEntry_CXX> opcodes;
+  BytecodeInstruction ebc{code_, info.except_body};
+  bool emitted_terminator = false;
+  while (!emitted_terminator) {
+    OpcodeArrayEntry_CXX entry{
+        ebc.opcode(),
+        ebc.oparg(),
+        ebc.baseOffset().value(),
+        nullptr,
+        nullptr};
+    int op = entry.opcode;
+    if (op == LOAD_CONST || op == RETURN_CONST) {
+      entry.const_obj = PyTuple_GET_ITEM(code_->co_consts, entry.oparg);
     }
-
-    // Load exception type as a constant (resolved at compile time).
-    Register* exc_type_reg = temps_.AllocateNonStack();
-    exc_tc.emitLoadConst(exc_type_reg, Type::fromObject(info.exc_type));
-
-    // Call JITRT_MatchAndClearException(exc_type) via CallStatic.
-    // Returns int (TCInt32): 1 = matched, 0 = no match.
-    Register* match_result = temps_.AllocateNonStack();
-    auto match_call = exc_tc.emitCallStatic(
-        1, match_result,
-        reinterpret_cast<void*>(JITRT_MatchAndClearException),
-        TCInt32);
-    match_call->SetOperand(0, exc_type_reg);
-
-    BasicBlock* match_block = cfg.AllocateBlock();
-    BasicBlock* deopt_block = cfg.AllocateBlock();
-    exc_tc.emitCondBranch(match_result, match_block, deopt_block);
-
-    // === Match block: emit except body bytecodes inline ===
-    {
-      TranslationContext match_tc{match_block, exc_tc.frame};
-      match_tc.frame.cur_instr_offs = info.except_body;
-
-      // Push Py_None as "previous exception" placeholder — see comment
-      // in the first emitInlineExceptionMatch for full rationale.
-      Register* prev_exc_reg = temps_.AllocateStack();
-      match_tc.emitLoadConst(prev_exc_reg, TNoneType);
-      phx_ptr_arr_push(&match_tc.frame.stack, prev_exc_reg);
-
-      BytecodeInstruction ebc{code_, info.except_body};
-      bool emitted_terminator = false;
-
-      while (!emitted_terminator) {
-        switch (ebc.opcode()) {
-          case POP_EXCEPT:
-            // Pop the prev_exc placeholder.
-            static_cast<Register*>(phx_ptr_arr_pop(&match_tc.frame.stack));
-            break;
-
-          case POP_TOP:
-            static_cast<Register*>(phx_ptr_arr_pop(&match_tc.frame.stack));
-            break;
-
-          case SWAP:
-            emitSwap(match_tc, ebc.oparg());
-            break;
-
-          case LOAD_FAST:
-          case LOAD_FAST_CHECK:
-          case LOAD_FAST_AND_CLEAR:
-            emitLoadFast(match_tc, ebc);
-            break;
-
-          case LOAD_CONST: {
-            Register* reg = temps_.AllocateStack();
-            Type type = Type::fromObject(
-                PyTuple_GET_ITEM(code_->co_consts, ebc.oparg()));
-            match_tc.emitLoadConst(reg, type);
-            phx_ptr_arr_push(&match_tc.frame.stack, reg);
-            break;
-          }
-
-          case STORE_FAST:
-            emitStoreFast(match_tc, ebc);
-            break;
-
-          case BINARY_OP:
-            emitBinaryOp(cfg, match_tc, ebc);
-            break;
-
-          case RETURN_CONST: {
-            Register* ret_reg = temps_.AllocateStack();
-            Type type = Type::fromObject(
-                PyTuple_GET_ITEM(code_->co_consts, ebc.oparg()));
-            match_tc.emitLoadConst(ret_reg, type);
-            match_tc.emitReturn(ret_reg, type);
-            emitted_terminator = true;
-            break;
-          }
-
-          case RETURN_VALUE: {
-            Register* ret_val = static_cast<Register*>(phx_ptr_arr_pop(&match_tc.frame.stack));
-            match_tc.emitReturn(ret_val, preloader_.returnType());
-            emitted_terminator = true;
-            break;
-          }
-
-          case JUMP_BACKWARD:
-          case JUMP_BACKWARD_NO_INTERRUPT: {
-            BCOffset target = ebc.getJumpTarget();
-            auto* target_block = getBlockAtOff(target);
-            match_tc.emitBranch(target_block);
-            emitted_terminator = true;
-            break;
-          }
-
-          default:
-            // Unsupported opcode: deopt to interpreter.
-            match_tc.frame.cur_instr_offs = ebc.baseOffset();
-            match_tc.emitSnapshot();
-            match_tc.emitDeopt();
-            emitted_terminator = true;
-            break;
-        }
-
-        if (!emitted_terminator) {
-          ebc = ebc.nextInstr();
-        }
-      }
+    if (op == JUMP_BACKWARD || op == JUMP_BACKWARD_NO_INTERRUPT) {
+      entry.jump_target_block =
+          static_cast<void*>(getBlockAtOff(ebc.getJumpTarget()));
     }
-
-    // === Deopt block (no match -- let interpreter handle) ===
-    // JITRT_MatchAndClearException returned 0 and restored the pending
-    // exception. Deopt back to the interpreter at the CALL offset.
-    // The interpreter calls exception_unwind, walks co_exceptiontable,
-    // and finds the correct handler.
-    {
-      TranslationContext deopt_tc{deopt_block, tc.frame};
-      deopt_tc.frame.cur_instr_offs = bc_instr.baseOffset();
-      deopt_tc.emitSnapshot();
-      deopt_tc.emitDeopt();
+    if (op == RETURN_VALUE || op == RETURN_CONST
+        || op == JUMP_BACKWARD || op == JUMP_BACKWARD_NO_INTERRUPT) {
+      emitted_terminator = true;
+    } else if (op != POP_EXCEPT && op != POP_TOP && op != SWAP
+               && op != LOAD_FAST && op != LOAD_FAST_CHECK
+               && op != LOAD_FAST_AND_CLEAR && op != LOAD_CONST
+               && op != STORE_FAST && op != BINARY_OP) {
+      emitted_terminator = true;
+    }
+    opcodes.push_back(entry);
+    if (!emitted_terminator) {
+      ebc = ebc.nextInstr();
     }
   }
 
-  // === OK block (no exception, result is non-null) ===
-  tc.block = ok_block;
-  tc.emitRefineType(result, TObject, result);
-  phx_ptr_arr_push(&tc.frame.stack, result);
+  hir_builder_emit_call_exception_handler_c(
+      static_cast<void*>(&tc),
+      static_cast<void*>(current_func_),
+      static_cast<void*>(this),
+      bc_instr.baseOffset().value(),
+      static_cast<int>(handler.depth),
+      static_cast<void*>(info.exc_type),
+      info.except_body.value(),
+      Type::toHirType(preloader_.returnType()),
+      static_cast<void*>(result),
+      reinterpret_cast<void*>(JITRT_MatchAndClearException),
+      opcodes.data(),
+      opcodes.size());
 }
 
 BasicBlock* HIRBuilder::getBlockAtOff(BCOffset off) {
