@@ -6,6 +6,7 @@
  * POC: emitLoadConst validates FrameState C lifecycle end-to-end.
  */
 
+#include "cinderx/Jit/hir/hir_c_api.h"
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_basic_block_c.h"
 #include "cinderx/Jit/hir/phx_frame_state.h"
@@ -46,7 +47,6 @@ static void *phx_tc_emit(PhxTranslationContext *tc, void *instr) {
 /* ---- POC: emitLoadConst ---- */
 
 extern HirType hir_type_from_object(PyObject *obj);
-extern void *hir_func_alloc_register(void *func);
 extern void *hir_assign_create(void *output, void *value);
 
 /* Move stack registers about to be overwritten by dst. */
@@ -94,7 +94,6 @@ void hir_builder_emit_store_fast_c(
 }
 
 /* emitLoadFast — localsplus read + optional CheckVar + stack push */
-extern void *hir_c_create_check_var_reg(void *dst, void *src, PyObject *name, void *fs);
 
 static PyObject *get_varname(PyCodeObject *code, int idx) {
     return PyTuple_GET_ITEM(code->co_localsplusnames, idx);
@@ -198,7 +197,6 @@ void hir_builder_emit_end_async_for_c(PhxTranslationContext *tc) {
 }
 
 /* emitGetLen — exercises phx_frame_state_copy (FrameState deep copy validation) */
-extern void *hir_c_create_get_length_reg(void *dst, void *src, void *fs);
 
 void hir_builder_emit_get_len_c(PhxTranslationContext *tc, void *func) {
     HirFrameStateLayout state_copy;
@@ -214,8 +212,6 @@ void hir_builder_emit_get_len_c(PhxTranslationContext *tc, void *func) {
 }
 
 /* emitIsOp — 2 pops, PrimitiveCompare + PrimitiveBoxBool, 1 push */
-extern void *hir_c_create_primitive_compare(void *dst, int32_t op, void *left, void *right);
-extern void *hir_c_create_primitive_box_bool(void *dst, void *src);
 
 void hir_builder_emit_is_op_c(PhxTranslationContext *tc, void *func, int oparg) {
     void *right = phx_ptr_arr_pop(&tc->frame.stack);
@@ -229,10 +225,8 @@ void hir_builder_emit_is_op_c(PhxTranslationContext *tc, void *func, int oparg) 
 }
 
 /* emitContainsOp — 2 pops, Compare, 1 push */
-extern void *hir_c_create_compare_reg(void *dst, int32_t op, void *left, void *right, void *fs);
 
 /* emitDeleteAttr — pop receiver, emit DeleteAttr */
-extern void *hir_c_create_delete_attr_reg(void *recv, int name_idx, void *fs);
 
 void hir_builder_emit_delete_attr_c(PhxTranslationContext *tc, int oparg) {
     void *receiver = phx_ptr_arr_pop(&tc->frame.stack);
@@ -240,7 +234,6 @@ void hir_builder_emit_delete_attr_c(PhxTranslationContext *tc, int oparg) {
 }
 
 /* emitUnaryOp — pop, map opcode→kind, emit UnaryOp, push */
-extern void *hir_c_create_unary_op_reg(void *dst, int32_t op, void *operand, void *fs);
 
 static int32_t get_unary_op_kind_c(int opcode) {
     switch (opcode) {
@@ -296,7 +289,6 @@ void hir_builder_emit_store_local_c(
 }
 
 /* emitConvertPrimitive — pop, IntConvert, push */
-extern void *hir_c_create_int_convert_reg(void *dst, void *src, HirType type);
 extern HirType hir_prim_type_to_type(int prim_type);
 
 void hir_builder_emit_convert_primitive_c(
@@ -311,8 +303,6 @@ void hir_builder_emit_convert_primitive_c(
 }
 
 /* emitStoreDeref — pop value, StealCellItem + SetCellItem */
-extern void *hir_c_create_steal_cell_item_reg(void *dst, void *cell);
-extern void *hir_c_create_set_cell_item_reg(void *cell, void *value, void *old);
 
 void hir_builder_emit_store_deref_c(
         PhxTranslationContext *tc,
@@ -326,7 +316,6 @@ void hir_builder_emit_store_deref_c(
 }
 
 /* emitStoreAttr — pop receiver + value, emit StoreAttr */
-extern void *hir_c_create_store_attr_reg(void *recv, void *val, int name_idx, void *fs);
 
 void hir_builder_emit_store_attr_c(PhxTranslationContext *tc, int oparg) {
     void *receiver = phx_ptr_arr_pop(&tc->frame.stack);
@@ -335,8 +324,6 @@ void hir_builder_emit_store_attr_c(PhxTranslationContext *tc, int oparg) {
 }
 
 /* emitLoadType — pop instance, LoadField ob_type, push */
-extern void *hir_c_create_load_field_reg(void *dst, void *recv, const char *name,
-                                          intptr_t offset, HirType type, int borrowed);
 
 void hir_builder_emit_load_type_c(PhxTranslationContext *tc, void *func) {
     void *instance = phx_ptr_arr_pop(&tc->frame.stack);
@@ -348,7 +335,6 @@ void hir_builder_emit_load_type_c(PhxTranslationContext *tc, void *func) {
 }
 
 /* emitCopyDictWithoutKeys — peek keys+subject, emit, replace top */
-extern void *hir_c_create_copy_dict_without_keys_reg(void *dst, void *subj, void *keys, void *fs);
 
 void hir_builder_emit_copy_dict_without_keys_c(PhxTranslationContext *tc, void *func) {
     PhxPtrArray *stack = &tc->frame.stack;
@@ -360,7 +346,6 @@ void hir_builder_emit_copy_dict_without_keys_c(PhxTranslationContext *tc, void *
 }
 
 /* emitImportFrom — peek name, emit ImportFrom, push */
-extern void *hir_c_create_import_from_reg(void *dst, void *name, int name_idx, void *fs);
 
 void hir_builder_emit_import_from_c(PhxTranslationContext *tc, void *func, int oparg) {
     void *name = tc->frame.stack.data[tc->frame.stack.count - 1];
@@ -370,8 +355,6 @@ void hir_builder_emit_import_from_c(PhxTranslationContext *tc, void *func, int o
 }
 
 /* emitLoadDeref — localsplus cell read, LoadCellItem + CheckVar/CheckFreevar */
-extern void *hir_c_create_load_cell_item_reg(void *dst, void *src);
-extern void *hir_c_create_check_freevar_reg(void *dst, void *src, void *name, void *fs);
 
 void hir_builder_emit_load_deref_c(
         PhxTranslationContext *tc,
@@ -396,7 +379,6 @@ void hir_builder_emit_load_deref_c(
 }
 
 /* emitDictUpdate — pop update, peek dict at depth, emit DictUpdate */
-extern void *hir_c_create_dict_update_reg(void *dst, void *dict, void *update, void *fs);
 
 void hir_builder_emit_dict_update_c(PhxTranslationContext *tc, void *func, int oparg) {
     void *update = phx_ptr_arr_pop(&tc->frame.stack);
@@ -406,7 +388,6 @@ void hir_builder_emit_dict_update_c(PhxTranslationContext *tc, void *func, int o
 }
 
 /* emitConvertValue — pop value, emit ConvertValue, push */
-extern void *hir_c_create_convert_value_reg(void *dst, void *value, int conversion, void *fs);
 
 void hir_builder_emit_convert_value_c(PhxTranslationContext *tc, void *func, int oparg) {
     void *value = phx_ptr_arr_pop(&tc->frame.stack);
@@ -416,9 +397,6 @@ void hir_builder_emit_convert_value_c(PhxTranslationContext *tc, void *func, int
 }
 
 /* emitStoreSubscr — snapshot, pop sub+container+value, guard types, emit StoreSubscr */
-extern void *hir_c_create_snapshot(void *frame_state);
-extern void *hir_c_create_guard_type_reg(void *dst, HirType target, void *src);
-extern void *hir_c_create_store_subscr_reg(void *container, void *sub, void *value, void *fs);
 
 void hir_builder_emit_store_subscr_c(
         PhxTranslationContext *tc,
@@ -456,7 +434,6 @@ void hir_builder_emit_store_subscr_c(
 }
 
 /* emitFormatWithSpec — pop fmt_spec+value, emit FormatWithSpec, push */
-extern void *hir_c_create_format_with_spec_reg(void *dst, void *value, void *fmt_spec, void *fs);
 
 void hir_builder_emit_format_with_spec_c(PhxTranslationContext *tc, void *func) {
     void *fmt_spec = phx_ptr_arr_pop(&tc->frame.stack);
@@ -467,7 +444,6 @@ void hir_builder_emit_format_with_spec_c(PhxTranslationContext *tc, void *func) 
 }
 
 /* emitMapAdd — pop value+key, peek map at depth, emit SetDictItem */
-extern void *hir_c_create_set_dict_item_reg(void *dst, void *dict, void *key, void *value, void *fs);
 
 void hir_builder_emit_map_add_c(PhxTranslationContext *tc, void *func, int oparg) {
     void *value = phx_ptr_arr_pop(&tc->frame.stack);
@@ -478,7 +454,6 @@ void hir_builder_emit_map_add_c(PhxTranslationContext *tc, void *func, int oparg
 }
 
 /* emitSetAdd — pop value, peek set at depth, emit SetSetItem */
-extern void *hir_c_create_set_set_item_reg(void *dst, void *set, void *item, void *fs);
 
 void hir_builder_emit_set_add_c(PhxTranslationContext *tc, void *func, int oparg) {
     void *item = phx_ptr_arr_pop(&tc->frame.stack);
@@ -488,7 +463,6 @@ void hir_builder_emit_set_add_c(PhxTranslationContext *tc, void *func, int oparg
 }
 
 /* emitSetUpdate — pop iterable, peek set at depth, emit SetUpdate */
-extern void *hir_c_create_set_update_reg(void *dst, void *set, void *iter, void *fs);
 
 void hir_builder_emit_set_update_c(PhxTranslationContext *tc, void *func, int oparg) {
     void *iterable = phx_ptr_arr_pop(&tc->frame.stack);
@@ -526,7 +500,6 @@ void hir_builder_emit_build_string_c(PhxTranslationContext *tc, void *func, int 
 }
 
 /* emitBinarySlice — BuildSlice(2) + pop container + BinaryOp(kSubscript) */
-extern void *hir_c_create_binary_op_reg(void *dst, int32_t op, void *left, void *right, void *fs);
 
 void hir_builder_emit_binary_slice_c(PhxTranslationContext *tc, void *func) {
     phx_emit_variadic_deopt(tc, func, HIR_OP_BuildSlice, 2);
@@ -548,9 +521,6 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
 
 /* emitAsyncForHeaderYieldFrom — yield from async for header */
 extern void *hir_builder_get_block_at_off(void *builder, int byte_offset);
-extern void *hir_c_create_cond_branch_iter_not_done_cpp(void *val, void *body, void *footer);
-extern void *hir_c_create_set_current_awaiter_reg(void *src);
-extern void *hir_c_create_yield_from_handle_stop_async_reg(void *dst, void *send, void *awaitable, void *fs);
 
 void hir_builder_emit_async_for_header_yield_from_c(
         PhxTranslationContext *tc, void *func, void *builder,
@@ -576,8 +546,6 @@ void hir_builder_emit_async_for_header_yield_from_c(
 extern void hir_builder_preloader_field_info(void *builder, PyObject *descr,
                                               intptr_t *offset_out, HirType *type_out,
                                               PyObject **name_out);
-extern void *hir_c_create_store_field_reg(void *receiver, const char *name, intptr_t offset, void *value, HirType type, void *previous);
-extern void *hir_c_create_int_convert_reg(void *dst, void *src, HirType type);
 
 void hir_builder_emit_store_field_c(PhxTranslationContext *tc, void *func, void *builder,
                                      PyCodeObject *code, int oparg) {
@@ -610,8 +578,6 @@ void hir_builder_emit_store_field_c(PhxTranslationContext *tc, void *func, void 
 }
 
 /* emitMakeFunction — pop code (+qualname pre-3.11), MakeFunction + SetFunctionAttr */
-extern void *hir_c_create_make_function_reg(void *dst, void *code, void *qualname, void *fs);
-extern void *hir_c_create_set_function_attr_reg(void *value, void *base, int32_t field);
 #ifndef MAKE_FUNCTION_DEFAULTS
 #define MAKE_FUNCTION_DEFAULTS    0x01
 #define MAKE_FUNCTION_KWDEFAULTS  0x02
@@ -658,8 +624,6 @@ void hir_builder_emit_make_function_c(PhxTranslationContext *tc, void *func, int
 }
 
 /* emitLoadMethod — pop receiver, LoadMethod + GetSecondOutput, push 2 */
-extern void *hir_c_create_load_method_reg(void *dst, void *receiver, int32_t name_idx, void *fs);
-extern void *hir_c_create_get_second_output_reg(void *dst, HirType type, void *src);
 extern HirType hir_type_union(HirType a, HirType b);
 
 void hir_builder_emit_load_method_c(PhxTranslationContext *tc, void *func, int name_idx) {
@@ -677,9 +641,6 @@ void hir_builder_emit_load_method_c(PhxTranslationContext *tc, void *func, int n
 extern void hir_builder_get_attr_cache(void *builder, int instr_idx,
                                         uint32_t *version_out, uint16_t *index_out);
 extern PyTypeObject *hir_find_type_by_version_tag(uint32_t version);
-extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
-extern void *hir_c_create_check_field_reg(void *dst, void *src, void *name, void *fs);
-extern void hir_c_set_guilty_reg(void *instr, void *reg);
 
 int hir_builder_emit_load_attr_slot_c(
         PhxTranslationContext *tc, void *func, void *builder,
@@ -717,11 +678,6 @@ int hir_builder_emit_load_attr_slot_c(
 
 /* emitLoadAttrModule — LOAD_ATTR_MODULE specialization */
 extern void *jit_rt_load_module_dict_entry_addr(void);
-extern void *hir_c_create_call_static_reg(size_t n_operands, void *dst,
-                                           void *addr, HirType ret_type);
-extern void *hir_c_create_guard(void *src);
-extern void *hir_c_create_load_const(void *dst, HirType type);
-extern void hir_c_set_descr(void *instr, const char *descr);
 
 int hir_builder_emit_load_attr_module_c(
         PhxTranslationContext *tc, void *func, void *builder,
@@ -941,7 +897,6 @@ void hir_builder_emit_type_annotation_guards_c(
  *     a frame copy, no mutations between — emitSnapshot doesn't mutate frame)
  *   - Snapshot lands in succ_block (correct destination)
  *   - Final tc->block == succ_block (matches C++ tc.block = succ.block) */
-extern void *hir_cfg_alloc_block(void *func);
 extern void hir_builder_insert_run_periodic_activities_c(
     void *builder, void *func,
     void *check_block, void *succ_block, void *frame_state);
@@ -1014,15 +969,6 @@ void hir_builder_emit_kw_names_c(
  * builder.cpp:2842 (stack-layout computation). Cannot use bare
  * hir_func_alloc_register (no cache update). */
 extern HirType hir_register_type(void *reg);
-extern void *hir_c_create_cond_branch_check_type_cpp(
-    void *cond_reg, HirType type, void *true_block, void *false_block);
-extern void *hir_c_create_branch_cpp(void *target_block);
-extern void *hir_c_create_get_tuple_reg(
-    void *dst, void *src, void *fs);
-extern void *hir_c_create_primitive_box_reg(
-    void *dst, void *src, HirType src_type, void *fs);
-extern void *hir_c_create_binary_op_reg(
-    void *dst, int32_t op_kind, void *lhs, void *rhs, void *fs);
 extern HirType hir_type_from_cint(int64_t value, HirType cint_type);
 extern void *hir_builder_temps_alloc_stack(void *builder);
 
@@ -1114,7 +1060,6 @@ void hir_builder_emit_load_common_constant_c(
 }
 
 /* emitLoadAttr generic — non-specialized LoadAttr2 fallback */
-extern void *hir_c_create_load_attr_reg2(void *dst, void *receiver, int32_t name_idx, void *fs);
 
 void hir_builder_emit_load_attr_generic_c(PhxTranslationContext *tc, void *func,
                                            void *receiver, int name_idx) {
@@ -1124,9 +1069,6 @@ void hir_builder_emit_load_attr_generic_c(PhxTranslationContext *tc, void *func,
 }
 
 /* emitBinaryOp — specialized guards + oparg dispatch + BinaryOp/InPlaceOp */
-extern void *hir_c_create_binary_op_reg(void *dst, int32_t op, void *left, void *right, void *fs);
-extern void *hir_c_create_in_place_op_reg(void *dst, int32_t op_kind,
-                                           void *left, void *right, void *fs);
 
 static int32_t get_binary_op_kind_from_oparg_c(int oparg) {
     switch (oparg) {
@@ -1276,11 +1218,6 @@ int hir_builder_emit_binary_op_c(
 }
 
 /* emitMatchKeys — match keys, branch on None result */
-extern void *hir_c_create_match_keys_reg(void *dst, void *subj, void *keys, void *fs);
-extern void *hir_cfg_alloc_block(void *func);
-extern void *hir_c_create_cond_branch_cpp(void *cond_reg, void *true_bb, void *false_bb);
-extern void *hir_c_create_branch_cpp(void *target_block);
-extern void *hir_c_create_refine_type_reg(void *dst, HirType type, void *src);
 
 void hir_builder_emit_match_keys_c(PhxTranslationContext *tc, void *func) {
     PhxPtrArray *stack = &tc->frame.stack;
@@ -1332,8 +1269,6 @@ void hir_builder_emit_match_keys_c(PhxTranslationContext *tc, void *func) {
 }
 
 /* emitLoadField — load field from receiver using preloader fieldInfo */
-extern void *hir_c_create_check_field_reg(void *dst, void *src, void *name, void *fs);
-extern void hir_c_set_guilty_reg(void *instr, void *reg);
 extern int hir_type_could_be(const HirType *a, const HirType *b);
 
 void hir_builder_emit_load_field_c(PhxTranslationContext *tc, void *func, void *builder,
@@ -1370,7 +1305,6 @@ void hir_builder_emit_setup_async_with_c(PhxTranslationContext *tc, int handler_
 }
 
 /* emitLoadBuildClass — load __build_class__ from builtins */
-extern void *hir_c_create_dict_subscr_reg(void *dst, void *dict, void *key, void *fs);
 
 void hir_builder_emit_load_build_class_c(PhxTranslationContext *tc, void *func) {
     void *result = hir_func_alloc_register(func);
@@ -1398,7 +1332,6 @@ void hir_builder_emit_load_build_class_c(PhxTranslationContext *tc, void *func) 
 }
 
 /* emitStoreGlobal — store to global variable via dict */
-extern void *hir_c_create_guard_type_fs_reg(void *dst, HirType type, void *src, void *fs);
 
 void hir_builder_emit_store_global_c(PhxTranslationContext *tc, void *func,
                                       PyCodeObject *code, int oparg) {
@@ -1427,10 +1360,6 @@ void hir_builder_emit_store_global_c(PhxTranslationContext *tc, void *func,
 extern PyObject *hir_builder_preloader_global(void *builder, int name_idx);
 extern void *hir_builder_preloader_globals(void *builder);
 extern void *hir_builder_preloader_builtins(void *builder);
-extern void *hir_c_create_load_global_cached_reg(void *dst, void *code, void *builtins, void *globals, int32_t name_idx);
-extern void *hir_c_create_guard_is_reg(void *dst, void *target, void *src);
-extern void *hir_c_create_load_global_reg(void *dst, int32_t name_idx, void *fs);
-extern void hir_c_set_descr(void *instr, const char *descr);
 
 void hir_builder_emit_load_global_c(
         PhxTranslationContext *tc,
@@ -1498,7 +1427,6 @@ void hir_builder_emit_load_small_int_c(PhxTranslationContext *tc, void *func, in
 }
 
 /* emitBuildInterpolation — 3.14+ string interpolation */
-extern void *hir_c_create_build_interpolation_reg(void *dst, void *val, void *str, void *fmt, int32_t conv, void *fs);
 
 void hir_builder_emit_build_interpolation_c(PhxTranslationContext *tc, void *func, int oparg) {
 #if PY_VERSION_HEX >= 0x030E0000
@@ -1523,7 +1451,6 @@ void hir_builder_emit_build_interpolation_c(PhxTranslationContext *tc, void *fun
 }
 
 /* emitLoadAssertionError — load AssertionError as constant */
-extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
 
 void hir_builder_emit_load_assertion_error_c(PhxTranslationContext *tc, void *func) {
     void *result = hir_func_alloc_register(func);
@@ -1535,7 +1462,6 @@ void hir_builder_emit_load_assertion_error_c(PhxTranslationContext *tc, void *fu
 
 /* emitRefineType — refine stack top to preloaded type */
 extern HirType hir_builder_preloader_type(void *builder, PyObject *descr);
-extern void *hir_c_create_refine_type_reg(void *dst, HirType type, void *src);
 
 void hir_builder_emit_refine_type_c(PhxTranslationContext *tc, void *builder,
                                      PyCodeObject *code, int oparg) {
@@ -1558,7 +1484,6 @@ void hir_builder_emit_load_class_c(PhxTranslationContext *tc, void *func, void *
 }
 
 /* emitCast — cast value to preloaded type */
-extern void *hir_c_create_cast_reg(void *dst, void *recv, void *pytype, int optional, int exact, void *fs);
 extern void *hir_builder_preloader_preloaded_type(void *builder, PyObject *descr, int *optional_out, int *exact_out);
 
 void hir_builder_emit_cast_c(PhxTranslationContext *tc, void *func, void *builder,
@@ -1573,7 +1498,6 @@ void hir_builder_emit_cast_c(PhxTranslationContext *tc, void *func, void *builde
 }
 
 /* emitTpAlloc — allocate object from type (via preloader) */
-extern void *hir_c_create_tp_alloc_reg(void *dst, void *pytype, void *fs);
 
 void hir_builder_emit_tp_alloc_c(PhxTranslationContext *tc, void *func, void *builder,
                                   PyCodeObject *code, int oparg) {
@@ -1585,8 +1509,6 @@ void hir_builder_emit_tp_alloc_c(PhxTranslationContext *tc, void *func, void *bu
 }
 
 /* emitImportName — pop fromlist+level, emit ImportName or EagerImportName */
-extern void *hir_c_create_import_name_reg(void *dst, int32_t name_idx, void *fromlist, void *level, void *fs);
-extern void *hir_c_create_eager_import_name_reg(void *dst, int32_t name_idx, void *fromlist, void *level, void *fs);
 
 void hir_builder_emit_import_name_c(PhxTranslationContext *tc, void *func, int opcode, int oparg) {
     void *fromlist = phx_ptr_arr_pop(&tc->frame.stack);
@@ -1608,7 +1530,6 @@ void hir_builder_emit_import_name_c(PhxTranslationContext *tc, void *func, int o
 }
 
 /* emitCallEx — pop kwargs/args/func, emit CallEx */
-extern void *hir_c_create_call_ex_reg(void *dst, void *func_r, void *pargs, void *kwargs, uint32_t flags, void *fs);
 
 void hir_builder_emit_call_ex_c(PhxTranslationContext *tc, void *func, int oparg, uint32_t flags) {
     void *dst = hir_func_alloc_register(func);
@@ -1639,8 +1560,6 @@ void hir_builder_emit_call_ex_c(PhxTranslationContext *tc, void *func, int oparg
 }
 
 /* emitGetIter — pop iterable, GetIter, push iter; FOR_ITER specialisation guard */
-extern void *hir_c_create_get_iter_reg(void *dst, void *src, void *frame_state);
-extern void *hir_c_create_guard_type_fs_reg(void *dst, HirType type, void *src, void *fs);
 extern PyTypeObject *jit_g_range_iterator_type;
 extern PyTypeObject *jit_g_list_iterator_type;
 extern PyTypeObject *jit_g_tuple_iterator_type;
@@ -1686,8 +1605,6 @@ void hir_builder_emit_get_iter_c(
 
 /* emitForIter — peek iterator, InvokeIterNext, CondBranchIterNotDone */
 extern void *hir_builder_get_block_at_off(void *builder, int byte_offset);
-extern void *hir_c_create_invoke_iter_next_reg(void *dst, void *iter, void *fs);
-extern void *hir_c_create_cond_branch_iter_not_done_cpp(void *val, void *body, void *footer);
 
 void hir_builder_emit_for_iter_c(
         PhxTranslationContext *tc,
@@ -1709,8 +1626,6 @@ void hir_builder_emit_for_iter_c(
 }
 
 /* emitUnpackEx — unpack with star: seq → tuple, load items */
-extern void *hir_c_create_unpack_ex_to_tuple_reg(void *dst, void *seq, int32_t before, int32_t after, void *fs);
-extern void *hir_c_create_load_tuple_item_reg(void *dst, void *tuple, int32_t idx);
 
 void hir_builder_emit_unpack_ex_c(PhxTranslationContext *tc, void *func, int oparg) {
     int arg_before = oparg & 0xff;
@@ -1727,11 +1642,6 @@ void hir_builder_emit_unpack_ex_c(PhxTranslationContext *tc, void *func, int opa
 }
 
 /* emitFastLen — type-dispatch LoadField with optional inexact deopt path */
-extern void *hir_c_create_deopt(void);
-extern void *hir_c_create_branch_cpp(void *target_block);
-extern void *hir_c_create_cond_branch_check_type_cpp(void *target, HirType type, void *true_bb, void *false_bb);
-extern void *hir_c_create_load_field_reg(void *dst, void *recv, const char *name, intptr_t offset, HirType type, int borrowed);
-extern void *hir_cfg_alloc_block(void *func);
 
 #ifndef FAST_LEN_LIST
 #define FAST_LEN_LIST     0
@@ -1808,8 +1718,6 @@ void hir_builder_emit_fast_len_c(
 
 /* ---- Tier 2 bridge externs (used by multiple emit methods) ---- */
 extern void *hir_builder_get_block_at_off(void *builder, int byte_offset);
-extern void *hir_c_create_cond_branch_cpp(void *cond_reg, void *true_bb, void *false_bb);
-extern void *hir_c_create_is_truthy_reg(void *dst, void *src, void *fs);
 
 /* emitJumpIf — peek var, IsTruthy or direct, conditional branch */
 void hir_builder_emit_jump_if_c(
@@ -1862,7 +1770,6 @@ void hir_builder_emit_jump_if_c(
 }
 
 /* emitDictMerge — peek dict+func at depth, pop update, emit DictMerge */
-extern void *hir_c_create_dict_merge_reg(void *dst, void *dict, void *update, void *func, void *fs);
 
 void hir_builder_emit_dict_merge_c(PhxTranslationContext *tc, void *func_reg, int oparg) {
     PhxPtrArray *stack = &tc->frame.stack;
@@ -1879,8 +1786,6 @@ void hir_builder_emit_dict_merge_c(PhxTranslationContext *tc, void *func_reg, in
 }
 
 /* emitMakeListTuple — allocate list/tuple, fill operands from stack */
-extern void *hir_c_create_make_tuple_reg(size_t n, void *dst, void *fs);
-extern void *hir_c_create_make_list_reg(size_t n, void *dst, void *fs);
 
 void hir_builder_emit_make_list_tuple_c(PhxTranslationContext *tc, void *func, int opcode, int oparg) {
     size_t num_elems = (size_t)oparg;
@@ -1900,7 +1805,6 @@ void hir_builder_emit_make_list_tuple_c(PhxTranslationContext *tc, void *func, i
 }
 
 /* emitBuildMap — allocate dict, fill key/value pairs from stack */
-extern void *hir_c_create_make_dict_reg(void *dst, int32_t dict_size, void *fs);
 
 void hir_builder_emit_build_map_c(PhxTranslationContext *tc, void *func, int oparg) {
     int dict_size = oparg;
@@ -1918,7 +1822,6 @@ void hir_builder_emit_build_map_c(PhxTranslationContext *tc, void *func, int opa
 }
 
 /* emitBuildSet — allocate set, add items from stack */
-extern void *hir_c_create_make_set_reg(void *dst, void *fs);
 
 void hir_builder_emit_build_set_c(PhxTranslationContext *tc, void *func, int oparg) {
     void *set = hir_func_alloc_register(func);
@@ -2030,7 +1933,6 @@ void hir_builder_emit_setup_finally_c(PhxTranslationContext *tc, int handler_off
 }
 
 /* emitCallIntrinsic — pop 1-2 args, emit CallIntrinsic, push result */
-extern void *hir_c_create_call_intrinsic_reg2(size_t n, void *dst, int32_t index, void **operands);
 
 void hir_builder_emit_call_intrinsic_c(PhxTranslationContext *tc, void *func,
                                         int opcode, int oparg) {
@@ -2055,7 +1957,6 @@ void hir_builder_emit_call_intrinsic_c(PhxTranslationContext *tc, void *func,
 }
 
 /* emitSetFunctionAttribute — pop func+value, map oparg→FunctionAttr, emit */
-extern void *hir_c_create_set_function_attr_reg(void *value, void *base, int32_t field);
 
 /* FunctionAttr enum values (must match C++ enum class FunctionAttr in hir.h) */
 #define FUNC_ATTR_CLOSURE     0
@@ -2092,7 +1993,6 @@ void hir_builder_emit_set_function_attribute_c(PhxTranslationContext *tc, int op
 }
 
 /* emitGetAIter — pop obj, emit GetAIter, push */
-extern void *hir_c_create_get_a_iter_reg(void *dst, void *src, void *fs);
 
 void hir_builder_emit_get_aiter_c(PhxTranslationContext *tc, void *func) {
     void *obj = phx_ptr_arr_pop(&tc->frame.stack);
@@ -2102,7 +2002,6 @@ void hir_builder_emit_get_aiter_c(PhxTranslationContext *tc, void *func) {
 }
 
 /* emitGetANext — peek obj, emit GetANext, push */
-extern void *hir_c_create_get_a_next_reg(void *dst, void *src, void *fs);
 
 void hir_builder_emit_get_anext_c(PhxTranslationContext *tc, void *func) {
     void *obj = tc->frame.stack.data[tc->frame.stack.count - 1];
@@ -2112,7 +2011,6 @@ void hir_builder_emit_get_anext_c(PhxTranslationContext *tc, void *func) {
 }
 
 /* emitBuildTemplate — pop interpolations+strings, emit BuildTemplate, push */
-extern void *hir_c_create_build_template_reg(void *strings, void *interps, void *dst, void *fs);
 
 void hir_builder_emit_build_template_c(PhxTranslationContext *tc, void *func) {
     void *interpolations = phx_ptr_arr_pop(&tc->frame.stack);
@@ -2123,7 +2021,6 @@ void hir_builder_emit_build_template_c(PhxTranslationContext *tc, void *func) {
 }
 
 /* emitFormatValue — pop fmt_spec (if present), pop value, FormatValue, push */
-extern void *hir_c_create_format_value_reg(void *dst, void *fmt, void *val, int32_t conv, void *fs);
 
 void hir_builder_emit_format_value_c(PhxTranslationContext *tc, void *func, int oparg) {
     int have_fmt_spec = (oparg & 0x04) == 0x04; /* FVS_HAVE_SPEC=4, FVS_MASK=4 */
@@ -2143,7 +2040,6 @@ void hir_builder_emit_format_value_c(PhxTranslationContext *tc, void *func, int 
 }
 
 /* emitListExtend — pop iterable, peek list at depth, emit ListExtend */
-extern void *hir_c_create_list_extend_reg(void *dst, void *list, void *iter, void *fs);
 
 void hir_builder_emit_list_extend_c(PhxTranslationContext *tc, void *func, int oparg) {
     void *iterable = phx_ptr_arr_pop(&tc->frame.stack);
@@ -2153,7 +2049,6 @@ void hir_builder_emit_list_extend_c(PhxTranslationContext *tc, void *func, int o
 }
 
 /* emitListToTuple — pop list, emit MakeTupleFromList, push tuple */
-extern void *hir_c_create_make_tuple_from_list_reg(void *dst, void *list, void *fs);
 
 void hir_builder_emit_list_to_tuple_c(PhxTranslationContext *tc, void *func) {
     void *list = phx_ptr_arr_pop(&tc->frame.stack);
@@ -2163,7 +2058,6 @@ void hir_builder_emit_list_to_tuple_c(PhxTranslationContext *tc, void *func) {
 }
 
 /* emitMakeCell — allocate cell, MakeCell + moveOverwritten + Assign */
-extern void *hir_c_create_make_cell_reg(void *dst, void *src, void *fs);
 
 void hir_builder_emit_make_cell_c(PhxTranslationContext *tc, void *func, int local_idx) {
     void *local = tc->frame.localsplus.data[local_idx];
@@ -2174,14 +2068,12 @@ void hir_builder_emit_make_cell_c(PhxTranslationContext *tc, void *func, int loc
 }
 
 /* emitRaiseVarargs — emit Raise */
-extern void *hir_c_create_raise_reg(void *fs);
 
 void hir_builder_emit_raise_varargs_c(PhxTranslationContext *tc) {
     phx_tc_emit(tc, hir_c_create_raise_reg(&tc->frame));
 }
 
 /* emitListAppend — pop item, peek list at depth, emit ListAppend */
-extern void *hir_c_create_list_append_reg(void *dst, void *list, void *item, void *fs);
 
 void hir_builder_emit_list_append_c(PhxTranslationContext *tc, void *func, int oparg) {
     void *item = phx_ptr_arr_pop(&tc->frame.stack);
@@ -2213,8 +2105,6 @@ void hir_builder_emit_to_bool_c(PhxTranslationContext *tc, void *func) {
 }
 
 /* emitInPlaceOp — pop right+left, map opcode→kind, emit InPlaceOp, push */
-extern void *hir_c_create_in_place_op_reg(void *dst, int32_t op_kind,
-                                           void *left, void *right, void *fs);
 
 static int32_t get_inplace_op_kind_from_opcode_c(int opcode) {
     switch (opcode) {
@@ -2324,12 +2214,6 @@ void hir_builder_emit_compare_op_c(
  *
  * NOTE (separate concern, see chat 11:29:12Z): instr_effects_c.c:485-487
  * comment-vs-position mismatch on this enum is filed for follow-up. */
-extern void *hir_c_create_call_cfunc_reg(size_t n_operands, void *dst,
-                                          int32_t func_enum, void **operands);
-extern void *hir_c_create_check_exc_reg(void *dst, void *src);
-extern void *hir_c_create_yield_value_reg(void *dst, void *src, void *frame_state);
-extern void *hir_c_create_yield_from_reg(void *dst, void *send_value,
-                                          void *iter, void *frame_state);
 
 static void phx_tc_emit_checked_call_cfunc_1(
         PhxTranslationContext *tc, void *dst, int32_t func_enum, void *operand) {
@@ -2384,10 +2268,6 @@ void hir_builder_emit_yield_value_c(
  * Pre-3.11 oparg-tuple branch dropped per 3.12-only project (consistent
  * with emitYieldValue precedent). frame_state_destroy MUST run on both
  * exit paths (theologian pitfall — early return on !load_method needs it). */
-extern void *hir_c_create_load_attr_super_reg(void *dst, void *global_super,
-        void *type, void *receiver, int32_t name_idx, int no_args, void *fs);
-extern void *hir_c_create_load_method_super_reg(void *dst, void *global_super,
-        void *type, void *receiver, int32_t name_idx, int no_args, void *fs);
 
 void hir_builder_emit_load_method_or_attr_super_c(
         PhxTranslationContext *tc,
@@ -2463,7 +2343,6 @@ void hir_builder_emit_load_method_or_attr_super_c(
  * uses iter as an operand, but the YIELD_FROM bytecode semantics consume
  * it from the stack only once the yield resolves. The C++ original
  * matches this; we mirror exactly. */
-extern void *hir_c_create_set_current_awaiter_reg(void *src);
 
 void hir_builder_emit_yield_from_method_c(
         PhxTranslationContext *tc,
@@ -2492,8 +2371,6 @@ void hir_builder_emit_yield_from_method_c(
  *
  * fixStaticReturn invoked via the C-callable wrapper added at builder.cpp
  * (lite bridge spec 12:42:11Z, theologian ACK 12:42:26Z). */
-extern void *hir_c_create_vectorcall_reg(size_t n_operands, void *dst, uint32_t flags);
-extern void hir_c_set_operand(void *instr, size_t idx, void *operand);
 extern void hir_builder_fix_static_return_c(
     void *builder, void *tc, void *ret_val, HirType ret_type);
 
@@ -2537,13 +2414,6 @@ void hir_builder_emit_invoke_method_vector_call_c(
  *
  * 3 separate PhxTranslationContext instances (has_wh_block, coro_block,
  * res_block) — frame_state_destroy on ALL 3 at function end. */
-extern void *hir_c_create_wait_handle_load_coro_reg(void *dst, void *src);
-extern void *hir_c_create_wait_handle_load_waiter_reg(void *dst, void *src);
-extern void *hir_c_create_wait_handle_release_reg(void *src);
-extern void *hir_c_create_yield_and_yield_from_reg(
-    void *dst, void *waiter, void *coro, void *fs);
-extern void *hir_c_create_cond_branch_cpp(
-    void *cond_reg, void *true_bb, void *false_bb);
 
 void hir_builder_emit_dispatch_eager_coro_result_c(
         PhxTranslationContext *tc,
@@ -2648,13 +2518,6 @@ void hir_builder_emit_dispatch_eager_coro_result_c(
  *   kJITRT_MatchAndClearException  = 3
  * Used inline as comments below per push 51 + push 54 precedent. */
 extern void *cinderx_get_module_state_coro_type_c(void);
-extern void *hir_c_create_raise_awaitable_error_reg(
-    void *type, int32_t is_aenter, void *fs);
-extern void *hir_c_create_raise_static_reg(
-    int32_t reraise, void *exc_type, const char *fmt, void *fs);
-extern void *hir_c_create_load_field_reg(
-    void *dst, void *recv, const char *name, intptr_t offset,
-    HirType type, int borrowed);
 
 void hir_builder_emit_get_awaitable_c(
         PhxTranslationContext *tc,
@@ -2772,8 +2635,6 @@ void hir_builder_emit_get_awaitable_c(
  * out_entry_func is set to the pre-allocated entry_func register
  * unconditionally so the C++ stub can decide whether to push it onto
  * static_method_stack_ based on is_static (gates the stack push only). */
-extern void *hir_c_create_call_ind_reg2(
-    size_t n_operands, void *dst, const char *name, HirType ret_type);
 
 void hir_builder_emit_load_method_static_c(
         PhxTranslationContext *tc,
@@ -2866,18 +2727,6 @@ void hir_builder_emit_load_method_static_c(
  * specialized_op = -1 means jit_get_config()->specialized_opcodes was
  * disabled (C++ stub passes -1 to skip P0). Other values are opcode
  * integers per opcode.h. */
-extern void *hir_c_create_load_var_object_size_reg(void *dst, void *src);
-extern void *hir_c_create_load_array_item_reg(
-    void *dst, void *arr, void *idx, void *container,
-    intptr_t offset, HirType type);
-extern void *hir_c_create_load_field_address_reg(
-    void *dst, void *object, void *offset);
-extern void *hir_c_create_primitive_compare(
-    void *dst, int32_t op, void *left, void *right);
-extern void hir_c_set_guilty_reg(void *instr, void *reg);
-extern void hir_c_set_descr(void *instr, const char *descr);
-extern void *hir_c_create_load_const(void *reg, HirType type);
-extern void *hir_c_create_guard_type_reg(void *dst, HirType target, void *src);
 
 void hir_builder_emit_unpack_sequence_c(
         PhxTranslationContext *tc,
@@ -3050,7 +2899,6 @@ typedef struct {
 /* hir_c_create_call_static_reg already declared at line ~720 with correct
  * 4-arg signature (size_t n_operands, void *dst, void *addr, HirType
  * ret_type). Per hir_c_api.h:305 canonical decl. NOT redeclaring here. */
-extern void *hir_c_create_return(void *src, HirType type);
 extern HirType hir_builder_preloader_return_type(void *builder);
 extern void hir_builder_emit_swap_c(PhxTranslationContext *tc, int oparg);
 extern void hir_builder_emit_load_fast_c(
