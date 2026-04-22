@@ -129,35 +129,6 @@ generalist [chat L2461] + theologian [chat L2466] (B) decision):
 
 Theologian pre-audits each LITE SPEC before implementation begins.
 
-### Step A falsification — bridge-inventory mutation test (~10min, MANDATORY)
-
-Per pythia #86 + supervisor [chat L2469]: bridge inventory is a
-COMPLETENESS ASSERTION (this set of N bridges is sufficient). Spec §3
-empirical compile-clean enumeration is necessary but not sufficient —
-W25 §5.3 lesson was that compile-clean inventory can have hidden gaps
-(another bridge silently absorbs the drift). Step A falsification
-catches inventory gaps BEFORE Step B implementation.
-
-**Procedure (testkeeper):** at the post-Step-A HEAD (LITE SPECs
-finalized, no Step B implementation yet), mutate one bridge signature
-(add unused param to e.g.
-`hir_builder_emit_call_method_exception_handler_inline_c`). The
-mutation should be visible at expected call sites in any draft Step B C
-body OR at the LITE SPEC's stated callers. Verify:
-- BUILD_EXIT=2 with compile error at expected call site → bridge
-  inventory is correct (mutation caught at the right location)
-- BUILD_EXIT=0 → bridge inventory has GAP (mutation silently absorbed
-  somewhere) → flag + reassess inventory before Step B
-
-**Acceptance:** Step B begins ONLY if Step A falsification PASSES (drift
-caught at expected location). Adds ~10min to W26 cycle but catches
-inventory gaps at the boundary where they're cheapest to fix.
-
-**General principle (per supervisor L2469 + theologian future-spec
-amendment):** all future workstream specs require Step A falsification
-test in their gate-completion criteria. Bridge inventory completeness
-must be empirically falsified, not just enumerated.
-
 ### Step B — single-commit conversion (~60-90min)
 
 Single atomic commit:
@@ -170,7 +141,35 @@ Single atomic commit:
 
 Verification: full build + dual-arch + 7-test gate (6 falsifier + 1 W21 golden).
 
-### Step C — falsification (no new spec test, existing infra catches)
+### Step B verification — bridge-inventory falsification (~10min, MANDATORY)
+
+Per pythia #86 + supervisor [chat L2472] + theologian [chat L2475]
+reversal: bridge inventory completeness must be empirically falsified
+post-implementation (not just enumerated at Step A). Pre-Step-B
+mutation requires bridges-as-code with callers; Step A LITE SPECs are
+text only. Therefore falsification happens AFTER Step B implementation
+during STRICT verify cycle, matching W25b §5.1 narrower-falsifier
+precedent.
+
+**Procedure (testkeeper, as part of STRICT verify):** at post-Step-B
+HEAD, mutate one bridge signature (add unused param to e.g.
+`hir_builder_emit_call_method_exception_handler_inline_c` per (B)
+combined-bridge decision). Build. Verify:
+- BUILD_EXIT=2 with compile error at expected call site in C body →
+  bridge inventory is correct (drift caught at the right location)
+- BUILD_EXIT=0 → bridge inventory has GAP (mutation silently absorbed
+  somewhere) → reassess inventory before push, expand bridge surface
+
+**Acceptance:** push proceeds ONLY if Step B verification falsification
+PASSES (drift caught at expected location). Adds ~10min to W26 cycle
+but catches inventory gaps before they ship.
+
+**General principle (per supervisor L2469 + theologian future-spec):**
+all future workstream specs require post-Step-B falsification test in
+gate-completion criteria. Bridge inventory completeness must be
+empirically falsified, not just enumerated.
+
+### Step C — extended verification (no new spec test, existing infra catches)
 
 emitAnyCall is exercised by virtually every benchmark + test. Existing
 test surface (falsifier 6/6, W21 golden, full test suite) IS the
