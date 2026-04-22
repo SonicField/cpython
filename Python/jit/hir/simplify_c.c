@@ -11,6 +11,8 @@
  */
 
 #include "cinderx/Jit/hir/simplify_c.h"
+#include "cinderx/Jit/hir/hir_c_api.h"
+#include "cinderx/Jit/hir/hir_basic_block_c.h"
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Common/py-portability.h"
@@ -20,30 +22,14 @@
 #include "pycore_long.h"
 #include "structmember.h"
 
-/* Forward declarations (avoid hir_c_api.h typedef conflicts) */
+/* W25 Step B-5: lint-pattern externs deleted (canonical decls now visible
+ * via #include hir_c_api.h + hir_basic_block_c.h). Non-lint externs
+ * (hir_register_type, hir_output_type, hir_phi_create_2way) kept as
+ * out-of-W25-scope (different namespace prefixes). */
 extern HirType hir_register_type(void *reg);
-extern void *hir_func_alloc_register(void *func);
-extern void hir_c_insert_before(void *new_instr, void *before);
 extern HirType hir_output_type(void *instr);
-extern void *hir_bb_append_instr(void *bb, void *instr);
-extern void *hir_bb_first_instr(const void *bb);
-extern void *hir_cfg_alloc_block(void *func);
-extern void *hir_cfg_split_after(void *func, void *instr);
 extern void *hir_phi_create_2way(void *func, void *bb1, void *reg1,
                                   void *bb2, void *reg2);
-extern void *hir_c_create_branch_cpp(void *target_block);
-extern void *hir_c_create_cond_branch_cpp(void *cond_reg,
-                                           void *true_block,
-                                           void *false_block);
-extern int hir_func_env_allocate_type_method_cache(void *func);
-extern int hir_func_env_allocate_type_attr_cache(void *func);
-extern void hir_c_set_suppress_exc_deopt(void *instr, int val);
-extern void *hir_c_create_fill_type_method_cache(void *func,
-    void *receiver, int name_idx, int cache_id, void *fs);
-extern void *hir_c_create_load_method_cached(void *func,
-    void *receiver, int name_idx, void *fs);
-extern void *hir_c_create_load_module_method_cached(void *func,
-    void *receiver, int name_idx, void *fs);
 
 /* ---- SimplifyEnv: C equivalent of the C++ Env struct ---- */
 
@@ -1589,9 +1575,7 @@ static void *emit_load_type_attr_cache_entry_value(SimplifyEnv *env, int cache_i
     return simplify_env_emit(env, instr);
 }
 
-extern void *hir_c_create_fill_type_attr_cache(void *func,
-    void *receiver, int name_idx, int cache_id, void *fs);
-
+/* W25 B-5: hir_c_create_fill_type_attr_cache canonical in hir_c_api.h. */
 static void *emit_fill_type_attr_cache(SimplifyEnv *env, void *receiver,
                                         int32_t name_idx, int32_t cache_id, void *fs) {
     void *instr = hir_c_create_fill_type_attr_cache(env->func, receiver,
@@ -1599,18 +1583,14 @@ static void *emit_fill_type_attr_cache(SimplifyEnv *env, void *receiver,
     return simplify_env_emit(env, instr);
 }
 
-extern void *hir_c_create_load_attr_cached(void *func,
-    void *receiver, int name_idx, void *fs);
-
+/* W25 B-5: hir_c_create_load_attr_cached canonical in hir_c_api.h. */
 static void *emit_load_attr_cached(SimplifyEnv *env, void *receiver,
                                     int32_t name_idx, void *fs) {
     void *instr = hir_c_create_load_attr_cached(env->func, receiver, name_idx, fs);
     return simplify_env_emit(env, instr);
 }
 
-extern void *hir_c_create_load_module_attr_cached(void *func,
-    void *receiver, int name_idx, void *fs);
-
+/* W25 B-5: hir_c_create_load_module_attr_cached canonical in hir_c_api.h. */
 static void *emit_load_module_attr_cached(SimplifyEnv *env, void *receiver,
                                            int32_t name_idx, void *fs) {
     void *instr = hir_c_create_load_module_attr_cached(env->func, receiver, name_idx, fs);
@@ -2457,9 +2437,9 @@ void *simplify_emit_cond_slow_path(SimplifyEnv *env, void *output_reg,
 /* ==== isVectorCallIfIsInstance C port ==== */
 extern void *hir_liveness_create(void *func);
 extern void hir_liveness_destroy(void *state);
+/* W25 B-5: hir_instr_unlink + hir_instr_destroy canonical in hir_c_api.h.
+ * hir_liveness_is_last_use kept (non-lint, out of W25 scope). */
 extern int hir_liveness_is_last_use(const void *state, void *instr, void *reg);
-extern void hir_instr_unlink(void *instr);
-extern void hir_instr_destroy(void *instr);
 
 typedef struct {
     void *is_truthy_instr;
@@ -2794,20 +2774,14 @@ static void *simplify_instr_c(SimplifyEnv *env, const void *instr) {
 
 /* ==== Simplify::Run C port ==== */
 
-extern void *hir_bb_next_instr(const void *bb, void *instr);
-extern void *hir_bb_prev_instr(const void *bb, void *instr);
-extern void hir_bb_remove_phi_predecessor(void *block, void *pred);
-extern void *hir_c_cond_branch_true_bb(void *instr);
-extern void *hir_c_cond_branch_false_bb(void *instr);
+/* W25 B-5: lint-pattern externs deleted (canonical decls in
+ * hir_c_api.h + hir_basic_block_c.h). Non-lint externs kept:
+ * hir_assign_create, hir_copy_propagation_run, hir_reflow_types_c,
+ * hir_clean_cfg_run (different namespace prefixes, out of W25 scope). */
 extern void *hir_assign_create(void *output, void *value);
-extern void hir_instr_unlink(void *instr);
-extern void hir_instr_destroy(void *instr);
 extern void hir_copy_propagation_run(void *func);
 extern void hir_reflow_types_c(void *func, void *start_block);
 extern void hir_clean_cfg_run(void *func);
-extern void hir_c_insert_before(void *new_instr, void *before);
-extern void *hir_cfg_blocks_first_ptr(void *cfg);
-extern void *hir_cfg_blocks_next_ptr(void *cfg, void *block);
 
 void hir_simplify_run_c(void *func) {
     void *cfg = hir_func_cfg_ptr(func);
