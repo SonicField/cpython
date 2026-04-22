@@ -29,6 +29,13 @@
 #include <chrono>
 #include <iostream>
 
+#ifdef RC_ORACLE
+// W3 R4 oracle entry point — defined in libphoenix_rc_oracle.a (built only
+// when RC_ORACLE is defined). Forward-declared here at file scope because
+// C++ doesn't allow extern "C" inside a function body.
+extern "C" int rc_oracle_run(void *func);
+#endif
+
 namespace jit {
 
 template <typename T>
@@ -133,7 +140,8 @@ void Compiler::runPasses(
   // env var RC_ORACLE_USE_CXX selects between current C path and the
   // cc4a18e7e5 C++ snapshot (refcount_insertion.cpp via adapter).
   // See docs/oracle_scratch/_rc_oracle_adapter.h for full BRIDGE SPEC + invariants.
-  extern "C" int rc_oracle_run(void *func);  // libphoenix_rc_oracle.a
+  // (rc_oracle_run forward-declared at file scope below; C++ does not allow
+  //  extern "C" inside function body.)
   if (const char *env = getenv("RC_ORACLE_USE_CXX"); env != nullptr && *env != '0') {
     rc_oracle_run(&irfunc);  // cc4a18e7e5 C++ refcount_insertion via adapter
   } else {
