@@ -125,7 +125,23 @@ void Compiler::runPasses(
 
   runPassIf(hir::LICM{}, PassConfig::kLICM);
 
+#ifdef RC_ORACLE
+  // W3 R4 oracle dispatcher (build-time guarded, env-controlled).
+  // Production python builds without -DRC_ORACLE → this block is ABSENT
+  // from the compiled binary (verifiable: nm python | grep rc_oracle = empty).
+  // python_rc_cpp builds with -DRC_ORACLE + libphoenix_rc_oracle.a linked →
+  // env var RC_ORACLE_USE_CXX selects between current C path and the
+  // cc4a18e7e5 C++ snapshot (refcount_insertion.cpp via adapter).
+  // See docs/oracle_scratch/_rc_oracle_adapter.h for full BRIDGE SPEC + invariants.
+  extern "C" int rc_oracle_run(void *func);  // libphoenix_rc_oracle.a
+  if (const char *env = getenv("RC_ORACLE_USE_CXX"); env != nullptr && *env != '0') {
+    rc_oracle_run(&irfunc);  // cc4a18e7e5 C++ refcount_insertion via adapter
+  } else {
+    runPass(jit::hir::RefcountInsertion{}, irfunc, callback);  // current C port
+  }
+#else
   runPass(jit::hir::RefcountInsertion{}, irfunc, callback);
+#endif
 
   if (jit_get_config()->dump_hir_stats) {
     hir_stats_run(&irfunc, irfunc.fullname);
