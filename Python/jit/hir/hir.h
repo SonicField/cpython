@@ -95,6 +95,8 @@ enum class Constraint {
   kDictOrChkDict,
   kOptObjectOrCInt,
   kOptObjectOrCIntOrCBool,
+  kOptObjectOrCPtr,
+  kOptObjectOrCUInt64,
 };
 
 struct OperandType {
@@ -1394,7 +1396,15 @@ class CheckBaseWithName : public CheckBase {
   PyObject* name_;
 };
 
-class INSTR_CLASS(LoadField, (TOptObject), HasOutput, Operands<1>) {
+// (Constraint::kOptObjectOrCPtr): TCPtr accepted for chained LoadField in
+// inline-cache patterns (LOAD_ATTR_MODULE/INSTANCE_VALUE) — was de-facto
+// behavior since CinderX upstream. Uses kOptObjectOrCPtr enum (not the
+// single-union TOptObject | TCPtr) per F1''' empirical fail (W8 iter 5):
+// hir_type_is_subtype with mixed-lifetime unions returned false despite
+// the bit/lifetime/spec checks passing individually. F1'' uses the proven
+// kTupleExactOrCPtr-style enum + 2 separate is_subtype calls in
+// register_type_matches at func_type_checks_c.c.
+class INSTR_CLASS(LoadField, (Constraint::kOptObjectOrCPtr), HasOutput, Operands<1>) {
  public:
   LoadField(
       Register* dst,

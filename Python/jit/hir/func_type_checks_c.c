@@ -46,6 +46,12 @@ static int register_type_matches(HirType op_hir, HirOperandType expected) {
     case HIR_CONSTRAINT_kOptObjectOrCInt:
         return hir_type_is_subtype(op_hir, (HirType)HIR_TYPE_OPTOBJECT) ||
             hir_type_is_subtype(op_hir, (HirType)HIR_TYPE_CINT);
+    case HIR_CONSTRAINT_kOptObjectOrCPtr:
+        return hir_type_is_subtype(op_hir, (HirType)HIR_TYPE_OPTOBJECT) ||
+            hir_type_is_subtype(op_hir, (HirType)HIR_TYPE_CPTR);
+    case HIR_CONSTRAINT_kOptObjectOrCUInt64:
+        return hir_type_is_subtype(op_hir, (HirType)HIR_TYPE_OPTOBJECT) ||
+            hir_type_is_subtype(op_hir, (HirType)HIR_TYPE_CUINT64);
     case HIR_CONSTRAINT_kMatchAllAsCInt:
         return is_single_cint(op_hir);
     case HIR_CONSTRAINT_kMatchAllAsPrimitive:
@@ -68,6 +74,8 @@ static int operands_must_match(HirOperandType op_type) {
     case HIR_CONSTRAINT_kDictOrChkDict:
     case HIR_CONSTRAINT_kOptObjectOrCInt:
     case HIR_CONSTRAINT_kOptObjectOrCIntOrCBool:
+    case HIR_CONSTRAINT_kOptObjectOrCPtr:
+    case HIR_CONSTRAINT_kOptObjectOrCUInt64:
         return 0;
     }
     JIT_ABORT_C("unknown constraint %d", op_type.kind);

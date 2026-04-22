@@ -1400,6 +1400,10 @@ std::ostream& operator<<(std::ostream& os, OperandType op) {
       return os << "(OptObject, CInt)";
     case Constraint::kTupleExactOrCPtr:
       return os << "(TupleExact, CPtr)";
+    case Constraint::kOptObjectOrCPtr:
+      return os << "(OptObject, CPtr)";
+    case Constraint::kOptObjectOrCUInt64:
+      return os << "(OptObject, CUInt64)";
     case Constraint::kListOrChkList:
       return os << "(List, chklist)";
     case Constraint::kDictOrChkDict:

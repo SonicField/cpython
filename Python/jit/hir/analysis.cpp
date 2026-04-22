@@ -48,6 +48,12 @@ bool registerTypeMatches(Type op_type, OperandType expected_type) {
     case Constraint::kOptObjectOrCInt:
       return hir_type_is_subtype(op_hir, to_hir(TOptObject)) ||
           hir_type_is_subtype(op_hir, to_hir(TCInt));
+    case Constraint::kOptObjectOrCPtr:
+      return hir_type_is_subtype(op_hir, to_hir(TOptObject)) ||
+          hir_type_is_subtype(op_hir, to_hir(TCPtr));
+    case Constraint::kOptObjectOrCUInt64:
+      return hir_type_is_subtype(op_hir, to_hir(TOptObject)) ||
+          hir_type_is_subtype(op_hir, to_hir(TCUInt64));
     case Constraint::kMatchAllAsCInt:
       return isSingleCInt(op_type);
     case Constraint::kMatchAllAsPrimitive:
@@ -71,6 +77,8 @@ bool operandsMustMatch(OperandType op_type) {
     case Constraint::kDictOrChkDict:
     case Constraint::kOptObjectOrCInt:
     case Constraint::kOptObjectOrCIntOrCBool:
+    case Constraint::kOptObjectOrCPtr:
+    case Constraint::kOptObjectOrCUInt64:
       return false;
   }
   JIT_ABORT("unknown constraint");

@@ -100,6 +100,8 @@ typedef enum {
     HIR_CONSTRAINT_kDictOrChkDict,
     HIR_CONSTRAINT_kOptObjectOrCInt,
     HIR_CONSTRAINT_kOptObjectOrCIntOrCBool,
+    HIR_CONSTRAINT_kOptObjectOrCPtr,
+    HIR_CONSTRAINT_kOptObjectOrCUInt64,
 } HirConstraint;
 
 typedef struct {
