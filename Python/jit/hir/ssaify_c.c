@@ -178,7 +178,9 @@ static void *ssa_create_phi(PhxSSAState *st, PhxSSABlock *ssa_block,
         hir_c_set_operand(phi, i, pred_regs[i]);
     }
     HirPhi *p = (HirPhi *)phi;
-    p->bb_data = (void **)PyMem_RawMalloc(n_preds * sizeof(void *));
+    /* libc malloc to match hir_instr_c.h destroy paths (cannot include
+     * pymem.h there, see W8 root-cause). */
+    p->bb_data = (void **)malloc(n_preds * sizeof(void *));
     p->bb_count = n_preds;
     p->bb_cap = n_preds;
     memcpy(p->bb_data, pred_blocks, n_preds * sizeof(void *));
