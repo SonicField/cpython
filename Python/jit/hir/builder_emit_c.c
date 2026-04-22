@@ -3013,4 +3013,225 @@ void hir_builder_emit_unpack_sequence_c(
     phx_frame_state_destroy(&deopt_tc.frame);
 }
 
+/* emitInlineExceptionMatch — BINARY_SUBSCR exception-match inline handler.
+ * Largest most-complex method in remaining set (185-line C++ source +
+ * inline bytecode dispatch loop). Mirrors C++ HIRBuilder::
+ * emitInlineExceptionMatch @ builder.cpp:1329.
+ *
+ * Theologian pre-audit (chat 2026-04-22 14:48:10Z): 5 phases, 27
+ * invariants, 8 pitfalls. ZERO new bridges per W25-defer A1. Approach:
+ * stub-heavy bytecode-parse — C++ stub iterates info.except_body
+ * bytecodes and builds an opcode array (5 fields per entry). C body
+ * does framework + dispatch via switch on the array.
+ *
+ * CRITICAL D-1774910012 INVARIANT (librarian chat L1769 + scribe L1771):
+ * After match_tc allocation, push Py_None as prev_exc placeholder
+ * BEFORE the dispatch loop; POP_EXCEPT case pops the placeholder. If
+ * skipped, closure LOAD_DEREF in except blocks corrupts exc_info chain
+ * post-threshold. Failure mode is silent + only-after-1000-calls.
+ *
+ * 3 separate PhxTranslationContext objects (PB pitfall):
+ *   exc_tc copies from tc.frame
+ *   match_tc copies from EXC_TC.FRAME (depth-trimmed)
+ *   deopt_tc copies from TC.FRAME (original, NOT exc_tc)
+ *
+ * 8 pitfalls addressed inline. See chat L1782 for full enumeration. */
+
+/* Stub-built opcode array entry (C struct mirrors C++ struct in builder.cpp).
+ * Layout MUST match — both sides verify via static_assert on size. */
+typedef struct {
+    int opcode;
+    int oparg;
+    int base_offset;
+    void *const_obj;          /* PyObject* for LOAD_CONST/RETURN_CONST, else NULL */
+    void *jump_target_block;  /* HirBasicBlock for JUMP_BACKWARD*, else NULL */
+} OpcodeArrayEntry;
+
+/* hir_c_create_call_static_reg already declared at line ~720 with correct
+ * 4-arg signature (size_t n_operands, void *dst, void *addr, HirType
+ * ret_type). Per hir_c_api.h:305 canonical decl. NOT redeclaring here. */
+extern void *hir_c_create_return(void *src, HirType type);
+extern HirType hir_builder_preloader_return_type(void *builder);
+extern void hir_builder_emit_swap_c(PhxTranslationContext *tc, int oparg);
+extern void hir_builder_emit_load_fast_c(
+    PhxTranslationContext *tc, void *func, PyCodeObject *code,
+    int opcode, int oparg);
+extern void hir_builder_emit_store_fast_c(
+    PhxTranslationContext *tc, void *func, int oparg);
+extern int hir_builder_emit_binary_op_c(
+    PhxTranslationContext *tc, void *func,
+    int opcode, int oparg, int specialized_opcode);
+
+/* Opcode constants — defined in opcode.h (already included by this TU).
+ * Listed inline as comments for grep + audit-trail per theologian L1782 PD. */
+/* POP_EXCEPT, POP_TOP, SWAP, LOAD_FAST, LOAD_FAST_CHECK, LOAD_FAST_AND_CLEAR,
+ * LOAD_CONST, STORE_FAST, BINARY_OP, RETURN_CONST, RETURN_VALUE,
+ * JUMP_BACKWARD, JUMP_BACKWARD_NO_INTERRUPT — handled cases. Default → deopt. */
+
+void hir_builder_emit_inline_exception_match_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder,
+        int bc_base_offset,
+        int handler_depth,
+        void *exc_type_obj,           /* SimpleExceptInfo::exc_type */
+        int except_body_offset,       /* SimpleExceptInfo::except_body */
+        HirType return_type,          /* preloader_.returnType() */
+        void *left,
+        void *right,
+        void *result,
+        void *getitem_fn,             /* JITRT_DictGetItem or PyObject_GetItem */
+        void *match_and_clear_fn,     /* JITRT_MatchAndClearException */
+        const OpcodeArrayEntry *opcodes,
+        size_t opcode_count) {
+    HirType t_opt_object = HIR_TYPE_OPTOBJECT;
+    HirType t_object = HIR_TYPE_OBJECT;
+    HirType t_cint32 = (HirType)HIR_TYPE_CINT32;
+    HirType t_nonetype = HIR_TYPE_NONETYPE;
+
+    /* P1: getitem CallStatic dispatch. */
+    void *getitem_call = hir_c_create_call_static_reg(
+        2, result, getitem_fn, t_opt_object);
+    hir_c_set_operand(getitem_call, 0, left);
+    hir_c_set_operand(getitem_call, 1, right);
+    phx_tc_emit(tc, getitem_call);
+
+    void *ok_block = hir_cfg_alloc_block(func);
+    void *exc_match_block = hir_cfg_alloc_block(func);
+    phx_tc_emit(tc, hir_c_create_cond_branch_cpp(result, ok_block, exc_match_block));
+
+    /* P2: exc_tc setup — copy from tc.frame, depth-trim. */
+    PhxTranslationContext exc_tc;
+    exc_tc.block = exc_match_block;
+    phx_frame_state_copy(&exc_tc.frame, &tc->frame);
+    /* Depth trim (P2 inv 7): pop excess items above handler depth. */
+    while ((int)exc_tc.frame.stack.count > handler_depth) {
+        phx_ptr_arr_pop(&exc_tc.frame.stack);
+    }
+
+    /* P2 inv 8-9: exc_type_reg + LoadConst. */
+    void *exc_type_reg = hir_func_alloc_register(func);
+    HirType exc_type_hir = hir_type_from_object((PyObject *)exc_type_obj);
+    phx_tc_emit(&exc_tc, hir_c_create_load_const(exc_type_reg, exc_type_hir));
+
+    /* P2 inv 10-11: match_result + CallStatic JITRT_MatchAndClearException.
+     * Function pointer passed from C++ stub via match_and_clear_fn — avoids
+     * C-side referencing a C++-mangled symbol from jit_rt.cpp. */
+    void *match_result = hir_func_alloc_register(func);
+    void *match_call = hir_c_create_call_static_reg(
+        1, match_result, match_and_clear_fn, t_cint32);
+    hir_c_set_operand(match_call, 0, exc_type_reg);
+    phx_tc_emit(&exc_tc, match_call);
+
+    /* P2 inv 12-13: match_block + deopt_block + CondBranch on match_result. */
+    void *match_block = hir_cfg_alloc_block(func);
+    void *deopt_block = hir_cfg_alloc_block(func);
+    phx_tc_emit(&exc_tc, hir_c_create_cond_branch_cpp(
+        match_result, match_block, deopt_block));
+
+    /* P3: match_tc setup — copy from EXC_TC.FRAME (depth-trimmed). */
+    PhxTranslationContext match_tc;
+    match_tc.block = match_block;
+    phx_frame_state_copy(&match_tc.frame, &exc_tc.frame);
+    match_tc.frame.cur_instr_offs = except_body_offset;
+
+    /* (PA D-1774910012) Push Py_None placeholder BEFORE dispatch loop.
+     * POP_EXCEPT case pops this placeholder. If skipped, closure
+     * LOAD_DEREF in except blocks corrupts exc_info chain post-threshold. */
+    void *prev_exc_reg = hir_builder_temps_alloc_stack(builder);
+    phx_tc_emit(&match_tc, hir_c_create_load_const(prev_exc_reg, t_nonetype));
+    phx_ptr_arr_push(&match_tc.frame.stack, prev_exc_reg);
+
+    /* P3 dispatch loop: switch on opcode array. */
+    for (size_t i = 0; i < opcode_count; i++) {
+        const OpcodeArrayEntry *e = &opcodes[i];
+        switch (e->opcode) {
+            case POP_EXCEPT: {
+                /* (PA) Pop the prev_exc placeholder. */
+                phx_ptr_arr_pop(&match_tc.frame.stack);
+                break;
+            }
+            case POP_TOP: {
+                phx_ptr_arr_pop(&match_tc.frame.stack);
+                break;
+            }
+            case SWAP: {
+                hir_builder_emit_swap_c(&match_tc, e->oparg);
+                break;
+            }
+            case LOAD_FAST:
+            case LOAD_FAST_CHECK:
+            case LOAD_FAST_AND_CLEAR: {
+                hir_builder_emit_load_fast_c(&match_tc, func,
+                    (PyCodeObject *)match_tc.frame.code,
+                    e->opcode, e->oparg);
+                break;
+            }
+            case LOAD_CONST: {
+                void *reg = hir_builder_temps_alloc_stack(builder);
+                HirType t = hir_type_from_object((PyObject *)e->const_obj);
+                phx_tc_emit(&match_tc, hir_c_create_load_const(reg, t));
+                phx_ptr_arr_push(&match_tc.frame.stack, reg);
+                break;
+            }
+            case STORE_FAST: {
+                hir_builder_emit_store_fast_c(&match_tc, func, e->oparg);
+                break;
+            }
+            case BINARY_OP: {
+                hir_builder_emit_binary_op_c(
+                    &match_tc, func, e->opcode, e->oparg, /*specialized=*/-1);
+                break;
+            }
+            case RETURN_CONST: {
+                void *ret_reg = hir_builder_temps_alloc_stack(builder);
+                HirType t = hir_type_from_object((PyObject *)e->const_obj);
+                phx_tc_emit(&match_tc, hir_c_create_load_const(ret_reg, t));
+                phx_tc_emit(&match_tc, hir_c_create_return(ret_reg, t));
+                /* Terminator — exit loop. */
+                goto match_loop_done;
+            }
+            case RETURN_VALUE: {
+                void *ret_val = phx_ptr_arr_pop(&match_tc.frame.stack);
+                phx_tc_emit(&match_tc, hir_c_create_return(ret_val, return_type));
+                goto match_loop_done;
+            }
+            case JUMP_BACKWARD:
+            case JUMP_BACKWARD_NO_INTERRUPT: {
+                phx_tc_emit(&match_tc, hir_c_create_branch_cpp(e->jump_target_block));
+                goto match_loop_done;
+            }
+            default: {
+                /* Unsupported opcode → deopt to interpreter. */
+                match_tc.frame.cur_instr_offs = e->base_offset;
+                phx_tc_emit(&match_tc, hir_c_create_snapshot(&match_tc.frame));
+                phx_tc_emit(&match_tc, hir_c_create_deopt());
+                goto match_loop_done;
+            }
+        }
+    }
+match_loop_done:;
+
+    /* P4: deopt_tc setup — copy from TC.FRAME (NOT exc_tc per PB). */
+    PhxTranslationContext deopt_tc;
+    deopt_tc.block = deopt_block;
+    phx_frame_state_copy(&deopt_tc.frame, &tc->frame);
+    /* Re-push left + right (interpreter expects them at BINARY_SUBSCR offset). */
+    phx_ptr_arr_push(&deopt_tc.frame.stack, left);
+    phx_ptr_arr_push(&deopt_tc.frame.stack, right);
+    deopt_tc.frame.cur_instr_offs = bc_base_offset;
+    phx_tc_emit(&deopt_tc, hir_c_create_snapshot(&deopt_tc.frame));
+    phx_tc_emit(&deopt_tc, hir_c_create_deopt());
+
+    /* P5: ok block — RefineType in-place SSA-rename. */
+    tc->block = ok_block;
+    phx_tc_emit(tc, hir_c_create_refine_type_reg(result, t_object, result));
+
+    /* (PF) frame_state_destroy on ALL 3 TCs. */
+    phx_frame_state_destroy(&exc_tc.frame);
+    phx_frame_state_destroy(&match_tc.frame);
+    phx_frame_state_destroy(&deopt_tc.frame);
+}
+
+
 
