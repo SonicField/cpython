@@ -118,6 +118,23 @@ if echo "$GATE_BINARY_LONG_VERSION" | grep -q -- "-dirty"; then
 fi
 echo "BINARY_MATCH: gate binary reports $COMMIT_HASH (clean) ✓" | tee -a "$RESULTS_FILE"
 
+# Step 1a-2: RC_ORACLE production-leak check (gatekeeper item #15)
+# Per supervisor 2026-04-22 03:06:55Z + theologian 03:07:12Z + pythia #58:
+# the W3 R4 oracle dispatcher in compiler.cpp is #ifdef RC_ORACLE guarded.
+# Production builds MUST contain ZERO rc_oracle symbols. A standing assertion
+# in the gate transcript catches the silent failure mode where a future
+# compiler.cpp edit accidentally drops or inverts the #ifdef guard, leaking
+# RC_ORACLE dispatch into production undetectably. Mirrors BINARY_DIRTY
+# discipline — catch silent failures structurally, not via memory.
+RC_ORACLE_LEAK=$(nm "$PYTHON" 2>/dev/null | grep -c 'rc_oracle' || echo 0)
+RC_ORACLE_LEAK=$(echo "$RC_ORACLE_LEAK" | tr -d '[:space:]')
+if [ "${RC_ORACLE_LEAK:-0}" -ne 0 ]; then
+    echo "BINARY_RC_ORACLE_LEAK_DETECTED: production binary contains $RC_ORACLE_LEAK rc_oracle symbols" | tee -a "$RESULTS_FILE"
+    echo "FATAL: RC_ORACLE leaked into production build (review #ifdef RC_ORACLE guards in Python/jit/compiler.cpp)" | tee -a "$RESULTS_FILE"
+    exit 1
+fi
+echo "BINARY_RC_ORACLE_OK: production binary clean (0 rc_oracle symbols)" | tee -a "$RESULTS_FILE"
+
 # Step 1b: _reg usage policy gate (no-FS DeoptBase factories banned in simplify_c.c)
 echo "" | tee -a "$RESULTS_FILE"
 echo "--- Step 1b: _reg Usage Policy ---" | tee -a "$RESULTS_FILE"
