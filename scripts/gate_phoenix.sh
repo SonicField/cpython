@@ -534,6 +534,15 @@ if [ "$ARM64" -eq 1 ]; then
         scripts/build_phoenix.sh 2>&1 | tail -5;
         echo BUILD_ARM64=\$?;
         chmod +x python;
+        ARM64_BINARY_LONG_VERSION=\$(./python -c 'import sys; print(sys.version)' 2>&1);
+        echo ARM64_BINARY_LONG_VERSION=\$ARM64_BINARY_LONG_VERSION;
+        if echo \"\$ARM64_BINARY_LONG_VERSION\" | grep -q \"\$ARM64_COMMIT\"; then
+            echo \"ARM64_BINARY_MATCH: ./python reports \$ARM64_COMMIT ✓\";
+        else
+            echo \"ARM64_BINARY_MISMATCH: ./python does not contain \$ARM64_COMMIT\";
+            echo \"GATE FAIL — ARM64 gate binary identity does not match HEAD\";
+            exit 99;
+        fi;
         JIT_ENABLE=1 ./python -m test test_phoenix_jit_arithmetic test_phoenix_jit_autocompile test_phoenix_jit_comparisons test_phoenix_jit_containers test_phoenix_jit_controlflow test_phoenix_jit_coverage test_phoenix_jit_functions test_phoenix_jit_generators test_phoenix_jit_loadattr_golden test_phoenix_float test_phoenix_hir_type test_phoenix_benchmark_correctness test_phoenix_deferred_compile test_phoenix_profiling_hooks test_phoenix_usetype_float 2>&1 | tail -10;
         echo ARM64_EXIT=\$?;
         echo STASH_POP_BEGIN;
