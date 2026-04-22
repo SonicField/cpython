@@ -15,6 +15,23 @@ CPYTHON_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$CPYTHON_ROOT/Python/jit_build/build"
 ARCH="$(uname -m)"
 
+# W26 gate-hardening: track previous build exit so we can force --clean
+# after a recent compile-fail. Stale .o / LTO bitcode from a failed iter
+# can produce a binary that builds clean but crashes at runtime — this
+# was the root cause of the push-51 build-state corruption near-miss.
+# State file: scripts/.last_build_state (gitignored), 2 lines: epoch_ts
+# then exit_code. Window: 5 minutes (rapid-iter sessions only).
+STATE_FILE="$CPYTHON_ROOT/scripts/.last_build_state"
+write_build_state() {
+    local exit_code=$?
+    {
+        date +%s
+        echo "$exit_code"
+    } > "$STATE_FILE" 2>/dev/null || true
+    return "$exit_code"
+}
+trap write_build_state EXIT
+
 # Parse flags
 CLEAN=0
 PYDEBUG=0
@@ -29,6 +46,22 @@ for arg in "$@"; do
         *)         echo "Unknown flag: $arg"; echo "Usage: $0 [--clean] [--pydebug] [--asan] [--jobs=N]"; exit 1 ;;
     esac
 done
+
+# W26 gate-hardening: detect compile-fail-then-pass rapid-iter sequence and
+# force --clean. Window matches the V3 timeline (push 51): two compile fixes
+# within ~3 min produced a binary with stale-artifact corruption.
+if [ "$CLEAN" -eq 0 ] && [ -f "$STATE_FILE" ]; then
+    LAST_TS=$(awk 'NR==1{print; exit}' "$STATE_FILE" 2>/dev/null || echo "")
+    LAST_EXIT=$(awk 'NR==2{print; exit}' "$STATE_FILE" 2>/dev/null || echo "")
+    if [ -n "$LAST_TS" ] && [ -n "$LAST_EXIT" ] && [ "$LAST_EXIT" -ne 0 ]; then
+        AGE=$(( $(date +%s) - LAST_TS ))
+        if [ "$AGE" -lt 300 ]; then
+            echo "[W26 gate-hardening] previous build failed (exit $LAST_EXIT, ${AGE}s ago)"
+            echo "[W26 gate-hardening] forcing --clean to avoid build-state corruption class"
+            CLEAN=1
+        fi
+    fi
+fi
 
 # Cap jobs at 64 to avoid OOM on shared machines
 if [ "$JOBS" -gt 64 ]; then
