@@ -3402,28 +3402,30 @@ bool HIRBuilder::emitInvokeFunction(
   return true;
 }
 
+/* C bridge: query NativeTarget fields from preloader_.
+ * INVOKE_* Phase 2 #1 per theologian L2430. NativeTarget has only 2 fields
+ * needed by C body (callable + return_type); primitive_arg_types not used
+ * by the emit path. Always populates outputs; never NULL since preloader_
+ * always returns a valid NativeTarget for valid descrs. */
+extern "C" void hir_builder_invoke_native_target_c(
+    void *builder, PyObject *descr,
+    void **out_callable, HirType *out_return_type) {
+  auto *self = static_cast<HIRBuilder*>(builder);
+  const NativeTarget& target = self->preloader().invokeNativeTarget(descr);
+  *out_callable = target.callable;
+  *out_return_type = Type::toHirType(target.return_type);
+}
+
+extern "C" void hir_builder_emit_invoke_native_c(
+    void *tc, void *builder, PyObject *descr, PyObject *signature);
+
 bool HIRBuilder::emitInvokeNative(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   PyObject* arg = constArg(bc_instr);
   PyObject* native_target_descr = PyTuple_GET_ITEM(arg, 0);
-  const NativeTarget& target =
-      preloader_.invokeNativeTarget(native_target_descr);
-
   PyObject* signature = PyTuple_GET_ITEM(arg, 1);
-
-  // The last entry in the signature is the return type, so subtract 1
-  Py_ssize_t nargs = PyTuple_GET_SIZE(signature) - 1;
-
-  Register* out = temps_.AllocateStack();
-  Type typ = target.return_type;
-  auto call = tc.emitCallStatic(nargs, out, target.callable, typ);
-  for (auto i = nargs - 1; i >= 0; i--) {
-    Register* operand = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-    call->SetOperand(i, operand);
-  }
-
-  phx_ptr_arr_push(&tc.frame.stack, out);
+  hir_builder_emit_invoke_native_c(&tc, this, native_target_descr, signature);
   return false;
 }
 

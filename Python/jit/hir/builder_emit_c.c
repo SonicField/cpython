@@ -2393,6 +2393,40 @@ void hir_builder_emit_invoke_method_vector_call_c(
     phx_ptr_arr_push(&tc->frame.stack, out);
 }
 
+/* emitInvokeNative — INVOKE_NATIVE opcode. Mirrors C++ HIRBuilder::emitInvokeNative
+ * @ builder.cpp:3405.
+ *
+ * NativeTarget fields (callable + return_type) extracted via the
+ * hir_builder_invoke_native_target_c bridge (preloader_ access lives in
+ * C++-only namespace). Theologian L2430 INVOKE_* Phase 2 spec.
+ *
+ * nargs derived from tuple signature size minus 1 (the last entry is the
+ * return type). Operands popped right-to-left from frame.stack and assigned
+ * to operand slots i = nargs-1 .. 0 to preserve evaluation order. */
+extern void hir_builder_invoke_native_target_c(
+    void *builder, PyObject *descr, void **out_callable, HirType *out_return_type);
+
+void hir_builder_emit_invoke_native_c(
+        PhxTranslationContext *tc,
+        void *builder,
+        PyObject *descr,
+        PyObject *signature) {
+    void *callable = NULL;
+    HirType ret_type;
+    hir_builder_invoke_native_target_c(builder, descr, &callable, &ret_type);
+
+    Py_ssize_t nargs = PyTuple_GET_SIZE(signature) - 1;
+
+    void *out = hir_builder_temps_alloc_stack(builder);
+    void *call = hir_c_create_call_static_reg((size_t)nargs, out, callable, ret_type);
+    for (Py_ssize_t i = nargs - 1; i >= 0; i--) {
+        void *operand = phx_ptr_arr_pop(&tc->frame.stack);
+        hir_c_set_operand(call, (size_t)i, operand);
+    }
+    phx_tc_emit(tc, call);
+    phx_ptr_arr_push(&tc->frame.stack, out);
+}
+
 /* emitDispatchEagerCoroResult — eager coroutine result dispatch helper.
  * Branches on whether the awaitable's runtime type is WaitHandle. If yes,
  * loads the wait_handle's coro/result + waiter, releases the wait_handle,
