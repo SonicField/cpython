@@ -84,6 +84,28 @@ rm -f "${PYTHON}_gate"
 cp "$PYTHON" "${PYTHON}_gate"
 PYTHON="${PYTHON}_gate"
 
+# Step 1a: Binary identity verification (per theologian 2026-04-22 00:43:35Z).
+# Even with the cp-without-||-true fix, downstream failure modes can still
+# produce a binary that does not correspond to HEAD (stale build that wasn't
+# rebuilt after pull, wrong working-tree state at build time, etc.). Make
+# 'GATE PASS commit X' falsifiable: prove the gate binary actually reports
+# commit X in its --version output before any test runs.
+echo "" | tee -a "$RESULTS_FILE"
+echo "--- Step 1a: Gate Binary Identity ---" | tee -a "$RESULTS_FILE"
+GATE_BINARY_VERSION=$("$PYTHON" --version 2>&1)
+echo "$GATE_BINARY_VERSION" | tee -a "$RESULTS_FILE"
+# Long-form version output ($PYTHON -c 'import sys; print(sys.version)') carries
+# the commit hash; --version only carries '3.12.13'. Use sys.version.
+GATE_BINARY_LONG_VERSION=$("$PYTHON" -c 'import sys; print(sys.version)' 2>&1)
+echo "$GATE_BINARY_LONG_VERSION" | tee -a "$RESULTS_FILE"
+if echo "$GATE_BINARY_LONG_VERSION" | grep -q "$COMMIT_HASH"; then
+    echo "BINARY_MATCH: gate binary reports $COMMIT_HASH ✓" | tee -a "$RESULTS_FILE"
+else
+    echo "BINARY_MISMATCH: gate binary does not contain HEAD hash $COMMIT_HASH" | tee -a "$RESULTS_FILE"
+    echo "GATE FAIL — gate binary identity does not match HEAD" | tee -a "$RESULTS_FILE"
+    exit 1
+fi
+
 # Step 1b: _reg usage policy gate (no-FS DeoptBase factories banned in simplify_c.c)
 echo "" | tee -a "$RESULTS_FILE"
 echo "--- Step 1b: _reg Usage Policy ---" | tee -a "$RESULTS_FILE"
