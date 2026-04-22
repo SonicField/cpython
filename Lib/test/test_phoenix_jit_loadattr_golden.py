@@ -43,7 +43,16 @@ except ImportError:
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-GOLDEN_PATH = REPO_ROOT / "docs" / "golden" / "loadattr_hir.txt"
+
+# Mode-aware golden selection. Pydebug builds populate sys with extra
+# attributes (sys.gettotalrefcount, etc.), incrementing sys.__dict__'s
+# keys-version counter that LOAD_ATTR_MODULE inlines as a CInt64 constant.
+# The +1 delta on that single embedded constant is intrinsic to the
+# build mode, NOT a JIT codegen regression. Per W21 root-cause investigation
+# 2026-04-22 17:54Z (testkeeper).
+_PYDEBUG = hasattr(sys, "gettotalrefcount")
+GOLDEN_NAME = "loadattr_hir.pydebug.txt" if _PYDEBUG else "loadattr_hir.txt"
+GOLDEN_PATH = REPO_ROOT / "docs" / "golden" / GOLDEN_NAME
 
 
 HARNESS_SOURCE = textwrap.dedent(

@@ -1,0 +1,288 @@
+GOLDEN_HIR_FINAL __main__:attr_probe
+fun __main__:attr_probe {
+  bb 0 {
+    v29:Object = LoadArg<0; "p">
+    v30:Object = LoadArg<1; "i">
+    LoadFrame
+    v32:Nullptr = LoadConst<Nullptr>
+    UpdatePrevInstr<idx:0 line_no:24: no parent>
+    v33:CInt32 = LoadEvalBreaker
+    CondBranch<2, 1> v33
+  }
+
+  bb 2 (preds 0) {
+    v34:CInt32 = RunPeriodicTasks {
+      LiveValues<3> b:v29 b:v30 unc:v32
+      FrameState {
+        CurInstrOffset 0
+        Locals<5> v29 v30 v32 v32 v32
+      }
+    }
+    Branch<1>
+  }
+
+  bb 1 (preds 0, 2) {
+    v41:Object|Nullptr = LoadField<slot@16, Object|Nullptr, owned> v29
+    v42:Object = CheckField<"x"> v41 {
+      GuiltyReg v29
+      LiveValues<4> b:v29 b:v30 unc:v32 o:v41
+      FrameState {
+        CurInstrOffset 4
+        Locals<5> v29 v30 v32 v32 v32
+      }
+    }
+    v45:Dict|Nullptr = LoadField<__dict__@18446744073709551592, Dict|Nullptr, borrowed> v30
+    v46:Dict = CheckField<"v"> v45 {
+      GuiltyReg v30
+      LiveValues<5> b:v29 b:v30 unc:v32 o:v42 b:v45
+      FrameState {
+        CurInstrOffset 28
+        Locals<5> v29 v30 v42 v32 v32
+      }
+    }
+    v47:CUInt64[1] = LoadConst<CUInt64[1]>
+    v48:CUInt64 = BitCast v46
+    v49:CUInt64 = IntBinaryOp<And> v48 v47
+    Guard v49 {
+      Descr 'dict values check'
+      GuiltyReg v30
+      LiveValues<7> b:v29 b:v30 unc:v32 o:v42 uns:v47 uns:v48 uns:v49
+      FrameState {
+        CurInstrOffset 28
+        Locals<5> v29 v30 v42 v32 v32
+        Stack<1> v30
+      }
+    }
+    v50:CUInt64 = IntBinaryOp<Add> v48 v47
+    v51:Object|Nullptr = BitCast v50
+    v52:Object|Nullptr = LoadField<attr@0, Object|Nullptr, owned> v51
+    v53:Object = CheckField<"v"> v52 {
+      GuiltyReg v30
+      LiveValues<5> b:v29 b:v30 unc:v32 o:v42 o:v52
+      FrameState {
+        CurInstrOffset 28
+        Locals<5> v29 v30 v42 v32 v32
+      }
+    }
+    v55:Object|Nullptr = LoadGlobalCached<2; "sys">
+    v56:Mortal0xPTRTop[obj@0xPTR] = GuardIs<0xPTR> v55 {
+      Descr 'sys'
+      LiveValues<6> b:v29 b:v30 unc:v32 o:v42 o:v53 b:v55
+      FrameState {
+        CurInstrOffset 48
+        Locals<5> v29 v30 v42 v32 v32
+        Stack<1> v53
+      }
+    }
+    v58:Object = LoadField<md_dict@16, Object, owned> v56
+    v59:CPtr = LoadField<ma_keys@32, CPtr, owned> v58
+    Decref v58
+    v60:CUInt32 = LoadField<dk_version@12, CUInt32, owned> v59
+    v61:CUInt32[N] = LoadConst<CUInt32[N]>
+    v62:CBool = PrimitiveCompare<Equal> v60 v61
+    Guard v62 {
+      LiveValues<7> b:v29 b:v30 unc:v32 o:v42 o:v53 b:v56 bool:v62
+      FrameState {
+        CurInstrOffset 60
+        Locals<5> v29 v30 v42 v53 v32
+        Stack<1> v56
+      }
+    }
+    v63:CInt64[66] = LoadConst<CInt64[66]>
+    v64:Object|Nullptr = CallStatic<0xPTR, 2> v59 v63
+    v65:Object = CheckField<"maxsize"> v64 {
+      GuiltyReg v56
+      LiveValues<7> b:v29 b:v30 unc:v32 o:v42 o:v53 b:v56 o:v64
+      FrameState {
+        CurInstrOffset 60
+        Locals<5> v29 v30 v42 v53 v32
+      }
+    }
+    v67:0x400Top = GuardType<0x400Top> v42 {
+      LiveValues<5> b:v29 b:v30 o:v42 o:v53 o:v65
+      FrameState {
+        CurInstrOffset 86
+        Locals<5> v29 v30 v42 v53 v65
+        Stack<2> v42 v53
+      }
+    }
+    v68:0x400Top = GuardType<0x400Top> v53 {
+      LiveValues<6> b:v29 b:v30 o:v42 o:v53 o:v65 o:v67
+      FrameState {
+        CurInstrOffset 86
+        Locals<5> v29 v30 v42 v53 v65
+        Stack<2> v42 v53
+      }
+    }
+    v73:0x400Top = LongBinaryOp<Add> v67 v68 {
+      LiveValues<5> b:v29 b:v30 o:v65 o:v67 o:v68
+      FrameState {
+        CurInstrOffset 86
+        Locals<5> v29 v30 v67 v68 v65
+      }
+    }
+    v71:0x400Top = GuardType<0x400Top> v65 {
+      LiveValues<6> b:v29 b:v30 o:v65 o:v67 o:v68 o:v73
+      FrameState {
+        CurInstrOffset 92
+        Locals<5> v29 v30 v67 v68 v65
+        Stack<2> v73 v65
+      }
+    }
+    v74:0x400Top = LongBinaryOp<Add> v73 v71 {
+      LiveValues<6> b:v29 b:v30 o:v67 o:v68 o:v71 o:v73
+      FrameState {
+        CurInstrOffset 92
+        Locals<5> v29 v30 v67 v68 v71
+      }
+    }
+    BatchDecref v67 v68 v71 v73
+    Return v74
+  }
+}
+
+END_GOLDEN_HIR_FINAL
+GOLDEN_HIR_COMPILE __main__:attr_probe
+fun __main__:attr_probe {
+  bb 0 {
+    v29:Object = LoadArg<0; "p">
+    v30:Object = LoadArg<1; "i">
+    LoadFrame
+    v32:Nullptr = LoadConst<Nullptr>
+    UpdatePrevInstr<idx:0 line_no:24: no parent>
+    v33:CInt32 = LoadEvalBreaker
+    CondBranch<2, 1> v33
+  }
+
+  bb 2 (preds 0) {
+    v34:CInt32 = RunPeriodicTasks {
+      LiveValues<3> b:v29 b:v30 unc:v32
+      FrameState {
+        CurInstrOffset 0
+        Locals<5> v29 v30 v32 v32 v32
+      }
+    }
+    Branch<1>
+  }
+
+  bb 1 (preds 0, 2) {
+    v41:Object|Nullptr = LoadField<slot@16, Object|Nullptr, owned> v29
+    v42:Object = CheckField<"x"> v41 {
+      GuiltyReg v29
+      LiveValues<4> b:v29 b:v30 unc:v32 o:v41
+      FrameState {
+        CurInstrOffset 4
+        Locals<5> v29 v30 v32 v32 v32
+      }
+    }
+    v45:Dict|Nullptr = LoadField<__dict__@18446744073709551592, Dict|Nullptr, borrowed> v30
+    v46:Dict = CheckField<"v"> v45 {
+      GuiltyReg v30
+      LiveValues<5> b:v29 b:v30 unc:v32 o:v42 b:v45
+      FrameState {
+        CurInstrOffset 28
+        Locals<5> v29 v30 v42 v32 v32
+      }
+    }
+    v47:CUInt64[1] = LoadConst<CUInt64[1]>
+    v48:CUInt64 = BitCast v46
+    v49:CUInt64 = IntBinaryOp<And> v48 v47
+    Guard v49 {
+      Descr 'dict values check'
+      GuiltyReg v30
+      LiveValues<7> b:v29 b:v30 unc:v32 o:v42 uns:v47 uns:v48 uns:v49
+      FrameState {
+        CurInstrOffset 28
+        Locals<5> v29 v30 v42 v32 v32
+        Stack<1> v30
+      }
+    }
+    v50:CUInt64 = IntBinaryOp<Add> v48 v47
+    v51:Object|Nullptr = BitCast v50
+    v52:Object|Nullptr = LoadField<attr@0, Object|Nullptr, owned> v51
+    v53:Object = CheckField<"v"> v52 {
+      GuiltyReg v30
+      LiveValues<5> b:v29 b:v30 unc:v32 o:v42 o:v52
+      FrameState {
+        CurInstrOffset 28
+        Locals<5> v29 v30 v42 v32 v32
+      }
+    }
+    v55:Object|Nullptr = LoadGlobalCached<2; "sys">
+    v56:Mortal0xPTRTop[obj@0xPTR] = GuardIs<0xPTR> v55 {
+      Descr 'sys'
+      LiveValues<6> b:v29 b:v30 unc:v32 o:v42 o:v53 b:v55
+      FrameState {
+        CurInstrOffset 48
+        Locals<5> v29 v30 v42 v32 v32
+        Stack<1> v53
+      }
+    }
+    v58:Object = LoadField<md_dict@16, Object, owned> v56
+    v59:CPtr = LoadField<ma_keys@32, CPtr, owned> v58
+    Decref v58
+    v60:CUInt32 = LoadField<dk_version@12, CUInt32, owned> v59
+    v61:CUInt32[N] = LoadConst<CUInt32[N]>
+    v62:CBool = PrimitiveCompare<Equal> v60 v61
+    Guard v62 {
+      LiveValues<7> b:v29 b:v30 unc:v32 o:v42 o:v53 b:v56 bool:v62
+      FrameState {
+        CurInstrOffset 60
+        Locals<5> v29 v30 v42 v53 v32
+        Stack<1> v56
+      }
+    }
+    v63:CInt64[66] = LoadConst<CInt64[66]>
+    v64:Object|Nullptr = CallStatic<0xPTR, 2> v59 v63
+    v65:Object = CheckField<"maxsize"> v64 {
+      GuiltyReg v56
+      LiveValues<7> b:v29 b:v30 unc:v32 o:v42 o:v53 b:v56 o:v64
+      FrameState {
+        CurInstrOffset 60
+        Locals<5> v29 v30 v42 v53 v32
+      }
+    }
+    v67:0x400Top = GuardType<0x400Top> v42 {
+      LiveValues<5> b:v29 b:v30 o:v42 o:v53 o:v65
+      FrameState {
+        CurInstrOffset 86
+        Locals<5> v29 v30 v42 v53 v65
+        Stack<2> v42 v53
+      }
+    }
+    v68:0x400Top = GuardType<0x400Top> v53 {
+      LiveValues<6> b:v29 b:v30 o:v42 o:v53 o:v65 o:v67
+      FrameState {
+        CurInstrOffset 86
+        Locals<5> v29 v30 v42 v53 v65
+        Stack<2> v42 v53
+      }
+    }
+    v73:0x400Top = LongBinaryOp<Add> v67 v68 {
+      LiveValues<5> b:v29 b:v30 o:v65 o:v67 o:v68
+      FrameState {
+        CurInstrOffset 86
+        Locals<5> v29 v30 v67 v68 v65
+      }
+    }
+    v71:0x400Top = GuardType<0x400Top> v65 {
+      LiveValues<6> b:v29 b:v30 o:v65 o:v67 o:v68 o:v73
+      FrameState {
+        CurInstrOffset 92
+        Locals<5> v29 v30 v67 v68 v65
+        Stack<2> v73 v65
+      }
+    }
+    v74:0x400Top = LongBinaryOp<Add> v73 v71 {
+      LiveValues<6> b:v29 b:v30 o:v67 o:v68 o:v71 o:v73
+      FrameState {
+        CurInstrOffset 92
+        Locals<5> v29 v30 v67 v68 v71
+      }
+    }
+    BatchDecref v67 v68 v71 v73
+    Return v74
+  }
+}
+
+END_GOLDEN_HIR_COMPILE
