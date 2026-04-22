@@ -17,6 +17,8 @@ caught it> <root cause class> <test-bug | emit-bug | gate-script bug>`.
 | 2 | 2026-04-21 | 15feea07c9   | ARM64 gate (push 36 stash bracket)     | `git stash push -u` captured SCP'd bundle inside cpython tree → fetch failed silently               | gate-script bug  |
 | 3 | 2026-04-21 | 91d5b60f5d   | ARM64 commit-match check               | `grep -oP 'ARM64_COMMIT=\K\S+'` matched heredoc body literal `$(git rev-parse...)` not runtime echo | gate-script bug  |
 | 4 | 2026-04-22 | 79890e7b73   | testkeeper G1.6 prep investigation     | `cp "$PYTHON" "${PYTHON}_gate" \|\| true` silently tolerated 'Text file busy' → gate ran against stale `python_gate` (8382896c85) for pushes 36/37/38; masked emitGetIter validation AND latent LOAD_ATTR_SLOT segfault in generalist's in-flight stash | gate-script bug  |
+| 5 | 2026-04-22 | f3271f58a5   | gate's own commit-match check          | self-induced race: testkeeper committed e8086760e3 + 0a5f096d6f WHILE the gate at f3271f58a5 was running; gate locks COMMIT_HASH at start but `git bundle create` reads HEAD at Step 7 — bundle captured later commits, ARM64 fetched e8086760e3, x86_64 reported f3271f58a5, mismatch flagged | gate-script bug + coordination-discipline gap |
+| 6 | 2026-04-22 | 0a5f096d6f   | supervisor / gatekeeper post-push-39 review | bare-hash `grep "$COMMIT_HASH"` matches both clean `':<hash>,'` AND `-dirty:<hash>` build strings → the SAME contamination class that bit catch #4 (binary built from dirty tree masquerades as clean) was still tolerated by the new BINARY_MATCH check; closed by tightening grep to reject `-dirty` suffix | gate-script bug  |
 
 ## Meta-observation (supervisor 2026-04-22 00:17:13Z)
 

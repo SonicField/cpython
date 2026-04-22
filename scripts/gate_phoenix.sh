@@ -98,13 +98,25 @@ echo "$GATE_BINARY_VERSION" | tee -a "$RESULTS_FILE"
 # the commit hash; --version only carries '3.12.13'. Use sys.version.
 GATE_BINARY_LONG_VERSION=$("$PYTHON" -c 'import sys; print(sys.version)' 2>&1)
 echo "$GATE_BINARY_LONG_VERSION" | tee -a "$RESULTS_FILE"
-if echo "$GATE_BINARY_LONG_VERSION" | grep -q "$COMMIT_HASH"; then
-    echo "BINARY_MATCH: gate binary reports $COMMIT_HASH ✓" | tee -a "$RESULTS_FILE"
-else
+if ! echo "$GATE_BINARY_LONG_VERSION" | grep -q "$COMMIT_HASH"; then
     echo "BINARY_MISMATCH: gate binary does not contain HEAD hash $COMMIT_HASH" | tee -a "$RESULTS_FILE"
     echo "GATE FAIL — gate binary identity does not match HEAD" | tee -a "$RESULTS_FILE"
     exit 1
 fi
+# Reject '-dirty' suffix: per supervisor 2026-04-22 01:08:18Z, the prior
+# 'cp || true' (removed in f3271f58a5) was accidentally protecting the
+# gate by falling back to a stale-clean binary when the local build was
+# dirty. With cp now strict, a -dirty build IS the binary the gate
+# tests. The original 79890e7b73-dirty contamination (catch #4) would
+# match 'BINARY_MATCH 79890e7b73 ✓' under the bare-hash grep — close
+# the loophole.
+if echo "$GATE_BINARY_LONG_VERSION" | grep -q -- "-dirty"; then
+    echo "BINARY_DIRTY: gate binary built with uncommitted working-tree changes" | tee -a "$RESULTS_FILE"
+    echo "  $GATE_BINARY_LONG_VERSION" | tee -a "$RESULTS_FILE"
+    echo "GATE FAIL — gate binary built from a dirty working tree (commit 'git stash' or 'git status --short' before re-running)" | tee -a "$RESULTS_FILE"
+    exit 1
+fi
+echo "BINARY_MATCH: gate binary reports $COMMIT_HASH (clean) ✓" | tee -a "$RESULTS_FILE"
 
 # Step 1b: _reg usage policy gate (no-FS DeoptBase factories banned in simplify_c.c)
 echo "" | tee -a "$RESULTS_FILE"
@@ -536,13 +548,17 @@ if [ "$ARM64" -eq 1 ]; then
         chmod +x python;
         ARM64_BINARY_LONG_VERSION=\$(./python -c 'import sys; print(sys.version)' 2>&1);
         echo ARM64_BINARY_LONG_VERSION=\$ARM64_BINARY_LONG_VERSION;
-        if echo \"\$ARM64_BINARY_LONG_VERSION\" | grep -q \"\$ARM64_COMMIT\"; then
-            echo \"ARM64_BINARY_MATCH: ./python reports \$ARM64_COMMIT ✓\";
-        else
+        if ! echo \"\$ARM64_BINARY_LONG_VERSION\" | grep -q \"\$ARM64_COMMIT\"; then
             echo \"ARM64_BINARY_MISMATCH: ./python does not contain \$ARM64_COMMIT\";
             echo \"GATE FAIL — ARM64 gate binary identity does not match HEAD\";
             exit 99;
         fi;
+        if echo \"\$ARM64_BINARY_LONG_VERSION\" | grep -q -- '-dirty'; then
+            echo \"ARM64_BINARY_DIRTY: ./python built with uncommitted working-tree changes\";
+            echo \"GATE FAIL — ARM64 gate binary built from a dirty working tree\";
+            exit 99;
+        fi;
+        echo \"ARM64_BINARY_MATCH: ./python reports \$ARM64_COMMIT (clean) ✓\";
         JIT_ENABLE=1 ./python -m test test_phoenix_jit_arithmetic test_phoenix_jit_autocompile test_phoenix_jit_comparisons test_phoenix_jit_containers test_phoenix_jit_controlflow test_phoenix_jit_coverage test_phoenix_jit_functions test_phoenix_jit_generators test_phoenix_jit_loadattr_golden test_phoenix_float test_phoenix_hir_type test_phoenix_benchmark_correctness test_phoenix_deferred_compile test_phoenix_profiling_hooks test_phoenix_usetype_float 2>&1 | tail -10;
         echo ARM64_EXIT=\$?;
         echo STASH_POP_BEGIN;
