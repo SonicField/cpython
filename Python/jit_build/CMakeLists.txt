@@ -29,6 +29,12 @@ endif()
 
 # fmt
 add_subdirectory(${JIT_ROOT}/jit_deps/fmt ${CMAKE_BINARY_DIR}/_deps/fmt-build)
+# W8 fix (testkeeper 2026-04-22): fmt's CMakeLists adds 'd' suffix to library
+# name when CMAKE_BUILD_TYPE=Debug (produces libfmtd.a not libfmt.a). CPython
+# main Makefile expects libfmt.a regardless of build mode. Suppress the suffix
+# so --pydebug ARM64 build (CMAKE_BUILD_TYPE=Debug) produces libfmt.a as
+# expected by CPython's link step.
+set_target_properties(fmt PROPERTIES DEBUG_POSTFIX "")
 
 # usdt header
 set(USDT_DIR ${GENERATED_HEADER_DIR}/usdt)
