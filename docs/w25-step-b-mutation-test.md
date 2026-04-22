@@ -14,63 +14,83 @@ claim is theoretical.
 
 ## 1. Mutation choice
 
-Modify `Python/jit/hir/hir_c_api.h` to ADD an extra parameter to a
-widely-used API function. Choice: `hir_block_id`.
+**CRITICAL methodology fix per theologian [chat 2026-04-22 19:26Z]:**
+mutate BOTH `hir_c_api.h` declaration AND `hir_c_api.cpp` impl
+together. Mutating only the header would fail in `hir_c_api.cpp` first
+(header-vs-impl mismatch) — would prove Step A header-impl consistency
+is tight, NOT the §1b drift surface this test should expose.
+
+With dual-mutation (.h + .cpp consistent on new sig):
+- `hir_c_api.cpp` compiles fine (.h + .cpp agree)
+- §1a TUs that include `hir_c_api.h` see new sig → callers with
+  wrong arg count fail to compile (proves §1a path is protected)
+- §1b TUs with local extern decls keep their OLD signature → callers
+  in those TUs compile fine against the local extern, then linker
+  resolves to the new-signature impl → silent runtime UB (PROVES §1b
+  is the unprotected drift surface — exactly what Step B closes)
+
+Mutation function choice: `hir_block_id`.
 
 **Original signature** (post-Step-A at 3404a81192):
 
 ```c
+/* hir_c_api.h */
 int hir_block_id(struct HirBasicBlock *block);
+/* hir_c_api.cpp */
+int hir_block_id(struct HirBasicBlock *block) { ... }
 ```
 
-**Mutated signature** (W25 §5.3 baseline mutation):
+**Mutated signature** (W25 §5.3 baseline mutation, BOTH files):
 
 ```c
+/* hir_c_api.h */
 int hir_block_id(struct HirBasicBlock *block, int unused_drift_param);
+/* hir_c_api.cpp */
+int hir_block_id(struct HirBasicBlock *block, int unused_drift_param) { ... }
 ```
-
-The mutation introduces a parameter-count mismatch. Local extern decls
-in §1b TUs do NOT include the new parameter — every consuming TU has
-stale signature.
 
 Why `hir_block_id`:
 - Called from at least 1 §1b TU (per `count_w25_b1b_tus.sh` survey).
 - Simple int parameter — no implicit-conversion masking.
-- ABI-incompatible mutation (extra arg) — cannot be silently linked
-  because caller pushes wrong arg count.
-- BUT: in C, calling a function with a different signature than its
-  declaration is undefined behavior, NOT a hard link error. The
-  question §5.3 answers empirically is whether THIS specific mutation
-  is caught by the build, the linker, or only at runtime.
+- ABI-incompatible mutation (extra arg) — caller pushes wrong arg
+  count vs callee expects new arg → silent UB at runtime.
+- In C, calling a function with a different signature than its
+  declaration is undefined behavior, NOT a hard link error. §5.3
+  answers empirically what this UB looks like in our build.
 
-## 2. Baseline procedure (pre-Step-B, run NOW at HEAD 3404a81192)
+## 2. Baseline procedure (pre-Step-B, run at HEAD e8b8c149fe or later)
 
 ```bash
 # Step 1: capture baseline state
-git rev-parse HEAD  # expect: 3404a811927d1fb1fce61ce7f1ab8763f988711e
+git rev-parse HEAD  # expect: e8b8c149fe... (this commit) or its descendant
 
-# Step 2: apply mutation
+# Step 2: apply DUAL mutation (.h + .cpp must stay consistent)
 cd /data/users/alexturner/phoenix/cpython
 git stash --include-untracked  # stash any working-tree changes
+# Mutate header decl
 sed -i 's|int hir_block_id(struct HirBasicBlock \*block);|int hir_block_id(struct HirBasicBlock *block, int unused_drift_param);|' Python/jit/hir/hir_c_api.h
+# Mutate cpp impl signature line (preserves brace-on-same-line)
+sed -i 's|int hir_block_id(struct HirBasicBlock \*block) {|int hir_block_id(struct HirBasicBlock *block, int unused_drift_param) {|' Python/jit/hir/hir_c_api.cpp
 
-# Verify mutation applied
+# Verify both mutations applied
 grep -A1 "hir_block_id" Python/jit/hir/hir_c_api.h | head -5
+grep -A1 "^int hir_block_id" Python/jit/hir/hir_c_api.cpp | head -3
 
 # Step 3: try to build
 scripts/build_phoenix.sh > /tmp/w25-mutation-baseline-stdout.log 2>&1
 echo "BUILD_EXIT=$?" >> /tmp/w25-mutation-baseline-stdout.log
 
 # Step 4: capture findings
-echo "=== BASELINE (pre-Step-B at 3404a81192) ===" > docs/w25-step-b-mutation-baseline.txt
+echo "=== BASELINE (pre-Step-B, dual-mutation .h+.cpp) ===" > docs/w25-step-b-mutation-baseline.txt
+echo "HEAD: $(git rev-parse HEAD)" >> docs/w25-step-b-mutation-baseline.txt
 grep -E "error:|warning:|BUILD_EXIT" /tmp/w25-mutation-baseline-stdout.log | tail -30 >> docs/w25-step-b-mutation-baseline.txt
 
-# Step 5: revert
-git checkout -- Python/jit/hir/hir_c_api.h
+# Step 5: revert BOTH files
+git checkout -- Python/jit/hir/hir_c_api.h Python/jit/hir/hir_c_api.cpp
 git stash pop || true  # restore stashed working tree
 
 # Step 6: verify revert succeeded
-git diff Python/jit/hir/hir_c_api.h  # expect: empty
+git diff Python/jit/hir/hir_c_api.h Python/jit/hir/hir_c_api.cpp  # expect: empty
 ```
 
 ## 3. Expected baseline outcome
@@ -98,10 +118,12 @@ hir_c_api.h):
 ```bash
 # At post-Step-B HEAD
 git rev-parse HEAD  # expect: <Step B's last commit hash>
+# Same DUAL mutation as §2 — keep .h + .cpp consistent
 sed -i 's|int hir_block_id(struct HirBasicBlock \*block);|int hir_block_id(struct HirBasicBlock *block, int unused_drift_param);|' Python/jit/hir/hir_c_api.h
+sed -i 's|int hir_block_id(struct HirBasicBlock \*block) {|int hir_block_id(struct HirBasicBlock *block, int unused_drift_param) {|' Python/jit/hir/hir_c_api.cpp
 scripts/build_phoenix.sh > /tmp/w25-mutation-poststepb-stdout.log 2>&1
 echo "BUILD_EXIT=$?" >> /tmp/w25-mutation-poststepb-stdout.log
-git checkout -- Python/jit/hir/hir_c_api.h
+git checkout -- Python/jit/hir/hir_c_api.h Python/jit/hir/hir_c_api.cpp
 ```
 
 **Expected post-Step-B outcome:** compile FAILS in every consuming TU
