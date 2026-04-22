@@ -9,6 +9,7 @@
  *   HIR_TYPE_* HirType constants  (hir_type_c.h)
  */
 
+#include "cinderx/Jit/hir/hir_c_api.h"
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/hir/hir_opcode_c.h"
@@ -459,14 +460,11 @@ void hir_reflow_types_c(void *func, void *start_block) {
 
 /* ==== simplifyRedundantCondBranches C port ==== */
 
-extern size_t hir_c_num_edges(const void *instr);
-extern void *hir_c_successor(const void *instr, size_t idx);
+/* W25 Step B-3: Class C1 externs kept (B-3.5 will promote). Other externs
+ * deleted post-W25 Step A — canonical decls now visible via #include
+ * "hir_c_api.h" (Class A) and #include "hir_instr_c.h" (Class C2 IC). */
 extern void *hir_cfg_blocks_first_ptr(void *cfg);
 extern void *hir_cfg_blocks_next_ptr(void *cfg, void *block);
-extern void hir_instr_unlink(void *instr);
-extern void hir_instr_destroy(void *instr);
-extern void *hir_c_create_branch_cpp(void *target_block);
-extern void hir_c_set_bytecode_offset(void *instr, int32_t off);
 
 void hir_simplify_redundant_cond_branches_c(void *cfg) {
     /* Collect blocks with redundant cond branches (both edges to same target) */
@@ -522,8 +520,9 @@ void *hir_chase_assign_operand(void *value) {
 }
 
 /* ==== removeTrampolineBlocks C port ==== */
+/* W25 Step B-3: hir_bb_destroy now in hir_basic_block_c.h (already included).
+ * hir_bb_set_successor_null kept as Class C1 (B-3.5 will promote). */
 extern void hir_bb_set_successor_null(void *block, size_t idx);
-extern void hir_bb_destroy(void *block);
 
 int hir_remove_trampoline_blocks_c(void *cfg) {
     void *trampolines[1024];
@@ -635,9 +634,7 @@ int hir_remove_unreachable_blocks_c(void *func) {
 }
 
 /* ==== splitCriticalEdges C port ==== */
-extern void hir_bb_fixup_phis(void *block, void *old_pred, void *new_pred);
-extern void *hir_c_set_successor_cpp(void *instr, size_t idx, void *block);
-extern void *hir_cfg_alloc_block(void *func);
+/* W25 Step B-3: Class A externs deleted (canonical decls in hir_c_api.h). */
 
 void hir_cfg_split_critical_edges_c(void *func) {
     void *cfg = hir_func_cfg_ptr(func);
@@ -699,7 +696,7 @@ void *hir_cfg_get_block_by_id(void *cfg, int id) {
 }
 
 /* ==== AllocateUnlinkedBlock C port ==== */
-extern void *hir_cfg_allocate_unlinked_block(void *cfg);
+/* W25 Step B-3: Class A extern deleted (canonical decl in hir_c_api.h). */
 
 /* ==== RegUses: register → instruction use set ==== */
 typedef struct {
@@ -931,16 +928,13 @@ void hir_optimize_long_decref_runs_c(void *func) {
 /* ==== removeUnreachableInstructions C port ==== */
 #include "cinderx/Jit/hir/dominator_c.h"
 
+/* W25 Step B-3: Class A externs deleted (canonical decls in hir_c_api.h).
+ * Class C1 externs kept (B-3.5 will promote). hir_output_type non-lint kept. */
 extern int hir_instr_is_deopt_base(void *instr);
 extern HirType hir_output_type(void *instr);
-extern void hir_instr_replace_with(void *old_instr, void *new_instr);
 extern void hir_instr_replace_uses_of(void *instr, void *old_reg, void *new_reg);
-extern void *hir_c_create_refine_type_reg(void *dst, HirType type, void *src);
-extern void *hir_func_alloc_register(void *func);
-extern void hir_c_insert_before(void *new_instr, void *before);
 extern void *hir_c_cond_branch_true_bb(void *instr);
 extern void *hir_c_cond_branch_false_bb(void *instr);
-extern void *hir_c_create_branch_cpp(void *target_block);
 
 static int is_output_bottom(void *instr) {
     void *out = hir_c_output(instr);
