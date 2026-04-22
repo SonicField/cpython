@@ -2459,8 +2459,10 @@ static IsInstanceIfData is_vectorcall_if_isinstance_c(SimplifyEnv *env,
     enum { kInitial, kCondBranch, kIsTruthy, kFailed } state = kInitial;
     void *output_reg = NULL;
 
-    extern void *hir_bb_last_instr(const void *bb);
-    extern void *hir_bb_prev_instr(const void *bb, void *instr);
+    /* W25 B-5 fix: hir_bb_last_instr + hir_bb_prev_instr canonical in
+     * hir_basic_block_c.h (already included). Local externs were function-
+     * scoped + missed by ^extern lint scan; conflicting types caught at
+     * compile-time after include landed. Class A pattern delete. */
     void *current = hir_bb_last_instr(block);
 
     while (current && state != kFailed) {
