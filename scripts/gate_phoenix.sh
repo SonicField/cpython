@@ -167,6 +167,29 @@ else
     echo "Preserved symbols: PASS (all $( echo $MUST_SURVIVE | wc -w) symbols present)" | tee -a "$RESULTS_FILE"
 fi
 
+# Step 1d: W25 lint gate (Step C per W25 spec docs/w25-hbb-canonicalization.md §3).
+# Catches local extern decls of API functions (file-scope OR function-scope) that
+# would re-introduce the §1b drift surface W25 Step B closed (293 lint externs
+# across 9 TUs). Theologian L2347 revised pattern uses ^[[:space:]]*extern to
+# match both line-start (file-scope) and indented (function-scope) externs.
+echo "" | tee -a "$RESULTS_FILE"
+echo "--- Step 1d: W25 Lint Gate ---" | tee -a "$RESULTS_FILE"
+W25_VIOLATORS=$(grep -rE '^[[:space:]]*extern[[:space:]]+.*hir_(c_|cfg_|block_|bb_|edge_|func_|instr_)' \
+    "$CPYTHON_ROOT/Python/jit/hir/" \
+    --include='*.c' --include='*.cpp' \
+    --exclude='hir_c_api.h' --exclude='hir_basic_block_c.h' --exclude='builder.cpp' \
+    2>/dev/null || true)
+if [ -n "$W25_VIOLATORS" ]; then
+    echo "GATE FAIL — W25 lint pattern matched local extern decls of API functions:" | tee -a "$RESULTS_FILE"
+    echo "$W25_VIOLATORS" | tee -a "$RESULTS_FILE"
+    echo "Fix: delete the extern + add #include of canonical header (hir_c_api.h," | tee -a "$RESULTS_FILE"
+    echo "  hir_basic_block_c.h, hir_instr_c.h, or hir_cfg_rpo_c.h depending on the function)." | tee -a "$RESULTS_FILE"
+    GATE_PASS=0
+    FAILURES="$FAILURES w25_lint:$(echo "$W25_VIOLATORS" | wc -l)"
+else
+    echo "W25 lint gate: PASS (0 lint-pattern externs)" | tee -a "$RESULTS_FILE"
+fi
+
 # Step 2: Verify JIT compiles and executes
 echo "" | tee -a "$RESULTS_FILE"
 echo "--- Step 2: JIT Smoke Test ---" | tee -a "$RESULTS_FILE"
