@@ -3597,68 +3597,46 @@ void HIRBuilder::emitInvokeMethodVectorCall(
       Type::toHirType(target.return_type));
 }
 
+extern "C" void hir_builder_emit_load_method_static_c(
+    void* tc, void* func, void* builder,
+    int is_classmethod,
+    intptr_t vte_state_offset,
+    intptr_t vte_load_offset,
+    int is_static,
+    void** out_entry_func);
+
 void HIRBuilder::emitLoadMethodStatic(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   PyObject* arg = constArg(bc_instr);
   PyObject* descr = PyTuple_GET_ITEM(arg, 0);
   bool is_classmethod = _PyClassLoader_IsClassMethodDescr(arg);
-
   const InvokeTarget& target = preloader_.invokeMethodTarget(descr);
-
-  Register* self = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  auto type = temps_.AllocateStack();
-  if (!is_classmethod) {
-    tc.emitLoadField(
-        type, self, "ob_type", offsetof(PyObject, ob_type), TType);
-  } else {
-    type = self;
-  }
-
-  Register* vtable = temps_.AllocateNonStack();
-  Register* func_obj = temps_.AllocateNonStack();
-
-  tc.emitLoadField(
-      vtable, type, "tp_cache", offsetof(PyTypeObject, tp_cache), TObject);
+  // Pre-compute vtable byte offsets in C++ stub (avoids classloader.h
+  // dependency in the C body — _PyType_VTable + _PyType_VTableEntry
+  // struct definitions stay C++-side per A1 design).
   size_t entry_offset = offsetof(_PyType_VTable, vt_entries) +
       target.slot * sizeof(_PyType_VTableEntry);
-
-  tc.emitLoadField(
-      func_obj,
-      vtable,
-      "vte_state",
-      entry_offset + offsetof(_PyType_VTableEntry, vte_state),
-      TObject);
-
-  // If this is natively callable then we'll want to get load_func for
-  // the dispatch later. Otherwise we'll just vectorcall to the function.
-  Register* entry_func = temps_.AllocateNonStack();
-  Register* vtable_load = temps_.AllocateNonStack();
-
-  tc.emitLoadField(
-      vtable_load,
-      vtable,
-      "vte_load",
-      entry_offset + offsetof(_PyType_VTableEntry, vte_load),
-      TCPtr);
-
-  auto call = tc.emitCallInd(3, func_obj, "vte_load", TOptObject);
-  call->SetOperand(0, vtable_load);
-  call->SetOperand(1, func_obj);
-  call->SetOperand(2, self);
-  call->setFrameState(tc.frame);
-
-  if (target.is_statically_typed) {
-    // the entry func isn't used by the interpreter and can't be de-opted but
-    // we can have a LOAD_METHOD_STATIC that has another LOAD_METHOD_STATIC
-    // before we get to the invokes.
-    tc.emitGetSecondOutput(entry_func, TCPtr, func_obj);
-
-    static_method_stack_.push(entry_func);
+  intptr_t vte_state_offset =
+      static_cast<intptr_t>(entry_offset + offsetof(_PyType_VTableEntry, vte_state));
+  intptr_t vte_load_offset =
+      static_cast<intptr_t>(entry_offset + offsetof(_PyType_VTableEntry, vte_load));
+  void* entry_func = nullptr;
+  hir_builder_emit_load_method_static_c(
+      static_cast<void*>(&tc),
+      static_cast<void*>(current_func_),
+      static_cast<void*>(this),
+      static_cast<int>(is_classmethod),
+      vte_state_offset,
+      vte_load_offset,
+      static_cast<int>(target.is_statically_typed),
+      &entry_func);
+  // Post-call: static_method_stack_.push handled in C++ side per A1
+  // (zero new bridges). C body always writes out_entry_func; we push
+  // only when is_statically_typed, mirroring the C++ original.
+  if (target.is_statically_typed && entry_func != nullptr) {
+    static_method_stack_.push(static_cast<Register*>(entry_func));
   }
-
-  phx_ptr_arr_push(&tc.frame.stack, func_obj);
-  phx_ptr_arr_push(&tc.frame.stack, self);
 }
 
 bool HIRBuilder::emitInvokeMethod(

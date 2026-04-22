@@ -2747,3 +2747,92 @@ void hir_builder_emit_get_awaitable_c(
     phx_ptr_arr_push(&tc->frame.stack, iter);
     tc->block = block_done;
 }
+
+/* emitLoadMethodStatic — LOAD_METHOD_STATIC handler (Cinder static-typed
+ * method dispatch). Mirrors C++ HIRBuilder::emitLoadMethodStatic @
+ * builder.cpp:3600.
+ *
+ * Approach A1 (theologian chat 2026-04-22 14:14:19Z): zero new bridges.
+ * C++ stub extracts InvokeTarget data + computes vtable byte offsets
+ * (avoiding classloader.h dependency in this C TU) + post-call handles
+ * static_method_stack_.push via out-param. C body emits the LoadField +
+ * CallInd + GetSecondOutput chain.
+ *
+ * 6 phases per pre-audit:
+ *   P2: pop self, alloc type, conditional LoadField (or type=self for
+ *       classmethod alias)
+ *   P3: alloc vtable + func_obj (NonStack via hir_func_alloc_register),
+ *       LoadField vtable (tp_cache), LoadField func_obj (vte_state)
+ *   P4: alloc entry_func + vtable_load (NonStack), LoadField vtable_load
+ *       (vte_load), CallInd(3 ops, vte_load name, TOptObject)
+ *   P5: conditional GetSecondOutput(entry_func, TCPtr, func_obj); always
+ *       write *out_entry_func = entry_func
+ *   P6: push func_obj THEN push self (order matters)
+ *
+ * out_entry_func is set to the pre-allocated entry_func register
+ * unconditionally so the C++ stub can decide whether to push it onto
+ * static_method_stack_ based on is_static (gates the stack push only). */
+extern void *hir_c_create_call_ind_reg2(
+    size_t n_operands, void *dst, const char *name, HirType ret_type);
+
+void hir_builder_emit_load_method_static_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder,
+        int is_classmethod,
+        intptr_t vte_state_offset,
+        intptr_t vte_load_offset,
+        int is_static,
+        void **out_entry_func) {
+    HirType t_type = HIR_TYPE_TYPE;
+    HirType t_object = HIR_TYPE_OBJECT;
+    HirType t_cptr = HIR_TYPE_CPTR;
+    HirType t_opt_object = HIR_TYPE_OPTOBJECT;
+
+    /* P2: pop self, alloc type. */
+    void *self = phx_ptr_arr_pop(&tc->frame.stack);
+    void *type = hir_builder_temps_alloc_stack(builder);
+    if (!is_classmethod) {
+        phx_tc_emit(tc, hir_c_create_load_field_reg(
+            type, self, "ob_type",
+            (intptr_t)offsetof(PyObject, ob_type), t_type, 0));
+    } else {
+        /* Classmethod path: type aliases self. The pre-allocated `type`
+         * temp is unused (matches C++ semantics — leaked-but-unused). */
+        type = self;
+    }
+
+    /* P3: alloc vtable + func_obj (NonStack equivalent). */
+    void *vtable = hir_func_alloc_register(func);
+    void *func_obj = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_load_field_reg(
+        vtable, type, "tp_cache",
+        (intptr_t)offsetof(PyTypeObject, tp_cache), t_object, 0));
+    phx_tc_emit(tc, hir_c_create_load_field_reg(
+        func_obj, vtable, "vte_state", vte_state_offset, t_object, 0));
+
+    /* P4: alloc entry_func + vtable_load (NonStack), CallInd. */
+    void *entry_func = hir_func_alloc_register(func);
+    void *vtable_load = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_load_field_reg(
+        vtable_load, vtable, "vte_load", vte_load_offset, t_cptr, 0));
+
+    void *call = hir_c_create_call_ind_reg2(3, func_obj, "vte_load", t_opt_object);
+    hir_c_set_operand(call, 0, vtable_load);
+    hir_c_set_operand(call, 1, func_obj);
+    hir_c_set_operand(call, 2, self);
+    hir_deopt_set_frame_state(call, &tc->frame);
+    phx_tc_emit(tc, call);
+
+    /* P5: conditional GetSecondOutput; always write out_entry_func. */
+    if (is_static) {
+        phx_tc_emit(tc, hir_c_create_get_second_output_reg(
+            entry_func, t_cptr, func_obj));
+    }
+    *out_entry_func = entry_func;
+
+    /* P6: push func_obj THEN self (order matters per C++ line 3660-3661). */
+    phx_ptr_arr_push(&tc->frame.stack, func_obj);
+    phx_ptr_arr_push(&tc->frame.stack, self);
+}
+
