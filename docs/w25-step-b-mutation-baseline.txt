@@ -37,3 +37,25 @@ Post-Step-B reality:
 §5.3 acceptance per spec §5: PASS end-to-end (PRE-STEP-B BUILD_EXIT=0 + POST-STEP-B BUILD_EXIT≠0 with errors at expected §1b TUs).
 
 Authorship: testkeeper executed procedure (chat L2327); generalist commits artifact per role boundary (push 67 precedent).
+
+=== POST-STEP-B-FINAL (TYPE-ONLY mutation, dual .h+.cpp at HEAD dac46b963ea370005f9a58ebca11f26725fbe797) ===
+Mutation: hir_c_insert_before 2nd arg HirInstr → struct HirBasicBlock* in BOTH .h (line 744) and .cpp (line 2349)
+NO arity change (still 2 args). Pure void*-typedef drift class test.
+
+BUILD_EXIT=0  ← DRIFT UNDETECTED at compile time = void*-typedef drift class REAL
+
+C99 §6.3.2.3 reality:
+- hir_c_api.cpp compiles fine (impl uses as_instr cast, void*→struct ptr legal)
+- §1b TUs include hir_c_api.h, see canonical (struct HirBasicBlock *) sig
+- Callers pass HirInstr (= void*); compiler implicitly converts void* → struct HirBasicBlock* with NO diagnostic
+- Linker resolves silently → runtime UB if call sites execute (impl gets pointer mis-typed at the type-system level, but bits are identical because both are 8-byte pointers)
+
+Per spec §5 acceptance interpretation (theologian L2371):
+- BUILD_EXIT=2 (caught) = void*-typedef partially closed via canonicalization ← NOT this case
+- BUILD_EXIT=0 (uncaught) = void*-typedef drift REAL = W25b (HirInstr/HirRegister/HirFunction → struct ptr promotion) REQUIRED ← THIS case
+
+W25 outcome:
+- ARITY drift on canonical-included paths: CLOSED (Step B + C)
+- TYPE-ONLY drift on void*-aliased handles: OPEN — W25b required for full coverage
+
+Authorship: testkeeper executed (chat L2382); generalist commits artifact per role boundary.
