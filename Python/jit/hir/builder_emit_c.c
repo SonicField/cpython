@@ -2836,3 +2836,181 @@ void hir_builder_emit_load_method_static_c(
     phx_ptr_arr_push(&tc->frame.stack, self);
 }
 
+/* emitUnpackSequence — UNPACK_SEQUENCE handler. Most-complex 7-phase
+ * multi-block conversion remaining (122-line C++ source). Mirrors C++
+ * HIRBuilder::emitUnpackSequence @ builder.cpp:4759.
+ *
+ * Theologian pre-audit (chat 2026-04-22 14:30:30Z): 7 phases, 22
+ * invariants, 5 pitfalls. ZERO new bridges per W25-defer A1 design.
+ *
+ * 5 BLOCKS allocated upfront (deopt_path, fast_path_1, list_check_path,
+ * list_fast_path, tuple_fast_path) + 1 RE-ALLOC (fast_path_2 inside P6
+ * — distinct from fast_path_1 per pitfall PB).
+ *
+ * 3 mutually-exclusive type-narrowing paths (P3):
+ *   isA(TTupleExact) — static narrow → Branch(tuple_fast_path)
+ *   isA(TListExact)  — static narrow → Branch(list_fast_path)
+ *   else             — runtime CondBranchCheckType chain
+ *
+ * Pitfalls addressed inline:
+ *   (PA) deopt_path frame_state_copy BEFORE pop (preserves pre-pop stack
+ *        with seq for interpreter resume on deopt)
+ *   (PB) fast_path RE-ALLOCATED at P6 (distinct from initial alloc at
+ *        P2 — semantically "fast path 1" vs "fast path 2"; named
+ *        fast_path_extract_loop in C body for clarity)
+ *   (PC) emitGuardType in-place SSA-rename: GuardType(seq, type, seq)
+ *   (PD) Py_GIL_DISABLED branches DROPPED for 3.12 (3.13+ would need
+ *        re-introduction)
+ *   (PE) phx_frame_state_destroy on deopt_path TC at function end
+ *
+ * specialized_op = -1 means jit_get_config()->specialized_opcodes was
+ * disabled (C++ stub passes -1 to skip P0). Other values are opcode
+ * integers per opcode.h. */
+extern void *hir_c_create_load_var_object_size_reg(void *dst, void *src);
+extern void *hir_c_create_load_array_item_reg(
+    void *dst, void *arr, void *idx, void *container,
+    intptr_t offset, HirType type);
+extern void *hir_c_create_load_field_address_reg(
+    void *dst, void *object, void *offset);
+extern void *hir_c_create_primitive_compare(
+    void *dst, int32_t op, void *left, void *right);
+extern void hir_c_set_guilty_reg(void *instr, void *reg);
+extern void hir_c_set_descr(void *instr, const char *descr);
+extern void *hir_c_create_load_const(void *reg, HirType type);
+extern void *hir_c_create_guard_type_reg(void *dst, HirType target, void *src);
+
+void hir_builder_emit_unpack_sequence_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder,
+        int oparg,
+        int bc_offset,
+        int specialized_op) {
+    /* P0: PEEK seq (do not pop yet — see PA). */
+    void *seq = tc->frame.stack.data[tc->frame.stack.count - 1];
+
+    /* P0 specialized-opcode dispatch (skipped if stub passed -1). */
+    if (specialized_op >= 0) {
+        phx_tc_emit(tc, hir_c_create_snapshot(&tc->frame));
+        switch (specialized_op) {
+            case UNPACK_SEQUENCE_LIST: {
+                HirType t_list = HIR_TYPE_LISTEXACT;
+                /* (PC) in-place SSA rename: seq is both input and output. */
+                void *guard = hir_c_create_guard_type_reg(seq, t_list, seq);
+                hir_deopt_set_frame_state(guard, &tc->frame);
+                phx_tc_emit(tc, guard);
+                break;
+            }
+            case UNPACK_SEQUENCE_TUPLE:
+            case UNPACK_SEQUENCE_TWO_TUPLE: {
+                HirType t_tuple = HIR_TYPE_TUPLEEXACT;
+                void *guard = hir_c_create_guard_type_reg(seq, t_tuple, seq);
+                hir_deopt_set_frame_state(guard, &tc->frame);
+                phx_tc_emit(tc, guard);
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    /* P1: deopt_path setup. (PA) frame_state_copy BEFORE pop. */
+    void *deopt_block = hir_cfg_alloc_block(func);
+    PhxTranslationContext deopt_tc;
+    deopt_tc.block = deopt_block;
+    phx_frame_state_copy(&deopt_tc.frame, &tc->frame);
+    deopt_tc.frame.cur_instr_offs = bc_offset;
+    phx_tc_emit(&deopt_tc, hir_c_create_snapshot(&deopt_tc.frame));
+    void *deopt_instr = hir_c_create_deopt();
+    phx_tc_emit(&deopt_tc, deopt_instr);
+    hir_c_set_guilty_reg(deopt_instr, seq);
+    hir_c_set_descr(deopt_instr, "UNPACK_SEQUENCE");
+
+    /* P2: block allocations + pop. */
+    void *fast_path = hir_cfg_alloc_block(func);
+    void *list_check_path = hir_cfg_alloc_block(func);
+    void *list_fast_path = hir_cfg_alloc_block(func);
+    void *tuple_fast_path = hir_cfg_alloc_block(func);
+    void *list_mem = hir_builder_temps_alloc_stack(builder);
+    /* Now pop seq from main tc.stack (deopt_tc.frame already preserved
+     * the pre-pop state per PA). */
+    phx_ptr_arr_pop(&tc->frame.stack);
+
+    /* P3: 3 mutually-exclusive type-narrowing paths. */
+    HirType seq_type = hir_register_type(seq);
+    HirType t_tuple_exact = HIR_TYPE_TUPLEEXACT;
+    HirType t_list_exact = HIR_TYPE_LISTEXACT;
+    if (hir_type_is_subtype(seq_type, t_tuple_exact)) {
+        phx_tc_emit(tc, hir_c_create_branch_cpp(tuple_fast_path));
+    } else if (hir_type_is_subtype(seq_type, t_list_exact)) {
+        /* (PD) Py_GIL_DISABLED branch dropped for 3.12 (3.13+ would
+         * Branch(deopt_block) instead). */
+        phx_tc_emit(tc, hir_c_create_branch_cpp(list_fast_path));
+    } else {
+        phx_tc_emit(tc, hir_c_create_cond_branch_check_type_cpp(
+            seq, t_tuple_exact, tuple_fast_path, list_check_path));
+        tc->block = list_check_path;
+        /* (PD) same: 3.12 always uses list_fast_path. */
+        phx_tc_emit(tc, hir_c_create_cond_branch_check_type_cpp(
+            seq, t_list_exact, list_fast_path, deopt_block));
+    }
+
+    /* P4: tuple_fast_path emission. */
+    tc->block = tuple_fast_path;
+    {
+        void *offset_reg = hir_builder_temps_alloc_stack(builder);
+        HirType t_cint64 = (HirType)HIR_TYPE_CINT64;
+        HirType offset_type = hir_type_from_cint(
+            (int64_t)offsetof(PyTupleObject, ob_item), t_cint64);
+        phx_tc_emit(tc, hir_c_create_load_const(offset_reg, offset_type));
+        phx_tc_emit(tc, hir_c_create_load_field_address_reg(
+            list_mem, seq, offset_reg));
+        phx_tc_emit(tc, hir_c_create_branch_cpp(fast_path));
+    }
+
+    /* P5: list_fast_path emission. */
+    tc->block = list_fast_path;
+    {
+        HirType t_cptr = (HirType)HIR_TYPE_CPTR;
+        phx_tc_emit(tc, hir_c_create_load_field_reg(
+            list_mem, seq, "ob_item",
+            (intptr_t)offsetof(PyListObject, ob_item), t_cptr, 0));
+        phx_tc_emit(tc, hir_c_create_branch_cpp(fast_path));
+    }
+
+    /* P6: fast_path size check. */
+    tc->block = fast_path;
+    {
+        void *seq_size = hir_builder_temps_alloc_stack(builder);
+        void *target_size = hir_builder_temps_alloc_stack(builder);
+        void *is_equal = hir_builder_temps_alloc_stack(builder);
+        HirType t_cint64 = (HirType)HIR_TYPE_CINT64;
+        phx_tc_emit(tc, hir_c_create_load_var_object_size_reg(seq_size, seq));
+        phx_tc_emit(tc, hir_c_create_load_const(
+            target_size, hir_type_from_cint((int64_t)oparg, t_cint64)));
+        phx_tc_emit(tc, hir_c_create_primitive_compare(
+            is_equal, /*HIR_PCMP_Equal=*/2, seq_size, target_size));
+        /* (PB) RE-ALLOC fast_path — distinct block from initial. */
+        void *fast_path_extract_loop = hir_cfg_alloc_block(func);
+        phx_tc_emit(tc, hir_c_create_cond_branch_cpp(
+            is_equal, fast_path_extract_loop, deopt_block));
+
+        /* P7: item extraction loop. */
+        tc->block = fast_path_extract_loop;
+        void *idx_reg = hir_builder_temps_alloc_stack(builder);
+        HirType t_object = HIR_TYPE_OBJECT;
+        for (int idx = oparg - 1; idx >= 0; --idx) {
+            void *item = hir_builder_temps_alloc_stack(builder);
+            phx_tc_emit(tc, hir_c_create_load_const(
+                idx_reg, hir_type_from_cint((int64_t)idx, t_cint64)));
+            phx_tc_emit(tc, hir_c_create_load_array_item_reg(
+                item, list_mem, idx_reg, seq, /*offset=*/0, t_object));
+            phx_ptr_arr_push(&tc->frame.stack, item);
+        }
+    }
+
+    /* (PE) frame_state_destroy on deopt_path TC. */
+    phx_frame_state_destroy(&deopt_tc.frame);
+}
+
+

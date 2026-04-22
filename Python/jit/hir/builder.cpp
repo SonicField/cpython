@@ -4753,127 +4753,27 @@ void HIRBuilder::emitUnpackEx(
       static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
+extern "C" void hir_builder_emit_unpack_sequence_c(
+    void* tc, void* func, void* builder,
+    int oparg, int bc_offset, int specialized_op);
+
 void HIRBuilder::emitUnpackSequence(
-    CFG& cfg,
+    CFG& /*cfg*/,
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* seq = static_cast<Register*>(stack.data[stack.count - 1]);
-
-  if (jit_get_config()->specialized_opcodes) {
-    // Bug 6 fix: ensure dominating Snapshot for specialised-opcode GuardType
-    tc.emitSnapshot();
-    switch (bc_instr.specializedOpcode()) {
-      case UNPACK_SEQUENCE_LIST:
-        tc.emitGuardType(seq, TListExact, seq, tc.frame);
-        break;
-      case UNPACK_SEQUENCE_TUPLE:
-      case UNPACK_SEQUENCE_TWO_TUPLE:
-        tc.emitGuardType(seq, TTupleExact, seq, tc.frame);
-        break;
-      default:
-        break;
-    }
-  }
-
-  TranslationContext deopt_path{cfg.AllocateBlock(), tc.frame};
-  deopt_path.frame.cur_instr_offs = bc_instr.baseOffset();
-  deopt_path.emitSnapshot();
-  auto* deopt = static_cast<DeoptBase*>(deopt_path.emitDeopt());
-  deopt->setGuiltyReg(seq);
-  deopt->setDescr("UNPACK_SEQUENCE");
-
-  BasicBlock* fast_path = cfg.AllocateBlock();
-  BasicBlock* list_check_path = cfg.AllocateBlock();
-  BasicBlock* list_fast_path = cfg.AllocateBlock();
-  BasicBlock* tuple_fast_path = cfg.AllocateBlock();
-  Register* list_mem = temps_.AllocateStack();
-  static_cast<Register*>(phx_ptr_arr_pop(&stack));
-
-  // TODO: The manual type checks and branches should go away once we get
-  // PGO support to be able to optimize to known types.
-
-  //---
-  // +-main------------------------------+         +-tuple_fast_path------+
-  // | CondBranchCheckType (TTupleExact) |-truthy->| LoadConst (ob_item)  |
-  // +-----------------------------------+         | LoadFieldAddress     |
-  //    |                                          | Branch               |--+
-  //  falsy                                        +----------------------+  |
-  //    |                                                                    |
-  //    v                                                                    |
-  // +-list_check_path------------------+         +-list_fast_path------+    |
-  // | CondBranchCheckType (TListExact) |-truthy->| LoadField (ob_item) |    |
-  // +----------------------------------+         | Branch              |----+
-  //   |                                          +---------------------+    |
-  //  falsy                                                                  |
-  //   |                                          +-fast_path---------+      |
-  //   |                                          | LoadVarObjectSize |<-----+
-  //   v                                          | LoadConst         |
-  // +-deopt_path-+                               | PrimitiveCompare  |
-  // | Deopt      |<----------falsy---------------| CondBranch        |------+
-  // +------------+                               +-------------------+      |
-  //                                                                         |
-  //                                              +-fast_path-----+          |
-  //                                              | LoadConst     |<-truthy--+
-  //                                              | LoadArrayItem |
-  //                                              +---------------+
-  //---
-
-  if (seq->isA(TTupleExact)) {
-    tc.emitBranch(tuple_fast_path);
-  } else if (seq->isA(TListExact)) {
-// TODO(T255264577). Enable this again. See P2169677587.
-#ifdef Py_GIL_DISABLED
-    tc.emitBranch(deopt_path.block);
-#else
-    tc.emitBranch(list_fast_path);
-#endif
-  } else {
-    tc.emitCondBranchCheckType(
-        seq, TTupleExact, tuple_fast_path, list_check_path);
-
-    tc.block = list_check_path;
-// TODO(T255264577). Enable this again. See P2169677587.
-#ifdef Py_GIL_DISABLED
-    tc.emitBranch(deopt_path.block);
-#else
-    tc.emitCondBranchCheckType(
-        seq, TListExact, list_fast_path, deopt_path.block);
-#endif
-  }
-
-  tc.block = tuple_fast_path;
-  Register* offset_reg = temps_.AllocateStack();
-  tc.emitLoadConst(
-      offset_reg, Type::fromCInt(offsetof(PyTupleObject, ob_item), TCInt64));
-  tc.emitLoadFieldAddress(list_mem, seq, offset_reg);
-  tc.emitBranch(fast_path);
-
-  tc.block = list_fast_path;
-  tc.emitLoadField(
-      list_mem, seq, "ob_item", offsetof(PyListObject, ob_item), TCPtr);
-  tc.emitBranch(fast_path);
-
-  tc.block = fast_path;
-
-  Register* seq_size = temps_.AllocateStack();
-  Register* target_size = temps_.AllocateStack();
-  Register* is_equal = temps_.AllocateStack();
-  tc.emitLoadVarObjectSize(seq_size, seq);
-  tc.emitLoadConst(target_size, Type::fromCInt(bc_instr.oparg(), TCInt64));
-  tc.emitPrimitiveCompare(
-      is_equal, PrimitiveCompareOp::kEqual, seq_size, target_size);
-  fast_path = cfg.AllocateBlock();
-  tc.emitCondBranch(is_equal, fast_path, deopt_path.block);
-  tc.block = fast_path;
-
-  Register* idx_reg = temps_.AllocateStack();
-  for (int idx = bc_instr.oparg() - 1; idx >= 0; --idx) {
-    Register* item = temps_.AllocateStack();
-    tc.emitLoadConst(idx_reg, Type::fromCInt(idx, TCInt64));
-    tc.emitLoadArrayItem(item, list_mem, idx_reg, seq, 0, TObject);
-    phx_ptr_arr_push(&stack, item);
-  }
+  // CFG& cfg unused — C body uses hir_cfg_alloc_block(func) instead.
+  // specialized_op = -1 signals C body to skip the P0 dispatch entirely
+  // (matches jit_get_config()->specialized_opcodes==false in C++ original).
+  int specialized_op = jit_get_config()->specialized_opcodes
+      ? bc_instr.specializedOpcode()
+      : -1;
+  hir_builder_emit_unpack_sequence_c(
+      static_cast<void*>(&tc),
+      static_cast<void*>(current_func_),
+      static_cast<void*>(this),
+      bc_instr.oparg(),
+      bc_instr.baseOffset().value(),
+      specialized_op);
 }
 
 extern "C" void hir_builder_emit_setup_finally_c(void *tc, int handler_off);
