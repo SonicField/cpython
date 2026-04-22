@@ -760,6 +760,12 @@ void *hir_phi_create_2way(HirFunction func, void *bb1, void *reg1,
  * Lifetime: static (function pointer, never changes). */
 void *jit_rt_invoke_iter_next_addr(void);
 
+/* Returns function pointer for JITRT_LoadModuleDictEntry. Used by the
+ * LOAD_ATTR_MODULE specialization to invoke a CallStatic against the
+ * 2-arg runtime helper (PyDictKeysObject* keys, Py_ssize_t index)
+ * → PyObject*. Lifetime: static. */
+void *jit_rt_load_module_dict_entry_addr(void);
+
 /* ---- Context/Preload bridges ---- */
 
 /* Check if a PyMethodDef is a known builtin. Returns the builtin name

@@ -12,6 +12,8 @@
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/jit_config_c.h"
 #include "Python.h"
+#include "internal/pycore_moduleobject.h"  /* PyModuleObject (LOAD_ATTR_MODULE) */
+#include "internal/pycore_dict.h"          /* PyDictKeysObject (LOAD_ATTR_MODULE) */
 #include "opcode.h"
 
 /* ---- PhxTranslationContext ---- */
@@ -706,6 +708,167 @@ int hir_builder_emit_load_attr_slot_c(
     void *cf = hir_c_create_check_field_reg(result, attr, attr_name, &tc->frame);
     hir_c_set_guilty_reg(cf, receiver);
     phx_tc_emit(tc, cf);
+
+    phx_ptr_arr_push(&tc->frame.stack, result);
+    return 1;
+}
+
+/* emitLoadAttrModule — LOAD_ATTR_MODULE specialization */
+extern void *jit_rt_load_module_dict_entry_addr(void);
+extern void *hir_c_create_call_static_reg(size_t n_operands, void *dst,
+                                           void *addr, HirType ret_type);
+extern void *hir_c_create_guard(void *src);
+extern void *hir_c_create_load_const(void *dst, HirType type);
+extern void hir_c_set_descr(void *instr, const char *descr);
+
+int hir_builder_emit_load_attr_module_c(
+        PhxTranslationContext *tc, void *func, void *builder,
+        void *receiver, PyCodeObject *code, int name_idx, int instr_idx) {
+    HirType t_module = hir_type_from_pytype(&PyModule_Type, 1);
+    phx_tc_emit(tc, hir_c_create_guard_type_reg(receiver, t_module, receiver));
+
+    uint32_t dict_version;
+    uint16_t index;
+    hir_builder_get_attr_cache(builder, instr_idx, &dict_version, &index);
+
+    if (dict_version == 0) {
+        return 0; /* fallback to generic LoadAttr */
+    }
+
+    HirType t_object   = (HirType)HIR_TYPE_OBJECT;
+    HirType t_cptr     = (HirType)HIR_TYPE_CPTR;
+    HirType t_cuint32  = (HirType)HIR_TYPE_CUINT32;
+    HirType t_cint64   = (HirType)HIR_TYPE_CINT64;
+    HirType t_optobj   = hir_type_union((HirType)HIR_TYPE_OBJECT, (HirType)HIR_TYPE_NULLPTR);
+
+    void *dict = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_load_field_reg(dict, receiver, "md_dict",
+        (intptr_t)offsetof(PyModuleObject, md_dict), t_object, 0));
+
+    void *keys = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_load_field_reg(keys, dict, "ma_keys",
+        (intptr_t)offsetof(PyDictObject, ma_keys), t_cptr, 0));
+
+    void *loaded_version = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_load_field_reg(loaded_version, keys, "dk_version",
+        (intptr_t)offsetof(PyDictKeysObject, dk_version), t_cuint32, 0));
+
+    void *expected_version = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_load_const(expected_version,
+        hir_type_from_cuint((uint64_t)dict_version, t_cuint32)));
+
+    void *version_match = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_primitive_compare(version_match,
+        HIR_PCMP_Equal, loaded_version, expected_version));
+
+    void *guard = hir_c_create_guard(version_match);
+    hir_deopt_set_frame_state(guard, &tc->frame);
+    phx_tc_emit(tc, guard);
+
+    void *index_reg = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_load_const(index_reg,
+        hir_type_from_cint((int64_t)index, t_cint64)));
+
+    void *result = hir_func_alloc_register(func);
+    void *call = hir_c_create_call_static_reg(2, result,
+        jit_rt_load_module_dict_entry_addr(), t_optobj);
+    hir_c_set_operand(call, 0, keys);
+    hir_c_set_operand(call, 1, index_reg);
+    phx_tc_emit(tc, call);
+
+    PyObject *attr_name = PyTuple_GET_ITEM(code->co_names, name_idx);
+    void *cf = hir_c_create_check_field_reg(result, result, attr_name, &tc->frame);
+    hir_c_set_guilty_reg(cf, receiver);
+    phx_tc_emit(tc, cf);
+
+    phx_ptr_arr_push(&tc->frame.stack, result);
+    return 1;
+}
+
+/* emitLoadAttrInstanceValue — LOAD_ATTR_INSTANCE_VALUE specialization */
+int hir_builder_emit_load_attr_instance_value_c(
+        PhxTranslationContext *tc, void *func, void *builder,
+        void *receiver, PyCodeObject *code, int name_idx, int instr_idx) {
+    uint32_t type_version;
+    uint16_t index;
+    hir_builder_get_attr_cache(builder, instr_idx, &type_version, &index);
+
+    PyTypeObject *slot_type = hir_find_type_by_version_tag(type_version);
+    if (slot_type == NULL ||
+        (slot_type->tp_subclasses != NULL &&
+         PyDict_GET_SIZE((PyObject *)slot_type->tp_subclasses) > 0) ||
+        !PyType_HasFeature(slot_type, Py_TPFLAGS_MANAGED_DICT)) {
+        /* Optional fallback: emit GuardType only if type found and no subclasses */
+        if (slot_type != NULL &&
+            (slot_type->tp_subclasses == NULL ||
+             PyDict_GET_SIZE((PyObject *)slot_type->tp_subclasses) == 0)) {
+            HirType t_only = hir_type_from_pytype(slot_type, 1);
+            phx_tc_emit(tc, hir_c_create_guard_type_reg(receiver, t_only, receiver));
+        }
+        return 0;
+    }
+
+    PyHeapTypeObject *ht = (PyHeapTypeObject *)slot_type;
+    if (ht->ht_cached_keys == NULL) {
+        HirType t_only = hir_type_from_pytype(slot_type, 1);
+        phx_tc_emit(tc, hir_c_create_guard_type_reg(receiver, t_only, receiver));
+        return 0;
+    }
+
+    hir_func_add_reference(func, (PyObject *)slot_type);
+    HirType t_type = hir_type_from_pytype(slot_type, 1);
+    phx_tc_emit(tc, hir_c_create_guard_type_reg(receiver, t_type, receiver));
+
+    PyObject *attr_name = PyTuple_GET_ITEM(code->co_names, name_idx);
+
+    /* Load PyDictOrValues from managed-dict slot at offset -3 * sizeof(PyObject*).
+     * borrowed=true: dorv may be a tagged pointer (low bit = inline values) which is
+     * not a valid PyObject*. */
+    HirType t_optdict = hir_type_union((HirType)HIR_TYPE_DICT, (HirType)HIR_TYPE_NULLPTR);
+    void *dorv = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_load_field_reg(dorv, receiver, "__dict__",
+        (intptr_t)(-3 * (intptr_t)sizeof(PyObject *)), t_optdict, 1));
+
+    /* CheckField dorv != NULL */
+    void *checked_dorv = hir_func_alloc_register(func);
+    void *cf1 = hir_c_create_check_field_reg(checked_dorv, dorv, attr_name, &tc->frame);
+    hir_c_set_guilty_reg(cf1, receiver);
+    phx_tc_emit(tc, cf1);
+
+    /* dorv low bit: 1 = inline values, 0 = regular dict (deopt the regular case) */
+    HirType t_cuint64 = (HirType)HIR_TYPE_CUINT64;
+    HirType t_optobj  = hir_type_union((HirType)HIR_TYPE_OBJECT, (HirType)HIR_TYPE_NULLPTR);
+    void *one = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_load_const(one, hir_type_from_cuint(1, t_cuint64)));
+
+    void *dorv_int = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_bit_cast(dorv_int, checked_dorv, t_cuint64));
+
+    void *is_values = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_int_binary_op(is_values, /*kAnd*/1, dorv_int, one));
+
+    void *guard = hir_c_create_guard(is_values);
+    hir_deopt_set_frame_state(guard, &tc->frame);
+    hir_c_set_guilty_reg(guard, receiver);
+    hir_c_set_descr(guard, "dict values check");
+    phx_tc_emit(tc, guard);
+
+    /* values_ptr = dorv + 1 (tag stripped → pointer to values array) */
+    void *values_ptr = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_int_binary_op(values_ptr, /*kAdd*/0, dorv_int, one));
+
+    void *values_obj = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_bit_cast(values_obj, values_ptr, t_optobj));
+
+    /* Load attribute at cached index */
+    void *attr = hir_func_alloc_register(func);
+    phx_tc_emit(tc, hir_c_create_load_field_reg(attr, values_obj, "attr",
+        (intptr_t)((intptr_t)index * (intptr_t)sizeof(PyObject *)), t_optobj, 0));
+
+    void *result = hir_func_alloc_register(func);
+    void *cf2 = hir_c_create_check_field_reg(result, attr, attr_name, &tc->frame);
+    hir_c_set_guilty_reg(cf2, receiver);
+    phx_tc_emit(tc, cf2);
 
     phx_ptr_arr_push(&tc->frame.stack, result);
     return 1;

@@ -526,6 +526,10 @@ void *jit_rt_invoke_iter_next_addr(void) {
   return reinterpret_cast<void*>(JITRT_InvokeIterNext);
 }
 
+void *jit_rt_load_module_dict_entry_addr(void) {
+  return reinterpret_cast<void*>(JITRT_LoadModuleDictEntry);
+}
+
 const char *jit_builtins_find(void *method_def) {
   auto* meth = static_cast<PyMethodDef*>(method_def);
   auto result = ::jit::getContext()->builtins().find(meth);
