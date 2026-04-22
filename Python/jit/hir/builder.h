@@ -29,6 +29,17 @@ void hir_builder_set_kwnames(void *builder, void *reg);
 void *hir_builder_temps_alloc_stack(void *builder);
 void hir_builder_fix_static_return_c(
     void *builder, void *tc, void *ret_val, HirType ret_type);
+
+/* INVOKE_* Phase 2 #2 (theologian L2430): bridges for emitInvokeMethod C body. */
+void hir_builder_invoke_method_target_c(
+    void *builder, PyObject *descr,
+    int *out_is_builtin, int *out_is_statically_typed, HirType *out_return_type);
+int hir_builder_try_emit_direct_method_call_c(
+    void *builder, void *tc, PyObject *descr, long nargs);
+void hir_builder_setup_static_args_c(
+    void *builder, void *tc, PyObject *descr, long nargs, int statically_typed,
+    void **out_arg_regs, size_t *out_count);
+void *hir_builder_static_method_stack_pop_c(void *builder);
 } // extern "C"
 #include <vector>
 
@@ -117,6 +128,15 @@ class HIRBuilder {
   friend void ::hir_builder_set_kwnames(void*, void*);
   friend void* ::hir_builder_temps_alloc_stack(void*);
   friend void ::hir_builder_fix_static_return_c(void*, void*, void*, HirType);
+  // INVOKE_* Phase 2 #2 (theologian L2430): bridges into emitInvokeMethod's
+  // C++ helpers (tryEmitDirectMethodCall, setupStaticArgs, static_method_stack_).
+  friend void ::hir_builder_invoke_method_target_c(
+      void*, PyObject*, int*, int*, HirType*);
+  friend int ::hir_builder_try_emit_direct_method_call_c(
+      void*, void*, PyObject*, long);
+  friend void ::hir_builder_setup_static_args_c(
+      void*, void*, PyObject*, long, int, void**, size_t*);
+  friend void* ::hir_builder_static_method_stack_pop_c(void*);
  public:
   const Preloader& preloader() const { return preloader_; }
   explicit HIRBuilder(const Preloader& preloader)

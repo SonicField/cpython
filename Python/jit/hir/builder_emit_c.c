@@ -2393,6 +2393,84 @@ void hir_builder_emit_invoke_method_vector_call_c(
     phx_ptr_arr_push(&tc->frame.stack, out);
 }
 
+/* emitInvokeMethod — INVOKE_METHOD opcode. Mirrors C++ HIRBuilder::emitInvokeMethod
+ * @ builder.cpp:3493.
+ *
+ * Two paths:
+ *   (1) Builtin fast path: tryEmitDirectMethodCall returns 1 → swap top two
+ *       stack entries (pop result, pop thunk, push result) and return false.
+ *   (2) Statically typed: pop arg_regs via setupStaticArgs, pop entry from
+ *       static_method_stack_, emit CallInd with entry as first operand, emit.
+ *   (3) Dynamic typed: pop arg_regs, dispatch via emitInvokeMethodVectorCall
+ *       (already C-bridged at builder_emit_c.c:2377).
+ *
+ * Returns false in path (1) — caller should not push (already pushed).
+ * Returns true in paths (2)+(3) — bytecode emit fully completed.
+ *
+ * Theologian L2430 INVOKE_* Phase 2 spec. 4 NEW bridges:
+ *   - hir_builder_invoke_method_target_c (InvokeTarget query)
+ *   - hir_builder_try_emit_direct_method_call_c (path 1)
+ *   - hir_builder_setup_static_args_c (arg_regs)
+ *   - hir_builder_static_method_stack_pop_c (entry pop) */
+extern void hir_builder_invoke_method_target_c(
+    void *builder, PyObject *descr,
+    int *out_is_builtin, int *out_is_statically_typed, HirType *out_return_type);
+extern int hir_builder_try_emit_direct_method_call_c(
+    void *builder, void *tc, PyObject *descr, long nargs);
+extern void hir_builder_setup_static_args_c(
+    void *builder, void *tc, PyObject *descr, long nargs, int statically_typed,
+    void **out_arg_regs, size_t *out_count);
+extern void *hir_builder_static_method_stack_pop_c(void *builder);
+
+bool hir_builder_emit_invoke_method_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder,
+        PyObject *descr,
+        long nargs,
+        int is_awaited) {
+    int is_builtin, is_statically_typed;
+    HirType return_type;
+    hir_builder_invoke_method_target_c(
+        builder, descr, &is_builtin, &is_statically_typed, &return_type);
+
+    if (is_builtin && hir_builder_try_emit_direct_method_call_c(
+            builder, tc, descr, nargs - 1)) {
+        void *res = phx_ptr_arr_pop(&tc->frame.stack);
+        phx_ptr_arr_pop(&tc->frame.stack);  /* pop the thunk */
+        phx_ptr_arr_push(&tc->frame.stack, res);
+        return false;
+    }
+
+    void *arg_regs[nargs];  /* C99 VLA — sized exactly to nargs */
+    size_t arg_regs_count = 0;
+    hir_builder_setup_static_args_c(
+        builder, tc, descr, nargs, is_statically_typed, arg_regs, &arg_regs_count);
+
+    if (is_statically_typed) {
+        /* AllocateNonStack equivalent: hir_func_alloc_register
+         * (TempAllocator::AllocateNonStack just calls env->AllocateRegister). */
+        void *out = hir_func_alloc_register(func);
+        void *entry = hir_builder_static_method_stack_pop_c(builder);
+        void *invoke = hir_c_create_call_ind_reg2(
+            (size_t)nargs + 1, out, "vtable invoke", return_type);
+        hir_c_set_operand(invoke, 0, entry);
+        for (size_t i = 0; i < arg_regs_count; i++) {
+            hir_c_set_operand(invoke, i + 1, arg_regs[i]);
+        }
+        hir_deopt_set_frame_state(invoke, &tc->frame);
+        phx_tc_emit(tc, invoke);
+        phx_ptr_arr_push(&tc->frame.stack, out);
+    } else {
+        /* Dynamic dispatch via existing emitInvokeMethodVectorCall bridge.
+         * out is allocated INSIDE that bridge per its convention. */
+        void *out = hir_builder_temps_alloc_stack(builder);
+        hir_builder_emit_invoke_method_vector_call_c(
+            tc, builder, out, arg_regs, arg_regs_count, is_awaited, return_type);
+    }
+    return true;
+}
+
 /* emitInvokeNative — INVOKE_NATIVE opcode. Mirrors C++ HIRBuilder::emitInvokeNative
  * @ builder.cpp:3405.
  *

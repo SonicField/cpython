@@ -3492,6 +3492,59 @@ void HIRBuilder::emitLoadMethodStatic(
   }
 }
 
+/* C bridges for emitInvokeMethod (INVOKE_* Phase 2 #2 per theologian L2430).
+ *
+ * Each bridge wraps a C++-only access path the C body cannot do directly:
+ *   - target lookup via Preloader (needs C++ Preloader& reference)
+ *   - tryEmitDirectMethodCall (private member, calls boxPrimitive,
+ *     emitCallStatic etc.)
+ *   - setupStaticArgs (private member, may call boxPrimitive)
+ *   - static_method_stack_ (private std::stack<Register*>)
+ *
+ * No new void* drift surface introduced — bridges accept void* opaque
+ * handles and PyObject* descriptors, output via typed out-pointers.
+ * W25b discipline: bridge signatures stable, no cross-handle drift. */
+extern "C" void hir_builder_invoke_method_target_c(
+    void *builder, PyObject *descr,
+    int *out_is_builtin, int *out_is_statically_typed, HirType *out_return_type) {
+  auto *self = static_cast<HIRBuilder*>(builder);
+  const InvokeTarget& target = self->preloader_.invokeMethodTarget(descr);
+  *out_is_builtin = target.is_builtin ? 1 : 0;
+  *out_is_statically_typed = target.is_statically_typed ? 1 : 0;
+  *out_return_type = Type::toHirType(target.return_type);
+}
+
+extern "C" int hir_builder_try_emit_direct_method_call_c(
+    void *builder, void *tc, PyObject *descr, long nargs) {
+  auto *self = static_cast<HIRBuilder*>(builder);
+  const InvokeTarget& target = self->preloader_.invokeMethodTarget(descr);
+  return self->tryEmitDirectMethodCall(
+      target, *static_cast<HIRBuilder::TranslationContext*>(tc), nargs) ? 1 : 0;
+}
+
+extern "C" void hir_builder_setup_static_args_c(
+    void *builder, void *tc, PyObject *descr, long nargs, int statically_typed,
+    void **out_arg_regs, size_t *out_count) {
+  auto *self = static_cast<HIRBuilder*>(builder);
+  const InvokeTarget& target = self->preloader_.invokeMethodTarget(descr);
+  auto arg_regs = self->setupStaticArgs(
+      *static_cast<HIRBuilder::TranslationContext*>(tc), target, nargs,
+      statically_typed != 0);
+  *out_count = arg_regs.size();
+  for (size_t i = 0; i < arg_regs.size(); i++) {
+    out_arg_regs[i] = arg_regs[i];
+  }
+}
+
+extern "C" void *hir_builder_static_method_stack_pop_c(void *builder) {
+  auto *self = static_cast<HIRBuilder*>(builder);
+  return self->static_method_stack_.pop();
+}
+
+extern "C" bool hir_builder_emit_invoke_method_c(
+    void *tc, void *func, void *builder, PyObject *descr,
+    long nargs, int is_awaited);
+
 bool HIRBuilder::emitInvokeMethod(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr,
@@ -3499,36 +3552,8 @@ bool HIRBuilder::emitInvokeMethod(
   PyObject* arg = constArg(bc_instr);
   PyObject* descr = PyTuple_GET_ITEM(arg, 0);
   long nargs = PyLong_AsLong(PyTuple_GET_ITEM(arg, 1)) + 2; // thunk, self
-
-  const InvokeTarget& target = preloader_.invokeMethodTarget(descr);
-
-  if (target.is_builtin && tryEmitDirectMethodCall(target, tc, nargs - 1)) {
-    auto res = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-    static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack)); // pop the thunk
-    phx_ptr_arr_push(&tc.frame.stack, res);
-    return false;
-  }
-
-  std::vector<Register*> arg_regs =
-      setupStaticArgs(tc, target, nargs, target.is_statically_typed);
-
-  if (target.is_statically_typed) {
-    Register* out = temps_.AllocateNonStack();
-    auto entry = static_method_stack_.pop();
-    auto invoke =
-        tc.emitCallInd(nargs + 1, out, "vtable invoke", target.return_type);
-    invoke->SetOperand(0, entry);
-    for (size_t i = 0; i < arg_regs.size(); i++) {
-      invoke->SetOperand(i + 1, arg_regs[i]);
-    }
-
-    invoke->setFrameState(tc.frame);
-    phx_ptr_arr_push(&tc.frame.stack, out);
-  } else {
-    emitInvokeMethodVectorCall(tc, is_awaited, arg_regs, target);
-  }
-
-  return true;
+  return hir_builder_emit_invoke_method_c(
+      &tc, current_func_, this, descr, nargs, is_awaited ? 1 : 0);
 }
 
 extern "C" void hir_builder_emit_is_op_c(void *tc, void *func, int oparg);
