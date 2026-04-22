@@ -6,13 +6,12 @@
 #pragma once
 
 #include "cinderx/Jit/hir/refcount_structs_c.h"
+#include "cinderx/Jit/hir/hir_c_api.h"
 #include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef void* HirFunction;
 
 /* ---- PhiUse entry: (model_reg, pred_block) → phi_output ---- */
 typedef struct {

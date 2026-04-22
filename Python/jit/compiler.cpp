@@ -62,14 +62,14 @@ static void runPass(T&& pass, hir::Function& func, PostPassFunction callback) {
                     func);
 
                 JIT_DCHECK(
-                    hir_check_func_c(static_cast<void*>(&func)),
+                    hir_check_func_c(&func),
                     "Function {} failed verification after pass {}:\n{}",
                     func.fullname,
                     pass.name(),
                     func);
 
                 JIT_DCHECK(
-                    hir_func_type_checks(static_cast<void*>(&func)),
+                    hir_func_type_checks(&func),
                     "Function {} failed type checking after pass {}:\n{}",
                     func.fullname,
                     pass.name(),

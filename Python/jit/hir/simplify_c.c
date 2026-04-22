@@ -23,13 +23,9 @@
 #include "structmember.h"
 
 /* W25 Step B-5: lint-pattern externs deleted (canonical decls now visible
- * via #include hir_c_api.h + hir_basic_block_c.h). Non-lint externs
- * (hir_register_type, hir_output_type, hir_phi_create_2way) kept as
- * out-of-W25-scope (different namespace prefixes). */
-extern HirType hir_register_type(void *reg);
-extern HirType hir_output_type(void *instr);
-extern void *hir_phi_create_2way(void *func, void *bb1, void *reg1,
-                                  void *bb2, void *reg2);
+ * via #include hir_c_api.h + hir_basic_block_c.h).
+ * W25b Step A': hir_register_type, hir_output_type, hir_phi_create_2way
+ * canonical decls now in hir_c_api.h with typed handles. */
 
 /* ---- SimplifyEnv: C equivalent of the C++ Env struct ---- */
 
@@ -739,8 +735,7 @@ void *simplify_primitive_compare_c(SimplifyEnv *env, const void *instr) {
 
     /* box(b) == True → b */
     if (op == HIR_PCMP_Equal) {
-        extern void *hir_reg_instr(void *reg);
-        void *left_def = hir_reg_instr(left);
+            void *left_def = hir_reg_instr(left);
         if (left_def != NULL && hir_c_opcode(left_def) == HIR_OP_PrimitiveBoxBool) {
             HirType right_type = hir_register_type(right);
             PyObject *right_obj = hir_type_as_object(&right_type);
@@ -813,7 +808,6 @@ void *simplify_check_sequence_bounds_c(SimplifyEnv *env, const void *instr) {
     if (!hir_type_is_subtype(seq_type, t_tuple_exact)) return NULL;
     if (!hir_type_is_subtype(idx_type, t_cint)) return NULL;
 
-    extern void *hir_reg_instr(void *reg);
     void *seq_def = hir_reg_instr(sequence);
     if (seq_def == NULL || hir_c_opcode(seq_def) != HIR_OP_MakeTuple) return NULL;
 
@@ -850,7 +844,6 @@ void *simplify_load_array_item_tuple_c(SimplifyEnv *env, const void *instr) {
     if (idx_signed < 0) return NULL;
 
     /* MakeTuple path: return the idx-th operand directly */
-    extern void *hir_reg_instr(void *reg);
     void *src_def = hir_reg_instr(src);
     if (src_def != NULL && hir_c_opcode(src_def) == HIR_OP_MakeTuple) {
         size_t length = hir_c_num_operands(src_def);
@@ -966,7 +959,6 @@ void *simplify_unbox_box_c(SimplifyEnv *env, const void *instr) {
     if (output_reg == NULL) return NULL;
     HirType output_type = hir_register_type(output_reg);
 
-    extern void *hir_reg_instr(void *reg);
     void *box_instr = hir_reg_instr(input);
     if (box_instr == NULL || hir_c_opcode(box_instr) != HIR_OP_PrimitiveBox)
         return NULL;
@@ -1030,7 +1022,6 @@ void *simplify_load_var_object_size_c(SimplifyEnv *env, const void *instr) {
     HirType obj_type = hir_register_type(obj_reg);
 
     /* MakeTuple path: nvalues = NumOperands */
-    extern void *hir_reg_instr(void *reg);
     void *obj_def = hir_reg_instr(obj_reg);
     if (obj_def != NULL && hir_c_opcode(obj_def) == HIR_OP_MakeTuple) {
         simplify_env_emit_use_type(env, obj_reg, obj_type);
@@ -1060,7 +1051,6 @@ void *simplify_load_var_object_size_c(SimplifyEnv *env, const void *instr) {
  * If input is a LoadConst, we know no exception is active → result is 0. */
 void *simplify_is_neg_and_err_c(SimplifyEnv *env, const void *instr) {
     void *input = hir_c_get_operand(instr, 0);
-    extern void *hir_reg_instr(void *reg);
     void *def = hir_reg_instr(input);
     if (def == NULL || hir_c_opcode(def) != HIR_OP_LoadConst) {
         return NULL;
@@ -1081,7 +1071,6 @@ void *simplify_cond_branch_const_c(SimplifyEnv *env, const void *instr) {
         return simplify_env_emit(env, branch);
     }
     /* IntConvert forwarding: if cond is from a widening IntConvert, use src */
-    extern void *hir_reg_instr(void *reg);
     void *cond_def = hir_reg_instr(cond);
     if (cond_def != NULL && hir_c_opcode(cond_def) == HIR_OP_IntConvert) {
         void *src = hir_c_get_operand(cond_def, 0);
@@ -1962,8 +1951,7 @@ void *simplify_call_method_c(SimplifyEnv *env, const void *instr) {
 #if PY_VERSION_HEX >= 0x030C0000
     {
         void *func_reg = hir_c_get_operand(instr, 0);
-        extern void *hir_reg_instr(void *reg);
-        void *func_def = hir_reg_instr(func_reg);
+            void *func_def = hir_reg_instr(func_reg);
         if (func_def == NULL || hir_c_opcode(func_def) != HIR_OP_LoadAttrSpecial)
             return NULL;
 
@@ -2114,7 +2102,6 @@ static void *simplify_vectorcall_bound_method_c(SimplifyEnv *env, const void *in
         return NULL;
 
     void *func_reg = hir_c_get_operand(instr, 0);
-    extern void *hir_reg_instr(void *reg);
     void *func_def = hir_reg_instr(func_reg);
     if (func_def == NULL || hir_c_opcode(func_def) != HIR_OP_LoadAttrSpecial)
         return NULL;
@@ -2188,7 +2175,6 @@ static void *simplify_vectorcall_global_c(SimplifyEnv *env, const void *instr) {
         return NULL;
 
     void *func_reg = hir_c_get_operand(instr, 0);
-    extern void *hir_reg_instr(void *reg);
     void *func_def = hir_reg_instr(func_reg);
     if (func_def == NULL || hir_c_opcode(func_def) != HIR_OP_GuardIs)
         return NULL;
@@ -2198,7 +2184,6 @@ static void *simplify_vectorcall_global_c(SimplifyEnv *env, const void *instr) {
     if (!PyFunction_Check(expected)) return NULL;
 
     void *guarded_input = hir_c_get_operand(func_def, 0);
-    extern void *hir_reg_instr(void *reg);
     void *input_def = hir_reg_instr(guarded_input);
     if (input_def == NULL || hir_c_opcode(input_def) != HIR_OP_LoadGlobalCached)
         return NULL;
@@ -2659,10 +2644,10 @@ static void *simplify_instr_c(SimplifyEnv *env, const void *instr) {
 /* ==== Simplify::Run C port ==== */
 
 /* W25 B-5: lint-pattern externs deleted (canonical decls in
- * hir_c_api.h + hir_basic_block_c.h). Non-lint externs kept:
- * hir_assign_create, hir_copy_propagation_run, hir_reflow_types_c,
- * hir_clean_cfg_run (different namespace prefixes, out of W25 scope). */
-extern void *hir_assign_create(void *output, void *value);
+ * hir_c_api.h + hir_basic_block_c.h).
+ * W25b Step A': hir_assign_create canonical decl in hir_c_api.h
+ * (typed handles). hir_copy_propagation_run/hir_reflow_types_c/
+ * hir_clean_cfg_run still take void* func — kept as non-lint externs. */
 extern void hir_copy_propagation_run(void *func);
 extern void hir_reflow_types_c(void *func, void *start_block);
 extern void hir_clean_cfg_run(void *func);

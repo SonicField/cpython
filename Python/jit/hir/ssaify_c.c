@@ -14,10 +14,9 @@
 
 #include <string.h>
 
-/* Forward decls for non-lint-pattern externs (W25 scope is lint-pattern only;
- * these are tracked separately as out-of-scope cleanup candidates). */
-extern void hir_reflow_types(void *func);
-extern void hir_phi_elimination_run(void *func);
+/* W25b Step A': hir_reflow_types canonical decl in hir_c_api.h.
+ * hir_phi_elimination_run canonical decl in phi_elimination_c.h. */
+#include "cinderx/Jit/hir/phi_elimination_c.h"
 
 /* ---- Simple hash table: void* → void* ---- */
 

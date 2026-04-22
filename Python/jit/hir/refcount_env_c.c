@@ -11,13 +11,10 @@
 
 #include <string.h>
 
-/* Forward declarations (avoid hir_c_api.h typedef conflict) */
-typedef void* HirInstr;
-typedef void* HirRegister;
+/* HirInstr / HirRegister / hir_chase_assign come from hir_c_api.h post-W25b. */
 extern void *hir_liveness_create(void *func);
 extern int hir_liveness_is_last_use(const void *state, void *instr, void *reg);
 extern void hir_liveness_destroy(void *state);
-extern void *hir_chase_assign(void *reg);
 
 #define ALIAS_CLASS_NUM_BITS 10
 

@@ -47,7 +47,7 @@ static void *phx_tc_emit(PhxTranslationContext *tc, void *instr) {
 /* ---- POC: emitLoadConst ---- */
 
 extern HirType hir_type_from_object(PyObject *obj);
-extern void *hir_assign_create(void *output, void *value);
+/* hir_assign_create canonical decl in hir_c_api.h. */
 
 /* Move stack registers about to be overwritten by dst. */
 static void phx_move_overwritten_stack_regs(
@@ -968,7 +968,7 @@ void hir_builder_emit_kw_names_c(
  * preserves cache_ side-effect required by GetOrAllocateStack at
  * builder.cpp:2842 (stack-layout computation). Cannot use bare
  * hir_func_alloc_register (no cache update). */
-extern HirType hir_register_type(void *reg);
+/* hir_register_type canonical decl in hir_c_api.h. */
 extern HirType hir_type_from_cint(int64_t value, HirType cint_type);
 extern void *hir_builder_temps_alloc_stack(void *builder);
 

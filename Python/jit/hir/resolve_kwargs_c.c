@@ -12,8 +12,7 @@
 
 #include <string.h>
 
-/* Forward decl for non-lint-pattern extern (W25 scope is lint-pattern only). */
-extern HirType hir_register_type(void *reg);
+/* hir_register_type canonical decl in hir_c_api.h (post-W25b). */
 
 /* ---- Pointer array ---- */
 

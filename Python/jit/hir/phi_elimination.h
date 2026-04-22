@@ -13,7 +13,7 @@ class PhiElimination : public Pass {
   PhiElimination() : Pass("PhiElimination") {}
 
   void Run(Function& irfunc) override {
-    hir_phi_elimination_run(static_cast<HirFunction>(&irfunc));
+    hir_phi_elimination_run(&irfunc);
   }
 
   static std::unique_ptr<PhiElimination> Factory() {

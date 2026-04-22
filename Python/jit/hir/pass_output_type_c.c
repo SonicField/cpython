@@ -19,7 +19,7 @@
 #include "Python.h"
 
 /* Forward declarations */
-extern HirType hir_register_type(void *reg);
+/* hir_register_type, hir_output_type canonical decls in hir_c_api.h. */
 extern HirType hir_type_intersect(HirType a, HirType b);
 extern HirType hir_type_union(HirType a, HirType b);
 extern HirType hir_type_subtract(HirType a, HirType b);
@@ -504,7 +504,7 @@ void hir_simplify_redundant_cond_branches_c(void *cfg) {
 
 /* ==== chaseAssignOperand C port ==== */
 void *hir_chase_assign_operand(void *value) {
-    extern void *hir_reg_instr(void *reg);
+    /* hir_reg_instr canonical decl in hir_c_api.h. */
     while (1) {
         void *def = hir_reg_instr(value);
         if (def == NULL || hir_c_opcode(def) != HIR_OP_Assign)
@@ -813,7 +813,7 @@ int hir_is_passthrough_c(const void *instr) {
 int hir_is_passthrough_c(const void *instr);
 
 void *hir_model_reg_c(void *reg) {
-    extern void *hir_reg_instr(void *reg);
+    /* hir_reg_instr canonical decl in hir_c_api.h. */
     void *orig = reg;
     while (1) {
         void *def = hir_reg_instr(reg);
@@ -922,8 +922,7 @@ void hir_optimize_long_decref_runs_c(void *func) {
 
 /* W25 Step B-3.5: hir_instr_is_deopt_base, hir_instr_replace_uses_of,
  * hir_c_cond_branch_true_bb, hir_c_cond_branch_false_bb now in hir_c_api.h.
- * hir_output_type stays as non-lint extern (out of W25 scope). */
-extern HirType hir_output_type(void *instr);
+ * W25b Step A': hir_output_type canonical decl in hir_c_api.h. */
 
 static int is_output_bottom(void *instr) {
     void *out = hir_c_output(instr);

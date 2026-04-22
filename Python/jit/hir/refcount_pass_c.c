@@ -5,6 +5,7 @@
  */
 
 #include "cinderx/Jit/hir/refcount_pass_c.h"
+#include "cinderx/Jit/hir/hir_c_api.h"
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_basic_block_c.h"
 #include "cinderx/Jit/hir/hir_cfg_rpo_c.h"
@@ -140,7 +141,7 @@ void phx_rc_kill_register(PhxRefcountEnv *env, PhxRegState *rstate,
 /* ---- R3b-1: State initialization ---- */
 
 /* Forward declarations */
-extern void *hir_chase_assign(void *reg);
+/* hir_chase_assign canonical decl in hir_c_api.h (post-W25b). */
 extern void *phx_rc_model_reg(void *reg);
 extern size_t phx_rc_get_rpo(void *func, void **out, size_t capacity);
 extern int hir_liveness_is_last_use(const void *state, void *instr, void *reg);

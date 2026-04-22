@@ -21,7 +21,7 @@ class LICM : public Pass {
   LICM() : Pass("LICM") {}
 
   void Run(Function& irfunc) override {
-    hir_licm_run(static_cast<void*>(&irfunc));
+    hir_licm_run(&irfunc);
   }
 
   static std::unique_ptr<LICM> Factory() {

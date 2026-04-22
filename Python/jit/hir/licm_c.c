@@ -11,8 +11,7 @@
 #include "cinderx/Common/jit_log_c.h"
 #include "Python.h"
 
-/* Forward decl for non-lint-pattern extern (W25 scope is lint-pattern only). */
-extern void *hir_reg_instr(void *reg);
+/* hir_reg_instr canonical decl in hir_c_api.h (post-W25b). */
 
 #include <string.h>
 

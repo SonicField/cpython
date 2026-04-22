@@ -12,7 +12,7 @@ class DynamicComparisonElimination : public Pass {
   DynamicComparisonElimination() : Pass("DynamicComparisonElimination") {}
 
   void Run(Function& irfunc) override {
-    hir_dynamic_comparison_elimination_run(static_cast<HirFunction>(&irfunc));
+    hir_dynamic_comparison_elimination_run(&irfunc);
   }
 
   static std::unique_ptr<DynamicComparisonElimination> Factory() {

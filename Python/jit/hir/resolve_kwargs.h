@@ -23,7 +23,7 @@ class ResolveKwargs : public Pass {
   ResolveKwargs() : Pass("ResolveKwargs") {}
 
   void Run(Function& irfunc) override {
-    hir_resolve_kwargs_run(static_cast<void*>(&irfunc));
+    hir_resolve_kwargs_run(&irfunc);
   }
 
   static std::unique_ptr<ResolveKwargs> Factory() {

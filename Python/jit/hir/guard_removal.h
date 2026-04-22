@@ -12,7 +12,7 @@ class GuardTypeRemoval : public Pass {
   GuardTypeRemoval() : Pass("GuardTypeRemoval") {}
 
   void Run(Function& irfunc) override {
-    hir_guard_type_removal_run(static_cast<HirFunction>(&irfunc));
+    hir_guard_type_removal_run(&irfunc);
   }
 
   static std::unique_ptr<GuardTypeRemoval> Factory() {

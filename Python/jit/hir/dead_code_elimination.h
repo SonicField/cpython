@@ -14,7 +14,7 @@ class DeadCodeElimination : public Pass {
   DeadCodeElimination() : Pass("DeadCodeElimination") {}
 
   void Run(Function& irfunc) override {
-    hir_dead_code_elimination_run(static_cast<HirFunction>(&irfunc));
+    hir_dead_code_elimination_run(&irfunc);
   }
 
   static std::unique_ptr<DeadCodeElimination> Factory() {

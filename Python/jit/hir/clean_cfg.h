@@ -13,7 +13,7 @@ class CleanCFG : public Pass {
   CleanCFG() : Pass("CleanCFG") {}
 
   void Run(Function& irfunc) override {
-    hir_clean_cfg_run(static_cast<HirFunction>(&irfunc));
+    hir_clean_cfg_run(&irfunc);
   }
 
   static std::unique_ptr<CleanCFG> Factory() {

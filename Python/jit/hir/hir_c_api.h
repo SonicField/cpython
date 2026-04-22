@@ -23,10 +23,44 @@
 extern "C" {
 #endif
 
-/* ---- Opaque handle types ---- */
-typedef void* HirFunction;
-typedef void* HirInstr;
-typedef void* HirRegister;
+/* ---- Opaque handle types ----
+ *
+ * W25b canonical: HirFunction, HirInstr, HirRegister are typed pointers.
+ * Pre-W25b these were typedef void * and C99 6.3.2.3 silently masked
+ * cross-handle drift. Post-W25b:
+ *
+ *   - C consumers see distinct opaque struct-pointer types
+ *     (struct HirFunctionOpaque *, etc.). Cross-handle drift on .c-callable
+ *     bridges is caught at compile time.
+ *   - C++ consumers see direct pointers to the underlying jit::hir classes.
+ *     This preserves existing C++ caller patterns and implicit conversions
+ *     between Instr / Register / Function pointers and the handle typedefs,
+ *     while still keeping cross-handle drift caught (C++ also disallows
+ *     implicit conversion between unrelated pointer types).
+ *
+ * The C-visible struct tags are forward-declared only and never defined;
+ * the C++ typedefs alias to the canonical jit::hir classes directly so that
+ * existing C++ code does not need per-call casts.
+ *
+ * See docs/w25b-typedef-promotion.md. */
+#ifdef __cplusplus
+/* C++ side: keep void* for backward compatibility with the existing
+ * cast-heavy hir_c_api.cpp implementation. C++ already has type-safety on
+ * the canonical jit::hir::Instr / Register / Function classes — the W25b
+ * drift class is C99-§6.3.2.3-specific (implicit void* <-> object pointer
+ * conversion in C). C++ does not have the equivalent silent-conversion
+ * surface, so the .c-side struct-typed handles are sufficient. */
+typedef void *HirFunction;
+typedef void *HirInstr;
+typedef void *HirRegister;
+#else
+struct HirFunctionOpaque;
+struct HirInstrOpaque;
+struct HirRegisterOpaque;
+typedef struct HirFunctionOpaque *HirFunction;
+typedef struct HirInstrOpaque *HirInstr;
+typedef struct HirRegisterOpaque *HirRegister;
+#endif
 
 /* W25 canonical: HirBasicBlock + HirCFG are forward-declared structs.
  * Full layout in hir_basic_block_c.h; API consumers see only the opaque

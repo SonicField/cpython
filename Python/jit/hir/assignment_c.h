@@ -6,12 +6,11 @@
 
 #include <stddef.h>
 
+#include "cinderx/Jit/hir/hir_c_api.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef void* HirFunction;
-typedef void* HirRegister;
 
 typedef struct PhxAssignmentState PhxAssignmentState;
 
