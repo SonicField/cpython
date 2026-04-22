@@ -5082,16 +5082,14 @@ void HIRBuilder::emitRaiseVarargs(TranslationContext& tc) {
   hir_builder_emit_raise_varargs_c(static_cast<void*>(&tc));
 }
 
+extern "C" void hir_builder_emit_yield_from_method_c(
+    void* tc, void* out, int code_flags);
+
 void HIRBuilder::emitYieldFrom(TranslationContext& tc, Register* out) {
-  PhxPtrArray& stack = tc.frame.stack;
-  auto send_value = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  auto iter = static_cast<Register*>(stack.data[stack.count - 1]);
-  if (code_->co_flags & CO_COROUTINE) {
-    tc.emitSetCurrentAwaiter(iter);
-  }
-  tc.emitYieldFrom(out, send_value, iter, tc.frame);
-  static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  phx_ptr_arr_push(&stack, out);
+  hir_builder_emit_yield_from_method_c(
+      static_cast<void*>(&tc),
+      static_cast<void*>(out),
+      code_->co_flags);
 }
 
 extern "C" void hir_builder_emit_yield_value_c(

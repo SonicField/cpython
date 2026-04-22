@@ -2448,3 +2448,33 @@ void hir_builder_emit_load_method_or_attr_super_c(
     phx_ptr_arr_push(&tc->frame.stack, method_instance);
     phx_frame_state_destroy(&deopt_tc.frame);
 }
+
+/* emitYieldFrom — YIELD_FROM helper invoked from the YIELD_FROM bytecode
+ * dispatch (and from emitGetAwaitable). Pop send_value, peek iter at TOS
+ * (do not pop yet), optionally emit SetCurrentAwaiter when the enclosing
+ * code object has CO_COROUTINE, emit YieldFrom, THEN pop iter and push
+ * out. Mirrors C++ HIRBuilder::emitYieldFrom @ builder.cpp:5085.
+ *
+ * out is allocated by the CALLER (e.g. dispatch site at builder.cpp:2519
+ * passes temps_.AllocateStack()) so this C function takes it as a
+ * parameter rather than allocating itself.
+ *
+ * The peek-then-emit-then-pop ordering for iter matters: emitYieldFrom
+ * uses iter as an operand, but the YIELD_FROM bytecode semantics consume
+ * it from the stack only once the yield resolves. The C++ original
+ * matches this; we mirror exactly. */
+extern void *hir_c_create_set_current_awaiter_reg(void *src);
+
+void hir_builder_emit_yield_from_method_c(
+        PhxTranslationContext *tc,
+        void *out,
+        int code_flags) {
+    void *send_value = phx_ptr_arr_pop(&tc->frame.stack);
+    void *iter = tc->frame.stack.data[tc->frame.stack.count - 1];
+    if (code_flags & CO_COROUTINE) {
+        phx_tc_emit(tc, hir_c_create_set_current_awaiter_reg(iter));
+    }
+    phx_tc_emit(tc, hir_c_create_yield_from_reg(out, send_value, iter, &tc->frame));
+    phx_ptr_arr_pop(&tc->frame.stack);  /* now pop iter (after emit captured operand) */
+    phx_ptr_arr_push(&tc->frame.stack, out);
+}
