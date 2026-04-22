@@ -3343,5 +3343,66 @@ void hir_builder_emit_call_exception_handler_c(
     phx_ptr_arr_push(&tc->frame.stack, result);
 }
 
+/* emitAnyCall await-tail dispatch — PartialConversion of HIRBuilder::emitAnyCall.
+ * Mirrors C++ original at builder.cpp:2963-2993 (pre-conversion). The full
+ * emitAnyCall opcode-switch + INVOKE_* dispatch stay C++ pending Tier 6
+ * INVOKE_* re-architecture; only the await-tail (most fragile, most uniform
+ * with Tier 5 patterns) is converted.
+ *
+ * Theologian PTE pre-audit (chat 2026-04-22 17:15Z): A1-A12 invariants +
+ * PA-PD pitfalls. Bridge-count gate satisfied (1 new bridge ≤ 1).
+ *
+ * C++ stub responsibilities (PA + A4): 3x ++bc_it + 3x JIT_CHECK before
+ * this call; iterator state never crosses boundary (PB). All chained C
+ * functions exist (push 53/55/56 + load_const_c). */
+extern void hir_builder_emit_dispatch_eager_coro_result_c(
+    PhxTranslationContext *tc, void *func, void *builder, void *out,
+    void *await_block, void *post_await_block, int code_flags);
+extern void hir_builder_emit_get_awaitable_c(
+    PhxTranslationContext *tc, void *func, void *builder,
+    int error_aenter, int error_aexit);
+extern void hir_builder_emit_yield_from_method_c(
+    PhxTranslationContext *tc, void *out, int code_flags);
+
+void hir_builder_emit_awaited_call_tail_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder,
+        PyCodeObject *code,
+        int code_flags,
+        int get_awaitable_error_aenter,
+        int get_awaitable_error_aexit,
+        int load_const_oparg) {
+    /* A5 setup: out reg + 2 blocks. */
+    void *out = hir_builder_temps_alloc_stack(builder);
+    void *await_block = hir_cfg_alloc_block(func);
+    void *post_await_block = hir_cfg_alloc_block(func);
+
+    /* A5: dispatch_eager_coro_result. */
+    hir_builder_emit_dispatch_eager_coro_result_c(
+        tc, func, builder, out, await_block, post_await_block, code_flags);
+
+    /* A6: switch tc to await_block. */
+    tc->block = await_block;
+
+    /* A7: get_awaitable using pre-computed error flags. */
+    hir_builder_emit_get_awaitable_c(
+        tc, func, builder,
+        get_awaitable_error_aenter, get_awaitable_error_aexit);
+
+    /* A8: load_const using pre-computed oparg + caller-passed code (PD: must
+     * be PyCodeObject*, not void*, to preserve emitGetAwaitable port's PA). */
+    hir_builder_emit_load_const_c(tc, func, code, load_const_oparg);
+
+    /* A9: yield_from on out, code_flags for is_coroutine handling. */
+    hir_builder_emit_yield_from_method_c(tc, out, code_flags);
+
+    /* A10: branch to post_await_block. */
+    phx_tc_emit(tc, hir_c_create_branch_cpp(post_await_block));
+
+    /* A11: switch tc to post_await_block for downstream emit. */
+    tc->block = post_await_block;
+}
+
 
 

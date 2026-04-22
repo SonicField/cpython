@@ -2854,6 +2854,24 @@ void HIRBuilder::emitPushNull(TranslationContext& tc) {
   hir_builder_emit_push_null_c(static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
 
+// PartialConversion (theologian PTE pre-audit chat 2026-04-22 17:15Z):
+// emitAnyCall await-tail dispatch (lines 2963-2993 in pre-conversion source)
+// extracted into C body. Opcode-switch + INVOKE_* dispatch stay C++ until
+// Tier 6 INVOKE_* re-architecture. Bridge spec ratified [chat L1931].
+extern "C" void hir_builder_emit_awaited_call_tail_c(
+    void* tc, void* func, void* builder,
+    PyCodeObject* code,
+    int code_flags,
+    int get_awaitable_error_aenter,
+    int get_awaitable_error_aexit,
+    int load_const_oparg);
+
+// Forward decl — checkAsyncWithError is defined static at builder.cpp:~4856,
+// below the emitAnyCall call site. Pre-PartialConversion the call lived
+// inline within the await-tail; refactor hoisted it above the definition.
+static std::pair<bool, bool> checkAsyncWithError(
+    const BytecodeInstructionBlock&, BytecodeInstruction);
+
 void HIRBuilder::emitAnyCall(
     CFG& cfg,
     TranslationContext& tc,
@@ -2961,35 +2979,37 @@ void HIRBuilder::emitAnyCall(
       JIT_ABORT("Unhandled call opcode {} ({})", opcode, opcodeName(opcode));
   }
   if (is_awaited && call_used_is_awaited) {
-    Register* out = temps_.AllocateStack();
-    TranslationContext await_block{cfg.AllocateBlock(), tc.frame};
-    TranslationContext post_await_block{cfg.AllocateBlock(), tc.frame};
-
-    emitDispatchEagerCoroResult(
-        cfg, tc, out, await_block.block, post_await_block.block);
-
-    tc.block = await_block.block;
-
+    // (D1+A4) Advance bc_it three times + assert opcode sequence on the C++
+    // side BEFORE the C body runs. Iterator state never crosses the boundary
+    // (PB invariant) — only int baseOffsets/oparg/error flags pass through.
     ++bc_it;
     JIT_CHECK(
         bc_it->opcode() == GET_AWAITABLE,
         "Awaited function call must be followed by GET_AWAITABLE");
-    emitGetAwaitable(cfg, tc, bc_instrs, *bc_it);
+    auto get_awaitable_bc = *bc_it;
+    auto [error_aenter, error_aexit] =
+        checkAsyncWithError(bc_instrs, get_awaitable_bc);
 
     ++bc_it;
     JIT_CHECK(
         bc_it->opcode() == LOAD_CONST,
         "GET_AWAITABLE must be followed by LOAD_CONST");
-    emitLoadConst(tc, *bc_it);
+    int load_const_oparg = bc_it->oparg();
 
     ++bc_it;
     JIT_CHECK(
         bc_it->opcode() == YIELD_FROM,
         "GET_AWAITABLE should always be followed by LOAD_CONST+YIELD_FROM");
-    emitYieldFrom(tc, out);
-    tc.emitBranch(post_await_block.block);
 
-    tc.block = post_await_block.block;
+    hir_builder_emit_awaited_call_tail_c(
+        static_cast<void*>(&tc),
+        static_cast<void*>(current_func_),
+        static_cast<void*>(this),
+        code_,
+        static_cast<int>(code_->co_flags),
+        static_cast<int>(error_aenter),
+        static_cast<int>(error_aexit),
+        load_const_oparg);
   }
 }
 
