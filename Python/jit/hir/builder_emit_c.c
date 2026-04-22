@@ -12,6 +12,7 @@
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/hir/annotation_index_c.h"  /* HirAnnotationIndex (emitTypeAnnotationGuards) */
 #include "cinderx/Jit/jit_config_c.h"
+#include "cinderx/Common/jit_log_c.h"            /* JIT_CHECK_C (item #17) */
 #include "Python.h"
 #include "internal/pycore_moduleobject.h"  /* PyModuleObject (LOAD_ATTR_MODULE) */
 #include "internal/pycore_dict.h"          /* PyDictKeysObject (LOAD_ATTR_MODULE) */
@@ -916,14 +917,47 @@ void hir_builder_emit_type_annotation_guards_c(
         /* Guard the arg register against the annotated exact type.
          * arg comes from localsplus (allocated by allocateLocalsplus). */
         void *arg = tc->frame.localsplus.data[arg_idx];
-        if (arg == NULL) {
-            /* Mirrors C++ JIT_CHECK — should never happen in well-formed
-             * functions; bail out gracefully if it does. */
-            continue;
-        }
+        JIT_CHECK_C(arg != NULL, "No register for argument %d", arg_idx);
         HirType type = hir_type_from_pytype((PyTypeObject *)annotation, /*is_exact=*/1);
         phx_tc_emit(tc, hir_c_create_guard_type_reg(arg, type, arg));
     }
+}
+
+/* emitResume — RESUME opcode handler. Inserts an eval-breaker check + periodic
+ * tasks block when oparg < 2 (oparg 2/3 are no-op resumes, e.g. coroutine
+ * sends/throws which don't need periodic-task points). Mirrors C++
+ * HIRBuilder::emitResume @ builder.cpp:3175.
+ *
+ * Bridge delegation: insertRunPeriodicActivites stays C++ (private member,
+ * accessed via friend bridge hir_builder_insert_run_periodic_activities_c).
+ * That helper carries Py_GIL_DISABLED #ifdef and emit-helper chain — no
+ * value in re-porting it now.
+ *
+ * Snapshot-on-succ-block trick: instead of allocating a temp PhxTranslationContext
+ * (which would need phx_frame_state_copy + destroy), we capture the original
+ * tc->block, switch tc->block to succ_block, emit snapshot, then call the
+ * helper. Equivalent because:
+ *   - tc->frame == succ.frame at this point (succ was just constructed from
+ *     a frame copy, no mutations between — emitSnapshot doesn't mutate frame)
+ *   - Snapshot lands in succ_block (correct destination)
+ *   - Final tc->block == succ_block (matches C++ tc.block = succ.block) */
+extern void *hir_cfg_alloc_block(void *func);
+extern void hir_builder_insert_run_periodic_activities_c(
+    void *builder, void *func,
+    void *check_block, void *succ_block, void *frame_state);
+
+void hir_builder_emit_resume_c(
+        PhxTranslationContext *tc, void *func, void *builder, int oparg) {
+    if (oparg >= 2) {
+        return;
+    }
+    void *check_block = tc->block;
+    void *succ_block = hir_cfg_alloc_block(func);
+    tc->block = succ_block;
+    phx_tc_emit(tc, hir_c_create_snapshot(&tc->frame));
+    hir_builder_insert_run_periodic_activities_c(
+        builder, func, check_block, succ_block, &tc->frame);
+    /* tc->block already == succ_block (final state matches C++ tc.block = succ.block) */
 }
 
 /* emitLoadAttr generic — non-specialized LoadAttr2 fallback */

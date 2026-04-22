@@ -21,6 +21,9 @@ int hir_builder_preloader_num_args(void *builder);
 HirType hir_builder_preloader_return_type(void *builder);
 HirType hir_builder_preloader_type(void *builder, PyObject *descr);
 void *hir_builder_preloader_py_type(void *builder, PyObject *descr);
+void hir_builder_insert_run_periodic_activities_c(
+    void *builder, void *func,
+    void *check_block, void *succ_block, void *frame_state);
 } // extern "C"
 #include <vector>
 
@@ -103,6 +106,8 @@ struct InlineResult {
 
 class HIRBuilder {
   friend void* ::hir_builder_get_block_at_off(void*, int);
+  friend void ::hir_builder_insert_run_periodic_activities_c(
+      void*, void*, void*, void*, void*);
  public:
   const Preloader& preloader() const { return preloader_; }
   explicit HIRBuilder(const Preloader& preloader)

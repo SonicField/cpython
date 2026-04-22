@@ -3172,17 +3172,30 @@ void HIRBuilder::emitCallInstrinsic(
       bc_instr.opcode(), bc_instr.oparg());
 }
 
+extern "C" void hir_builder_emit_resume_c(
+    void *tc, void *func, void *builder, int oparg);
+
 void HIRBuilder::emitResume(
     CFG& cfg,
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  if (bc_instr.oparg() >= 2) {
-    return;
-  }
-  TranslationContext succ(cfg.AllocateBlock(), tc.frame);
-  succ.emitSnapshot();
-  insertRunPeriodicActivites(cfg, tc.block, succ.block, tc.frame);
-  tc.block = succ.block;
+  (void)cfg;  // cfg derived from current_func_ inside C bridge
+  hir_builder_emit_resume_c(
+      static_cast<void*>(&tc),
+      static_cast<void*>(current_func_),
+      static_cast<void*>(this),
+      bc_instr.oparg());
+}
+
+extern "C" void hir_builder_insert_run_periodic_activities_c(
+    void *builder, void *func,
+    void *check_block, void *succ_block, void *frame_state) {
+  auto *b = static_cast<HIRBuilder*>(builder);
+  auto *f = static_cast<Function*>(func);
+  auto *check = static_cast<BasicBlock*>(check_block);
+  auto *succ = static_cast<BasicBlock*>(succ_block);
+  auto *fs = static_cast<FrameState*>(frame_state);
+  b->insertRunPeriodicActivites(f->cfg, check, succ, *fs);
 }
 
 void HIRBuilder::emitKwNames(
