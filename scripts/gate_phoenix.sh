@@ -73,8 +73,15 @@ if ! "$SCRIPT_DIR/build_phoenix.sh" $BUILD_FLAGS; then
 fi
 echo "Build: PASS" | tee -a "$RESULTS_FILE"
 
-# Copy binary to avoid "Text file busy" if another process holds the original
-cp "$PYTHON" "${PYTHON}_gate" 2>/dev/null || true
+# Copy binary to avoid "Text file busy" if another process holds the original.
+# rm before cp so a busy ${PYTHON}_gate from a prior run cannot leave a
+# stale binary in place — that masquerades as PASS while the gate actually
+# tests the OLD binary. Pre-2026-04-22 the cp was '|| true' which silently
+# tolerated 'Text file busy' and ran the gate against whatever stale
+# ${PYTHON}_gate happened to already exist (caught at 00:41Z, push 38).
+# Now: rm forces a fresh copy; cp failure aborts the gate.
+rm -f "${PYTHON}_gate"
+cp "$PYTHON" "${PYTHON}_gate"
 PYTHON="${PYTHON}_gate"
 
 # Step 1b: _reg usage policy gate (no-FS DeoptBase factories banned in simplify_c.c)

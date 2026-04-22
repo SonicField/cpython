@@ -16,6 +16,7 @@ caught it> <root cause class> <test-bug | emit-bug | gate-script bug>`.
 | 1 | 2026-04-21 | 0e62d9108b   | wiring smoke `load_attr_generic`       | `import sys` in body → IMPORT_NAME → JIT PYJIT_RESULT_UNKNOWN_ERROR at force_compile                | test-bug         |
 | 2 | 2026-04-21 | 15feea07c9   | ARM64 gate (push 36 stash bracket)     | `git stash push -u` captured SCP'd bundle inside cpython tree → fetch failed silently               | gate-script bug  |
 | 3 | 2026-04-21 | 91d5b60f5d   | ARM64 commit-match check               | `grep -oP 'ARM64_COMMIT=\K\S+'` matched heredoc body literal `$(git rev-parse...)` not runtime echo | gate-script bug  |
+| 4 | 2026-04-22 | 79890e7b73   | testkeeper G1.6 prep investigation     | `cp "$PYTHON" "${PYTHON}_gate" \|\| true` silently tolerated 'Text file busy' → gate ran against stale `python_gate` (8382896c85) for pushes 36/37/38; masked emitGetIter validation AND latent LOAD_ATTR_SLOT segfault in generalist's in-flight stash | gate-script bug  |
 
 ## Meta-observation (supervisor 2026-04-22 00:17:13Z)
 
