@@ -2343,9 +2343,11 @@ void hir_c_insert_after(HirInstr new_instr, HirInstr after) {
   as_instr(new_instr)->InsertAfter(*as_instr(after));
 }
 
-void hir_c_unlink(HirInstr instr) {
-  as_instr(instr)->unlink();
-}
+/* W25 Step 1.5 (chat 13:38:34Z): the 1-arg `hir_c_unlink(HirInstr)` impl
+ * that lived here was DEAD CODE — zero callers in tree (hir.cpp:642
+ * calls the 2-arg static inline from hir_basic_block_c.h instead).
+ * Removed to resolve same-name-different-signature conflict that blocked
+ * the W25 Layer B prelude attempt. */
 
 void hir_c_replace_with(HirInstr old_instr, HirInstr new_instr) {
   as_instr(old_instr)->ReplaceWith(*as_instr(new_instr));

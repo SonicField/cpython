@@ -317,8 +317,9 @@ void *hir_cfg_allocate_unlinked_block(void *cfg);
 /* Update Phi instructions in block to replace old_pred with new_pred */
 void hir_bb_fixup_phis(void *block, void *old_pred, void *new_pred);
 
-/* Unlink an instruction from its block (does not free memory). */
-void hir_instr_unlink(HirInstr instr);
+/* W25 Step 1.5 (chat 13:38:34Z): redundant `hir_instr_unlink` decl removed
+ * — same signature already declared above at line ~134 ("Instruction
+ * mutation" section). Kept the canonical decl in the mutation section. */
 
 /* Destroy (free) an unlinked instruction. */
 void hir_instr_destroy(HirInstr instr);
@@ -722,8 +723,13 @@ void hir_c_insert_before(HirInstr new_instr, HirInstr before);
 /* Insert 'new_instr' after 'after' in the instruction list. */
 void hir_c_insert_after(HirInstr new_instr, HirInstr after);
 
-/* Unlink an instruction from its basic block (does not destroy it). */
-void hir_c_unlink(HirInstr instr);
+/* W25 Step 1.5 (chat 13:38:34Z): the 1-arg `hir_c_unlink(HirInstr)` decl
+ * that lived here was DEAD CODE — zero callers in tree per pre-work grep
+ * (hir.cpp:642 calls the 2-arg static inline `hir_c_unlink(void*, const
+ * HirBasicBlock*)` from hir_basic_block_c.h instead). Removed to resolve
+ * the same-name-different-signature conflict that blocked the prelude
+ * Layer B attempt. The 2-arg static inline in hir_basic_block_c.h is now
+ * the only `hir_c_unlink`. */
 
 /* Replace 'old_instr' with 'new_instr' in the instruction list.
  * old_instr is unlinked but NOT destroyed. */
