@@ -1709,52 +1709,14 @@ std::unique_ptr<Function> HIRBuilder::buildHIR() {
 
 // Loop through each of the arguments on the current translation context and
 // check and see if there is any annotation to guard against.
+extern "C" void hir_builder_emit_type_annotation_guards_c(
+    void *tc, void *func, void *builder);
+
 void HIRBuilder::emitTypeAnnotationGuards(TranslationContext& tc) {
-  HirAnnotationIndex* index = preloader_.annotations();
-
-  // Bail out if there are no annotations.
-  if (!index) {
-    return;
-  }
-
-  PyCodeObject* const code = tc.frame.code;
-  bool first = true;
-
-  for (int arg_idx = 0; arg_idx < preloader_.numArgs(); arg_idx++) {
-    PyObject* annotation = hir_annotation_index_find(index, getVarname(code, arg_idx));
-
-    // If there is no annotation or if the annotation is an unexpected type,
-    // then skip over this argument.
-    //
-    // Note that this also skips over more complex types like unions. It could
-    // be beneficial in the future to support runtime checks for these kinds of
-    // annotations.
-    if (!annotation || !PyType_Check(annotation)) {
-      continue;
-    }
-
-    // If we have an annotation that we are going to guard against, we need to
-    // emit a snapshot for the guard.
-    //
-    // It's likely that no bytecode instructions have been compiled yet, meaning
-    // the instruction offset has not yet been set. Setting it to zero here
-    // ensures that if we need to deopt that it starts executing the first
-    // instruction.
-    if (first) {
-      first = false;
-      tc.frame.cur_instr_offs = BCOffset(0);
-      tc.emitSnapshot();
-    }
-
-    // Now guard against the type of the argument.
-    auto arg = static_cast<Register*>(tc.frame.localsplus.data[arg_idx]);
-    JIT_CHECK(arg != nullptr, "No register for argument {}", arg_idx);
-
-    Type type =
-        Type::fromTypeExact(reinterpret_cast<PyTypeObject*>(annotation));
-
-    tc.emitGuardType(arg, type, arg);
-  }
+  hir_builder_emit_type_annotation_guards_c(
+      static_cast<void*>(&tc),
+      static_cast<void*>(current_func_),
+      static_cast<void*>(this));
 }
 
 BasicBlock* HIRBuilder::buildHIRImpl(

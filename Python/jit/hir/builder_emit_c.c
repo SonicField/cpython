@@ -10,6 +10,7 @@
 #include "cinderx/Jit/hir/hir_basic_block_c.h"
 #include "cinderx/Jit/hir/phx_frame_state.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
+#include "cinderx/Jit/hir/annotation_index_c.h"  /* HirAnnotationIndex (emitTypeAnnotationGuards) */
 #include "cinderx/Jit/jit_config_c.h"
 #include "Python.h"
 #include "internal/pycore_moduleobject.h"  /* PyModuleObject (LOAD_ATTR_MODULE) */
@@ -872,6 +873,57 @@ int hir_builder_emit_load_attr_instance_value_c(
 
     phx_ptr_arr_push(&tc->frame.stack, result);
     return 1;
+}
+
+/* emitTypeAnnotationGuards — walk function args, emit GuardType for any
+ * arg with a PyType-checkable annotation. C port closes G2 deletion-gate
+ * item (Preloader.annotations bridge) per supervisor 22:32:58Z + theologian
+ * 04:18:21Z. */
+extern void *hir_builder_preloader_annotations(void *builder);
+extern int hir_builder_preloader_num_args(void *builder);
+
+void hir_builder_emit_type_annotation_guards_c(
+        PhxTranslationContext *tc, void *func, void *builder) {
+    HirAnnotationIndex *index =
+        (HirAnnotationIndex *)hir_builder_preloader_annotations(builder);
+    if (index == NULL) {
+        return;
+    }
+
+    PyCodeObject *code = (PyCodeObject *)tc->frame.code;
+    int num_args = hir_builder_preloader_num_args(builder);
+    int first = 1;
+
+    for (int arg_idx = 0; arg_idx < num_args; arg_idx++) {
+        PyObject *annotation = hir_annotation_index_find(
+            index, get_varname(code, arg_idx));
+
+        /* Skip args without an annotation OR annotation isn't a plain PyType
+         * (matches C++ — unions / complex types skipped, not yet supported). */
+        if (annotation == NULL || !PyType_Check(annotation)) {
+            continue;
+        }
+
+        /* Snapshot ONLY ON FIRST guard (first-flag pattern from C++).
+         * cur_instr_offs = 0 ensures deopt restarts at instruction 0
+         * (no bytecode has been compiled yet at this point). */
+        if (first) {
+            first = 0;
+            tc->frame.cur_instr_offs = 0;
+            phx_tc_emit(tc, hir_c_create_snapshot(&tc->frame));
+        }
+
+        /* Guard the arg register against the annotated exact type.
+         * arg comes from localsplus (allocated by allocateLocalsplus). */
+        void *arg = tc->frame.localsplus.data[arg_idx];
+        if (arg == NULL) {
+            /* Mirrors C++ JIT_CHECK — should never happen in well-formed
+             * functions; bail out gracefully if it does. */
+            continue;
+        }
+        HirType type = hir_type_from_pytype((PyTypeObject *)annotation, /*is_exact=*/1);
+        phx_tc_emit(tc, hir_c_create_guard_type_reg(arg, type, arg));
+    }
 }
 
 /* emitLoadAttr generic — non-specialized LoadAttr2 fallback */
