@@ -2478,3 +2478,40 @@ void hir_builder_emit_yield_from_method_c(
     phx_ptr_arr_pop(&tc->frame.stack);  /* now pop iter (after emit captured operand) */
     phx_ptr_arr_push(&tc->frame.stack, out);
 }
+
+/* emitInvokeMethodVectorCall — VectorCall + fixStaticReturn dispatch for a
+ * static method invoke. Mirrors C++ HIRBuilder::emitInvokeMethodVectorCall
+ * @ builder.cpp:3561.
+ *
+ * out is allocated by the C++ stub (per emitYieldFrom precedent — caller-
+ * provides). target.return_type is extracted to HirType in the stub via
+ * Type::toHirType. arg_regs comes through as void** + count (decay from
+ * std::vector<Register*>::data()).
+ *
+ * CallFlags::Awaited = 1<<1 = 2 per hir.h:881-886. None = 0.
+ *
+ * fixStaticReturn invoked via the C-callable wrapper added at builder.cpp
+ * (lite bridge spec 12:42:11Z, theologian ACK 12:42:26Z). */
+extern void *hir_c_create_vectorcall_reg(size_t n_operands, void *dst, uint32_t flags);
+extern void hir_c_set_operand(void *instr, size_t idx, void *operand);
+extern void hir_builder_fix_static_return_c(
+    void *builder, void *tc, void *ret_val, HirType ret_type);
+
+void hir_builder_emit_invoke_method_vector_call_c(
+        PhxTranslationContext *tc,
+        void *builder,
+        void *out,
+        void **arg_regs_data,
+        size_t arg_regs_count,
+        int is_awaited,
+        HirType ret_type) {
+    uint32_t flags = is_awaited ? 2u : 0u;  /* CallFlags::Awaited = 1<<1 */
+    void *call = hir_c_create_vectorcall_reg(arg_regs_count, out, flags);
+    for (size_t i = 0; i < arg_regs_count; i++) {
+        hir_c_set_operand(call, i, arg_regs_data[i]);
+    }
+    hir_deopt_set_frame_state(call, &tc->frame);
+    phx_tc_emit(tc, call);
+    hir_builder_fix_static_return_c(builder, tc, out, ret_type);
+    phx_ptr_arr_push(&tc->frame.stack, out);
+}

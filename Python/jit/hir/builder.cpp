@@ -3330,6 +3330,24 @@ extern "C" void *hir_builder_temps_alloc_stack(void *builder) {
   return static_cast<void*>(b->temps_.AllocateStack());
 }
 
+// Lite bridge per spec 12:42:11Z (theologian ACK 12:42:26Z): C-callable
+// thin wrapper around HIRBuilder::fixStaticReturn. Encapsulates the
+// Type::asBoxed + jit_get_config check + RefineType emit + unboxPrimitive
+// chain so emit-method C bodies can call without C-bridging the helper
+// itself. EMITS instructions conditionally — not a pure data accessor.
+//
+// HirType→Type via Type::fromHirType per CLAUDE.md HirType/Type rule
+// (no reinterpret_cast). In-place SSA-rename (ret_val both input and
+// output) is preserved via fixStaticReturn's existing semantics.
+extern "C" void hir_builder_fix_static_return_c(
+    void *builder, void *tc_v, void *ret_val_v, HirType ret_type_h) {
+  auto *b = static_cast<HIRBuilder*>(builder);
+  auto *tc = static_cast<HIRBuilder::TranslationContext*>(tc_v);
+  auto *ret_val = static_cast<Register*>(ret_val_v);
+  Type ret_type = Type::fromHirType(ret_type_h);
+  b->fixStaticReturn(*tc, ret_val, ret_type);
+}
+
 bool HIRBuilder::tryEmitDirectMethodCall(
     const InvokeTarget& target,
     TranslationContext& tc,
@@ -3558,22 +3576,25 @@ bool HIRBuilder::emitInvokeNative(
   return false;
 }
 
+extern "C" void hir_builder_emit_invoke_method_vector_call_c(
+    void* tc, void* builder, void* out,
+    void** arg_regs_data, size_t arg_regs_count,
+    int is_awaited, HirType ret_type);
+
 void HIRBuilder::emitInvokeMethodVectorCall(
     TranslationContext& tc,
     bool is_awaited,
     std::vector<Register*>& arg_regs,
     const InvokeTarget& target) {
   Register* out = temps_.AllocateStack();
-
-  auto vectorCall = tc.emitVectorCall(
-      arg_regs.size(), out, is_awaited ? CallFlags::Awaited : CallFlags::None);
-  for (auto i = 0; i < arg_regs.size(); i++) {
-    vectorCall->SetOperand(i, arg_regs.at(i));
-  }
-  vectorCall->setFrameState(tc.frame);
-
-  fixStaticReturn(tc, out, target.return_type);
-  phx_ptr_arr_push(&tc.frame.stack, out);
+  hir_builder_emit_invoke_method_vector_call_c(
+      static_cast<void*>(&tc),
+      static_cast<void*>(this),
+      static_cast<void*>(out),
+      reinterpret_cast<void**>(arg_regs.data()),
+      arg_regs.size(),
+      is_awaited ? 1 : 0,
+      Type::toHirType(target.return_type));
 }
 
 void HIRBuilder::emitLoadMethodStatic(
