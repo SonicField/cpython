@@ -2,8 +2,7 @@
 
 #include "cinderx/Jit/hir/cfg.h"
 #include "cinderx/Jit/hir/hir_basic_block_c.h"
-
-extern "C" size_t hir_cfg_get_rpo_c(void *cfg, void **out, size_t capacity);
+#include "cinderx/Jit/hir/hir_cfg_rpo_c.h"
 
 namespace jit::hir {
 
