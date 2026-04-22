@@ -531,7 +531,13 @@ if [ "$ARM64" -eq 1 ]; then
     # cannot pollute the build. Restore (pop) AFTER the gate completes — PASS or
     # FAIL — so the developer's in-flight work on devgpu004 is preserved.
     # 'git stash push -u' is a no-op when the working tree is clean.
-    ARM64_OUTPUT=$(nbs-remote-run "$ARM64_HOST" "
+    #
+    # 'stdbuf -oL -eL' wraps the local nbs-remote-run process to force
+    # line-buffering on its output. Two truncation incidents in the push 40
+    # window (01:11Z, 01:25Z) had ARM64 transcript cut off mid-build, leaving
+    # 'GATE PASS' verdicts undeterminable — addressed by line buffering on the
+    # capture side so output flushes incrementally rather than in a final block.
+    ARM64_OUTPUT=$(stdbuf -oL -eL nbs-remote-run "$ARM64_HOST" "
         cd $ARM64_DIR &&
         echo STASH_PUSH_BEGIN;
         ORIG_REF=\$(git symbolic-ref --short -q HEAD || git rev-parse HEAD);

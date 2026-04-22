@@ -176,6 +176,14 @@ $AR_CMD rcs "$BUILD_DIR/_deps/asmjit-build/libasmjit.a"
 echo "--- Building CPython ---"
 cd "$CPYTHON_ROOT"
 rm -f python
+# Modules/getbuildinfo.o embeds GITVERSION/GITTAG/GITBRANCH at compile time,
+# baked from 'git describe --dirty' AT FIRST BUILD. Incremental rebuilds
+# don't re-run that compile because the .c source hasn't changed — so a
+# binary built once with a dirty working tree carries the '-dirty' marker
+# forever. Force re-evaluation every build by deleting the .o, so
+# Modules/getbuildinfo.o is the only object the BINARY_MATCH check
+# can rely on for accurate identity.
+rm -f Modules/getbuildinfo.o
 # ASAN builds: disable LeakSanitizer during make — CPython's freeze step runs
 # its own Python, and ASAN flags CPython's startup leaks as errors.
 MAKE_LOG=$(mktemp)
