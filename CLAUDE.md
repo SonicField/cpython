@@ -33,6 +33,10 @@ Every BUILD PASS report must include: (1) the build command run, (2) binary time
 
 Two build-verification failures in the 2026-04-16 session (stale binary + phantom build) proved that "it builds" claims without evidence are unreliable. Item (3)'s tree-clean addition is per testkeeper 2026-04-22 L2186 self-flag (cited HEAD didn't reflect actual binary content during uncommitted-edit window). Item (4) verbatim-trailer paste is per testkeeper L2233 + librarian L2255 (closes memory-decay-gap on PASS-on-claim convention).
 
+**Refuting build-class claims (filesystem-first):** any agent disputing a BUILD PASS report (e.g. medic-class hallucination warnings) MUST cite filesystem evidence — `stat -c %Y` on the binary, `.o` file existence checks, or grep of build stdout — BEFORE posting the warning. Session-log scans alone are insufficient because builds may run via Bash tool not nbs-ts. Per medic 2026-04-22 L2226 false-positive (session-log-only check missed Bash-tool builds, escalated to HALT + Alex-threat before filesystem check; supervisor + medic both self-flagged).
+
+**Counts in commit messages and chat reports (script-driven):** any quantitative claim (TU counts, extern counts, file counts, method counts) MUST come from script output (`scripts/count_w25_b1b_tus.sh`, `scripts/count_emit_methods.sh`, or equivalent) — not memory or recollection. Quote the script command and output. Per repeated /N-class lapses (4+ instances across 2026-04-16 + 2026-04-22 sessions despite feedback memory).
+
 ## Build Lock (MANDATORY — Phase 3D)
 
 During Phase 3D, ONLY testkeeper may run make, cmake, configure, build_phoenix.sh, make distclean, or any build command in the cpython directory. All other agents are restricted to file editing and git operations.
