@@ -3364,6 +3364,11 @@ extern void hir_builder_emit_get_awaitable_c(
 extern void hir_builder_emit_yield_from_method_c(
     PhxTranslationContext *tc, void *out, int code_flags);
 
+/* PARTIAL CONVERSION ARTIFACT — emitAnyCall await-tail extracted while
+ * emitAnyCall opcode-switch + 3 INVOKE_* sub-methods (emitInvokeFunction,
+ * emitInvokeNative, emitInvokeMethod) remain C++. REABSORB WHEN: Tier 6
+ * INVOKE_* family fully converts to C; then emitAnyCall fully converts and
+ * this bridge can inline back into the full C body. */
 void hir_builder_emit_awaited_call_tail_c(
         PhxTranslationContext *tc,
         void *func,
