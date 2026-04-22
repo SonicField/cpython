@@ -29,7 +29,9 @@ Retroactive approvals are NOT acceptable for Phase 3D commits (codegen conversio
 
 ## Build Verification (MANDATORY)
 
-Every BUILD PASS report must include: (1) the build command run, (2) binary timestamp, (3) commit hash verified in the built binary. Reports without these are UNVERIFIED. Two build-verification failures in the 2026-04-16 session (stale binary + phantom build) proved that "it builds" claims without evidence are unreliable.
+Every BUILD PASS report must include: (1) the build command run, (2) binary timestamp, (3) commit hash verified in the built binary AND working tree clean during the build (no uncommitted edits influencing the binary), (4) the verbatim build trailer block (from `=== Build complete ===` through `Binary timestamp: ...`). Reports without all four are UNVERIFIED.
+
+Two build-verification failures in the 2026-04-16 session (stale binary + phantom build) proved that "it builds" claims without evidence are unreliable. Item (3)'s tree-clean addition is per testkeeper 2026-04-22 L2186 self-flag (cited HEAD didn't reflect actual binary content during uncommitted-edit window). Item (4) verbatim-trailer paste is per testkeeper L2233 + librarian L2255 (closes memory-decay-gap on PASS-on-claim convention).
 
 ## Build Lock (MANDATORY — Phase 3D)
 
