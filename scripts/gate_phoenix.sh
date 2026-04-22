@@ -210,7 +210,7 @@ if [ "$WIRING" -eq 1 ]; then
     echo "" | tee -a "$RESULTS_FILE"
     echo "--- Step 6: Wiring Smoke Test ---" | tee -a "$RESULTS_FILE"
     WIRING_OUTPUT=$(ASAN_OPTIONS=detect_leaks=0 "$PYTHON" -c "
-import _cinderx, cinderjit
+import _cinderx, cinderjit, sys
 
 def straight_add(x, y): return x + y
 
@@ -285,9 +285,8 @@ def binop_arithmetic(x, y):
     return x + y - (y * 2) + (x // 2) - (y % 3)
 
 def load_attr_generic():
-    # emitLoadAttr generic: attribute access pre-specialization
-    import sys
-    # Self-validating: compare two paths to the same value
+    # emitLoadAttr generic: attribute access pre-specialization (no IMPORT_NAME opcode).
+    # Self-validating: compare two paths to the same value.
     a = sys.maxsize
     b = sys.maxsize
     return (a == b, a > 0, type(a).__name__)
