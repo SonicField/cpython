@@ -25,10 +25,15 @@ extern "C" {
 
 /* ---- Opaque handle types ---- */
 typedef void* HirFunction;
-typedef void* HirCFG;
-typedef void* HirBasicBlock;
 typedef void* HirInstr;
 typedef void* HirRegister;
+
+/* W25 canonical: HirBasicBlock + HirCFG are forward-declared structs.
+ * Full layout in hir_basic_block_c.h; API consumers see only the opaque
+ * pointer. Forward decl satisfies API-only TUs; full def satisfies field-
+ * access TUs. Both can include both headers without typedef collision. */
+struct HirBasicBlock;
+struct HirCFG;
 
 /* ---- AliasClass constants ----
  * AEmpty is the identity element — no memory effects. */
@@ -37,7 +42,7 @@ typedef void* HirRegister;
 /* ---- Function / CFG accessors ---- */
 
 /* Get the CFG from a function. */
-HirCFG hir_func_cfg(HirFunction func);
+struct HirCFG *hir_func_cfg(HirFunction func);
 
 /* Get the function's full qualified name (C string, valid until function freed). */
 const char *hir_func_fullname(HirFunction func);
@@ -79,42 +84,42 @@ void hir_preloader_ensure(void *py_func);
 
 /* Get blocks in reverse postorder. Caller provides output array.
  * Returns number of blocks written (clamped to capacity). */
-size_t hir_cfg_get_rpo(HirCFG cfg, HirBasicBlock *out, size_t capacity);
+size_t hir_cfg_get_rpo(struct HirCFG *cfg, struct HirBasicBlock **out, size_t capacity);
 
 /* Linked-list iteration over all blocks in CFG order.
  * hir_cfg_blocks_first returns the first block (or NULL if empty).
  * hir_cfg_blocks_next returns the next block (or NULL at end). */
-HirBasicBlock hir_cfg_blocks_first(HirCFG cfg);
-HirBasicBlock hir_cfg_blocks_next(HirCFG cfg, HirBasicBlock block);
+struct HirBasicBlock *hir_cfg_blocks_first(struct HirCFG *cfg);
+struct HirBasicBlock *hir_cfg_blocks_next(struct HirCFG *cfg, struct HirBasicBlock *block);
 
 /* ---- BasicBlock accessors ---- */
 
-int hir_block_empty(HirBasicBlock block);
-int hir_block_id(HirBasicBlock block);
+int hir_block_empty(struct HirBasicBlock *block);
+int hir_block_id(struct HirBasicBlock *block);
 
 /* Instruction iteration within a block.
  * hir_block_first returns first instr (or NULL if empty).
  * hir_block_next returns next instr (or NULL at end).
  * Safe to call hir_instr_unlink on current instr if you advance first. */
-HirInstr hir_block_first(HirBasicBlock block);
-HirInstr hir_block_next(HirBasicBlock block, HirInstr instr);
+HirInstr hir_block_first(struct HirBasicBlock *block);
+HirInstr hir_block_next(struct HirBasicBlock *block, HirInstr instr);
 
 /* Get the terminator (last instruction) of the block. */
-HirInstr hir_block_terminator(HirBasicBlock block);
+HirInstr hir_block_terminator(struct HirBasicBlock *block);
 
 /* Append an instruction to the end of the block. Returns the instr. */
-HirInstr hir_block_append(HirBasicBlock block, HirInstr instr);
+HirInstr hir_block_append(struct HirBasicBlock *block, HirInstr instr);
 
 /* Remove and return the first instruction. */
-HirInstr hir_block_pop_front(HirBasicBlock block);
+HirInstr hir_block_pop_front(struct HirBasicBlock *block);
 
 /* Number of incoming edges. */
-size_t hir_block_in_edges_count(HirBasicBlock block);
+size_t hir_block_in_edges_count(struct HirBasicBlock *block);
 
 /* Update Phi instructions: replace old_pred with new_pred. */
-void hir_block_fixup_phis(HirBasicBlock block,
-                          HirBasicBlock old_pred,
-                          HirBasicBlock new_pred);
+void hir_block_fixup_phis(struct HirBasicBlock *block,
+                          struct HirBasicBlock *old_pred,
+                          struct HirBasicBlock *new_pred);
 
 /* ---- Instruction predicates ----
  * Most predicates moved to hir_instr_c.h as hir_c_is_* inline functions
@@ -126,7 +131,7 @@ void hir_block_fixup_phis(HirBasicBlock block,
 
 /* Control flow edges. */
 size_t hir_instr_num_edges(HirInstr instr);
-HirBasicBlock hir_instr_successor(HirInstr instr, size_t index);
+struct HirBasicBlock *hir_instr_successor(HirInstr instr, size_t index);
 
 /* ---- Instruction mutation ---- */
 
@@ -166,7 +171,7 @@ HirOperandType hir_c_get_operand_type(HirInstr instr, size_t i);
 /* ---- Branch-specific ---- */
 
 /* Get the target block of a Branch instruction. */
-HirBasicBlock hir_branch_target(HirInstr branch);
+struct HirBasicBlock *hir_branch_target(HirInstr branch);
 
 /* ---- Register accessors ---- */
 
@@ -578,7 +583,7 @@ int hir_instr_uses_reg(HirInstr instr, HirRegister reg);
 void hir_instr_replace_with(HirInstr old_instr, HirInstr new_instr);
 
 /* Get the last instruction in a block. Returns NULL if empty. */
-HirInstr hir_block_back(HirBasicBlock block);
+HirInstr hir_block_back(struct HirBasicBlock *block);
 
 /* Get an instruction's operand by index. */
 HirRegister hir_instr_get_operand(HirInstr instr, size_t i);
@@ -695,7 +700,7 @@ int hir_memory_effects_may_store(HirInstr instr);
 /* ---- CFG / pass utilities ---- */
 
 /* Remove trampoline blocks (single unconditional jumps). Returns 1 if changed. */
-int hir_remove_trampoline_blocks(HirCFG cfg);
+int hir_remove_trampoline_blocks(struct HirCFG *cfg);
 
 /* Remove unreachable blocks from function. Returns 1 if changed. */
 int hir_remove_unreachable_blocks(HirFunction func);

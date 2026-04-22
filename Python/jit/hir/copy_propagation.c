@@ -19,16 +19,16 @@ static int chase_assign_cb(void **reg_slot, void *ctx) {
 }
 
 void hir_copy_propagation_run(HirFunction func) {
-    HirCFG cfg = hir_func_cfg(func);
+    struct HirCFG *cfg = hir_func_cfg(func);
 
-    /* Get RPO traversal */
+    /* Get RPO traversal. Array-of-pointers sizing — sizeof(ptr) preserved. */
     size_t rpo_cap = 256;
-    HirBasicBlock *rpo_blocks = malloc(rpo_cap * sizeof(HirBasicBlock));
+    struct HirBasicBlock **rpo_blocks = malloc(rpo_cap * sizeof(struct HirBasicBlock *));
     if (!rpo_blocks) return;
     size_t num_blocks = hir_cfg_get_rpo(cfg, rpo_blocks, rpo_cap);
     if (num_blocks > rpo_cap) {
         rpo_cap = num_blocks;
-        rpo_blocks = realloc(rpo_blocks, rpo_cap * sizeof(HirBasicBlock));
+        rpo_blocks = realloc(rpo_blocks, rpo_cap * sizeof(struct HirBasicBlock *));
         if (!rpo_blocks) return;
         hir_cfg_get_rpo(cfg, rpo_blocks, rpo_cap);
     }
@@ -43,7 +43,7 @@ void hir_copy_propagation_run(HirFunction func) {
     }
 
     for (size_t i = 0; i < num_blocks; i++) {
-        HirBasicBlock block = rpo_blocks[i];
+        struct HirBasicBlock *block = rpo_blocks[i];
         HirInstr instr = hir_block_first(block);
 
         while (instr != NULL) {

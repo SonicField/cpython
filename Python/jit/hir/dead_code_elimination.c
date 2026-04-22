@@ -149,13 +149,13 @@ static int dce_visit_cb(void **reg_slot, void *ctx) {
 /* ---- DCE pass ---- */
 
 void hir_dead_code_elimination_run(HirFunction func) {
-    HirCFG cfg = hir_func_cfg(func);
+    struct HirCFG *cfg = hir_func_cfg(func);
 
     /* Phase 1: seed worklist with useful instructions */
     Worklist worklist;
     wl_init(&worklist, 128);
 
-    HirBasicBlock block = hir_cfg_blocks_first(cfg);
+    struct HirBasicBlock *block = hir_cfg_blocks_first(cfg);
     while (block != NULL) {
         HirInstr instr = hir_block_first(block);
         while (instr != NULL) {
@@ -183,7 +183,7 @@ void hir_dead_code_elimination_run(HirFunction func) {
     /* Phase 3: delete dead instructions */
     block = hir_cfg_blocks_first(cfg);
     while (block != NULL) {
-        HirBasicBlock next_block = hir_cfg_blocks_next(cfg, block);
+        struct HirBasicBlock *next_block = hir_cfg_blocks_next(cfg, block);
         HirInstr instr = hir_block_first(block);
         while (instr != NULL) {
             HirInstr next = hir_block_next(block, instr);

@@ -82,10 +82,10 @@ static int operands_must_match(HirOperandType op_type) {
 }
 
 int hir_func_type_checks(HirFunction func) {
-    HirCFG cfg = hir_func_cfg(func);
+    struct HirCFG *cfg = hir_func_cfg(func);
     const char *fullname = hir_func_fullname(func);
 
-    for (HirBasicBlock block = hir_cfg_blocks_first(cfg);
+    for (struct HirBasicBlock *block = hir_cfg_blocks_first(cfg);
          block != NULL;
          block = hir_cfg_blocks_next(cfg, block)) {
         int block_id = hir_block_id(block);

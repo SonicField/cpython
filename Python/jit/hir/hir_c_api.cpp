@@ -133,12 +133,23 @@ static inline Function* as_func(HirFunction f) {
   return static_cast<Function*>(f);
 }
 
-static inline CFG* as_cfg(HirCFG c) {
-  return static_cast<CFG*>(c);
+static inline CFG* as_cfg(struct HirCFG *c) {
+  return reinterpret_cast<CFG*>(c);
 }
 
-static inline BasicBlock* as_block(HirBasicBlock b) {
-  return static_cast<BasicBlock*>(b);
+static inline BasicBlock* as_block(struct HirBasicBlock *b) {
+  return reinterpret_cast<BasicBlock*>(b);
+}
+
+/* Reverse direction: opaque pointer from C++ object. Used by API funcs
+ * that return HBB/CFG pointers — the C++ pointer must be opaqued back to
+ * the canonical struct-pointer form. reinterpret_cast preserves identity. */
+static inline struct HirBasicBlock *to_block(BasicBlock *b) {
+  return reinterpret_cast<struct HirBasicBlock *>(b);
+}
+
+static inline struct HirCFG *to_cfg(CFG *c) {
+  return reinterpret_cast<struct HirCFG *>(c);
 }
 
 static inline Instr* as_instr(HirInstr i) {
@@ -153,8 +164,8 @@ static inline Register* as_reg(HirRegister r) {
 
 extern "C" {
 
-HirCFG hir_func_cfg(HirFunction func) {
-  return &as_func(func)->cfg;
+struct HirCFG *hir_func_cfg(HirFunction func) {
+  return to_cfg(&as_func(func)->cfg);
 }
 
 const char *hir_func_fullname(HirFunction func) {
@@ -226,51 +237,51 @@ void hir_preloader_ensure(void *py_func) {
   }
 }
 
-size_t hir_cfg_get_rpo(HirCFG cfg, HirBasicBlock *out, size_t capacity) {
+size_t hir_cfg_get_rpo(struct HirCFG *cfg, struct HirBasicBlock **out, size_t capacity) {
   auto rpo = as_cfg(cfg)->GetRPOTraversal();
   size_t count = rpo.size() < capacity ? rpo.size() : capacity;
   for (size_t i = 0; i < count; i++) {
-    out[i] = rpo[i];
+    out[i] = to_block(rpo[i]);
   }
   return count;
 }
 
-HirBasicBlock hir_cfg_blocks_first(HirCFG cfg) {
+struct HirBasicBlock *hir_cfg_blocks_first(struct HirCFG *cfg) {
   auto& blocks = as_cfg(cfg)->blocks;
   if (blocks.begin() == blocks.end()) {
     return nullptr;
   }
-  return &*blocks.begin();
+  return to_block(&*blocks.begin());
 }
 
-HirBasicBlock hir_cfg_blocks_next(HirCFG cfg, HirBasicBlock block) {
+struct HirBasicBlock *hir_cfg_blocks_next(struct HirCFG *cfg, struct HirBasicBlock *block) {
   auto& blocks = as_cfg(cfg)->blocks;
   auto it = blocks.iterator_to(*as_block(block));
   ++it;
   if (it == blocks.end()) {
     return nullptr;
   }
-  return &*it;
+  return to_block(&*it);
 }
 
 /* ---- BasicBlock ---- */
 
-int hir_block_id(HirBasicBlock block) {
+int hir_block_id(struct HirBasicBlock *block) {
   return as_block(block)->id;
 }
 
-int hir_block_empty(HirBasicBlock block) {
+int hir_block_empty(struct HirBasicBlock *block) {
   return as_block(block)->empty() ? 1 : 0;
 }
 
-HirInstr hir_block_first(HirBasicBlock block) {
+HirInstr hir_block_first(struct HirBasicBlock *block) {
   if (as_block(block)->empty()) {
     return nullptr;
   }
   return &as_block(block)->front();
 }
 
-HirInstr hir_block_next(HirBasicBlock block, HirInstr instr) {
+HirInstr hir_block_next(struct HirBasicBlock *block, HirInstr instr) {
   auto it = as_block(block)->iterator_to(*as_instr(instr));
   ++it;
   if (it == as_block(block)->end()) {
@@ -279,25 +290,25 @@ HirInstr hir_block_next(HirBasicBlock block, HirInstr instr) {
   return &*it;
 }
 
-HirInstr hir_block_terminator(HirBasicBlock block) {
+HirInstr hir_block_terminator(struct HirBasicBlock *block) {
   return as_block(block)->GetTerminator();
 }
 
-HirInstr hir_block_append(HirBasicBlock block, HirInstr instr) {
+HirInstr hir_block_append(struct HirBasicBlock *block, HirInstr instr) {
   return as_block(block)->Append(as_instr(instr));
 }
 
-HirInstr hir_block_pop_front(HirBasicBlock block) {
+HirInstr hir_block_pop_front(struct HirBasicBlock *block) {
   return as_block(block)->pop_front();
 }
 
-size_t hir_block_in_edges_count(HirBasicBlock block) {
+size_t hir_block_in_edges_count(struct HirBasicBlock *block) {
   return as_block(block)->in_edges().size();
 }
 
-void hir_block_fixup_phis(HirBasicBlock block,
-                          HirBasicBlock old_pred,
-                          HirBasicBlock new_pred) {
+void hir_block_fixup_phis(struct HirBasicBlock *block,
+                          struct HirBasicBlock *old_pred,
+                          struct HirBasicBlock *new_pred) {
   as_block(block)->fixupPhis(as_block(old_pred), as_block(new_pred));
 }
 
@@ -312,8 +323,8 @@ size_t hir_instr_num_edges(HirInstr instr) {
   return as_instr(instr)->numEdges();
 }
 
-HirBasicBlock hir_instr_successor(HirInstr instr, size_t index) {
-  return as_instr(instr)->successor(index);
+struct HirBasicBlock *hir_instr_successor(HirInstr instr, size_t index) {
+  return to_block(as_instr(instr)->successor(index));
 }
 
 /* ---- Instruction mutation ---- */
@@ -370,12 +381,12 @@ int hir_c_visit_deopt_extension(void *instr_ptr,
 
 /* ---- Branch-specific ---- */
 
-HirBasicBlock hir_branch_target(HirInstr branch) {
+struct HirBasicBlock *hir_branch_target(HirInstr branch) {
   auto* instr = as_instr(branch);
   if (!instr->IsBranch()) {
     return nullptr;
   }
-  return static_cast<Branch*>(instr)->target();
+  return to_block(static_cast<Branch*>(instr)->target());
 }
 
 /* ---- Register accessors ---- */
@@ -608,7 +619,7 @@ int hir_memory_effects_may_store(HirInstr instr) {
 extern "C" int hir_remove_trampoline_blocks_c(void *cfg);
 extern "C" int hir_remove_unreachable_blocks_c(void *func);
 
-int hir_remove_trampoline_blocks(HirCFG cfg) {
+int hir_remove_trampoline_blocks(struct HirCFG *cfg) {
   return hir_remove_trampoline_blocks_c(cfg);
 }
 
@@ -656,7 +667,7 @@ void hir_instr_replace_with(HirInstr old_instr, HirInstr new_instr) {
   as_instr(old_instr)->ReplaceWith(*as_instr(new_instr));
 }
 
-HirInstr hir_block_back(HirBasicBlock block) {
+HirInstr hir_block_back(struct HirBasicBlock *block) {
   auto* bb = as_block(block);
   if (bb->empty()) return nullptr;
   return &bb->back();
@@ -2467,11 +2478,12 @@ void hir_bb_destroy(void *block) {
 }
 
 void *hir_cfg_blocks_first_ptr(void *cfg) {
-  return hir_cfg_blocks_first(cfg);
+  return hir_cfg_blocks_first(static_cast<struct HirCFG *>(cfg));
 }
 
 void *hir_cfg_blocks_next_ptr(void *cfg, void *block) {
-  return hir_cfg_blocks_next(cfg, static_cast<BasicBlock*>(block));
+  return hir_cfg_blocks_next(static_cast<struct HirCFG *>(cfg),
+                              static_cast<struct HirBasicBlock *>(block));
 }
 
 size_t hir_cfg_get_rpo_from(HirFunction func, void *start,

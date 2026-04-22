@@ -185,8 +185,8 @@ void hir_guard_type_removal_run(HirFunction func) {
     size_t removed_count = 0;
     size_t removed_cap = 0;
 
-    HirCFG cfg = hir_func_cfg(func);
-    for (HirBasicBlock block = hir_cfg_blocks_first(cfg);
+    struct HirCFG *cfg = hir_func_cfg(func);
+    for (struct HirBasicBlock *block = hir_cfg_blocks_first(cfg);
          block != NULL;
          block = hir_cfg_blocks_next(cfg, block)) {
 

@@ -17,7 +17,7 @@
  * - the target has exactly 1 predecessor
  * - the target is not block itself (no self-loops)
  * Returns 1 if absorption happened, 0 otherwise. */
-static int absorb_dst_block(HirBasicBlock block) {
+static int absorb_dst_block(struct HirBasicBlock *block) {
     HirInstr term = hir_block_terminator(block);
     /* C struct predicate — direct opcode read, no C++ bridge */
     if (!hir_c_is_branch(term)) {
@@ -25,7 +25,7 @@ static int absorb_dst_block(HirBasicBlock block) {
     }
 
     /* C struct accessor — reads HirBranch.edge.to directly */
-    HirBasicBlock target = hir_c_branch_target(term);
+    struct HirBasicBlock *target = hir_c_branch_target(term);
     /* Assertion wrapper: C struct matches C++ bridge (wiring methodology) */
     assert(target == hir_branch_target(term));
     if (target == block) {
@@ -52,7 +52,7 @@ static int absorb_dst_block(HirBasicBlock block) {
     size_t num_edges = hir_c_num_edges(new_term);
     assert(num_edges == hir_instr_num_edges(new_term));
     for (size_t i = 0; i < num_edges; i++) {
-        HirBasicBlock succ = hir_c_successor(new_term, i);
+        struct HirBasicBlock *succ = hir_c_successor(new_term, i);
         assert(succ == hir_instr_successor(new_term, i));
         hir_block_fixup_phis(succ, target, block);
     }
@@ -63,29 +63,30 @@ static int absorb_dst_block(HirBasicBlock block) {
 }
 
 void hir_clean_cfg_run(HirFunction func) {
-    HirCFG cfg = hir_func_cfg(func);
+    struct HirCFG *cfg = hir_func_cfg(func);
     int changed = 0;
 
     do {
         hir_remove_unreachable_instructions(func);
         hir_phi_elimination_run(func);
 
-        /* Get RPO traversal */
+        /* Get RPO traversal. Array-of-pointers sizing — sizeof(ptr) == 8B,
+         * matches pre-W25 sizeof(void*). Semantic preserved. */
         size_t rpo_cap = 256;
-        HirBasicBlock *rpo_blocks = (HirBasicBlock *)malloc(
-            rpo_cap * sizeof(HirBasicBlock));
+        struct HirBasicBlock **rpo_blocks = (struct HirBasicBlock **)malloc(
+            rpo_cap * sizeof(struct HirBasicBlock *));
         if (!rpo_blocks) return;
         size_t num_blocks = hir_cfg_get_rpo(cfg, rpo_blocks, rpo_cap);
         if (num_blocks > rpo_cap) {
             rpo_cap = num_blocks;
-            rpo_blocks = (HirBasicBlock *)realloc(
-                rpo_blocks, rpo_cap * sizeof(HirBasicBlock));
+            rpo_blocks = (struct HirBasicBlock **)realloc(
+                rpo_blocks, rpo_cap * sizeof(struct HirBasicBlock *));
             if (!rpo_blocks) return;
             hir_cfg_get_rpo(cfg, rpo_blocks, rpo_cap);
         }
 
         for (size_t i = 0; i < num_blocks; i++) {
-            HirBasicBlock block = rpo_blocks[i];
+            struct HirBasicBlock *block = rpo_blocks[i];
             if (hir_block_empty(block)) {
                 continue;
             }

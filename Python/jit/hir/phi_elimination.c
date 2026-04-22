@@ -12,15 +12,15 @@
 #include <stdlib.h>
 
 void hir_phi_elimination_run(HirFunction func) {
-    HirCFG cfg = hir_func_cfg(func);
+    struct HirCFG *cfg = hir_func_cfg(func);
     int changed = 1;
 
     while (changed) {
         changed = 0;
 
-        HirBasicBlock block = hir_cfg_blocks_first(cfg);
+        struct HirBasicBlock *block = hir_cfg_blocks_first(cfg);
         while (block != NULL) {
-            HirBasicBlock next_block = hir_cfg_blocks_next(cfg, block);
+            struct HirBasicBlock *next_block = hir_cfg_blocks_next(cfg, block);
 
             /* Collect replacement instructions for trivial Phis */
             size_t repl_cap = 16;

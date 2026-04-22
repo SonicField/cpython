@@ -128,8 +128,8 @@ void hir_stats_run(HirFunction func, const char *func_name) {
 
     int safe = jit_compile_running();
 
-    HirCFG cfg = hir_func_cfg(func);
-    HirBasicBlock block = hir_cfg_blocks_first(cfg);
+    struct HirCFG *cfg = hir_func_cfg(func);
+    struct HirBasicBlock *block = hir_cfg_blocks_first(cfg);
     while (block) {
         HirInstr instr = hir_block_first(block);
         while (instr) {

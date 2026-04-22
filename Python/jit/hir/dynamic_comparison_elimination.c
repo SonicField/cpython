@@ -15,11 +15,11 @@
 void hir_dynamic_comparison_elimination_run(HirFunction func) {
     HirLivenessState *liveness = hir_liveness_create(func);
 
-    HirCFG cfg = hir_func_cfg(func);
-    HirBasicBlock block = hir_cfg_blocks_first(cfg);
+    struct HirCFG *cfg = hir_func_cfg(func);
+    struct HirBasicBlock *block = hir_cfg_blocks_first(cfg);
 
     while (block != NULL) {
-        HirBasicBlock next_block = hir_cfg_blocks_next(cfg, block);
+        struct HirBasicBlock *next_block = hir_cfg_blocks_next(cfg, block);
 
         /* Get last instruction in block */
         HirInstr instr = hir_block_back(block);
