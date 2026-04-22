@@ -5283,38 +5283,26 @@ void HIRBuilder::emitSetUpdate(
       static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
+extern "C" void hir_builder_emit_dispatch_eager_coro_result_c(
+    void* tc, void* func, void* builder, void* out,
+    void* await_block, void* post_await_block, int code_flags);
+
 void HIRBuilder::emitDispatchEagerCoroResult(
-    CFG& cfg,
+    CFG& /*cfg*/,
     TranslationContext& tc,
     Register* out,
     BasicBlock* await_block,
     BasicBlock* post_await_block) {
-  Register* stack_top = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - 1]);
-
-  TranslationContext has_wh_block{cfg.AllocateBlock(), tc.frame};
-  tc.emitCondBranchCheckType(
-      stack_top, TWaitHandle, has_wh_block.block, await_block);
-
-  Register* wait_handle = stack_top;
-  Register* wh_coro_or_result = temps_.AllocateStack();
-  Register* wh_waiter = temps_.AllocateStack();
-  has_wh_block.emitWaitHandleLoadCoroOrResult(wh_coro_or_result, wait_handle);
-  has_wh_block.emitWaitHandleLoadWaiter(wh_waiter, wait_handle);
-  has_wh_block.emitWaitHandleRelease(wait_handle);
-
-  TranslationContext coro_block{cfg.AllocateBlock(), tc.frame};
-  TranslationContext res_block{cfg.AllocateBlock(), tc.frame};
-  has_wh_block.emitCondBranch(wh_waiter, coro_block.block, res_block.block);
-
-  if (code_->co_flags & CO_COROUTINE) {
-    coro_block.emitSetCurrentAwaiter(wh_coro_or_result);
-  }
-  coro_block.emitYieldAndYieldFrom(
-      out, wh_waiter, wh_coro_or_result, tc.frame);
-  coro_block.emitBranch(post_await_block);
-
-  res_block.emitAssign(out, wh_coro_or_result);
-  res_block.emitBranch(post_await_block);
+  // CFG& cfg unused — C body uses hir_cfg_alloc_block(func).
+  // out / await_block / post_await_block are caller-provided; pass through.
+  hir_builder_emit_dispatch_eager_coro_result_c(
+      static_cast<void*>(&tc),
+      static_cast<void*>(current_func_),
+      static_cast<void*>(this),
+      static_cast<void*>(out),
+      static_cast<void*>(await_block),
+      static_cast<void*>(post_await_block),
+      code_->co_flags);
 }
 
 void HIRBuilder::emitMatchMappingSequence(

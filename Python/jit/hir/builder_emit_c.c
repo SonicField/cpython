@@ -2515,3 +2515,103 @@ void hir_builder_emit_invoke_method_vector_call_c(
     hir_builder_fix_static_return_c(builder, tc, out, ret_type);
     phx_ptr_arr_push(&tc->frame.stack, out);
 }
+
+/* emitDispatchEagerCoroResult — eager coroutine result dispatch helper.
+ * Branches on whether the awaitable's runtime type is WaitHandle. If yes,
+ * loads the wait_handle's coro/result + waiter, releases the wait_handle,
+ * and dispatches: coro waiter → YieldAndYieldFrom path; res waiter →
+ * direct Assign path. Both converge at the caller-provided post_await_block.
+ *
+ * Mirrors C++ HIRBuilder::emitDispatchEagerCoroResult @ builder.cpp:5286.
+ *
+ * Theologian audit (chat 2026-04-22 13:24:20Z) — invariants enforced inline:
+ *   (A) STACK PEEK ONLY: stack_top peeked, never popped/pushed; caller
+ *       manages stack via `out` reg + post_await_block convergence
+ *   (B) FRAME COPY ORIGIN: coro_block + res_block BOTH copy from tc.frame
+ *       (NOT has_wh_block.frame) — invariant 8
+ *   (C) yield-and-yield-from uses tc.frame (BEFORE-branch state, not coro
+ *       block's copy) — invariant 11
+ *   (7) WaitHandle emit ORDER: LoadCoroOrResult → LoadWaiter → Release
+ *   (10) CO_COROUTINE guards ONLY emitSetCurrentAwaiter (not coro_block as a whole)
+ *   (12) Both coro_block + res_block end with branch(post_await_block)
+ *
+ * 3 separate PhxTranslationContext instances (has_wh_block, coro_block,
+ * res_block) — frame_state_destroy on ALL 3 at function end. */
+extern void *hir_c_create_wait_handle_load_coro_reg(void *dst, void *src);
+extern void *hir_c_create_wait_handle_load_waiter_reg(void *dst, void *src);
+extern void *hir_c_create_wait_handle_release_reg(void *src);
+extern void *hir_c_create_yield_and_yield_from_reg(
+    void *dst, void *waiter, void *coro, void *fs);
+extern void *hir_c_create_cond_branch_cpp(
+    void *cond_reg, void *true_bb, void *false_bb);
+
+void hir_builder_emit_dispatch_eager_coro_result_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder,
+        void *out,
+        void *await_block,
+        void *post_await_block,
+        int code_flags) {
+    /* (A,1) Peek stack_top — never pop/push in this method. */
+    void *stack_top = tc->frame.stack.data[tc->frame.stack.count - 1];
+    void *wait_handle = stack_top;  /* (pitfall) alias only, not a fresh temp */
+
+    /* (4) has_wh_block: copy from tc.frame BEFORE the cond branch. */
+    void *has_wh_blk = hir_cfg_alloc_block(func);
+    PhxTranslationContext has_wh_tc;
+    has_wh_tc.block = has_wh_blk;
+    phx_frame_state_copy(&has_wh_tc.frame, &tc->frame);
+
+    /* (5) Branch FROM tc.block on type-check: success → has_wh_blk, fail → await_block. */
+    HirType t_wait_handle = HIR_TYPE_WAITHANDLE;
+    phx_tc_emit(tc, hir_c_create_cond_branch_check_type_cpp(
+        stack_top, t_wait_handle, has_wh_blk, await_block));
+
+    /* (6) Allocate wh_coro_or_result + wh_waiter — both BEFORE WaitHandle emits. */
+    void *wh_coro_or_result = hir_builder_temps_alloc_stack(builder);
+    void *wh_waiter = hir_builder_temps_alloc_stack(builder);
+
+    /* (7) WaitHandle ORDER: LoadCoroOrResult → LoadWaiter → Release. */
+    phx_tc_emit(&has_wh_tc, hir_c_create_wait_handle_load_coro_reg(
+        wh_coro_or_result, wait_handle));
+    phx_tc_emit(&has_wh_tc, hir_c_create_wait_handle_load_waiter_reg(
+        wh_waiter, wait_handle));
+    phx_tc_emit(&has_wh_tc, hir_c_create_wait_handle_release_reg(wait_handle));
+
+    /* (B,8) coro_block + res_block: COPY FROM tc.frame (NOT has_wh_tc.frame). */
+    void *coro_blk = hir_cfg_alloc_block(func);
+    PhxTranslationContext coro_tc;
+    coro_tc.block = coro_blk;
+    phx_frame_state_copy(&coro_tc.frame, &tc->frame);
+
+    void *res_blk = hir_cfg_alloc_block(func);
+    PhxTranslationContext res_tc;
+    res_tc.block = res_blk;
+    phx_frame_state_copy(&res_tc.frame, &tc->frame);
+
+    /* (9) has_wh_block branches on wh_waiter → coro vs res. */
+    phx_tc_emit(&has_wh_tc, hir_c_create_cond_branch_cpp(
+        wh_waiter, coro_blk, res_blk));
+
+    /* (10) CO_COROUTINE guards SetCurrentAwaiter ONLY (per-emit, not block-wide). */
+    if (code_flags & CO_COROUTINE) {
+        phx_tc_emit(&coro_tc, hir_c_create_set_current_awaiter_reg(wh_coro_or_result));
+    }
+
+    /* (C,11) yield-and-yield-from uses tc->frame (ORIGINAL, not coro_tc copy). */
+    phx_tc_emit(&coro_tc, hir_c_create_yield_and_yield_from_reg(
+        out, wh_waiter, wh_coro_or_result, &tc->frame));
+
+    /* (12) Both blocks branch to post_await_block. */
+    phx_tc_emit(&coro_tc, hir_c_create_branch_cpp(post_await_block));
+
+    /* (13) res_block: assign out = wh_coro_or_result, then branch. */
+    phx_tc_emit(&res_tc, hir_assign_create(out, wh_coro_or_result));
+    phx_tc_emit(&res_tc, hir_c_create_branch_cpp(post_await_block));
+
+    /* Cleanup all 3 deopt_tcs (RAII → manual). */
+    phx_frame_state_destroy(&has_wh_tc.frame);
+    phx_frame_state_destroy(&coro_tc.frame);
+    phx_frame_state_destroy(&res_tc.frame);
+}
