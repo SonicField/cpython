@@ -1,8 +1,9 @@
 # W27 — GlobalCacheKey Raw-Pointer Lifecycle Re-Architecture
 
-**Status:** Filed (generalist, 2026-04-22, supervisor-authorized [chat ~16:04Z])
-**Owner:** unassigned (Tier 6+ scope)
-**Schedule:** Post-Tier-5-close; not blocking any current work
+**Status:** Filed (generalist, 2026-04-22, supervisor-authorized [chat ~16:04Z, 16:45Z W27-ownership update])
+**Owner:** theologian (design), generalist (implementation) — per supervisor [chat 16:45Z #3]
+**Schedule:** Entry-trigger = Tier 5 ZERO C++ complete AND no active push-class blocker. Exit by start of cinderx Tier 6 cleanup.
+**Falsification test:** see §8 below — must land BEFORE re-architecture is considered design-complete.
 **Origin:** push 59 ARM64 pydebug SEGV root-cause (lldb @ global_cache.cpp:325)
 
 ---
@@ -84,4 +85,51 @@ Likely best path: **Option B** with deferred-cleanup queue. Matches CPython's "w
 - Push 59 root-cause analysis: chat 2026-04-22 ~15:55-16:04Z
 - Original DEALLOCATED-skip: 314d0f2310 (Alex, 2026-03-30)
 - Finalize-phase mitigation: this commit (paired with push 59)
+- W27 ownership + falsification gate: pythia #76 [chat 16:45Z], supervisor revision [chat 16:45Z #3]
+- Push 58 ARM64-pydebug coredump finding (independent confirmation of pre-existing class):
+  testkeeper [chat 2026-04-22 16:45Z] — 8b7b9351a1 binary on the SAME falsifier
+  workload also produced shutdown coredump, just non-deterministic vs push 59's
+  deterministic SEGV. Pythia #75 (b1) outcome confirmed.
 - Related lifecycle pattern: feedback_no_workarounds.md
+
+## 8. Falsification test (REQUIRED before re-architecture is design-complete)
+
+**Purpose:** ensure W27 has a revisit-trigger and is not silently fallow.
+
+**Workload sketch** (`Lib/test/test_phoenix_w27_module_unload_uaf.py`, NOT YET WRITTEN):
+
+```python
+import sys, weakref, gc, importlib, unittest
+
+class TestModuleUnloadUAF(unittest.TestCase):
+    def test_globals_unloaded_while_cache_alive(self):
+        """Verify cache entry keyed on a freed globals dict doesn't UAF
+        when builtins receives a subsequent dict event.
+
+        EXPECTED FAIL pre-W27: SEGV under pydebug (poison-fill on stale
+        globals pointer) when GlobalCacheManager processes builtins
+        event and derefs cache.key().globals.
+
+        EXPECTED PASS post-W27: cache entry dropped on globals
+        deallocate (Option B deferred-cleanup or Option A refcount).
+        """
+        # 1. Import a module whose JIT-compiled function uses LOAD_GLOBAL
+        # 2. Run the function above auto-compile threshold (1000 calls)
+        #    to register a GlobalCacheKey for (module_globals, builtins, name)
+        # 3. weakref the module's __dict__
+        # 4. del sys.modules[module_name] + del local module ref + gc.collect()
+        # 5. Assert weakref is dead (globals freed)
+        # 6. Trigger a builtins event (e.g., assign a new builtin via
+        #    __builtins__.foo = bar) to fire phoenix_dict_watcher
+        # 7. Pre-W27 expect: SEGV under pydebug ARM64
+        # 8. Post-W27 expect: clean (cache entry dropped on dealloc)
+```
+
+**Status:** SKIPPED until W27 work begins — `@unittest.skip("W27 falsification, written before re-architecture lands; reproducer for mid-execution module-unload UAF")`. Skip reason includes the W27 doc reference so test discovery surfaces this as the W27 trigger.
+
+**Acceptance criteria:**
+- Test reproduces SEGV at HEAD (pre-W27) under ARM64 pydebug — proves the latent class is testable, not theoretical.
+- Test passes after W27 fix lands — proves the re-architecture closed it.
+- If the test cannot reproduce the UAF (i.e., the latent class is harder to trigger than predicted), W27 scope re-opens for design re-evaluation; do not silently close.
+
+**Implementation owner:** generalist (writes test before re-architecture work begins, per W27 falsification-first discipline).
