@@ -17,7 +17,12 @@
 #include "Python.h"
 #include "internal/pycore_moduleobject.h"  /* PyModuleObject (LOAD_ATTR_MODULE) */
 #include "internal/pycore_dict.h"          /* PyDictKeysObject (LOAD_ATTR_MODULE) */
+/* cinder_opcode.h MUST be included before opcode.h — it uses the same
+ * Py_OPCODE_H header guard but defines the cinder-extended opcode enum
+ * (INVOKE_FUNCTION/_NATIVE/_METHOD). Including opcode.h first would shadow it. */
+#include "cinderx/Interpreter/cinder_opcode.h"
 #include "opcode.h"
+#include "cinderx/Common/opcode_stubs.h"  /* CALL_FUNCTION/CALL_FUNCTION_KW/CALL_KW/CALL_METHOD/YIELD_FROM stubs for 3.12 */
 
 /* ---- PhxTranslationContext ---- */
 
@@ -3422,18 +3427,29 @@ void hir_builder_emit_call_exception_handler_c(
     phx_ptr_arr_push(&tc->frame.stack, result);
 }
 
-/* emitAnyCall await-tail dispatch — PartialConversion of HIRBuilder::emitAnyCall.
- * Mirrors C++ original at builder.cpp:2963-2993 (pre-conversion). The full
- * emitAnyCall opcode-switch + INVOKE_* dispatch stay C++ pending Tier 6
- * INVOKE_* re-architecture; only the await-tail (most fragile, most uniform
- * with Tier 5 patterns) is converted.
+/* emitAnyCall full conversion — W26 (theologian L2462+L2466).
  *
- * Theologian PTE pre-audit (chat 2026-04-22 17:15Z): A1-A12 invariants +
- * PA-PD pitfalls. Bridge-count gate satisfied (1 new bridge ≤ 1).
+ * Mirrors C++ HIRBuilder::emitAnyCall @ builder.cpp:2875 (pre-conversion).
+ * Single C body covering all 5 opcode paths (CALL_FUNCTION/CALL_FUNCTION_KW,
+ * CALL_FUNCTION_EX, CALL/CALL_KW/CALL_METHOD, INVOKE_FUNCTION/NATIVE/METHOD)
+ * plus the await-tail dispatch INLINED (149b7e2d40 PartialConversion bridge
+ * REABSORBED — its body is now part of this C body).
  *
- * C++ stub responsibilities (PA + A4): 3x ++bc_it + 3x JIT_CHECK before
- * this call; iterator state never crosses boundary (PB). All chained C
- * functions exist (push 53/55/56 + load_const_c). */
+ * C++ stub responsibilities: extract opcode/oparg/baseOffset, compute
+ * is_awaited via iterator peek + PY_VERSION_HEX, pre-extract const_arg for
+ * INVOKE_* paths, pass opaque iterator + bytecode block pointers for
+ * await-tail iterator advancement.
+ *
+ * NEW bridges per theologian L2466:
+ *   - hir_builder_emit_call_method_exception_handler_inline_c (combined per (B))
+ *   - hir_builder_check_async_with_error_c (await-tail)
+ *   - hir_builder_bc_it_advance_and_opcode_c (await-tail)
+ *   - hir_builder_bc_it_oparg_c (await-tail)
+ *
+ * REABSORBED: hir_builder_emit_awaited_call_tail_c bridge declaration + impl
+ * + REABSORB-WHEN comment block REMOVED. Body inlined below in await-tail
+ * section. REABSORB-WHEN trigger fired post push 81 (Tier 6 INVOKE_* family
+ * fully C). */
 extern void hir_builder_emit_dispatch_eager_coro_result_c(
     PhxTranslationContext *tc, void *func, void *builder, void *out,
     void *await_block, void *post_await_block, int code_flags);
@@ -3442,50 +3458,182 @@ extern void hir_builder_emit_get_awaitable_c(
     int error_aenter, int error_aexit);
 extern void hir_builder_emit_yield_from_method_c(
     PhxTranslationContext *tc, void *out, int code_flags);
+extern void hir_builder_emit_call_ex_c(
+    PhxTranslationContext *tc, void *func, int oparg, uint32_t flags);
+extern void *hir_builder_get_kwnames(void *builder);
+extern void hir_builder_set_kwnames(void *builder, void *reg);
+extern void hir_builder_emit_call_method_exception_handler_inline_c(
+    void *builder, void *tc, void *cfg, int base_offset,
+    void *call_instr, void *result_reg);
+extern void hir_builder_check_async_with_error_c(
+    void *bc_instrs, void *bc_it,
+    int *out_error_aenter, int *out_error_aexit);
+extern int hir_builder_bc_it_advance_and_opcode_c(void *bc_it);
+extern int hir_builder_bc_it_oparg_c(void *bc_it);
 
-/* PARTIAL CONVERSION ARTIFACT — emitAnyCall await-tail extracted while
- * emitAnyCall opcode-switch + 3 INVOKE_* sub-methods (emitInvokeFunction,
- * emitInvokeNative, emitInvokeMethod) remain C++. REABSORB WHEN: Tier 6
- * INVOKE_* family fully converts to C; then emitAnyCall fully converts and
- * this bridge can inline back into the full C body. */
-void hir_builder_emit_awaited_call_tail_c(
+/* INVOKE_* delegations (push 81). */
+extern void hir_builder_emit_invoke_native_c(
+    PhxTranslationContext *tc, void *builder,
+    PyObject *descr, PyObject *signature);
+extern bool hir_builder_emit_invoke_method_c(
+    PhxTranslationContext *tc, void *func, void *builder,
+    PyObject *descr, long nargs, int is_awaited);
+extern bool hir_builder_emit_invoke_function_c(
+    PhxTranslationContext *tc, void *func, void *builder,
+    PyObject *descr, long nargs, uint32_t flags);
+
+void hir_builder_emit_any_call_c(
         PhxTranslationContext *tc,
+        void *cfg,
         void *func,
         void *builder,
-        PyCodeObject *code,
+        void *bc_instrs,
+        void *bc_it,
+        int opcode,
+        int oparg,
+        int base_offset,
+        int is_awaited,
+        void *code,
         int code_flags,
-        int get_awaitable_error_aenter,
-        int get_awaitable_error_aexit,
-        int load_const_oparg) {
-    /* A5 setup: out reg + 2 blocks. */
-    void *out = hir_builder_temps_alloc_stack(builder);
-    void *await_block = hir_cfg_alloc_block(func);
-    void *post_await_block = hir_cfg_alloc_block(func);
+        PyObject *const_arg) {
+    /* CallFlags: None=0, KwArgs=1<<0=1, Awaited=1<<1=2, Static=1<<2=4. */
+    uint32_t flags = is_awaited ? 2u : 0u;
+    int call_used_is_awaited = 1;
 
-    /* A5: dispatch_eager_coro_result. */
-    hir_builder_emit_dispatch_eager_coro_result_c(
-        tc, func, builder, out, await_block, post_await_block, code_flags);
+    switch (opcode) {
+        case CALL_FUNCTION:
+        case CALL_FUNCTION_KW: {
+            /* Operands include the function arguments plus the function itself. */
+            size_t num_operands = (size_t)(oparg + 1);
+            if (opcode == CALL_FUNCTION_KW) {
+                num_operands++;
+                flags |= 1u;  /* CallFlags::KwArgs */
+            }
+            /* emitVariadic<VectorCall> equivalent — use existing C primitives. */
+            void *out = hir_builder_temps_alloc_stack(builder);
+            void *call = hir_c_create_vectorcall_reg(num_operands, out, flags);
+            for (size_t i = num_operands; i > 0; i--) {
+                void *operand = phx_ptr_arr_pop(&tc->frame.stack);
+                hir_c_set_operand(call, i - 1, operand);
+            }
+            hir_deopt_set_frame_state(call, &tc->frame);
+            phx_tc_emit(tc, call);
+            phx_ptr_arr_push(&tc->frame.stack, out);
+            break;
+        }
+        case CALL_FUNCTION_EX: {
+            hir_builder_emit_call_ex_c(tc, func, oparg, flags);
+            break;
+        }
+        case CALL:
+        case CALL_KW:
+        case CALL_METHOD: {
+            size_t num_operands = (size_t)(oparg + 2);
+            size_t num_stack_inputs = num_operands;
+            int is_call_kw = (opcode == CALL_KW) ? 1 : 0;
+            void *kwnames_reg = hir_builder_get_kwnames(builder);
+            if (kwnames_reg != NULL || is_call_kw) {
+                if (is_call_kw) {
+                    num_stack_inputs++;
+                }
+                num_operands++;
+                flags |= 1u;  /* CallFlags::KwArgs */
+            }
 
-    /* A6: switch tc to await_block. */
-    tc->block = await_block;
+            /* Manually set up the instruction instead of using emitVariadic.
+             * kwnames_ isn't on the stack, but it has to be part of the operand count. */
+            void *out = hir_builder_temps_alloc_stack(builder);
+            void *call = hir_c_create_call_method_reg(num_operands, out, flags);
+            for (size_t i = num_stack_inputs; i > 0; i--) {
+                void *arg = phx_ptr_arr_pop(&tc->frame.stack);
+                hir_c_set_operand(call, i - 1, arg);
+            }
+            if (kwnames_reg != NULL) {
+                JIT_CHECK_C(hir_c_get_operand(call, num_operands - 1) == NULL,
+                    "Somehow already set the kwnames argument");
+                hir_c_set_operand(call, num_operands - 1, kwnames_reg);
+                hir_builder_set_kwnames(builder, NULL);
+            }
+            hir_deopt_set_frame_state(call, &tc->frame);
+            phx_tc_emit(tc, call);
+            phx_ptr_arr_push(&tc->frame.stack, out);
 
-    /* A7: get_awaitable using pre-computed error flags. */
-    hir_builder_emit_get_awaitable_c(
-        tc, func, builder,
-        get_awaitable_error_aenter, get_awaitable_error_aexit);
+            /* B2: If this CALL is inside a try block with a simple except pattern,
+             * inline the exception handler instead of deopting on exception.
+             * Combined per W26 (B) decision: NULL-safe internally — does nothing
+             * if no handler matches OR not simple-pattern. */
+            hir_builder_emit_call_method_exception_handler_inline_c(
+                builder, tc, cfg, base_offset, call, out);
+            break;
+        }
+        case INVOKE_FUNCTION: {
+            PyObject *descr = PyTuple_GET_ITEM(const_arg, 0);
+            long nargs = PyLong_AsLong(PyTuple_GET_ITEM(const_arg, 1));
+            call_used_is_awaited = hir_builder_emit_invoke_function_c(
+                tc, func, builder, descr, nargs, flags) ? 1 : 0;
+            break;
+        }
+        case INVOKE_NATIVE: {
+            PyObject *native_target_descr = PyTuple_GET_ITEM(const_arg, 0);
+            PyObject *signature = PyTuple_GET_ITEM(const_arg, 1);
+            hir_builder_emit_invoke_native_c(tc, builder,
+                native_target_descr, signature);
+            call_used_is_awaited = 0;  /* emitInvokeNative always returns false */
+            break;
+        }
+        case INVOKE_METHOD: {
+            PyObject *descr = PyTuple_GET_ITEM(const_arg, 0);
+            long nargs = PyLong_AsLong(PyTuple_GET_ITEM(const_arg, 1)) + 2;
+            call_used_is_awaited = hir_builder_emit_invoke_method_c(
+                tc, func, builder, descr, nargs, is_awaited) ? 1 : 0;
+            break;
+        }
+        default:
+            JIT_CHECK_C(0, "Unhandled call opcode %d", opcode);
+    }
 
-    /* A8: load_const using pre-computed oparg + caller-passed code (PD: must
-     * be PyCodeObject*, not void*, to preserve emitGetAwaitable port's PA). */
-    hir_builder_emit_load_const_c(tc, func, code, load_const_oparg);
+    if (is_awaited && call_used_is_awaited) {
+        /* INLINED await-tail (149b7e2d40 PartialConversion bridge body
+         * REABSORBED). Iterator-driven via the new bc_it bridges. */
+        int op = hir_builder_bc_it_advance_and_opcode_c(bc_it);
+        JIT_CHECK_C(op == GET_AWAITABLE,
+            "Awaited function call must be followed by GET_AWAITABLE");
 
-    /* A9: yield_from on out, code_flags for is_coroutine handling. */
-    hir_builder_emit_yield_from_method_c(tc, out, code_flags);
+        int error_aenter = 0, error_aexit = 0;
+        hir_builder_check_async_with_error_c(bc_instrs, bc_it,
+            &error_aenter, &error_aexit);
 
-    /* A10: branch to post_await_block. */
-    phx_tc_emit(tc, hir_c_create_branch_cpp(post_await_block));
+        op = hir_builder_bc_it_advance_and_opcode_c(bc_it);
+        JIT_CHECK_C(op == LOAD_CONST,
+            "GET_AWAITABLE must be followed by LOAD_CONST");
+        int load_const_oparg = hir_builder_bc_it_oparg_c(bc_it);
 
-    /* A11: switch tc to post_await_block for downstream emit. */
-    tc->block = post_await_block;
+        op = hir_builder_bc_it_advance_and_opcode_c(bc_it);
+        JIT_CHECK_C(op == YIELD_FROM,
+            "GET_AWAITABLE should always be followed by LOAD_CONST+YIELD_FROM");
+
+        /* await-tail body — was the body of hir_builder_emit_awaited_call_tail_c
+         * (149b7e2d40 PartialConversion). Now inlined here. */
+        void *out = hir_builder_temps_alloc_stack(builder);
+        void *await_block = hir_cfg_alloc_block(func);
+        void *post_await_block = hir_cfg_alloc_block(func);
+
+        hir_builder_emit_dispatch_eager_coro_result_c(
+            tc, func, builder, out, await_block, post_await_block, code_flags);
+
+        tc->block = await_block;
+
+        hir_builder_emit_get_awaitable_c(
+            tc, func, builder, error_aenter, error_aexit);
+
+        hir_builder_emit_load_const_c(tc, func, code, load_const_oparg);
+
+        hir_builder_emit_yield_from_method_c(tc, out, code_flags);
+
+        phx_tc_emit(tc, hir_c_create_branch_cpp(post_await_block));
+
+        tc->block = post_await_block;
+    }
 }
 
 

@@ -2854,23 +2854,69 @@ void HIRBuilder::emitPushNull(TranslationContext& tc) {
   hir_builder_emit_push_null_c(static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
 
-// PartialConversion (theologian PTE pre-audit chat 2026-04-22 17:15Z):
-// emitAnyCall await-tail dispatch (lines 2963-2993 in pre-conversion source)
-// extracted into C body. Opcode-switch + INVOKE_* dispatch stay C++ until
-// Tier 6 INVOKE_* re-architecture. Bridge spec ratified [chat L1931].
-extern "C" void hir_builder_emit_awaited_call_tail_c(
-    void* tc, void* func, void* builder,
-    PyCodeObject* code,
-    int code_flags,
-    int get_awaitable_error_aenter,
-    int get_awaitable_error_aexit,
-    int load_const_oparg);
-
-// Forward decl — checkAsyncWithError is defined static at builder.cpp:~4856,
-// below the emitAnyCall call site. Pre-PartialConversion the call lived
-// inline within the await-tail; refactor hoisted it above the definition.
+/* W26 (theologian L2462+L2466): emitAnyCall full conversion + 149b7e2d40
+ * PartialConversion REABSORB. The await-tail dispatch is now inlined into
+ * the C body of hir_builder_emit_any_call_c via the iterator + checkAsync
+ * bridges below. The PartialConversion artifact bridge
+ * hir_builder_emit_awaited_call_tail_c is REMOVED; its body lives in the
+ * C body of emit_any_call now. REABSORB-WHEN trigger fired post push 81.
+ *
+ * Forward decl — checkAsyncWithError is defined static at builder.cpp:~4856,
+ * below the emitAnyCall call site. */
 static std::pair<bool, bool> checkAsyncWithError(
     const BytecodeInstructionBlock&, BytecodeInstruction);
+
+extern "C" void hir_builder_emit_call_method_exception_handler_inline_c(
+    void *builder, void *tc, void *cfg, int base_offset,
+    void *call_instr, void *result_reg) {
+  auto *self = static_cast<HIRBuilder*>(builder);
+  BCOffset cur_off{base_offset};
+  const auto *handler = self->findExceptionHandler(cur_off);
+  if (handler == nullptr) {
+    return;
+  }
+  HIRBuilder::SimpleExceptInfo info;
+  if (!self->getSimpleExceptInfo(*handler, info)) {
+    return;
+  }
+  // Reconstruct BytecodeInstruction from base_offset for the C++ method.
+  BytecodeInstruction bc_instr{self->code_, cur_off};
+  self->emitCallExceptionHandler(
+      *static_cast<CFG*>(cfg),
+      *static_cast<HIRBuilder::TranslationContext*>(tc),
+      bc_instr, *handler, info,
+      static_cast<DeoptBase*>(call_instr),
+      static_cast<Register*>(result_reg));
+}
+
+extern "C" void hir_builder_check_async_with_error_c(
+    void *bc_instrs, void *bc_it,
+    int *out_error_aenter, int *out_error_aexit) {
+  auto& it = *static_cast<jit::BytecodeInstructionBlock::Iterator*>(bc_it);
+  auto& bcb = *static_cast<const jit::BytecodeInstructionBlock*>(bc_instrs);
+  auto [aenter, aexit] = checkAsyncWithError(bcb, *it);
+  *out_error_aenter = aenter ? 1 : 0;
+  *out_error_aexit = aexit ? 1 : 0;
+}
+
+extern "C" int hir_builder_bc_it_advance_and_opcode_c(void *bc_it) {
+  auto& it = *static_cast<jit::BytecodeInstructionBlock::Iterator*>(bc_it);
+  ++it;
+  return it->opcode();
+}
+
+extern "C" int hir_builder_bc_it_oparg_c(void *bc_it) {
+  auto& it = *static_cast<jit::BytecodeInstructionBlock::Iterator*>(bc_it);
+  return it->oparg();
+}
+
+extern "C" void hir_builder_emit_any_call_c(
+    void *tc, void *cfg, void *func, void *builder,
+    void *bc_instrs, void *bc_it,
+    int opcode, int oparg, int base_offset,
+    int is_awaited,
+    void *code, int code_flags,
+    PyObject *const_arg);
 
 void HIRBuilder::emitAnyCall(
     CFG& cfg,
@@ -2878,139 +2924,38 @@ void HIRBuilder::emitAnyCall(
     jit::BytecodeInstructionBlock::Iterator& bc_it,
     const jit::BytecodeInstructionBlock& bc_instrs) {
   BytecodeInstruction bc_instr = *bc_it;
-  bool is_awaited;
+  int opcode = bc_instr.opcode();
+  int oparg = bc_instr.oparg();
+  int base_offset = bc_instr.baseOffset().value();
+
+  int is_awaited;
   if constexpr (PY_VERSION_HEX >= 0x030C0000) {
-    is_awaited = false;
+    is_awaited = 0;
   } else {
-    is_awaited = code_->co_flags & CO_COROUTINE &&
+    is_awaited = (code_->co_flags & CO_COROUTINE) &&
         // We only need to be followed by GET_AWAITABLE to know we are awaited,
         // but we also need to ensure the following LOAD_CONST and YIELD_FROM
         // are inside this BytecodeInstructionBlock. This may not be the case if
         // the 'await' is shared as in 'await (x if y else z)'.
         bc_it.remainingIndices() >= 3 &&
-        bc_instr.nextInstr().opcode() == GET_AWAITABLE;
+        bc_instr.nextInstr().opcode() == GET_AWAITABLE ? 1 : 0;
   }
-  auto flags = is_awaited ? CallFlags::Awaited : CallFlags::None;
-  bool call_used_is_awaited = true;
 
-  auto opcode = bc_instr.opcode();
-  switch (opcode) {
-    case CALL_FUNCTION:
-    case CALL_FUNCTION_KW: {
-      // Operands include the function arguments plus the function itself.
-      auto num_operands = static_cast<std::size_t>(bc_instr.oparg()) + 1;
-      // Add one more operand for the kwnames tuple at the end.
-      if (opcode == CALL_FUNCTION_KW) {
-        num_operands++;
-        flags |= CallFlags::KwArgs;
-      }
-      tc.emitVariadic<VectorCall>(temps_, num_operands, flags);
-      break;
-    }
-    case CALL_FUNCTION_EX: {
-      emitCallEx(tc, bc_instr, flags);
-      break;
-    }
-    case CALL:
-    case CALL_KW:
-    case CALL_METHOD: {
-      auto num_operands = static_cast<std::size_t>(bc_instr.oparg()) + 2;
-      auto num_stack_inputs = num_operands;
-      bool is_call_kw = opcode == CALL_KW;
-      if (kwnames_ != nullptr || is_call_kw) {
-        if (is_call_kw) {
-          num_stack_inputs++;
-        }
-        num_operands++;
-        flags |= CallFlags::KwArgs;
-      }
-
-      // Manually set up the instruction instead of using emitVariadic.
-      // kwnames_ isn't on the stack, but it has to be part of the operand
-      // count.
-      Register* out = temps_.AllocateStack();
-      auto call = tc.emitCallMethod(num_operands, out, flags);
-      for (auto i = num_stack_inputs; i > 0; i--) {
-        Register* arg = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-        call->SetOperand(i - 1, arg);
-      }
-      if (kwnames_ != nullptr) {
-        JIT_CHECK(
-            call->GetOperand(num_operands - 1) == nullptr,
-            "Somehow already set the kwnames argument");
-        call->SetOperand(num_operands - 1, kwnames_);
-        kwnames_ = nullptr;
-      }
-      call->setFrameState(tc.frame);
-
-      phx_ptr_arr_push(&tc.frame.stack, out);
-
-      // B2: If this CALL is inside a try block with a simple except pattern,
-      // inline the exception handler instead of deopting on exception.
-      // This prevents the deopt cascade that occurs when JIT-compiled
-      // functions raise caught exceptions (e.g. StopIteration from next()
-      // in contextlib._GeneratorContextManager.__exit__).
-      {
-        BCOffset cur_off = bc_instr.baseOffset();
-        auto* handler = findExceptionHandler(cur_off);
-        if (handler != nullptr) {
-          SimpleExceptInfo info;
-          if (getSimpleExceptInfo(*handler, info)) {
-            emitCallExceptionHandler(
-                cfg, tc, bc_instr, *handler, info, call, out);
-          }
-        }
-      }
-      break;
-    }
-    case INVOKE_FUNCTION: {
-      call_used_is_awaited = emitInvokeFunction(tc, bc_instr, flags);
-      break;
-    }
-    case INVOKE_NATIVE: {
-      call_used_is_awaited = emitInvokeNative(tc, bc_instr);
-      break;
-    }
-    case INVOKE_METHOD: {
-      call_used_is_awaited = emitInvokeMethod(tc, bc_instr, is_awaited);
-      break;
-    }
-    default:
-      JIT_ABORT("Unhandled call opcode {} ({})", opcode, opcodeName(opcode));
+  // Pre-extract const_arg for INVOKE_* paths — only used if opcode is one
+  // of INVOKE_FUNCTION/NATIVE/METHOD; NULL otherwise.
+  PyObject *const_arg = nullptr;
+  if (opcode == INVOKE_FUNCTION || opcode == INVOKE_NATIVE
+      || opcode == INVOKE_METHOD) {
+    const_arg = constArg(bc_instr);
   }
-  if (is_awaited && call_used_is_awaited) {
-    // (D1+A4) Advance bc_it three times + assert opcode sequence on the C++
-    // side BEFORE the C body runs. Iterator state never crosses the boundary
-    // (PB invariant) — only int baseOffsets/oparg/error flags pass through.
-    ++bc_it;
-    JIT_CHECK(
-        bc_it->opcode() == GET_AWAITABLE,
-        "Awaited function call must be followed by GET_AWAITABLE");
-    auto get_awaitable_bc = *bc_it;
-    auto [error_aenter, error_aexit] =
-        checkAsyncWithError(bc_instrs, get_awaitable_bc);
 
-    ++bc_it;
-    JIT_CHECK(
-        bc_it->opcode() == LOAD_CONST,
-        "GET_AWAITABLE must be followed by LOAD_CONST");
-    int load_const_oparg = bc_it->oparg();
-
-    ++bc_it;
-    JIT_CHECK(
-        bc_it->opcode() == YIELD_FROM,
-        "GET_AWAITABLE should always be followed by LOAD_CONST+YIELD_FROM");
-
-    hir_builder_emit_awaited_call_tail_c(
-        static_cast<void*>(&tc),
-        static_cast<void*>(current_func_),
-        static_cast<void*>(this),
-        code_,
-        static_cast<int>(code_->co_flags),
-        static_cast<int>(error_aenter),
-        static_cast<int>(error_aexit),
-        load_const_oparg);
-  }
+  hir_builder_emit_any_call_c(
+      &tc, &cfg, current_func_, this,
+      const_cast<void*>(static_cast<const void*>(&bc_instrs)),
+      &bc_it,
+      opcode, oparg, base_offset, is_awaited,
+      code_, static_cast<int>(code_->co_flags),
+      const_arg);
 }
 
 extern "C" void hir_builder_emit_call_intrinsic_c(void *tc, void *func, int opcode, int oparg);

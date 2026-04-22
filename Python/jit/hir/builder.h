@@ -41,6 +41,19 @@ void hir_builder_setup_static_args_c(
     void **out_arg_regs, size_t *out_count);
 void *hir_builder_static_method_stack_pop_c(void *builder);
 
+/* W26 (theologian L2462+L2466): bridges for emitAnyCall full conversion +
+ * 149b7e2d40 PartialConversion reabsorb. 4 NEW bridges: combined exception-
+ * handler emit (folds findExceptionHandler+getSimpleExceptInfo+emit per (B)
+ * decision), checkAsyncWithError, bc_it advance+opcode, bc_it oparg. */
+void hir_builder_emit_call_method_exception_handler_inline_c(
+    void *builder, void *tc, void *cfg, int base_offset,
+    void *call_instr, void *result_reg);
+void hir_builder_check_async_with_error_c(
+    void *bc_instrs, void *bc_it,
+    int *out_error_aenter, int *out_error_aexit);
+int hir_builder_bc_it_advance_and_opcode_c(void *bc_it);
+int hir_builder_bc_it_oparg_c(void *bc_it);
+
 /* INVOKE_* Phase 2 #3 (theologian L2430): bridges for emitInvokeFunction C
  * body. Function-target variants of #2 bridges (different preloader lookup
  * path: invokeFunctionTarget vs invokeMethodTarget) + invoke-target query +
@@ -169,6 +182,11 @@ class HIRBuilder {
       void*, void*, PyObject*, long, int, void**, size_t*);
   friend int ::hir_builder_is_static_rand_and_try_emit_c(
       void*, void*, PyObject*, long);
+  // W26 (theologian L2462+L2466): emitAnyCall full conversion + 149b7e2d40
+  // reabsorb. Friends grant private-member access (exception_table_,
+  // findExceptionHandler, getSimpleExceptInfo, emitCallExceptionHandler).
+  friend void ::hir_builder_emit_call_method_exception_handler_inline_c(
+      void*, void*, void*, int, void*, void*);
  public:
   const Preloader& preloader() const { return preloader_; }
   explicit HIRBuilder(const Preloader& preloader)
