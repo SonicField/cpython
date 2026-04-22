@@ -104,6 +104,10 @@ void hir_bb_destroy(void *block);
 void hir_bb_set_successor_null(void *block, size_t idx);
 void hir_bb_remove_phi_predecessor(void *block, void *pred);
 
+/* W25 Step B-77a hir_bb_in_edges_list promotion (Class C1 → C2):
+ * impl in hir_c_api.cpp, callers in pass_output_type_c.c. */
+size_t hir_bb_in_edges_list(void *block, void **out_from, size_t capacity);
+
 /* ---- CFG block list operations ---- */
 
 static inline HirBasicBlock *hir_cfg_first_block(const HirCFG *cfg) {

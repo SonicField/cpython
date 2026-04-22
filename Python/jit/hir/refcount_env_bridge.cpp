@@ -13,7 +13,6 @@
 using namespace jit::hir;
 
 extern "C" HirType hir_register_type(void *reg);
-extern "C" size_t hir_cfg_get_rpo(void *cfg, void **out, size_t capacity);
 
 extern "C" {
 
@@ -45,7 +44,6 @@ int phx_rc_is_guard_is(void *instr) {
 }
 
 void phx_rc_fill_deopt_live_regs(const PhxStateMap *live_regs, void *instr_ptr) {
-  extern int hir_instr_is_deopt_base(void *instr);
   extern void hir_deopt_emplace_live_reg(void *instr, void *reg, int ref_kind, int value_kind);
   extern void hir_deopt_sort_live_regs(void *instr);
   extern int hir_deopt_value_kind(void *reg);
@@ -81,7 +79,6 @@ void *phx_rc_model_reg(void *reg) {
 }
 
 size_t phx_rc_get_rpo(void *func_ptr, void **out, size_t capacity) {
-  extern size_t hir_cfg_get_rpo_c(void *cfg, void **rpo_out, size_t cap);
   void *cfg = hir_func_cfg_ptr(func_ptr);
   size_t c_count = hir_cfg_get_rpo_c(cfg, out, capacity);
 

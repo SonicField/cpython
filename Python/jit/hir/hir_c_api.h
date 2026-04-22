@@ -702,6 +702,10 @@ int hir_memory_effects_may_store(HirInstr instr);
 /* Remove trampoline blocks (single unconditional jumps). Returns 1 if changed. */
 int hir_remove_trampoline_blocks(struct HirCFG *cfg);
 
+/* W25 Step B-77a hir_cfg_split_critical_edges_c promotion (Class C1 → C2):
+ * impl in pass_output_type_c.c, callers in cfg.cpp + refcount_insertion.cpp. */
+void hir_cfg_split_critical_edges_c(void *func);
+
 /* Remove unreachable blocks from function. Returns 1 if changed. */
 int hir_remove_unreachable_blocks(HirFunction func);
 

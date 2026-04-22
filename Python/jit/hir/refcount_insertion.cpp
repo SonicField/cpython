@@ -1,6 +1,5 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
-extern "C" void hir_cfg_split_critical_edges_c(void *func);
 extern "C" void hir_bind_guards_c(void *func);
 extern "C" void hir_optimize_long_decref_runs_c(void *func);
 extern "C" int hir_remove_trampoline_blocks_c(void *cfg);

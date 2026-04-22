@@ -126,7 +126,6 @@ void *simplify_guard_type_c(SimplifyEnv *env, const void *instr) {
     }
     HirType t_none = HIR_TYPE_NONETYPE;
     if (hir_type_equal(&target, &t_none)) {
-        extern void *hir_c_create_guard_is(void *func, void *target_obj, void *src);
         void *guard = hir_c_create_guard_is(env->func, Py_None, input);
         return simplify_env_emit(env, guard);
     }
@@ -138,8 +137,6 @@ void *simplify_guard_type_c(SimplifyEnv *env, const void *instr) {
 void *simplify_env_emit_primitive_compare(SimplifyEnv *env, int32_t op,
                                           void *left, void *right) {
     void *reg = hir_func_alloc_register(env->func);
-    extern void *hir_c_create_primitive_compare(void *dst, int32_t op,
-                                                 void *left, void *right);
     void *instr = hir_c_create_primitive_compare(reg, op, left, right);
     return simplify_env_emit(env, instr);
 }
@@ -147,8 +144,6 @@ void *simplify_env_emit_primitive_compare(SimplifyEnv *env, int32_t op,
 void *simplify_env_emit_float_compare(SimplifyEnv *env, int32_t op,
                                        void *left, void *right) {
     void *reg = hir_func_alloc_register(env->func);
-    extern void *hir_c_create_float_compare(void *dst, int32_t op,
-                                             void *left, void *right);
     void *instr = hir_c_create_float_compare(reg, op, left, right);
     return simplify_env_emit(env, instr);
 }
@@ -156,15 +151,12 @@ void *simplify_env_emit_float_compare(SimplifyEnv *env, int32_t op,
 void *simplify_env_emit_long_compare(SimplifyEnv *env, int32_t op,
                                       void *left, void *right) {
     void *reg = hir_func_alloc_register(env->func);
-    extern void *hir_c_create_long_compare(void *dst, int32_t op,
-                                            void *left, void *right);
     void *instr = hir_c_create_long_compare(reg, op, left, right);
     return simplify_env_emit(env, instr);
 }
 
 void *simplify_env_emit_primitive_box_bool(SimplifyEnv *env, void *src) {
     void *reg = hir_func_alloc_register(env->func);
-    extern void *hir_c_create_primitive_box_bool_reg(void *dst, void *src);
     void *instr = hir_c_create_primitive_box_bool_reg(reg, src);
     return simplify_env_emit(env, instr);
 }
@@ -191,7 +183,6 @@ void *simplify_unary_op_c(SimplifyEnv *env, const void *instr) {
 void *simplify_env_emit_call_static_instr(SimplifyEnv *env, size_t n_operands,
                                            void *addr, HirType ret_type) {
     void *reg = hir_func_alloc_register(env->func);
-    extern void *hir_c_create_call_static_reg(size_t n, void *dst, void *addr, HirType ret);
     void *instr = hir_c_create_call_static_reg(n_operands, reg, addr, ret_type);
     simplify_env_emit(env, instr);
     return instr;
@@ -200,15 +191,12 @@ void *simplify_env_emit_call_static_instr(SimplifyEnv *env, size_t n_operands,
 void *simplify_env_emit_load_field(SimplifyEnv *env, void *receiver,
                                     const char *name, intptr_t offset,
                                     HirType type, int borrowed) {
-    extern void *hir_c_create_load_field(void *func, void *recv, const char *name,
-                                          intptr_t offset, HirType type, int borrowed);
     void *instr = hir_c_create_load_field(env->func, receiver, name, offset, type, borrowed);
     return simplify_env_emit(env, instr);
 }
 
 void *simplify_env_emit_cint_to_cbool(SimplifyEnv *env, void *src) {
     void *reg = hir_func_alloc_register(env->func);
-    extern void *hir_c_create_cint_to_cbool(void *dst, void *src);
     void *instr = hir_c_create_cint_to_cbool(reg, src);
     return simplify_env_emit(env, instr);
 }
@@ -260,7 +248,6 @@ static void *emit_get_length_int64_c(SimplifyEnv *env, void *obj) {
 }
 
 void *simplify_env_emit_check_neg(SimplifyEnv *env, void *src, void *frame_state) {
-    extern void *hir_c_create_check_neg(void *func, void *src, void *fs);
     void *instr = hir_c_create_check_neg(env->func, src, frame_state);
     return simplify_env_emit(env, instr);
 }
@@ -314,8 +301,6 @@ void *simplify_store_attr_c(SimplifyEnv *env, const void *instr) {
     void *value = hir_c_get_operand(instr, 1);
     int32_t name_idx = ((const HirStoreAttr *)instr)->name_idx;
     void *fs = hir_c_get_frame_state(instr);
-    extern void *hir_c_create_store_attr_cached(void *func, void *recv, void *val,
-                                                 int32_t idx, void *fs);
     void *cached = hir_c_create_store_attr_cached(env->func, receiver, value, name_idx, fs);
     return simplify_env_emit(env, cached);
 }
@@ -375,24 +360,18 @@ static int32_t inplace_to_binary(int32_t iop) {
 
 void *simplify_env_emit_long_in_place_op(SimplifyEnv *env, int32_t op,
                                           void *left, void *right, void *fs) {
-    extern void *hir_c_create_long_in_place_op(void *func, int32_t op,
-                                                void *left, void *right, void *fs);
     void *instr = hir_c_create_long_in_place_op(env->func, op, left, right, fs);
     return simplify_env_emit(env, instr);
 }
 
 void *simplify_env_emit_float_binary_op_deopt(SimplifyEnv *env, int32_t op,
                                                void *left, void *right, void *fs) {
-    extern void *hir_c_create_float_binary_op(void *func, int32_t op,
-                                               void *left, void *right, void *fs);
     void *instr = hir_c_create_float_binary_op(env->func, op, left, right, fs);
     return simplify_env_emit(env, instr);
 }
 
 void *simplify_env_emit_guard_type_deopt(SimplifyEnv *env, HirType target,
                                           void *src, void *fs) {
-    extern void *hir_c_create_guard_type(void *func, HirType target,
-                                          void *src, void *fs);
     void *instr = hir_c_create_guard_type(env->func, target, src, fs);
     return simplify_env_emit(env, instr);
 }
@@ -501,7 +480,6 @@ void *simplify_float_binary_op_c(SimplifyEnv *env, const void *instr) {
         void *result = simplify_env_emit_double_binary_op(env, op, left_unboxed, right_unboxed);
         void *fs = hir_c_get_frame_state(instr);
         HirType t_float_exact = HIR_TYPE_FLOATEXACT;
-        extern void *hir_c_create_primitive_box(void *func, void *src, HirType type, void *fs);
         void *box = hir_c_create_primitive_box(env->func, result, t_float_exact, fs);
         return simplify_env_emit(env, box);
     }
@@ -540,7 +518,6 @@ void *simplify_float_binary_op_c(SimplifyEnv *env, const void *instr) {
 
     simplify_env_emit_use_type(env, left, left_type);
     simplify_env_emit_use_type(env, right, right_type);
-    extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
     PyObject *ref = hir_func_add_reference(env->func, result);
     Py_DECREF(result);
     return simplify_env_emit_load_const(env, hir_type_from_object(ref));
@@ -585,7 +562,6 @@ void *simplify_long_binary_op_c(SimplifyEnv *env, const void *instr) {
 
     simplify_env_emit_use_type(env, left, left_type);
     simplify_env_emit_use_type(env, right, right_type);
-    extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
     PyObject *ref = hir_func_add_reference(env->func, result);
     Py_DECREF(result);
     return simplify_env_emit_load_const(env, hir_type_from_object(ref));
@@ -600,7 +576,6 @@ void *simplify_get_length_c(SimplifyEnv *env, const void *instr) {
 
     void *fs = hir_c_get_frame_state(instr);
     HirType t_cint64 = HIR_TYPE_CINT64;
-    extern void *hir_c_create_primitive_box(void *func, void *src, HirType type, void *fs);
     void *box = hir_c_create_primitive_box(env->func, size, t_cint64, fs);
     return simplify_env_emit(env, box);
 }
@@ -628,7 +603,6 @@ void *simplify_store_subscr_c(SimplifyEnv *env, const void *instr) {
 
 /* Helper: emit LoadConst for a known PyObject* (registers reference + creates type) */
 void *simplify_env_emit_load_const_object(SimplifyEnv *env, PyObject *obj) {
-    extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
     PyObject *ref = hir_func_add_reference(env->func, obj);
     return simplify_env_emit_load_const(env, hir_type_from_object(ref));
 }
@@ -897,7 +871,6 @@ void *simplify_load_array_item_tuple_c(SimplifyEnv *env, const void *instr) {
             simplify_env_emit_use_type(env, src, src_type);
             simplify_env_emit_use_type(env, idx_reg, idx_type);
             PyObject *item = PyTuple_GET_ITEM(tuple_obj, idx_signed);
-            extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
             PyObject *ref = hir_func_add_reference(env->func, item);
             return simplify_env_emit_load_const(env, hir_type_from_object(ref));
         }
@@ -917,7 +890,6 @@ void *simplify_load_tuple_item_c(SimplifyEnv *env, const void *instr) {
     PyObject *tuple_obj = hir_type_object_spec(&src_type);
     size_t idx = hir_c_load_tuple_item_idx(instr);
     PyObject *item = PyTuple_GET_ITEM(tuple_obj, idx);
-    extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
     PyObject *ref = hir_func_add_reference(env->func, item);
     HirType item_type = hir_type_from_object(ref);
     return simplify_env_emit_load_const(env, item_type);
@@ -958,13 +930,11 @@ void *simplify_cond_branch_check_type_c(SimplifyEnv *env, const void *instr) {
 
     if (hir_type_is_subtype(actual_type, expected_type)) {
         simplify_env_emit_use_type(env, value, actual_type);
-        extern void *hir_c_create_branch_cpp(void *target_block);
         void *branch = hir_c_create_branch_cpp(cbct->true_edge.to);
         return simplify_env_emit(env, branch);
     }
     if (!hir_type_could_be(&actual_type, &expected_type)) {
         simplify_env_emit_use_type(env, value, actual_type);
-        extern void *hir_c_create_branch_cpp(void *target_block);
         void *branch = hir_c_create_branch_cpp(cbct->false_edge.to);
         return simplify_env_emit(env, branch);
     }
@@ -1107,7 +1077,6 @@ void *simplify_cond_branch_const_c(SimplifyEnv *env, const void *instr) {
     if (hir_type_has_int_spec(&cond_type)) {
         intptr_t spec = hir_type_int_spec(&cond_type);
         void *target = hir_c_successor(instr, spec ? 0 : 1);
-        extern void *hir_c_create_branch_cpp(void *target_block);
         void *branch = hir_c_create_branch_cpp(target);
         return simplify_env_emit(env, branch);
     }
@@ -1119,7 +1088,6 @@ void *simplify_cond_branch_const_c(SimplifyEnv *env, const void *instr) {
         HirType convert_type = ((const HirIntConvert *)cond_def)->type;
         HirType src_type = hir_register_type(src);
         if (hir_type_size_in_bytes(&convert_type) >= hir_type_size_in_bytes(&src_type)) {
-            extern void *hir_c_create_cond_branch_cpp(void *cond_reg, void *true_bb, void *false_bb);
             void *true_bb = hir_c_successor(instr, 0);
             void *false_bb = hir_c_successor(instr, 1);
             void *new_cb = hir_c_create_cond_branch_cpp(src, true_bb, false_bb);
@@ -1276,7 +1244,6 @@ void *simplify_load_method_c(SimplifyEnv *env, const void *instr) {
 /* ==== BinaryOp emit helpers ==== */
 
 static void *simplify_env_emit_dict_subscr(SimplifyEnv *env, void *lhs, void *rhs, void *fs) {
-    extern void *hir_c_create_dict_subscr(void *func, void *lhs, void *rhs, void *fs);
     void *instr = hir_c_create_dict_subscr(env->func, lhs, rhs, fs);
     return simplify_env_emit(env, instr);
 }
@@ -1288,14 +1255,12 @@ static void *simplify_env_emit_index_unbox(SimplifyEnv *env, void *src, void *ex
 }
 
 static void simplify_env_emit_is_neg_and_err(SimplifyEnv *env, void *src, void *fs) {
-    extern void *hir_c_create_is_neg_and_err(void *func, void *src, void *fs);
     void *instr = hir_c_create_is_neg_and_err(env->func, src, fs);
     simplify_env_emit(env, instr);
 }
 
 static void *simplify_env_emit_check_sequence_bounds(SimplifyEnv *env,
         void *seq, void *idx, void *fs) {
-    extern void *hir_c_create_check_sequence_bounds_reg(void *dst, void *seq, void *idx, void *fs);
     void *reg = hir_func_alloc_register(env->func);
     void *instr = hir_c_create_check_sequence_bounds_reg(reg, seq, idx, fs);
     return simplify_env_emit(env, instr);
@@ -1303,37 +1268,30 @@ static void *simplify_env_emit_check_sequence_bounds(SimplifyEnv *env,
 
 static void *simplify_env_emit_load_array_item(SimplifyEnv *env,
         void *arr, void *idx, void *container, intptr_t offset, HirType type) {
-    extern void *hir_c_create_load_array_item(void *func, void *arr, void *idx,
-        void *container, intptr_t offset, HirType type);
     void *instr = hir_c_create_load_array_item(env->func, arr, idx, container, offset, type);
     return simplify_env_emit(env, instr);
 }
 
 static void *simplify_env_emit_unicode_subscr(SimplifyEnv *env,
         void *lhs, void *idx, void *fs) {
-    extern void *hir_c_create_unicode_subscr(void *func, void *lhs, void *idx, void *fs);
     void *instr = hir_c_create_unicode_subscr(env->func, lhs, idx, fs);
     return simplify_env_emit(env, instr);
 }
 
 static void *simplify_env_emit_long_binary_op_deopt(SimplifyEnv *env,
         int32_t op, void *lhs, void *rhs, void *fs) {
-    extern void *hir_c_create_long_binary_op(void *func, int32_t op,
-        void *lhs, void *rhs, void *fs);
     void *instr = hir_c_create_long_binary_op(env->func, op, lhs, rhs, fs);
     return simplify_env_emit(env, instr);
 }
 
 static void *simplify_env_emit_unicode_repeat(SimplifyEnv *env,
         void *lhs, void *rhs, void *fs) {
-    extern void *hir_c_create_unicode_repeat(void *func, void *lhs, void *rhs, void *fs);
     void *instr = hir_c_create_unicode_repeat(env->func, lhs, rhs, fs);
     return simplify_env_emit(env, instr);
 }
 
 static void *simplify_env_emit_unicode_concat(SimplifyEnv *env,
         void *lhs, void *rhs, void *fs) {
-    extern void *hir_c_create_unicode_concat(void *func, void *lhs, void *rhs, void *fs);
     void *instr = hir_c_create_unicode_concat(env->func, lhs, rhs, fs);
     return simplify_env_emit(env, instr);
 }
@@ -1420,7 +1378,6 @@ void *simplify_binary_op_c(SimplifyEnv *env, const void *instr) {
                 PyObject *result = PyUnicode_FromOrdinal(ch);
                 jit_compile_unlock();
                 if (result != NULL) {
-                    extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
                     PyObject *ref = hir_func_add_reference(env->func, result);
                     Py_DECREF(result);
                     return simplify_env_emit_load_const(env, hir_type_from_object(ref));
@@ -1529,7 +1486,6 @@ void *simplify_binary_op_c(SimplifyEnv *env, const void *instr) {
                 if (float_obj != NULL) {
                     simplify_env_emit_use_type(env, float_reg, t_float_exact);
                     simplify_env_emit_use_type(env, int_reg, int_type);
-                    extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
                     PyObject *ref = hir_func_add_reference(env->func, float_obj);
                     Py_DECREF(float_obj);
                     void *float_const = simplify_env_emit_load_const(env, hir_type_from_object(ref));
@@ -1660,16 +1616,11 @@ static void *simplify_load_attr_split_dict_c(SimplifyEnv *env, const void *instr
     HirType recv_type = hir_register_type(receiver);
     void *fs = hir_c_get_frame_state(instr);
 
-    extern void *hir_func_allocate_split_dict_deopt_patcher(
-        void *func, void *type, void *attr_name, void *keys);
     void *patcher = hir_func_allocate_split_dict_deopt_patcher(
         env->func, py_type, attr_name, keys);
-    extern void *hir_c_create_deopt_patchpoint(void *patcher);
     void *pp = hir_c_create_deopt_patchpoint(patcher);
     simplify_env_emit(env, pp);
-    extern void hir_c_set_guilty_reg(void *instr, void *reg);
     hir_c_set_guilty_reg(pp, receiver);
-    extern void hir_c_set_descr(void *instr, const char *descr);
     hir_c_set_descr(pp, "SplitDictDeoptPatcher");
     simplify_env_emit_use_type(env, receiver, recv_type);
 
@@ -1682,8 +1633,6 @@ static void *simplify_load_attr_split_dict_c(SimplifyEnv *env, const void *instr
         py_type->tp_dictoffset, t_optobj, 0);
 #endif
 
-    extern void *hir_c_create_check_field(void *func, void *src,
-        void *name, void *frame_state);
     void *check_dict_instr = hir_c_create_check_field(env->func, obj_dict,
         attr_name, fs);
     void *checked_dict = simplify_env_emit(env, check_dict_instr);
@@ -1700,7 +1649,6 @@ static void *simplify_load_attr_split_dict_c(SimplifyEnv *env, const void *instr
     void *and_instr = hir_c_create_int_binary_op(is_values_reg, HIR_BOP_And, dict_ptr, one);
     void *is_values = simplify_env_emit(env, and_instr);
 
-    extern void *hir_c_create_guard(void *src);
     void *guard_instr = hir_c_create_guard(is_values);
     simplify_env_emit(env, guard_instr);
     hir_c_set_guilty_reg(guard_instr, receiver);
@@ -1724,14 +1672,12 @@ static void *simplify_load_attr_split_dict_c(SimplifyEnv *env, const void *instr
     void *equal = simplify_env_emit_primitive_compare(env, HIR_PCMP_Equal,
         dict_keys, expected_keys);
 
-    extern void *hir_c_create_guard(void *src);
     void *guard_instr = hir_c_create_guard(equal);
     simplify_env_emit(env, guard_instr);
     hir_c_set_guilty_reg(guard_instr, receiver);
     hir_c_set_descr(guard_instr, "ht_cached_keys comparison");
 
     void *split_item_reg = hir_func_alloc_register(env->func);
-    extern void *hir_c_create_load_split_dict_item(void *dst, void *src, intptr_t idx);
     void *split_item = hir_c_create_load_split_dict_item(split_item_reg,
         checked_dict, attr_idx);
     void *attr = simplify_env_emit(env, split_item);
@@ -1752,16 +1698,11 @@ static void emit_type_attr_deopt_patcher(SimplifyEnv *env,
     extern int _PyClassLoader_IsImmutable(PyObject *container);
     if (_PyClassLoader_IsImmutable((PyObject *)py_type)) return;
 
-    extern void *hir_func_allocate_type_attr_deopt_patcher(
-        void *func, void *type, void *attr_name, void *method);
     void *patcher = hir_func_allocate_type_attr_deopt_patcher(
         env->func, py_type, attr_name, descr);
-    extern void *hir_c_create_deopt_patchpoint(void *patcher);
     void *pp = hir_c_create_deopt_patchpoint(patcher);
     simplify_env_emit(env, pp);
-    extern void hir_c_set_guilty_reg(void *instr, void *reg);
     hir_c_set_guilty_reg(pp, receiver);
-    extern void hir_c_set_descr(void *instr, const char *descr);
     hir_c_set_descr(pp, description);
 }
 
@@ -1804,11 +1745,8 @@ static void *simplify_load_attr_member_descr_c(SimplifyEnv *env,
             def->offset, t_optobj, 0);
 
         if (def->type == T_OBJECT_EX) {
-            extern void *hir_c_create_check_field(void *func, void *src,
-                void *name, void *frame_state);
             void *check = hir_c_create_check_field(env->func, field, attr_name, fs);
             void *result = simplify_env_emit(env, check);
-            extern void hir_c_set_guilty_reg(void *instr, void *reg);
             hir_c_set_guilty_reg(check, receiver);
             return result;
         }
@@ -1836,12 +1774,9 @@ static void *simplify_load_attr_property_c(SimplifyEnv *env,
                                  receiver, "property attribute");
     simplify_env_emit_use_type(env, receiver, recv_type);
 
-    extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
     PyObject *ref = hir_func_add_reference(env->func, getter);
     void *getter_obj = simplify_env_emit_load_const(env, hir_type_from_object(ref));
 
-    extern void *hir_c_create_vectorcall(void *func, size_t n_ops,
-                                          uint32_t flags, void *fs);
     void *call = hir_c_create_vectorcall(env->func, 2, HIR_CALL_FLAG_NONE, fs);
     hir_c_set_operand(call, 0, getter_obj);
     hir_c_set_operand(call, 1, receiver);
@@ -1862,20 +1797,15 @@ static void *simplify_load_attr_generic_descr_c(SimplifyEnv *env,
 
     extern int _PyClassLoader_IsImmutable(PyObject *container);
     if (!_PyClassLoader_IsImmutable((PyObject *)descr_type)) {
-        extern void *hir_func_allocate_type_deopt_patcher(void *func, void *type);
         void *patcher = hir_func_allocate_type_deopt_patcher(env->func, descr_type);
-        extern void *hir_c_create_deopt_patchpoint(void *patcher);
         void *pp = hir_c_create_deopt_patchpoint(patcher);
         simplify_env_emit(env, pp);
-        extern void hir_c_set_guilty_reg(void *instr, void *reg);
         hir_c_set_guilty_reg(pp, receiver);
-        extern void hir_c_set_descr(void *instr, const char *d);
         hir_c_set_descr(pp, "tp_descr_get/tp_descr_set");
     }
 
     simplify_env_emit_use_type(env, receiver, recv_type);
 
-    extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
     PyObject *descr_ref = hir_func_add_reference(env->func, descr);
     void *descr_reg = simplify_env_emit_load_const(env, hir_type_from_object(descr_ref));
 
@@ -1883,8 +1813,6 @@ static void *simplify_load_attr_generic_descr_c(SimplifyEnv *env,
     void *type_reg = simplify_env_emit_load_const(env, hir_type_from_object(type_ref));
 
     HirType t_optobj = HIR_TYPE_OPTOBJECT;
-    extern void *hir_c_create_call_static(void *func, size_t n_ops,
-                                           void *addr, HirType ret_type);
     void *call = hir_c_create_call_static(env->func, 3,
                                            (void *)descr_get, t_optobj);
     hir_c_set_operand(call, 0, descr_reg);
@@ -1892,7 +1820,6 @@ static void *simplify_load_attr_generic_descr_c(SimplifyEnv *env,
     hir_c_set_operand(call, 2, type_reg);
     void *call_out = simplify_env_emit(env, call);
 
-    extern void *hir_c_create_check_exc(void *func, void *src, void *fs);
     void *check = hir_c_create_check_exc(env->func, call_out, fs);
     return simplify_env_emit(env, check);
 }
@@ -2004,8 +1931,6 @@ void *simplify_call_method_c(SimplifyEnv *env, const void *instr) {
         HirType func_type = hir_register_type(func_reg);
         HirType t_nullptr = HIR_TYPE_NULLPTR;
         if (hir_type_is_subtype(func_type, t_nullptr)) {
-            extern void *hir_c_create_vectorcall(void *func, size_t n_ops,
-                                                  uint32_t flags, void *fs);
             void *call = hir_c_create_vectorcall(env->func, n_operands - 1,
                                                   cm->flags, fs);
             hir_c_set_suppress_exc_deopt(call, cm->suppress_exception_deopt);
@@ -2077,35 +2002,26 @@ void *simplify_call_method_c(SimplifyEnv *env, const void *instr) {
         }
 
         /* Emit snapshot for deopt patchpoint */
-        extern void *hir_c_create_snapshot(void *fs);
         void *snapshot = hir_c_create_snapshot(fs);
         simplify_env_emit(env, snapshot);
 
         extern int _PyClassLoader_IsImmutable(PyObject *container);
         if (!_PyClassLoader_IsImmutable((PyObject *)py_type)) {
-            extern void *hir_func_allocate_type_attr_deopt_patcher(
-                void *func, void *type, void *attr_name, void *method);
             void *patcher = hir_func_allocate_type_attr_deopt_patcher(
                 env->func, py_type, attr_id, method);
-            extern void *hir_c_create_deopt_patchpoint(void *patcher);
             void *pp = hir_c_create_deopt_patchpoint(patcher);
             simplify_env_emit(env, pp);
-            extern void hir_c_set_guilty_reg(void *instr, void *reg);
             hir_c_set_guilty_reg(pp, receiver);
-            extern void hir_c_set_descr(void *instr, const char *descr);
             hir_c_set_descr(pp, "CallMethod __exit__ method resolution");
         }
 
         HirType recv_unspec = hir_type_unspecialized(&recv_type);
         simplify_env_emit_use_type(env, receiver, recv_unspec);
 
-        extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
         PyObject *ref = hir_func_add_reference(env->func, method);
         void *func_const = simplify_env_emit_load_const(env, hir_type_from_object(ref));
 
         size_t cm_noperands = hir_c_num_operands(instr);
-        extern void *hir_c_create_vectorcall(void *func, size_t n_ops,
-                                              uint32_t flags, void *fs);
         void *new_call = hir_c_create_vectorcall(env->func,
             cm_noperands + 1, HIR_CALL_FLAG_STATIC, fs);
         hir_c_set_suppress_exc_deopt(new_call, cm->suppress_exception_deopt);
@@ -2146,26 +2062,20 @@ static void *try_specialize_ccall_c(SimplifyEnv *env, const void *instr) {
         HirType ret_type = orig_type;
 
         if ((def->ml_flags & METH_NOARGS) && n_args == 1) {
-            extern void *hir_c_create_call_static(void *func, size_t n_ops,
-                                                   void *addr, HirType ret_type);
             void *call = hir_c_create_call_static(env->func, 1,
                 (void *)def->ml_meth, ret_type);
             hir_c_set_operand(call, 0, hir_c_get_operand(instr, 1));
             void *call_out = simplify_env_emit(env, call);
-            extern void *hir_c_create_check_exc(void *func, void *src, void *fs);
             void *fs = hir_c_get_frame_state(instr);
             void *check = hir_c_create_check_exc(env->func, call_out, fs);
             return simplify_env_emit(env, check);
         }
         if ((def->ml_flags & METH_O) && n_args == 2) {
-            extern void *hir_c_create_call_static(void *func, size_t n_ops,
-                                                   void *addr, HirType ret_type);
             void *call = hir_c_create_call_static(env->func, 2,
                 (void *)def->ml_meth, ret_type);
             hir_c_set_operand(call, 0, hir_c_get_operand(instr, 1));
             hir_c_set_operand(call, 1, hir_c_get_operand(instr, 2));
             void *call_out = simplify_env_emit(env, call);
-            extern void *hir_c_create_check_exc(void *func, void *src, void *fs);
             void *fs = hir_c_get_frame_state(instr);
             void *check = hir_c_create_check_exc(env->func, call_out, fs);
             return simplify_env_emit(env, check);
@@ -2183,8 +2093,6 @@ static void *simplify_vectorcall_static_c(SimplifyEnv *env, const void *instr) {
     if (is_builtin_c(func, "list.append") && hir_c_num_operands(instr) - 1 == 2) {
         HirType func_type = hir_register_type(func);
         simplify_env_emit_use_type(env, func, func_type);
-        extern void *hir_c_create_list_append(void *func_h, void *list,
-                                               void *item, void *fs);
         void *fs = hir_c_get_frame_state(instr);
         void *la = hir_c_create_list_append(env->func,
             hir_c_get_operand(instr, 1), hir_c_get_operand(instr, 2), fs);
@@ -2242,35 +2150,26 @@ static void *simplify_vectorcall_bound_method_c(SimplifyEnv *env, const void *in
     }
 
     void *fs = hir_c_get_frame_state(instr);
-    extern void *hir_c_create_snapshot(void *fs);
     void *snapshot = hir_c_create_snapshot(fs);
     simplify_env_emit(env, snapshot);
 
     extern int _PyClassLoader_IsImmutable(PyObject *container);
     if (!_PyClassLoader_IsImmutable((PyObject *)py_type)) {
-        extern void *hir_func_allocate_type_attr_deopt_patcher(
-            void *func, void *type, void *attr_name, void *method);
         void *patcher = hir_func_allocate_type_attr_deopt_patcher(
             env->func, py_type, attr_id, method);
-        extern void *hir_c_create_deopt_patchpoint(void *patcher);
         void *pp = hir_c_create_deopt_patchpoint(patcher);
         simplify_env_emit(env, pp);
-        extern void hir_c_set_guilty_reg(void *instr, void *reg);
         hir_c_set_guilty_reg(pp, receiver);
-        extern void hir_c_set_descr(void *instr, const char *descr);
         hir_c_set_descr(pp, "LoadAttrSpecial method resolution");
     }
 
     HirType recv_unspec = hir_type_unspecialized(&recv_type);
     simplify_env_emit_use_type(env, receiver, recv_unspec);
 
-    extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
     PyObject *ref = hir_func_add_reference(env->func, method);
     void *func_const = simplify_env_emit_load_const(env, hir_type_from_object(ref));
 
     size_t orig_nargs = hir_c_num_operands(instr) - 1;
-    extern void *hir_c_create_vectorcall(void *func, size_t n_ops,
-                                          uint32_t flags, void *fs);
     void *new_call = hir_c_create_vectorcall(env->func,
         2 + orig_nargs, vc->flags | HIR_CALL_FLAG_STATIC, fs);
     hir_c_set_operand(new_call, 0, func_const);
@@ -2312,29 +2211,20 @@ static void *simplify_vectorcall_global_c(SimplifyEnv *env, const void *instr) {
     if (jit_compile_running()) return NULL;
 
     void *fs = hir_c_get_frame_state(instr);
-    extern void *hir_c_create_snapshot(void *fs);
     void *snapshot = hir_c_create_snapshot(fs);
     simplify_env_emit(env, snapshot);
 
-    extern void *hir_func_allocate_global_deopt_patcher(
-        void *func, void *globals, void *key_name, void *expected);
     void *patcher = hir_func_allocate_global_deopt_patcher(
         env->func, lg->globals, name, expected);
-    extern void *hir_c_create_deopt_patchpoint(void *patcher);
     void *pp = hir_c_create_deopt_patchpoint(patcher);
     simplify_env_emit(env, pp);
-    extern void hir_c_set_guilty_reg(void *instr, void *reg);
     hir_c_set_guilty_reg(pp, func_reg);
-    extern void hir_c_set_descr(void *instr, const char *descr);
     hir_c_set_descr(pp, "Global callee guard elimination");
 
-    extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
     PyObject *ref = hir_func_add_reference(env->func, expected);
     void *func_const = simplify_env_emit_load_const(env, hir_type_from_object(ref));
 
     size_t orig_nargs = hir_c_num_operands(instr) - 1;
-    extern void *hir_c_create_vectorcall(void *func, size_t n_ops,
-                                          uint32_t flags, void *fs);
     void *new_call = hir_c_create_vectorcall(env->func,
         1 + orig_nargs, vc->flags | HIR_CALL_FLAG_STATIC, fs);
     hir_c_set_operand(new_call, 0, func_const);
@@ -2377,7 +2267,6 @@ static void *simplify_resolve_args_c(SimplifyEnv *env, const void *instr,
             PyObject *def = PyTuple_GET_ITEM((PyObject *)defaults, default_idx);
             jit_compile_unlock();
             if (def == NULL) return NULL;
-            extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
             PyObject *ref = hir_func_add_reference(env->func, def);
             resolved_args[i] = simplify_env_emit_load_const(env, hir_type_from_object(ref));
         }
@@ -2388,13 +2277,10 @@ static void *simplify_resolve_args_c(SimplifyEnv *env, const void *instr,
     void *defaults_obj = simplify_env_emit_load_field(env, hir_c_get_operand(instr, 0),
         "func_defaults", (intptr_t)offsetof(PyFunctionObject, func_defaults), t_tuple, 0);
 
-    extern void *hir_c_create_guard_is(void *func, void *target, void *src);
     void *guard = hir_c_create_guard_is(env->func, (void *)defaults, defaults_obj);
     simplify_env_emit(env, guard);
 
     void *fs = hir_c_get_frame_state(instr);
-    extern void *hir_c_create_vectorcall(void *func, size_t n_ops,
-                                          uint32_t flags, void *fs);
     void *new_call = hir_c_create_vectorcall(env->func,
         co_argcount + 1, HIR_CALL_FLAG_NONE, fs);
     hir_c_set_operand(new_call, 0, hir_c_get_operand(instr, 0));
@@ -2415,7 +2301,6 @@ void *simplify_emit_cond_slow_path(SimplifyEnv *env, void *output_reg,
     void *slow_path_bb = hir_cfg_alloc_block(env->func);
 
     void *fast_path = hir_cfg_split_after(env->func, branch_instr);
-    extern void hir_c_set_true_bb(void *branch, void *new_true_block);
     hir_c_set_true_bb(branch_instr, fast_path);
 
     env->block = slow_path_bb;
@@ -2548,14 +2433,12 @@ static void *isinstance_fast_path(SimplifyEnv *env, void *ctx) {
 
 static void *isinstance_slow_path(SimplifyEnv *env, void *ctx) {
     IsInstanceSlowCtx *c = (IsInstanceSlowCtx *)ctx;
-    extern void *hir_c_create_is_instance(void *func, void *obj, void *type, void *fs);
     void *instr = hir_c_create_is_instance(env->func, c->obj_op, c->type_op, c->fs);
     return simplify_env_emit(env, instr);
 }
 
 static void *isinstance_cond_slow_path_body(SimplifyEnv *env, void *ctx) {
     IsInstanceSlowCtx *c = (IsInstanceSlowCtx *)ctx;
-    extern void *hir_c_create_is_instance(void *func, void *obj, void *type, void *fs);
     void *instr = hir_c_create_is_instance(env->func, c->obj_op, c->type_op, c->fs);
     return simplify_env_emit(env, instr);
 }
@@ -2653,7 +2536,6 @@ void *simplify_vectorcall_c(SimplifyEnv *env, const void *instr) {
     if (is_builtin_c(target, "len") && n_operands - 1 == 1) {
         HirType func_type = hir_register_type(target);
         simplify_env_emit_use_type(env, target, func_type);
-        extern void *hir_c_create_get_length(void *func, void *src, void *fs);
         void *fs = hir_c_get_frame_state(instr);
         void *gl = hir_c_create_get_length(env->func, hir_c_get_operand(instr, 1), fs);
         return simplify_env_emit(env, gl);

@@ -874,7 +874,6 @@ void hir_bind_guards_c(void *func) {
 void hir_optimize_long_decref_runs_c(void *func) {
     void *cfg = hir_func_cfg_ptr(func);
     void *rpo_blocks[4096];
-    extern size_t hir_cfg_get_rpo_c(void *cfg, void **out, size_t cap);
     size_t n_blocks = hir_cfg_get_rpo_c(cfg, rpo_blocks, 4096);
 
     for (size_t b = 0; b < n_blocks; b++) {
@@ -938,7 +937,6 @@ int hir_remove_unreachable_instructions_c(void *func) {
 
     int modified = 0;
     void *rpo_blocks[4096];
-    extern size_t hir_cfg_get_rpo_c(void *cfg, void **out, size_t cap);
     size_t n_blocks = hir_cfg_get_rpo_c(cfg, rpo_blocks, 4096);
 
     PhxDominatorState *dom = phx_dom_create(func);
@@ -1020,7 +1018,6 @@ int hir_remove_unreachable_instructions_c(void *func) {
         void *first = hir_bb_first_instr(block);
         if (first && hir_c_opcode(first) == HIR_OP_Unreachable) {
             void *in_from[256];
-            extern size_t hir_bb_in_edges_list(void *block, void **out, size_t cap);
             size_t n_preds = hir_bb_in_edges_list(block, in_from, 256);
             void *terminators[256];
             size_t n_terms = 0;
