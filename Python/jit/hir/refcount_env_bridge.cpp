@@ -5,6 +5,8 @@
 
 #include "cinderx/Jit/hir/refcount_env_c.h"
 #include "cinderx/Jit/hir/refcount_structs_c.h"
+#include "cinderx/Jit/hir/hir_c_api.h"
+#include "cinderx/Jit/hir/hir_cfg_rpo_c.h"
 #include "cinderx/Jit/hir/hir.h"
 #include "cinderx/Jit/hir/function.h"
 #include "cinderx/Jit/hir/type.h"
