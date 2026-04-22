@@ -138,5 +138,120 @@ class TestJitInlineExceptClosure(unittest.TestCase):
         self.assertEqual(r2, ("post-except", before + 2))
 
 
+@unittest.skipUnless(HAS_JIT, "requires JIT")
+class TestJitCallExceptionHandler(unittest.TestCase):
+    """Falsifier for emitCallExceptionHandler D1-D3 unique invariants.
+
+    Per theologian [chat 17:23:36Z] spec — push 60 emitCallExceptionHandler C
+    port (9630005502) introduced D1 (setSuppressExceptionDeopt + pop result
+    pre-call), D2 (DeoptTC zero re-push), D3 (RefineType + result push) on top
+    of the shared P2+P3+P4 helper. The shared helper is exercised by
+    TestJitInlineExceptClosure above; D1-D3 unique invariants are exercised
+    here via function-call-in-try shape (NOT BINARY_SUBSCR_DICT).
+
+    Pythia #77 #3 + supervisor [chat 17:23:12Z] authorized this as pre-push-61
+    gate (regression-test-pre-exists discipline matching D-1774910012).
+    """
+
+    def test_call_in_try_simple_except(self):
+        """C1 — function call in try, ValueError matched, return from except.
+
+        Triggers D1 (setSuppressExceptionDeopt + pop) and D3 (RefineType +
+        result push). D3 omission would NameError-on-result on OK path; D1
+        omission would deopt instead of inline-handle.
+        """
+        def _helper(should_raise):
+            if should_raise:
+                raise ValueError("test")
+            return 42
+
+        def caller(should_raise):
+            try:
+                return _helper(should_raise)
+            except ValueError:
+                return -1
+
+        for _ in range(WARMUP):
+            self.assertEqual(caller(False), 42)
+        self.assertTrue(cinderjit.is_jit_compiled(caller),
+                        "caller was NOT JIT-compiled after warmup")
+
+        # Exercise both OK (D3) and except (D1) paths under JIT
+        self.assertEqual(caller(False), 42)
+        self.assertEqual(caller(True), -1)
+        for _ in range(100):
+            self.assertEqual(caller(False), 42)
+            self.assertEqual(caller(True), -1)
+
+    def test_call_in_try_with_closure_load_deref(self):
+        """C2 — function call in try, except body LOAD_DEREFs closure variable.
+
+        Exercises BOTH D1-D3 (call-handler entry path) AND PA (D-1774910012
+        prev_exc Py_None placeholder push + POP_EXCEPT pop semantics). PA
+        failure would corrupt sys.exc_info post-loop.
+        """
+        def _helper(should_raise):
+            if should_raise:
+                raise ValueError("test")
+            return 42
+
+        def make_handler(default):
+            def caller(should_raise):
+                try:
+                    return _helper(should_raise)
+                except ValueError:
+                    return default  # LOAD_DEREF on closure
+            return caller
+
+        handler = make_handler(-99)
+        for _ in range(WARMUP):
+            self.assertEqual(handler(False), 42)
+        self.assertTrue(cinderjit.is_jit_compiled(handler),
+                        "handler was NOT JIT-compiled after warmup")
+
+        self.assertEqual(handler(False), 42)
+        self.assertEqual(handler(True), -99)
+        # exc_info chain must remain clean post-loop (PA invariant)
+        for _ in range(100):
+            self.assertEqual(handler(True), -99)
+            self.assertEqual(handler(False), 42)
+            self.assertIsNone(sys.exc_info()[1],
+                              "sys.exc_info corrupted by call-handler path")
+
+    def test_call_in_try_deopt_path(self):
+        """C3 — function call in try, exception NOT matched (TypeError vs ValueError).
+
+        Triggers D2 (DeoptTC zero re-push, no left/right context). D2 omission
+        would corrupt deopt frame state when unmatched exception propagates
+        through the call-handler path.
+        """
+        def _maybe_raise(should_raise):
+            if should_raise:
+                raise TypeError("wrong type")
+            return 42
+
+        def caller(should_raise):
+            try:
+                return _maybe_raise(should_raise)
+            except ValueError:  # WRONG type — TypeError will not match
+                return -1
+
+        for _ in range(WARMUP):
+            self.assertEqual(caller(False), 42)
+        self.assertTrue(cinderjit.is_jit_compiled(caller),
+                        "caller was NOT JIT-compiled after warmup")
+
+        # Exercise deopt path: TypeError propagates out of caller (unmatched)
+        with self.assertRaises(TypeError):
+            caller(True)
+        # OK path still correct post-deopt
+        self.assertEqual(caller(False), 42)
+        # Run several deopts in a row
+        for _ in range(50):
+            with self.assertRaises(TypeError):
+                caller(True)
+            self.assertEqual(caller(False), 42)
+
+
 if __name__ == "__main__":
     unittest.main()
