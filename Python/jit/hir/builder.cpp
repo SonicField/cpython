@@ -5134,46 +5134,21 @@ void HIRBuilder::emitYieldFrom(TranslationContext& tc, Register* out) {
   phx_ptr_arr_push(&stack, out);
 }
 
+extern "C" void hir_builder_emit_yield_value_c(
+    void* tc, void* builder, int code_flags,
+    int next_bc_opcode, int next_bc_oparg);
+
 void HIRBuilder::emitYieldValue(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  PhxPtrArray& stack = tc.frame.stack;
-  auto in = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  auto out = temps_.AllocateStack();
-  if (code_->co_flags & CO_ASYNC_GENERATOR) {
-    tc.emitChecked<CallCFunc>(
-        1,
-        out,
-        CallCFunc::Func::kCix_PyAsyncGenValueWrapperNew,
-        std::vector<Register*>{in});
-    in = out;
-    out = temps_.AllocateStack();
-  }
-  if constexpr (PY_VERSION_HEX < 0x030C0000) {
-    advancePastYieldInstr(tc);
-    tc.emitYieldValue(out, in, tc.frame);
-  } else if constexpr (PY_VERSION_HEX < 0x030E0000) {
-    auto next_bc =
-        BytecodeInstruction{code_, tc.frame.cur_instr_offs}.nextInstr();
-
-    // This mirrors what _PyGen_yf() does. I assume the RESUME oparg exists
-    // primarily for this check - values 2 and 3 indicate a "yield from" and
-    // "await" respectively.
-    if (next_bc.opcode() == RESUME && next_bc.oparg() >= 2) {
-      tc.emitYieldFrom(out, in, static_cast<Register*>(stack.data[stack.count - 1]), tc.frame);
-    } else {
-      tc.emitYieldValue(out, in, tc.frame);
-    }
-  } else {
-    advancePastYieldInstr(tc);
-    if (bc_instr.oparg() == 1) {
-      tc.emitYieldFrom(out, in, static_cast<Register*>(stack.data[stack.count - 1]), tc.frame);
-    } else {
-      JIT_CHECK(bc_instr.oparg() == 0, "Invalid oparg {}", bc_instr.oparg());
-      tc.emitYieldValue(out, in, tc.frame);
-    }
-  }
-  phx_ptr_arr_push(&stack, out);
+  auto next_bc =
+      BytecodeInstruction{code_, tc.frame.cur_instr_offs}.nextInstr();
+  hir_builder_emit_yield_value_c(
+      static_cast<void*>(&tc),
+      static_cast<void*>(this),
+      code_->co_flags,
+      next_bc.opcode(),
+      next_bc.oparg());
 }
 
 static std::pair<bool, bool> checkAsyncWithError(

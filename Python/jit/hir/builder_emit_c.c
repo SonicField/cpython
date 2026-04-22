@@ -2307,3 +2307,59 @@ void hir_builder_emit_compare_op_c(
     }
 #endif
 }
+
+/* emitYieldValue — YIELD_VALUE handler. Pops the yielded value, handles the
+ * async-generator wrapper case, then dispatches to YieldFrom or YieldValue
+ * based on the next bytecode (RESUME with oparg >= 2 indicates yield-from /
+ * await per _PyGen_yf semantics). Mirrors C++ HIRBuilder::emitYieldValue
+ * @ builder.cpp:5137.
+ *
+ * The C++ stub at builder.cpp:5137 does the next_bc peek + co_flags read up
+ * front (BytecodeInstruction::nextInstr + code_->co_flags require Python.h
+ * structures + the BC iterator type) and passes precomputed scalars in.
+ *
+ * Async-gen wrap path uses the emitChecked<CallCFunc> equivalent helper
+ * phx_tc_emit_checked_call_cfunc_1 below. kCix_PyAsyncGenValueWrapperNew = 0
+ * per hir.h:992-996 X-macro on PY_VERSION_HEX >= 0x030C0000.
+ *
+ * NOTE (separate concern, see chat 11:29:12Z): instr_effects_c.c:485-487
+ * comment-vs-position mismatch on this enum is filed for follow-up. */
+extern void *hir_c_create_call_cfunc_reg(size_t n_operands, void *dst,
+                                          int32_t func_enum, void **operands);
+extern void *hir_c_create_check_exc_reg(void *dst, void *src);
+extern void *hir_c_create_yield_value_reg(void *dst, void *src, void *frame_state);
+extern void *hir_c_create_yield_from_reg(void *dst, void *send_value,
+                                          void *iter, void *frame_state);
+
+static void phx_tc_emit_checked_call_cfunc_1(
+        PhxTranslationContext *tc, void *dst, int32_t func_enum, void *operand) {
+    void *operands[1] = { operand };
+    phx_tc_emit(tc, hir_c_create_call_cfunc_reg(1, dst, func_enum, operands));
+    void *chk = hir_c_create_check_exc_reg(dst, dst);
+    hir_deopt_set_frame_state(chk, &tc->frame);
+    phx_tc_emit(tc, chk);
+}
+
+void hir_builder_emit_yield_value_c(
+        PhxTranslationContext *tc,
+        void *builder,
+        int code_flags,
+        int next_bc_opcode,
+        int next_bc_oparg) {
+    void *in = phx_ptr_arr_pop(&tc->frame.stack);
+    void *out = hir_builder_temps_alloc_stack(builder);
+    if (code_flags & CO_ASYNC_GENERATOR) {
+        phx_tc_emit_checked_call_cfunc_1(
+            tc, out, /*kCix_PyAsyncGenValueWrapperNew=*/0, in);
+        in = out;
+        out = hir_builder_temps_alloc_stack(builder);
+    }
+    if (next_bc_opcode == RESUME && next_bc_oparg >= 2) {
+        /* yield-from path: peek (do not pop) the iter at TOS. */
+        void *iter = tc->frame.stack.data[tc->frame.stack.count - 1];
+        phx_tc_emit(tc, hir_c_create_yield_from_reg(out, in, iter, &tc->frame));
+    } else {
+        phx_tc_emit(tc, hir_c_create_yield_value_reg(out, in, &tc->frame));
+    }
+    phx_ptr_arr_push(&tc->frame.stack, out);
+}
