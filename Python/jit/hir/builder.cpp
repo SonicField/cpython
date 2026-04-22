@@ -3879,63 +3879,23 @@ void HIRBuilder::emitLoadMethod(TranslationContext& tc, int name_idx) {
       static_cast<void*>(&tc), static_cast<void*>(current_func_), name_idx);
 }
 
+extern "C" void hir_builder_emit_load_method_or_attr_super_c(
+    void* tc, void* func, void* builder, int oparg, int bc_offset);
+
 void HIRBuilder::emitLoadMethodOrAttrSuper(
-    CFG& cfg,
+    CFG& /*cfg*/,
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr,
-    bool load_method) {
-  TranslationContext deopt_path{cfg.AllocateBlock(), tc.frame};
-  Register* receiver = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* type = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* global_super = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* result = temps_.AllocateStack();
-
-#if PY_VERSION_HEX >= 0x030B0000
-  int oparg = bc_instr.oparg();
-  int name_idx = oparg >> 2;
-  load_method = oparg & 1;
-  bool no_args_in_super_call = !(oparg & 2);
-#else
-  PyObject* oparg = PyTuple_GET_ITEM(code_->co_consts, bc_instr.oparg());
-  int name_idx = PyLong_AsLong(PyTuple_GET_ITEM(oparg, 0));
-  bool no_args_in_super_call = PyTuple_GET_ITEM(oparg, 1) == Py_True;
-#endif
-
-  // This is assumed to be a type object by the rest of the JIT.  Ideally it
-  // would be typed by whatever pushes it onto the stack.
-  deopt_path.frame.cur_instr_offs = bc_instr.baseOffset();
-  deopt_path.emitSnapshot();
-  deopt_path.emitDeopt();
-  BasicBlock* fast_path = cfg.AllocateBlock();
-  tc.emitCondBranchCheckType(type, TType, fast_path, deopt_path.block);
-  tc.block = fast_path;
-  tc.emitRefineType(type, TType, type);
-
-  if (!load_method) {
-    tc.emitLoadAttrSuper(
-        result,
-        global_super,
-        type,
-        receiver,
-        name_idx,
-        no_args_in_super_call,
-        tc.frame);
-    phx_ptr_arr_push(&tc.frame.stack, result);
-    return;
-  }
-
-  Register* method_instance = temps_.AllocateStack();
-  tc.emitLoadMethodSuper(
-      result,
-      global_super,
-      type,
-      receiver,
-      name_idx,
-      no_args_in_super_call,
-      tc.frame);
-  tc.emitGetSecondOutput(method_instance, TOptObject, result);
-  phx_ptr_arr_push(&tc.frame.stack, result);
-  phx_ptr_arr_push(&tc.frame.stack, method_instance);
+    bool /*load_method*/) {
+  // CFG& cfg unused here — C body uses hir_cfg_alloc_block(func) instead.
+  // load_method param is overwritten by oparg & 1 inside the C body
+  // (3.11+ packing); recomputed there from the oparg passed below.
+  hir_builder_emit_load_method_or_attr_super_c(
+      static_cast<void*>(&tc),
+      static_cast<void*>(current_func_),
+      static_cast<void*>(this),
+      bc_instr.oparg(),
+      bc_instr.baseOffset().value());
 }
 
 extern "C" void hir_builder_emit_make_cell_c(void *tc, void *func, int local_idx);

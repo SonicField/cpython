@@ -2363,3 +2363,88 @@ void hir_builder_emit_yield_value_c(
     }
     phx_ptr_arr_push(&tc->frame.stack, out);
 }
+
+/* emitLoadMethodOrAttrSuper — LOAD_SUPER_ATTR / LOAD_SUPER_METHOD handler.
+ * Multi-block: builds a deopt path (taken if the type-check on the receiver
+ * type fails) plus a fast path (RefineType + LoadAttrSuper or
+ * LoadMethodSuper). Mirrors C++ HIRBuilder::emitLoadMethodOrAttrSuper @
+ * builder.cpp:3882.
+ *
+ * Theologian audit 11:58:52Z invariants enforced inline:
+ *   #1 phx_frame_state_copy MUST run BEFORE the 3 pops so deopt-path frame
+ *      preserves PRE-POP stack (3 values present) for interpreter resumption
+ *   #3 load_method param to the C++ method is OVERWRITTEN by oparg & 1 in
+ *      3.11+; we recompute from oparg directly in this C body
+ *   #4 pop order: receiver (TOS), type, global_super (3rd from top)
+ *   #5 push order varies by load_method (1 value vs 2 with method_instance)
+ *   #8 deopt-path emits (snapshot + deopt) go into deopt_tc.block
+ *   #9 fast_path = AllocateBlock; CondBranchCheckType branches on type;
+ *      tc.block <- fast_path; emitRefineType in-place narrows
+ *
+ * Pre-3.11 oparg-tuple branch dropped per 3.12-only project (consistent
+ * with emitYieldValue precedent). frame_state_destroy MUST run on both
+ * exit paths (theologian pitfall — early return on !load_method needs it). */
+extern void *hir_c_create_load_attr_super_reg(void *dst, void *global_super,
+        void *type, void *receiver, int32_t name_idx, int no_args, void *fs);
+extern void *hir_c_create_load_method_super_reg(void *dst, void *global_super,
+        void *type, void *receiver, int32_t name_idx, int no_args, void *fs);
+
+void hir_builder_emit_load_method_or_attr_super_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder,
+        int oparg,
+        int bc_offset) {
+    /* (#1) Copy deopt_tc.frame BEFORE pops — preserves pre-pop stack. */
+    void *deopt_block = hir_cfg_alloc_block(func);
+    PhxTranslationContext deopt_tc;
+    deopt_tc.block = deopt_block;
+    phx_frame_state_copy(&deopt_tc.frame, &tc->frame);
+    deopt_tc.frame.cur_instr_offs = bc_offset;
+
+    /* (#3) 3.11+ oparg packing — load_method recomputed from oparg. */
+    int name_idx = oparg >> 2;
+    int load_method = oparg & 1;
+    int no_args_in_super_call = !(oparg & 2);
+
+    /* (#4) Pop receiver, type, global_super (in that order). */
+    void *receiver = phx_ptr_arr_pop(&tc->frame.stack);
+    void *type = phx_ptr_arr_pop(&tc->frame.stack);
+    void *global_super = phx_ptr_arr_pop(&tc->frame.stack);
+    void *result = hir_builder_temps_alloc_stack(builder);
+
+    /* (#8) deopt-path emits go into deopt_tc.block. */
+    phx_tc_emit(&deopt_tc, hir_c_create_snapshot(&deopt_tc.frame));
+    phx_tc_emit(&deopt_tc, hir_c_create_deopt());
+
+    /* (#9) Fast-path branch + in-place RefineType (corner-case alias). */
+    void *fast_path = hir_cfg_alloc_block(func);
+    HirType t_type = HIR_TYPE_TYPE;
+    phx_tc_emit(tc, hir_c_create_cond_branch_check_type_cpp(
+        type, t_type, fast_path, deopt_block));
+    tc->block = fast_path;
+    phx_tc_emit(tc, hir_c_create_refine_type_reg(type, t_type, type));
+
+    if (!load_method) {
+        phx_tc_emit(tc, hir_c_create_load_attr_super_reg(
+            result, global_super, type, receiver,
+            (int32_t)name_idx, no_args_in_super_call, &tc->frame));
+        phx_ptr_arr_push(&tc->frame.stack, result);
+        phx_frame_state_destroy(&deopt_tc.frame);
+        return;
+    }
+
+    /* (#5) load_method=true: alloc method_instance, emit LoadMethodSuper,
+     * extract second output. Order matters: LoadMethodSuper FIRST, then
+     * GetSecondOutput which depends on LoadMethodSuper's result reg. */
+    void *method_instance = hir_builder_temps_alloc_stack(builder);
+    phx_tc_emit(tc, hir_c_create_load_method_super_reg(
+        result, global_super, type, receiver,
+        (int32_t)name_idx, no_args_in_super_call, &tc->frame));
+    HirType t_opt_object = HIR_TYPE_OPTOBJECT;
+    phx_tc_emit(tc, hir_c_create_get_second_output_reg(
+        method_instance, t_opt_object, result));
+    phx_ptr_arr_push(&tc->frame.stack, result);
+    phx_ptr_arr_push(&tc->frame.stack, method_instance);
+    phx_frame_state_destroy(&deopt_tc.frame);
+}
