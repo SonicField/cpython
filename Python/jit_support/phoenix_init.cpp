@@ -15,6 +15,7 @@
 #include "cinderx/Jit/frame.h"
 #include "cinderx/Common/code.h"
 #include "cinderx/Common/log.h"
+#include "cinderx/Common/py-portability.h"
 #include "cinderx/Common/watchers_c.h"
 #include "cinderx/Common/util.h"
 #include "cinderx/module_c_state.h"
@@ -30,6 +31,25 @@ static int phoenix_code_watcher(PyCodeEvent event, PyCodeObject* co) {
 static int phoenix_dict_watcher(
     PyDict_WatchEvent event, PyObject* dict_obj,
     PyObject* key_obj, PyObject* new_value) {
+    /* During Py_FinalizeEx, dicts are torn down (interpreter_clear,
+       module finalization). The GlobalCacheKey holds raw pointers to
+       globals + builtins dicts — once one of those is freed, processing
+       a CLEARED/MODIFIED event on the surviving companion would deref
+       the freed pointer (poisoned 0xdd... fill under pydebug → SEGV).
+
+       Skipping events during finalize is correct semantics: the cache
+       and its watch state are about to be destroyed in phoenix_free.
+       Same pattern as pyjit.cpp:1642 (funcDestroyed during finalize).
+
+       NOTE: this is FINALIZE-SPECIFIC protection, NOT a full root-cause
+       fix for the raw-pointer-aliasing class. Mid-execution module
+       unload (refcount→0 on globals while cache holds raw pointer)
+       remains unaddressed — filed as W27 GlobalCacheKey raw-pointer
+       lifecycle re-architecture. */
+    if (Py_IsFinalizing()) {
+        return 0;
+    }
+
     auto state = cinderx::getModuleState();
     jit::IGlobalCacheManager* globalCaches =
         state != nullptr ? state->cacheManager() : nullptr;
@@ -59,12 +79,13 @@ static int phoenix_dict_watcher(
             break;
         case PyDict_EVENT_CLONED:
         case PyDict_EVENT_DEALLOCATED:
-            /* Skip notifyDictUnwatch during deallocation/clone —
-               the dict may be partially freed during GC, and
-               notifyDictUnwatch accesses dict internals that can
-               trigger use-after-free. The GlobalCacheManager will
-               naturally stop watching when the dict pointer becomes
-               invalid (weak reference semantics). */
+            /* Skip notifyDictUnwatch during deallocation/clone outside
+               finalize — the dict may be partially freed during GC, and
+               notifyDictUnwatch could call Ci_Watchers_UnwatchDict on a
+               companion dict whose tp_dealloc is concurrent (the
+               2026-03-30 GC re-entrancy crash, fix 314d0f2310). The
+               finalize-specific class is now handled by the
+               Py_IsFinalizing early-return above. */
             break;
     }
     return 0;

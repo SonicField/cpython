@@ -3,6 +3,7 @@
 #include "cinderx/Jit/global_cache.h"
 
 #include "cinderx/Common/dict.h"
+#include "cinderx/Common/py-portability.h"
 #include "cinderx/Common/util.h"
 #include "cinderx/Common/watchers_c.h"
 #include "cinderx/Jit/threaded_compile.h"
@@ -181,6 +182,28 @@ void GlobalCacheManager::notifyDictUnwatch(PyDictObject* dict) {
 }
 
 void GlobalCacheManager::clear() {
+  // During Py_FinalizeEx, watched dicts may already be torn down by
+  // interpreter_clear (PyDict_Clear on globals/builtins). Two
+  // failure modes if we proceed:
+  //   1. Ci_Watchers_UnwatchDict (PyDict_Unwatch) reads dict internals →
+  //      use-after-free on poison-filled freed memory under pydebug.
+  //   2. ci_watcher_state_fini ran first in phoenix_free, so the dict
+  //      watcher_id is -1 → PyDict_Unwatch returns -1 → JIT_CHECK abort
+  //      (observed historically in gate logs as 'Invalid dict watcher ID -1').
+  //
+  // Short-circuit: drop in-memory cache state without notifying anyone.
+  // The map_ + watch_map_ destruct naturally when ~GlobalCacheManager
+  // returns; Ref<PyUnicodeObject> in GlobalCacheKey targets immortal
+  // interned strings, so destruction is safe.
+  //
+  // NOTE: this is FINALIZE-SPECIFIC protection paired with the
+  // Py_IsFinalizing guard in phoenix_dict_watcher. Mid-execution module
+  // unload (cache holds raw ptr to a globals/builtins dict that gets
+  // freed) remains unaddressed — see W27 GlobalCacheKey raw-pointer
+  // lifecycle re-architecture.
+  if (Py_IsFinalizing()) {
+    return;
+  }
   std::vector<PyDictObject*> keys;
   for (auto& pair : watch_map_) {
     keys.push_back(pair.first);
