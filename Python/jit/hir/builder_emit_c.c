@@ -2615,3 +2615,135 @@ void hir_builder_emit_dispatch_eager_coro_result_c(
     phx_frame_state_destroy(&coro_tc.frame);
     phx_frame_state_destroy(&res_tc.frame);
 }
+
+/* emitGetAwaitable — GET_AWAITABLE handler (4 phases, 6+ blocks).
+ * Most complex remaining method per theologian pre-audit (chat 2026-04-22
+ * 13:52:50Z, 17 invariants).
+ *
+ * P1: pop iterable, alloc iter, CallCFunc(JitCoro_GetAwaitableIter)
+ * P2: error_aenter/aexit dispatch (computed in C++ stub from oparg).
+ *     If either set: error_block does LoadField+RaiseAwaitableError;
+ *     ok_block does in-place RefineType. Else: CheckExc(iter, iter).
+ * P3: coroutine-type assertion. Allocate assert_not_awaited_coro +
+ *     done blocks. 3.12+: also allocate check_coro_block.
+ *     CondBranchCheckType against modulestate.coroType (3.12+) →
+ *     assert vs check, then check_coro vs done against PyCoro_Type.
+ * P4: yf check + RaiseStatic.
+ * P5: push iter, set tc.block = done_block.
+ *
+ * NEW LITE BRIDGE (per spec chat 2026-04-22 13:53:something):
+ *   cinderx_get_module_state_coro_type_c — returns PyTypeObject* of
+ *   cinderx-augmented coroutine type (singleton). Implemented in
+ *   builder.cpp file scope (cinderx::getModuleState in C++ scope there).
+ *
+ * EXISTING bridge re-use: hir_type_from_pytype(type, 1) — second arg
+ * is is_exact, value 1 makes this the C-side equivalent of
+ * Type::fromTypeExact (verified via grep: type.cpp:67 uses
+ * hir_type_from_pytype(type, 1) for fromTypeExact).
+ *
+ * CallCFunc enum integers (per hir.h:992-996 X-macro on 3.12+):
+ *   kCix_PyAsyncGenValueWrapperNew = 0
+ *   kJitCoro_GetAwaitableIter      = 1
+ *   kJitGen_yf                     = 2
+ *   kJITRT_MatchAndClearException  = 3
+ * Used inline as comments below per push 51 + push 54 precedent. */
+extern void *cinderx_get_module_state_coro_type_c(void);
+extern void *hir_c_create_raise_awaitable_error_reg(
+    void *type, int32_t is_aenter, void *fs);
+extern void *hir_c_create_raise_static_reg(
+    int32_t reraise, void *exc_type, const char *fmt, void *fs);
+extern void *hir_c_create_load_field_reg(
+    void *dst, void *recv, const char *name, intptr_t offset,
+    HirType type, int borrowed);
+
+void hir_builder_emit_get_awaitable_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder,
+        int error_aenter,
+        int error_aexit) {
+    /* P1: pop iterable, alloc iter, CallCFunc(JitCoro_GetAwaitableIter). */
+    void *iterable = phx_ptr_arr_pop(&tc->frame.stack);
+    void *iter = hir_builder_temps_alloc_stack(builder);
+    {
+        void *operands[1] = { iterable };
+        phx_tc_emit(tc, hir_c_create_call_cfunc_reg(
+            1, iter, /*kJitCoro_GetAwaitableIter=*/1, operands));
+    }
+
+    /* P2: error_aenter/aexit dispatch (3.12+ semantic via stub). */
+    if (error_aenter || error_aexit) {
+        void *error_block = hir_cfg_alloc_block(func);
+        void *ok_block = hir_cfg_alloc_block(func);
+        phx_tc_emit(tc, hir_c_create_cond_branch_cpp(iter, ok_block, error_block));
+
+        /* error_block: LoadField(type=ob_type) + RaiseAwaitableError */
+        tc->block = error_block;
+        void *type_reg = hir_builder_temps_alloc_stack(builder);
+        HirType t_type = HIR_TYPE_TYPE;
+        phx_tc_emit(tc, hir_c_create_load_field_reg(
+            type_reg, iterable, "ob_type",
+            (intptr_t)offsetof(PyObject, ob_type), t_type, 0));
+        phx_tc_emit(tc, hir_c_create_raise_awaitable_error_reg(
+            type_reg, (int32_t)error_aenter, &tc->frame));
+
+        /* ok_block: in-place RefineType(iter, TObject, iter) (SSA-rename). */
+        tc->block = ok_block;
+        HirType t_object = HIR_TYPE_OBJECT;
+        phx_tc_emit(tc, hir_c_create_refine_type_reg(iter, t_object, iter));
+    } else {
+        /* Single CheckExc(iter, iter) — no block switch. */
+        void *chk = hir_c_create_check_exc_reg(iter, iter);
+        hir_deopt_set_frame_state(chk, &tc->frame);
+        phx_tc_emit(tc, chk);
+    }
+
+    /* P3: coroutine-type assertion blocks (always alloc). */
+    void *block_assert_not_awaited_coro = hir_cfg_alloc_block(func);
+    void *block_done = hir_cfg_alloc_block(func);
+
+    /* P3.5: 3.12+ check against cinderx coroType (extra block + branch). */
+    {
+        PyTypeObject *cinderx_coro_type =
+            (PyTypeObject *)cinderx_get_module_state_coro_type_c();
+        HirType t_cinderx_coro = hir_type_from_pytype(cinderx_coro_type, 1);
+        void *block_check_coro = hir_cfg_alloc_block(func);
+        phx_tc_emit(tc, hir_c_create_cond_branch_check_type_cpp(
+            iter, t_cinderx_coro,
+            block_assert_not_awaited_coro, block_check_coro));
+        tc->block = block_check_coro;
+    }
+
+    /* P3.6: always check against PyCoro_Type (exact match). */
+    HirType t_pycoro = hir_type_from_pytype(&PyCoro_Type, 1);
+    phx_tc_emit(tc, hir_c_create_cond_branch_check_type_cpp(
+        iter, t_pycoro,
+        block_assert_not_awaited_coro, block_done));
+
+    /* P4: yf check (CallCFunc kJitGen_yf=2). */
+    void *yf = hir_builder_temps_alloc_stack(builder);
+    tc->block = block_assert_not_awaited_coro;
+    {
+        void *operands[1] = { iter };
+        phx_tc_emit(tc, hir_c_create_call_cfunc_reg(
+            1, yf, /*kJitGen_yf=*/2, operands));
+    }
+
+    /* P4.5: cond branch on yf — coro_already_awaited vs done. */
+    void *block_coro_already_awaited = hir_cfg_alloc_block(func);
+    phx_tc_emit(tc, hir_c_create_cond_branch_cpp(
+        yf, block_coro_already_awaited, block_done));
+
+    /* P4.6: RaiseStatic in coro_already_awaited block. oparg=0 (NOT
+     * raising var-args). */
+    tc->block = block_coro_already_awaited;
+    phx_tc_emit(tc, hir_c_create_raise_static_reg(
+        /*reraise=*/0, (void *)PyExc_RuntimeError,
+        "coroutine is being awaited already", &tc->frame));
+
+    /* P5: push iter to stack, end at block_done.
+     * Push BEFORE block switch — frame.stack is frame-state-level not
+     * block-position-level (per theologian invariant 17). */
+    phx_ptr_arr_push(&tc->frame.stack, iter);
+    tc->block = block_done;
+}

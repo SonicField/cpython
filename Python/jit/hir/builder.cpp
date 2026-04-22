@@ -5153,82 +5153,36 @@ static std::pair<bool, bool> checkAsyncWithError(
   return std::make_pair(error_aenter, error_aexit);
 }
 
+// W25-defer-aware lite bridge for emitGetAwaitable (chat 2026-04-22 13:55Z
+// theologian + supervisor ACK). Returns the cinderx-augmented coroutine
+// type singleton from the per-process module state. Used by C-side
+// emitGetAwaitable to construct the exact-type-match Type for the
+// fromTypeExact CondBranchCheckType.
+extern "C" void *cinderx_get_module_state_coro_type_c(void) {
+  return static_cast<void*>(cinderx::getModuleState()->coroType());
+}
+
+extern "C" void hir_builder_emit_get_awaitable_c(
+    void* tc, void* func, void* builder,
+    int error_aenter, int error_aexit);
+
 void HIRBuilder::emitGetAwaitable(
-    CFG& cfg,
+    CFG& /*cfg*/,
     TranslationContext& tc,
     const BytecodeInstructionBlock& bc_instrs,
     BytecodeInstruction bc_instr) {
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* iterable = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* iter = temps_.AllocateStack();
-
-  // Most work is done by existing JitPyCoro_GetAwaitableIter() utility.
-  tc.emitCallCFunc(
-      1,
-      iter,
-#if PY_VERSION_HEX >= 0x030C0000
-      CallCFunc::Func::kJitCoro_GetAwaitableIter,
-#else
-      CallCFunc::Func::kCix_PyCoro_GetAwaitableIter,
-#endif
-      std::vector<Register*>{iterable});
-
+  // CFG& cfg unused — C body uses hir_cfg_alloc_block(func) instead.
+  // checkAsyncWithError is C++ helper (3.12+ uses oparg directly,
+  // pre-3.12 walks bc_instrs for context). Compute on the C++ side and
+  // pass 2 ints to C — keeps version-dispatch + bytecode-block walking
+  // out of the C body per theologian invariant (4).
   auto [error_aenter, error_aexit] = checkAsyncWithError(bc_instrs, bc_instr);
-  if (error_aenter || error_aexit) {
-    BasicBlock* error_block = cfg.AllocateBlock();
-    BasicBlock* ok_block = cfg.AllocateBlock();
-    tc.emitCondBranch(iter, ok_block, error_block);
-    tc.block = error_block;
-    Register* type = temps_.AllocateStack();
-    tc.emitLoadField(
-        type, iterable, "ob_type", offsetof(PyObject, ob_type), TType);
-    tc.emitRaiseAwaitableError(type, error_aenter, tc.frame);
-
-    tc.block = ok_block;
-    // TASK(T105038867): Remove once we have RefineTypeInsertion
-    tc.emitRefineType(iter, TObject, iter);
-  } else {
-    tc.emitCheckExc(iter, iter, tc.frame);
-  }
-
-  // For coroutines only, runtime assert it isn't already awaiting by checking
-  // if it has a sub-iterator using *Gen_yf().
-  BasicBlock* block_assert_not_awaited_coro = cfg.AllocateBlock();
-  BasicBlock* block_done = cfg.AllocateBlock();
-#if PY_VERSION_HEX >= 0x030C0000
-  BasicBlock* block_check_coro = cfg.AllocateBlock();
-  tc.emitCondBranchCheckType(
-      iter,
-      Type::fromTypeExact(cinderx::getModuleState()->coroType()),
-      block_assert_not_awaited_coro,
-      block_check_coro);
-  tc.block = block_check_coro;
-#endif
-  tc.emitCondBranchCheckType(
-      iter,
-      Type::fromTypeExact(&PyCoro_Type),
-      block_assert_not_awaited_coro,
-      block_done);
-  Register* yf = temps_.AllocateStack();
-  tc.block = block_assert_not_awaited_coro;
-  tc.emitCallCFunc(
-      1,
-      yf,
-#if PY_VERSION_HEX >= 0x030C0000
-      CallCFunc::Func::kJitGen_yf,
-#else
-      CallCFunc::Func::kCix_PyGen_yf,
-#endif
-      std::vector<Register*>{iter});
-  BasicBlock* block_coro_already_awaited = cfg.AllocateBlock();
-  tc.emitCondBranch(yf, block_coro_already_awaited, block_done);
-  tc.block = block_coro_already_awaited;
-  tc.emitRaiseStatic(
-      0, PyExc_RuntimeError, "coroutine is being awaited already", tc.frame);
-
-  phx_ptr_arr_push(&stack, iter);
-
-  tc.block = block_done;
+  hir_builder_emit_get_awaitable_c(
+      static_cast<void*>(&tc),
+      static_cast<void*>(current_func_),
+      static_cast<void*>(this),
+      static_cast<int>(error_aenter),
+      static_cast<int>(error_aexit));
 }
 
 extern "C" void hir_builder_emit_build_string_c(void *tc, void *func, int oparg);
