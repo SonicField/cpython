@@ -26,6 +26,7 @@ void hir_builder_insert_run_periodic_activities_c(
     void *check_block, void *succ_block, void *frame_state);
 void *hir_builder_get_kwnames(void *builder);
 void hir_builder_set_kwnames(void *builder, void *reg);
+void *hir_builder_temps_alloc_stack(void *builder);
 } // extern "C"
 #include <vector>
 
@@ -112,6 +113,7 @@ class HIRBuilder {
       void*, void*, void*, void*, void*);
   friend void* ::hir_builder_get_kwnames(void*);
   friend void ::hir_builder_set_kwnames(void*, void*);
+  friend void* ::hir_builder_temps_alloc_stack(void*);
  public:
   const Preloader& preloader() const { return preloader_; }
   explicit HIRBuilder(const Preloader& preloader)

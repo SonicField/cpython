@@ -997,6 +997,104 @@ void hir_builder_emit_kw_names_c(
     phx_tc_emit(tc, hir_c_create_load_const(kwnames_reg, type));
 }
 
+/* emitLoadIterableArg — LOAD_ITERABLE_ARG opcode handler. Pops an iterable
+ * from the stack, ensures it's a tuple (via type-check + GetTuple fallback),
+ * then loads the element at index `oparg` from the tuple onto the stack
+ * along with the tuple itself. Mirrors C++ HIRBuilder::emitLoadIterableArg
+ * @ builder.cpp:3313.
+ *
+ * Multi-block CFG (when iterable->type() != TTupleExact):
+ *   tc.block (current) --CondBranchCheckType(TTuple)--> tuple_path / non_tuple_path
+ *   tuple_path:     Snapshot, Assign(tuple_reg, iterable), Branch(merge)
+ *   non_tuple_path: Snapshot, GetTuple(tuple_reg, iterable), Branch(merge)
+ *   merge_block:    Snapshot, ... (continues with primitive box + subscript)
+ *
+ * Stack-temp allocation via hir_builder_temps_alloc_stack (NEW BRIDGE):
+ * preserves cache_ side-effect required by GetOrAllocateStack at
+ * builder.cpp:2842 (stack-layout computation). Cannot use bare
+ * hir_func_alloc_register (no cache update). */
+extern HirType hir_register_type(void *reg);
+extern void *hir_c_create_cond_branch_check_type_cpp(
+    void *cond_reg, HirType type, void *true_block, void *false_block);
+extern void *hir_c_create_branch_cpp(void *target_block);
+extern void *hir_c_create_get_tuple_reg(
+    void *dst, void *src, void *fs);
+extern void *hir_c_create_primitive_box_reg(
+    void *dst, void *src, HirType src_type, void *fs);
+extern void *hir_c_create_binary_op_reg(
+    void *dst, int32_t op_kind, void *lhs, void *rhs, void *fs);
+extern HirType hir_type_from_cint(int64_t value, HirType cint_type);
+extern void *hir_builder_temps_alloc_stack(void *builder);
+
+void hir_builder_emit_load_iterable_arg_c(
+        PhxTranslationContext *tc, void *func, void *builder, int oparg) {
+    void *iterable = phx_ptr_arr_pop(&tc->frame.stack);
+    void *tuple_reg = NULL;
+
+    HirType iter_type = hir_register_type(iterable);
+    HirType t_tuple_exact = HIR_TYPE_TUPLEEXACT;
+    if (!hir_type_equal(&iter_type, &t_tuple_exact)) {
+        /* Multi-block path: type-check at runtime, then converge. */
+        void *tuple_path_block = hir_cfg_alloc_block(func);
+        void *non_tuple_path_block = hir_cfg_alloc_block(func);
+        void *merge_block = hir_cfg_alloc_block(func);
+
+        /* Emit Snapshot into tuple_path_block. */
+        void *saved_block = tc->block;
+        tc->block = tuple_path_block;
+        phx_tc_emit(tc, hir_c_create_snapshot(&tc->frame));
+
+        /* Emit Snapshot into non_tuple_path_block. */
+        tc->block = non_tuple_path_block;
+        phx_tc_emit(tc, hir_c_create_snapshot(&tc->frame));
+
+        /* Restore current block to emit the cond-branch terminator. */
+        tc->block = saved_block;
+        HirType t_tuple = HIR_TYPE_TUPLE;
+        phx_tc_emit(tc, hir_c_create_cond_branch_check_type_cpp(
+            iterable, t_tuple, tuple_path_block, non_tuple_path_block));
+
+        /* Move to merge block + emit Snapshot. */
+        tc->block = merge_block;
+        phx_tc_emit(tc, hir_c_create_snapshot(&tc->frame));
+
+        /* Allocate the tuple register (with cache_ side-effect). */
+        tuple_reg = hir_builder_temps_alloc_stack(builder);
+
+        /* tuple_path: Assign(tuple_reg, iterable); Branch(merge). */
+        tc->block = tuple_path_block;
+        phx_tc_emit(tc, hir_assign_create(tuple_reg, iterable));
+        phx_tc_emit(tc, hir_c_create_branch_cpp(merge_block));
+
+        /* non_tuple_path: GetTuple(tuple_reg, iterable); Branch(merge). */
+        tc->block = non_tuple_path_block;
+        phx_tc_emit(tc, hir_c_create_get_tuple_reg(
+            tuple_reg, iterable, &tc->frame));
+        phx_tc_emit(tc, hir_c_create_branch_cpp(merge_block));
+
+        /* Continue on merge_block. */
+        tc->block = merge_block;
+    } else {
+        tuple_reg = iterable;
+    }
+
+    /* Load the element at index oparg from the tuple. */
+    void *tmp = hir_builder_temps_alloc_stack(builder);
+    void *tup_idx = hir_builder_temps_alloc_stack(builder);
+    void *element = hir_builder_temps_alloc_stack(builder);
+
+    HirType t_cint64 = HIR_TYPE_CINT64;
+    HirType const_type = hir_type_from_cint((int64_t)oparg, t_cint64);
+    phx_tc_emit(tc, hir_c_create_load_const(tmp, const_type));
+    phx_tc_emit(tc, hir_c_create_primitive_box_reg(
+        tup_idx, tmp, t_cint64, &tc->frame));
+    phx_tc_emit(tc, hir_c_create_binary_op_reg(
+        element, HIR_BOP_Subscript, tuple_reg, tup_idx, &tc->frame));
+
+    phx_ptr_arr_push(&tc->frame.stack, element);
+    phx_ptr_arr_push(&tc->frame.stack, tuple_reg);
+}
+
 /* emitLoadAttr generic — non-specialized LoadAttr2 fallback */
 extern void *hir_c_create_load_attr_reg2(void *dst, void *receiver, int32_t name_idx, void *fs);
 

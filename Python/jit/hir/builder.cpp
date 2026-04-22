@@ -3310,42 +3310,24 @@ void HIRBuilder::emitListAppend(
       static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
+extern "C" void hir_builder_emit_load_iterable_arg_c(
+    void *tc, void *func, void *builder, int oparg);
+
 void HIRBuilder::emitLoadIterableArg(
     CFG& cfg,
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  auto iterable = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* tuple;
-  if (iterable->type() != TTupleExact) {
-    TranslationContext tuple_path{cfg.AllocateBlock(), tc.frame};
-    tuple_path.emitSnapshot();
-    TranslationContext non_tuple_path{cfg.AllocateBlock(), tc.frame};
-    non_tuple_path.emitSnapshot();
-    tc.emitCondBranchCheckType(
-        iterable, TTuple, tuple_path.block, non_tuple_path.block);
-    tc.block = cfg.AllocateBlock();
-    tc.emitSnapshot();
+  (void)cfg;  // cfg derived from current_func_ inside C bridge
+  hir_builder_emit_load_iterable_arg_c(
+      static_cast<void*>(&tc),
+      static_cast<void*>(current_func_),
+      static_cast<void*>(this),
+      bc_instr.oparg());
+}
 
-    tuple = temps_.AllocateStack();
-
-    tuple_path.emitAssign(tuple, iterable);
-    tuple_path.emitBranch(tc.block);
-
-    non_tuple_path.emitGetTuple(tuple, iterable, tc.frame);
-    non_tuple_path.emitBranch(tc.block);
-  } else {
-    tuple = iterable;
-  }
-
-  auto tmp = temps_.AllocateStack();
-  auto tup_idx = temps_.AllocateStack();
-  auto element = temps_.AllocateStack();
-  tc.emitLoadConst(tmp, Type::fromCInt(bc_instr.oparg(), TCInt64));
-  tc.emitPrimitiveBox(tup_idx, tmp, TCInt64, tc.frame);
-  tc.emitBinaryOp(
-      element, BinaryOpKind::kSubscript, tuple, tup_idx, tc.frame);
-  phx_ptr_arr_push(&tc.frame.stack, element);
-  phx_ptr_arr_push(&tc.frame.stack, tuple);
+extern "C" void *hir_builder_temps_alloc_stack(void *builder) {
+  auto *b = static_cast<HIRBuilder*>(builder);
+  return static_cast<void*>(b->temps_.AllocateStack());
 }
 
 bool HIRBuilder::tryEmitDirectMethodCall(
