@@ -201,7 +201,7 @@ echo "JIT Smoke: PASS" | tee -a "$RESULTS_FILE"
 # Step 3: Phoenix test suite
 echo "" | tee -a "$RESULTS_FILE"
 echo "--- Step 3: Phoenix Tests ---" | tee -a "$RESULTS_FILE"
-PHOENIX_MODULES="test_phoenix_jit_arithmetic test_phoenix_jit_autocompile test_phoenix_jit_comparisons test_phoenix_jit_containers test_phoenix_jit_controlflow test_phoenix_jit_coverage test_phoenix_jit_functions test_phoenix_jit_generators test_phoenix_jit_loadattr_golden test_phoenix_float test_phoenix_hir_type test_phoenix_profiling_hooks test_phoenix_deferred_compile test_phoenix_benchmark_correctness test_phoenix_usetype_float"
+PHOENIX_MODULES="test_phoenix_jit_arithmetic test_phoenix_jit_autocompile test_phoenix_jit_comparisons test_phoenix_jit_containers test_phoenix_jit_controlflow test_phoenix_jit_coverage test_phoenix_jit_functions test_phoenix_jit_generators test_phoenix_jit_inline_except_closure test_phoenix_jit_loadattr_golden test_phoenix_float test_phoenix_hir_type test_phoenix_profiling_hooks test_phoenix_deferred_compile test_phoenix_benchmark_correctness test_phoenix_usetype_float"
 PHOENIX_OUTPUT=$(JIT_ENABLE=1 ASAN_OPTIONS=detect_leaks=0 "$PYTHON" -m test $PHOENIX_MODULES 2>&1 || true)
 
 PHOENIX_TOTAL=$(echo "$PHOENIX_OUTPUT" | grep -oP 'Total tests: run=\K[0-9]+' || echo 0)
@@ -582,7 +582,7 @@ if [ "$ARM64" -eq 1 ]; then
             exit 99;
         fi;
         echo \"ARM64_BINARY_MATCH: ./python reports \$ARM64_COMMIT (clean) ✓\";
-        JIT_ENABLE=1 ./python -m test test_phoenix_jit_arithmetic test_phoenix_jit_autocompile test_phoenix_jit_comparisons test_phoenix_jit_containers test_phoenix_jit_controlflow test_phoenix_jit_coverage test_phoenix_jit_functions test_phoenix_jit_generators test_phoenix_jit_loadattr_golden test_phoenix_float test_phoenix_hir_type test_phoenix_benchmark_correctness test_phoenix_deferred_compile test_phoenix_profiling_hooks test_phoenix_usetype_float 2>&1 | tail -10;
+        JIT_ENABLE=1 ./python -m test test_phoenix_jit_arithmetic test_phoenix_jit_autocompile test_phoenix_jit_comparisons test_phoenix_jit_containers test_phoenix_jit_controlflow test_phoenix_jit_coverage test_phoenix_jit_functions test_phoenix_jit_generators test_phoenix_jit_inline_except_closure test_phoenix_jit_loadattr_golden test_phoenix_float test_phoenix_hir_type test_phoenix_benchmark_correctness test_phoenix_deferred_compile test_phoenix_profiling_hooks test_phoenix_usetype_float 2>&1 | tail -10;
         echo ARM64_EXIT=\$?;
         echo STASH_POP_BEGIN;
         # Restore the original branch BEFORE popping so the stash is applied to
