@@ -29,34 +29,47 @@ With dual-mutation (.h + .cpp consistent on new sig):
   resolves to the new-signature impl → silent runtime UB (PROVES §1b
   is the unprotected drift surface — exactly what Step B closes)
 
-Mutation function choice: `hir_block_id`.
+**Function-target correction per theologian [chat 2026-04-22 19:29Z]:**
+the original `hir_block_id` choice has NO §1b TU callers (only
+`func_type_checks_c.c` which is §1a). Mutating it would catch the
+§1a-path drift (proves Step A is tight) but NOT the §1b drift surface
+(which is what Step B closes). To test the §1b surface, choose a
+function called from §1b TUs via local extern.
 
-**Original signature** (post-Step-A at 3404a81192):
+Mutation function choice: `hir_c_insert_before` (§1b callers verified
+via grep — `licm_c.c:17` extern + `:246` call, `pass_output_type_c.c
+:940` extern + `:998/1006/1071` calls; both are §1b TUs per
+`scripts/count_w25_b1b_tus.sh` inventory).
+
+**Original signature** (in hir_c_api.h:726 + hir_c_api.cpp:2349):
 
 ```c
 /* hir_c_api.h */
-int hir_block_id(struct HirBasicBlock *block);
+void hir_c_insert_before(HirInstr new_instr, HirInstr before);
 /* hir_c_api.cpp */
-int hir_block_id(struct HirBasicBlock *block) { ... }
+void hir_c_insert_before(HirInstr new_instr, HirInstr before) { ... }
 ```
 
 **Mutated signature** (W25 §5.3 baseline mutation, BOTH files):
 
 ```c
 /* hir_c_api.h */
-int hir_block_id(struct HirBasicBlock *block, int unused_drift_param);
+void hir_c_insert_before(HirInstr new_instr, HirInstr before, void *unused_drift_param);
 /* hir_c_api.cpp */
-int hir_block_id(struct HirBasicBlock *block, int unused_drift_param) { ... }
+void hir_c_insert_before(HirInstr new_instr, HirInstr before, void *unused_drift_param) { ... }
 ```
 
-Why `hir_block_id`:
-- Called from at least 1 §1b TU (per `count_w25_b1b_tus.sh` survey).
-- Simple int parameter — no implicit-conversion masking.
-- ABI-incompatible mutation (extra arg) — caller pushes wrong arg
-  count vs callee expects new arg → silent UB at runtime.
-- In C, calling a function with a different signature than its
-  declaration is undefined behavior, NOT a hard link error. §5.3
-  answers empirically what this UB looks like in our build.
+Why `hir_c_insert_before`:
+- §1b callers exist (licm_c.c + pass_output_type_c.c), so the §1b
+  drift surface is exercised.
+- Simple void* parameter — no implicit-conversion masking, no struct
+  layout dependency.
+- ABI-incompatible mutation (extra arg) — §1b callers' local externs
+  stay 2-arg, callers pass 2 args, linker resolves to 3-arg impl →
+  silent runtime UB.
+- Predictable: §1a path (none for this function) and §1b path
+  (licm_c.c + pass_output_type_c.c local externs) are visibly
+  identifiable in the build output.
 
 ## 2. Baseline procedure (pre-Step-B, run at HEAD e8b8c149fe or later)
 
@@ -68,13 +81,13 @@ git rev-parse HEAD  # expect: e8b8c149fe... (this commit) or its descendant
 cd /data/users/alexturner/phoenix/cpython
 git stash --include-untracked  # stash any working-tree changes
 # Mutate header decl
-sed -i 's|int hir_block_id(struct HirBasicBlock \*block);|int hir_block_id(struct HirBasicBlock *block, int unused_drift_param);|' Python/jit/hir/hir_c_api.h
+sed -i 's|void hir_c_insert_before(HirInstr new_instr, HirInstr before);|void hir_c_insert_before(HirInstr new_instr, HirInstr before, void *unused_drift_param);|' Python/jit/hir/hir_c_api.h
 # Mutate cpp impl signature line (preserves brace-on-same-line)
-sed -i 's|int hir_block_id(struct HirBasicBlock \*block) {|int hir_block_id(struct HirBasicBlock *block, int unused_drift_param) {|' Python/jit/hir/hir_c_api.cpp
+sed -i 's|void hir_c_insert_before(HirInstr new_instr, HirInstr before) {|void hir_c_insert_before(HirInstr new_instr, HirInstr before, void *unused_drift_param) {|' Python/jit/hir/hir_c_api.cpp
 
 # Verify both mutations applied
-grep -A1 "hir_block_id" Python/jit/hir/hir_c_api.h | head -5
-grep -A1 "^int hir_block_id" Python/jit/hir/hir_c_api.cpp | head -3
+grep -A1 "hir_c_insert_before" Python/jit/hir/hir_c_api.h | head -5
+grep -A1 "^void hir_c_insert_before" Python/jit/hir/hir_c_api.cpp | head -3
 
 # Step 3: try to build
 scripts/build_phoenix.sh > /tmp/w25-mutation-baseline-stdout.log 2>&1
@@ -95,20 +108,27 @@ git diff Python/jit/hir/hir_c_api.h Python/jit/hir/hir_c_api.cpp  # expect: empt
 
 ## 3. Expected baseline outcome
 
-**Hypothesis (theoretical):** the mutation will be silently linkable
-because §1b TUs use local extern decls (their stale signature matches
-itself; linker sees only function name).
+**Hypothesis (theoretical):** with corrected target (hir_c_insert_before
+which has §1b callers) AND atomic .h+.cpp mutation, the build will
+succeed (BUILD_EXIT=0) because:
+- hir_c_api.cpp compiles fine (header + impl agree on new sig)
+- §1a TUs that include hir_c_api.h see new sig — but hir_c_insert_before
+  has no §1a callers, so no §1a-side compile error
+- §1b TUs (licm_c.c + pass_output_type_c.c) use local extern (2-arg)
+  for hir_c_insert_before; their callers compile fine against local
+  extern; linker resolves to 3-arg impl by name → silent runtime UB
 
-**To-verify:** the build either:
-- (a) Succeeds at link time — confirms drift surface exists. Record
-  the finding as PRE-STEP-B BASELINE.
-- (b) Fails at compile time — surprising; hir_c_api.h consumers (the
-  §1a TUs) would catch the mismatch. Record what those compile errors
-  look like.
-- (c) Succeeds at compile but fails at runtime — also possible if some
-  caller ends up with corrupted-stack behavior.
+**Acceptance flip per theologian [chat 2026-04-22 19:29Z]:** PRE-STEP-B
+baseline PASSES when BUILD_EXIT=0 (drift undetected at compile time).
+This proves the §1b drift surface exists.
 
-The actual outcome is the empirical baseline. Document it.
+**Surprising outcomes to investigate:**
+- BUILD_EXIT≠0 with errors in licm_c.c / pass_output_type_c.c: the §1b
+  protection might already be in place via some other mechanism
+  (unexpected — would re-frame Step B's value).
+- BUILD_EXIT≠0 with errors elsewhere: a different §1a or non-§1b TU
+  has a hir_c_insert_before caller my grep missed. Document the
+  unexpected callsite + adjust scope of finding.
 
 ## 4. Post-Step-B procedure
 
@@ -119,32 +139,33 @@ hir_c_api.h):
 # At post-Step-B HEAD
 git rev-parse HEAD  # expect: <Step B's last commit hash>
 # Same DUAL mutation as §2 — keep .h + .cpp consistent
-sed -i 's|int hir_block_id(struct HirBasicBlock \*block);|int hir_block_id(struct HirBasicBlock *block, int unused_drift_param);|' Python/jit/hir/hir_c_api.h
-sed -i 's|int hir_block_id(struct HirBasicBlock \*block) {|int hir_block_id(struct HirBasicBlock *block, int unused_drift_param) {|' Python/jit/hir/hir_c_api.cpp
+sed -i 's|void hir_c_insert_before(HirInstr new_instr, HirInstr before);|void hir_c_insert_before(HirInstr new_instr, HirInstr before, void *unused_drift_param);|' Python/jit/hir/hir_c_api.h
+sed -i 's|void hir_c_insert_before(HirInstr new_instr, HirInstr before) {|void hir_c_insert_before(HirInstr new_instr, HirInstr before, void *unused_drift_param) {|' Python/jit/hir/hir_c_api.cpp
 scripts/build_phoenix.sh > /tmp/w25-mutation-poststepb-stdout.log 2>&1
 echo "BUILD_EXIT=$?" >> /tmp/w25-mutation-poststepb-stdout.log
 git checkout -- Python/jit/hir/hir_c_api.h Python/jit/hir/hir_c_api.cpp
 ```
 
-**Expected post-Step-B outcome:** compile FAILS in every consuming TU
-that calls `hir_block_id` (the linker doesn't get a chance — compiler
-catches the mismatch at parse time because all consumers see the
-canonical signature from hir_c_api.h).
+**Expected post-Step-B outcome:** compile FAILS in licm_c.c +
+pass_output_type_c.c (the §1b TUs that called `hir_c_insert_before`
+via local extern). Step B deleted those externs and added
+`#include hir_c_api.h`, so post-Step-B these TUs see the new 3-arg
+signature directly — their 2-arg callers fail to compile with clear
+"too few arguments" errors.
 
 ## 5. Acceptance criterion
 
-§5.3 falsification PASSES when the pre-Step-B baseline shows DRIFT GOES
-UNDETECTED (or weakly detected) AND the post-Step-B run shows DRIFT
-CAUGHT AT COMPILE TIME with clear errors at every call site.
+§5.3 falsification PASSES when:
+- PRE-STEP-B baseline: BUILD_EXIT=0 (drift undetected at compile time
+  — §1b drift surface exists per hypothesis)
+- POST-STEP-B re-run: BUILD_EXIT≠0 with compile errors in §1b TU
+  callers (§1b drift surface closed by Step B)
 
-If pre-Step-B baseline shows the drift is ALREADY caught at compile time
-(unexpected outcome (b) above), then either:
-- The drift surface was always smaller than Step B's framing assumed
-  (and Step B's value is reduced — not invalidated, just reframed).
-- Or my mutation choice doesn't actually exercise the §1b drift surface
-  (need a different mutation).
-
-Either way, the empirical finding informs Step B's framing.
+If PRE-STEP-B baseline shows BUILD_EXIT≠0 (drift caught somewhere),
+investigate: the protection might already be in place via a different
+mechanism, or my mutation choice doesn't actually exercise the §1b
+drift surface as predicted. Either way, the empirical finding informs
+Step B's framing.
 
 ---
 
