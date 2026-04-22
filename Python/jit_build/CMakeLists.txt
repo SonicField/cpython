@@ -11,6 +11,15 @@ set(SHARED_FLAGS "-DPy_BUILD_CORE -DPy_BUILD_CORE_MODULE -DENABLE_LIGHTWEIGHT_FR
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${SHARED_FLAGS}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SHARED_FLAGS}")
 
+# W25b Step A''-amend: convert -Wincompatible-pointer-types into a hard error
+# on the C side so the W25b distinct-handle typedefs (HirInstr, HirRegister,
+# HirFunction as struct opaque-ptrs in C) gate-block on cross-handle drift
+# rather than emit-only-warning. Targeted, NOT blanket -Werror — does not
+# escalate any other warning class. Per theologian L2407 + supervisor L2408.
+# Only applied to C flags (the W25b drift class is C99-§6.3.2.3-specific;
+# C++ has class-hierarchy type safety and the typedefs are void* on C++ side).
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror=incompatible-pointer-types")
+
 # Generated header directory
 set(GENERATED_HEADER_DIR ${CMAKE_BINARY_DIR}/generated)
 file(MAKE_DIRECTORY ${GENERATED_HEADER_DIR})

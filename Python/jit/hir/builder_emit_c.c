@@ -1952,7 +1952,7 @@ void hir_builder_emit_call_intrinsic_c(PhxTranslationContext *tc, void *func,
 #else
     args[0] = value;
 #endif
-    phx_tc_emit(tc, hir_c_create_call_intrinsic_reg2(num_operands, res, oparg, args));
+    phx_tc_emit(tc, hir_c_create_call_intrinsic_reg2(num_operands, res, oparg, (HirRegister *)args));
     phx_ptr_arr_push(&tc->frame.stack, res);
 }
 
@@ -2218,7 +2218,7 @@ void hir_builder_emit_compare_op_c(
 static void phx_tc_emit_checked_call_cfunc_1(
         PhxTranslationContext *tc, void *dst, int32_t func_enum, void *operand) {
     void *operands[1] = { operand };
-    phx_tc_emit(tc, hir_c_create_call_cfunc_reg(1, dst, func_enum, operands));
+    phx_tc_emit(tc, hir_c_create_call_cfunc_reg(1, dst, func_enum, (HirRegister *)operands));
     void *chk = hir_c_create_check_exc_reg(dst, dst);
     hir_deopt_set_frame_state(chk, &tc->frame);
     phx_tc_emit(tc, chk);
@@ -2531,7 +2531,7 @@ void hir_builder_emit_get_awaitable_c(
     {
         void *operands[1] = { iterable };
         phx_tc_emit(tc, hir_c_create_call_cfunc_reg(
-            1, iter, /*kJitCoro_GetAwaitableIter=*/1, operands));
+            1, iter, /*kJitCoro_GetAwaitableIter=*/1, (HirRegister *)operands));
     }
 
     /* P2: error_aenter/aexit dispatch (3.12+ semantic via stub). */
@@ -2589,7 +2589,7 @@ void hir_builder_emit_get_awaitable_c(
     {
         void *operands[1] = { iter };
         phx_tc_emit(tc, hir_c_create_call_cfunc_reg(
-            1, yf, /*kJitGen_yf=*/2, operands));
+            1, yf, /*kJitGen_yf=*/2, (HirRegister *)operands));
     }
 
     /* P4.5: cond branch on yf — coro_already_awaited vs done. */
