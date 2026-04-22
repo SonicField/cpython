@@ -120,13 +120,43 @@ standalone.
 ### Step A — bridge inventory + per-bridge LITE SPEC (~30min)
 
 Generalist authors per-bridge LITE SPEC (D-1776823737 discipline) for
-each of the 5 new bridges:
+each of the 4 new bridges (5→4 after empirical scope reduction per
+generalist [chat L2461] + theologian [chat L2466] (B) decision):
 - Function signature (typed handles per W25b)
 - Calling convention + ownership semantics
 - C++ side delegation pattern
 - C side body sketch
 
 Theologian pre-audits each LITE SPEC before implementation begins.
+
+### Step A falsification — bridge-inventory mutation test (~10min, MANDATORY)
+
+Per pythia #86 + supervisor [chat L2469]: bridge inventory is a
+COMPLETENESS ASSERTION (this set of N bridges is sufficient). Spec §3
+empirical compile-clean enumeration is necessary but not sufficient —
+W25 §5.3 lesson was that compile-clean inventory can have hidden gaps
+(another bridge silently absorbs the drift). Step A falsification
+catches inventory gaps BEFORE Step B implementation.
+
+**Procedure (testkeeper):** at the post-Step-A HEAD (LITE SPECs
+finalized, no Step B implementation yet), mutate one bridge signature
+(add unused param to e.g.
+`hir_builder_emit_call_method_exception_handler_inline_c`). The
+mutation should be visible at expected call sites in any draft Step B C
+body OR at the LITE SPEC's stated callers. Verify:
+- BUILD_EXIT=2 with compile error at expected call site → bridge
+  inventory is correct (mutation caught at the right location)
+- BUILD_EXIT=0 → bridge inventory has GAP (mutation silently absorbed
+  somewhere) → flag + reassess inventory before Step B
+
+**Acceptance:** Step B begins ONLY if Step A falsification PASSES (drift
+caught at expected location). Adds ~10min to W26 cycle but catches
+inventory gaps at the boundary where they're cheapest to fix.
+
+**General principle (per supervisor L2469 + theologian future-spec
+amendment):** all future workstream specs require Step A falsification
+test in their gate-completion criteria. Bridge inventory completeness
+must be empirically falsified, not just enumerated.
 
 ### Step B — single-commit conversion (~60-90min)
 
