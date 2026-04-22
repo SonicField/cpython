@@ -44,7 +44,21 @@ void *hir_builder_static_method_stack_pop_c(void *builder);
 /* W26 (theologian L2462+L2466): bridges for emitAnyCall full conversion +
  * 149b7e2d40 PartialConversion reabsorb. 4 NEW bridges: combined exception-
  * handler emit (folds findExceptionHandler+getSimpleExceptInfo+emit per (B)
- * decision), checkAsyncWithError, bc_it advance+opcode, bc_it oparg. */
+ * decision), checkAsyncWithError, bc_it advance+opcode, bc_it oparg.
+ *
+ * PhxCallKind: opcode-to-kind mapping done in C++ stub, so the C body can
+ * dispatch on a small enum without needing opcode constants in scope (which
+ * would conflict with cinder_opcode.h's Py_OPCODE_H header guard, breaking
+ * #ifdef BINARY_OP_ADD_INT in the BINARY_OP specialization path — root
+ * cause of W26 first-attempt W21 golden regression at 95c9f9b891). */
+enum PhxCallKind {
+    PHX_CALL_KIND_VECTOR_CALL = 0,    /* CALL_FUNCTION / CALL_FUNCTION_KW */
+    PHX_CALL_KIND_CALL_EX,            /* CALL_FUNCTION_EX */
+    PHX_CALL_KIND_CALL_METHOD,        /* CALL / CALL_KW / CALL_METHOD */
+    PHX_CALL_KIND_INVOKE_FUNCTION,    /* INVOKE_FUNCTION (Cinder static) */
+    PHX_CALL_KIND_INVOKE_NATIVE,      /* INVOKE_NATIVE (Cinder static) */
+    PHX_CALL_KIND_INVOKE_METHOD       /* INVOKE_METHOD (Cinder static) */
+};
 void hir_builder_emit_call_method_exception_handler_inline_c(
     void *builder, void *tc, void *cfg, int base_offset,
     void *call_instr, void *result_reg);

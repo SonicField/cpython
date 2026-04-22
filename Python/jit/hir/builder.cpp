@@ -2913,8 +2913,8 @@ extern "C" int hir_builder_bc_it_oparg_c(void *bc_it) {
 extern "C" void hir_builder_emit_any_call_c(
     void *tc, void *cfg, void *func, void *builder,
     void *bc_instrs, void *bc_it,
-    int opcode, int oparg, int base_offset,
-    int is_awaited,
+    int call_kind, int oparg, int base_offset,
+    int is_awaited, int is_kw_arg,
     void *code, int code_flags,
     PyObject *const_arg);
 
@@ -2927,6 +2927,34 @@ void HIRBuilder::emitAnyCall(
   int opcode = bc_instr.opcode();
   int oparg = bc_instr.oparg();
   int base_offset = bc_instr.baseOffset().value();
+
+  // Map opcode → PhxCallKind (C body switches on enum to avoid pulling
+  // opcode constants into builder_emit_c.c, where cinder_opcode.h's
+  // Py_OPCODE_H header guard would shadow Include/opcode.h's
+  // BINARY_OP_ADD_INT define + break #ifdef in BINARY_OP specialization).
+  int call_kind;
+  int is_kw_arg = 0;
+  switch (opcode) {
+    case CALL_FUNCTION:
+      call_kind = PHX_CALL_KIND_VECTOR_CALL; break;
+    case CALL_FUNCTION_KW:
+      call_kind = PHX_CALL_KIND_VECTOR_CALL; is_kw_arg = 1; break;
+    case CALL_FUNCTION_EX:
+      call_kind = PHX_CALL_KIND_CALL_EX; break;
+    case CALL:
+    case CALL_METHOD:
+      call_kind = PHX_CALL_KIND_CALL_METHOD; break;
+    case CALL_KW:
+      call_kind = PHX_CALL_KIND_CALL_METHOD; is_kw_arg = 1; break;
+    case INVOKE_FUNCTION:
+      call_kind = PHX_CALL_KIND_INVOKE_FUNCTION; break;
+    case INVOKE_NATIVE:
+      call_kind = PHX_CALL_KIND_INVOKE_NATIVE; break;
+    case INVOKE_METHOD:
+      call_kind = PHX_CALL_KIND_INVOKE_METHOD; break;
+    default:
+      JIT_ABORT("Unhandled call opcode {} ({})", opcode, opcodeName(opcode));
+  }
 
   int is_awaited;
   if constexpr (PY_VERSION_HEX >= 0x030C0000) {
@@ -2953,7 +2981,7 @@ void HIRBuilder::emitAnyCall(
       &tc, &cfg, current_func_, this,
       const_cast<void*>(static_cast<const void*>(&bc_instrs)),
       &bc_it,
-      opcode, oparg, base_offset, is_awaited,
+      call_kind, oparg, base_offset, is_awaited, is_kw_arg,
       code_, static_cast<int>(code_->co_flags),
       const_arg);
 }

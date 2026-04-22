@@ -17,12 +17,20 @@
 #include "Python.h"
 #include "internal/pycore_moduleobject.h"  /* PyModuleObject (LOAD_ATTR_MODULE) */
 #include "internal/pycore_dict.h"          /* PyDictKeysObject (LOAD_ATTR_MODULE) */
-/* cinder_opcode.h MUST be included before opcode.h — it uses the same
- * Py_OPCODE_H header guard but defines the cinder-extended opcode enum
- * (INVOKE_FUNCTION/_NATIVE/_METHOD). Including opcode.h first would shadow it. */
-#include "cinderx/Interpreter/cinder_opcode.h"
 #include "opcode.h"
-#include "cinderx/Common/opcode_stubs.h"  /* CALL_FUNCTION/CALL_FUNCTION_KW/CALL_KW/CALL_METHOD/YIELD_FROM stubs for 3.12 */
+#include "cinderx/Common/opcode_stubs.h"  /* YIELD_FROM stub for 3.12 (not in Include/opcode.h) */
+
+/* PhxCallKind values — must match enum PhxCallKind in builder.h. C body
+ * dispatches on these instead of opcode constants to avoid pulling in
+ * cinder_opcode.h which would shadow Include/opcode.h's BINARY_OP_ADD_INT
+ * define + break #ifdef in BINARY_OP specialization (W26 first-attempt
+ * regression root cause). C++ stub maps opcode → kind. */
+#define PHX_CALL_KIND_VECTOR_CALL     0
+#define PHX_CALL_KIND_CALL_EX         1
+#define PHX_CALL_KIND_CALL_METHOD     2
+#define PHX_CALL_KIND_INVOKE_FUNCTION 3
+#define PHX_CALL_KIND_INVOKE_NATIVE   4
+#define PHX_CALL_KIND_INVOKE_METHOD   5
 
 /* ---- PhxTranslationContext ---- */
 
@@ -3489,27 +3497,33 @@ void hir_builder_emit_any_call_c(
         void *builder,
         void *bc_instrs,
         void *bc_it,
-        int opcode,
+        int call_kind,        /* PhxCallKind enum (mapped from opcode by C++ stub) */
         int oparg,
         int base_offset,
         int is_awaited,
+        int is_kw_arg,        /* set for CALL_FUNCTION_KW + CALL_KW (kwnames flag) */
         void *code,
         int code_flags,
         PyObject *const_arg) {
-    /* CallFlags: None=0, KwArgs=1<<0=1, Awaited=1<<1=2, Static=1<<2=4. */
+    /* CallFlags: None=0, KwArgs=1<<0=1, Awaited=1<<1=2, Static=1<<2=4.
+     *
+     * call_kind dispatch (set by C++ stub) replaces direct opcode switching
+     * here so this C body does not need to import opcode constants. The
+     * opcode switch in the C++ stub maps each call-class opcode to one of
+     * the PHX_CALL_KIND_* values (defined in builder.h). */
     uint32_t flags = is_awaited ? 2u : 0u;
     int call_used_is_awaited = 1;
 
-    switch (opcode) {
-        case CALL_FUNCTION:
-        case CALL_FUNCTION_KW: {
-            /* Operands include the function arguments plus the function itself. */
+    switch (call_kind) {
+        case PHX_CALL_KIND_VECTOR_CALL: {
+            /* CALL_FUNCTION / CALL_FUNCTION_KW: variadic vector call.
+             * Operands include the function arguments plus the function
+             * itself. is_kw_arg adds 1 for the kwnames tuple. */
             size_t num_operands = (size_t)(oparg + 1);
-            if (opcode == CALL_FUNCTION_KW) {
+            if (is_kw_arg) {
                 num_operands++;
                 flags |= 1u;  /* CallFlags::KwArgs */
             }
-            /* emitVariadic<VectorCall> equivalent — use existing C primitives. */
             void *out = hir_builder_temps_alloc_stack(builder);
             void *call = hir_c_create_vectorcall_reg(num_operands, out, flags);
             for (size_t i = num_operands; i > 0; i--) {
@@ -3521,19 +3535,19 @@ void hir_builder_emit_any_call_c(
             phx_ptr_arr_push(&tc->frame.stack, out);
             break;
         }
-        case CALL_FUNCTION_EX: {
+        case PHX_CALL_KIND_CALL_EX: {
             hir_builder_emit_call_ex_c(tc, func, oparg, flags);
             break;
         }
-        case CALL:
-        case CALL_KW:
-        case CALL_METHOD: {
+        case PHX_CALL_KIND_CALL_METHOD: {
+            /* CALL / CALL_KW / CALL_METHOD: dynamic call-method dispatch
+             * with kwnames + exception-handler inline. is_kw_arg tracks
+             * whether opcode is CALL_KW (extra stack input + flag). */
             size_t num_operands = (size_t)(oparg + 2);
             size_t num_stack_inputs = num_operands;
-            int is_call_kw = (opcode == CALL_KW) ? 1 : 0;
             void *kwnames_reg = hir_builder_get_kwnames(builder);
-            if (kwnames_reg != NULL || is_call_kw) {
-                if (is_call_kw) {
+            if (kwnames_reg != NULL || is_kw_arg) {
+                if (is_kw_arg) {
                     num_stack_inputs++;
                 }
                 num_operands++;
@@ -3566,14 +3580,14 @@ void hir_builder_emit_any_call_c(
                 builder, tc, cfg, base_offset, call, out);
             break;
         }
-        case INVOKE_FUNCTION: {
+        case PHX_CALL_KIND_INVOKE_FUNCTION: {
             PyObject *descr = PyTuple_GET_ITEM(const_arg, 0);
             long nargs = PyLong_AsLong(PyTuple_GET_ITEM(const_arg, 1));
             call_used_is_awaited = hir_builder_emit_invoke_function_c(
                 tc, func, builder, descr, nargs, flags) ? 1 : 0;
             break;
         }
-        case INVOKE_NATIVE: {
+        case PHX_CALL_KIND_INVOKE_NATIVE: {
             PyObject *native_target_descr = PyTuple_GET_ITEM(const_arg, 0);
             PyObject *signature = PyTuple_GET_ITEM(const_arg, 1);
             hir_builder_emit_invoke_native_c(tc, builder,
@@ -3581,7 +3595,7 @@ void hir_builder_emit_any_call_c(
             call_used_is_awaited = 0;  /* emitInvokeNative always returns false */
             break;
         }
-        case INVOKE_METHOD: {
+        case PHX_CALL_KIND_INVOKE_METHOD: {
             PyObject *descr = PyTuple_GET_ITEM(const_arg, 0);
             long nargs = PyLong_AsLong(PyTuple_GET_ITEM(const_arg, 1)) + 2;
             call_used_is_awaited = hir_builder_emit_invoke_method_c(
@@ -3589,7 +3603,7 @@ void hir_builder_emit_any_call_c(
             break;
         }
         default:
-            JIT_CHECK_C(0, "Unhandled call opcode %d", opcode);
+            JIT_CHECK_C(0, "Unhandled call kind %d", call_kind);
     }
 
     if (is_awaited && call_used_is_awaited) {
