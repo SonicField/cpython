@@ -3826,14 +3826,18 @@ PyTypeObject* findTypeByVersionTagImpl(
   return nullptr;
 }
 
+} // namespace
+
+// Externally-visible entry point (callable from hir_c_api.cpp delegation
+// bridge). Helpers (getTypeSubclasses, findTypeByVersionTagImpl) stay in
+// the anonymous namespace above; this wrapper inherits visibility to them
+// via the implicit `using namespace <anon>` ABI.
 PyTypeObject* findTypeByVersionTag(uint32_t version) {
   if (version == 0) {
     return nullptr;
   }
   return findTypeByVersionTagImpl(&PyBaseObject_Type, version, 0);
 }
-
-} // namespace
 
 extern "C" void hir_builder_emit_delete_attr_c(void *tc, int oparg);
 

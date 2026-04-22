@@ -2667,8 +2667,14 @@ void hir_builder_get_attr_cache(void *builder, int instr_idx,
 // force_compile-after-warmup. Delegation makes guard-strip impossible by
 // construction; future C++ retrofits propagate automatically. Full BRIDGE
 // SPEC TEMPLATE / W7 future-port spec is in the commit message.
+//
+// extern "C++" escapes the surrounding `extern "C"` block so the forward
+// declaration uses C++ name mangling — required to link to the C++ symbol
+// `jit::hir::findTypeByVersionTag` at builder.cpp:3829.
+extern "C++" {
 namespace jit::hir {
 PyTypeObject *findTypeByVersionTag(uint32_t version);
+}
 }
 
 PyTypeObject *hir_find_type_by_version_tag(uint32_t version) {
