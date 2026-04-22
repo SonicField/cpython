@@ -711,6 +711,20 @@ void hir_remove_unreachable_instructions(HirFunction func);
 /* Re-derive all register types from instructions. */
 void hir_reflow_types(HirFunction func);
 
+/* ---- W25 Step B-3.5 promotions (Class C1 → canonical) ----
+ * These functions exist in hir_c_api.cpp but were never exposed via
+ * canonical headers — §1b TUs declared them via local extern, contributing
+ * to the signature-drift surface W25 closes. Promoted here to stop the
+ * §1b drift class. Signatures preserved (void* for HBB/CFG to keep
+ * call-site source compat — struct-typification is a future cleanup. */
+size_t hir_cfg_get_rpo_from(HirFunction func, void *start, void **out, size_t capacity);
+void *hir_cfg_blocks_first_ptr(void *cfg);
+void *hir_cfg_blocks_next_ptr(void *cfg, void *block);
+int hir_instr_is_deopt_base(void *instr);
+void hir_instr_replace_uses_of(void *instr, void *old_reg, void *new_reg);
+void *hir_c_cond_branch_true_bb(void *instr);
+void *hir_c_cond_branch_false_bb(void *instr);
+
 /* ==== H2-C: Instr lifecycle and list manipulation (extern C wrappers) ==== */
 
 /* C++ destruction helpers for hir_c_destroy_instr_impl(). */

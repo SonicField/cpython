@@ -415,8 +415,7 @@ static HirType get_op_type_from_instr(size_t idx, void *ctx) {
     return hir_register_type(operand);
 }
 
-extern size_t hir_cfg_get_rpo_from(void *func, void *start, void **out, size_t capacity);
-
+/* W25 Step B-3.5: hir_cfg_get_rpo_from now in hir_c_api.h (already included). */
 void hir_reflow_types_c(void *func, void *start_block) {
     void *env = hir_func_env(func);
     size_t n_regs = hir_env_reg_count(env);
@@ -460,12 +459,7 @@ void hir_reflow_types_c(void *func, void *start_block) {
 
 /* ==== simplifyRedundantCondBranches C port ==== */
 
-/* W25 Step B-3: Class C1 externs kept (B-3.5 will promote). Other externs
- * deleted post-W25 Step A — canonical decls now visible via #include
- * "hir_c_api.h" (Class A) and #include "hir_instr_c.h" (Class C2 IC). */
-extern void *hir_cfg_blocks_first_ptr(void *cfg);
-extern void *hir_cfg_blocks_next_ptr(void *cfg, void *block);
-
+/* W25 Step B-3.5: all hir_cfg_blocks_*_ptr now in hir_c_api.h. */
 void hir_simplify_redundant_cond_branches_c(void *cfg) {
     /* Collect blocks with redundant cond branches (both edges to same target) */
     void *blocks_to_fix[1024];
@@ -520,9 +514,7 @@ void *hir_chase_assign_operand(void *value) {
 }
 
 /* ==== removeTrampolineBlocks C port ==== */
-/* W25 Step B-3: hir_bb_destroy now in hir_basic_block_c.h (already included).
- * hir_bb_set_successor_null kept as Class C1 (B-3.5 will promote). */
-extern void hir_bb_set_successor_null(void *block, size_t idx);
+/* W25 Step B-3.5: hir_bb_set_successor_null now in hir_basic_block_c.h. */
 
 int hir_remove_trampoline_blocks_c(void *cfg) {
     void *trampolines[1024];
@@ -564,7 +556,7 @@ int hir_remove_trampoline_blocks_c(void *cfg) {
 }
 
 /* ==== removeUnreachableBlocks C port ==== */
-extern void hir_bb_remove_phi_predecessor(void *block, void *pred);
+/* W25 Step B-3.5: hir_bb_remove_phi_predecessor now in hir_basic_block_c.h. */
 
 int hir_remove_unreachable_blocks_c(void *func) {
     HirCFG *cfg = hir_func_cfg_ptr(func);
@@ -928,13 +920,10 @@ void hir_optimize_long_decref_runs_c(void *func) {
 /* ==== removeUnreachableInstructions C port ==== */
 #include "cinderx/Jit/hir/dominator_c.h"
 
-/* W25 Step B-3: Class A externs deleted (canonical decls in hir_c_api.h).
- * Class C1 externs kept (B-3.5 will promote). hir_output_type non-lint kept. */
-extern int hir_instr_is_deopt_base(void *instr);
+/* W25 Step B-3.5: hir_instr_is_deopt_base, hir_instr_replace_uses_of,
+ * hir_c_cond_branch_true_bb, hir_c_cond_branch_false_bb now in hir_c_api.h.
+ * hir_output_type stays as non-lint extern (out of W25 scope). */
 extern HirType hir_output_type(void *instr);
-extern void hir_instr_replace_uses_of(void *instr, void *old_reg, void *new_reg);
-extern void *hir_c_cond_branch_true_bb(void *instr);
-extern void *hir_c_cond_branch_false_bb(void *instr);
 
 static int is_output_bottom(void *instr) {
     void *out = hir_c_output(instr);

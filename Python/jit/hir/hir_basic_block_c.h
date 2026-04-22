@@ -100,6 +100,10 @@ void hir_cfg_destroy_c(HirCFG *cfg);
  * belongs in hir_basic_block_c.h). */
 void hir_bb_destroy(void *block);
 
+/* W25 Step B-3.5 hir_bb_* family promotions (Class C1 → C2). */
+void hir_bb_set_successor_null(void *block, size_t idx);
+void hir_bb_remove_phi_predecessor(void *block, void *pred);
+
 /* ---- CFG block list operations ---- */
 
 static inline HirBasicBlock *hir_cfg_first_block(const HirCFG *cfg) {
