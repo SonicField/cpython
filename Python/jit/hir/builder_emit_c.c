@@ -2393,6 +2393,125 @@ void hir_builder_emit_invoke_method_vector_call_c(
     phx_ptr_arr_push(&tc->frame.stack, out);
 }
 
+/* emitInvokeFunction — INVOKE_FUNCTION opcode. Mirrors C++ HIRBuilder::
+ * emitInvokeFunction @ builder.cpp:3324.
+ *
+ * Three paths gated on InvokeTarget fields:
+ *   (A) container_is_immutable + is_function + is_statically_typed:
+ *       Direct InvokeStaticFunction call. Returns false (already pushed).
+ *   (B) container_is_immutable + is_builtin: tryEmitDirectMethodCall fast
+ *       path. Returns false if it took.
+ *   (C) Fall through: load callable indirect/direct, setup args, VectorCall,
+ *       fixStaticReturn. Returns true.
+ *
+ * Pre-path: PY_VERSION_HEX >= 0x030C0000 conditional for __static__.rand
+ * special-case (folded into hir_builder_is_static_rand_and_try_emit_c bridge
+ * which does its own version-guarded behavior).
+ *
+ * 4 NEW bridges:
+ *   - hir_builder_invoke_function_target_c (8-field InvokeTarget query)
+ *   - hir_builder_try_emit_direct_method_call_for_function_c (path B)
+ *   - hir_builder_setup_static_args_for_function_c (function-target variant)
+ *   - hir_builder_is_static_rand_and_try_emit_c (PY_VERSION_HEX conditional)
+ *
+ * CallFlags::Static = 1<<2 = 4 per hir.h:881-886. */
+extern void hir_builder_invoke_function_target_c(
+    void *builder, PyObject *descr,
+    int *out_container_is_immutable,
+    int *out_is_function,
+    int *out_is_statically_typed,
+    int *out_is_builtin,
+    void **out_callable,
+    void **out_func,
+    void **out_indirect_ptr,
+    HirType *out_return_type);
+extern int hir_builder_try_emit_direct_method_call_for_function_c(
+    void *builder, void *tc, PyObject *descr, long nargs);
+extern void hir_builder_setup_static_args_for_function_c(
+    void *builder, void *tc, PyObject *descr, long nargs, int statically_typed,
+    void **out_arg_regs, size_t *out_count);
+extern int hir_builder_is_static_rand_and_try_emit_c(
+    void *builder, void *tc, PyObject *descr, long nargs);
+
+bool hir_builder_emit_invoke_function_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder,
+        PyObject *descr,
+        long nargs,
+        uint32_t flags) {
+    int container_is_immutable, is_function, is_statically_typed, is_builtin;
+    void *callable, *target_func, *indirect_ptr;
+    HirType return_type;
+    hir_builder_invoke_function_target_c(builder, descr,
+        &container_is_immutable, &is_function, &is_statically_typed, &is_builtin,
+        &callable, &target_func, &indirect_ptr, &return_type);
+
+    /* PY_VERSION_HEX >= 0x030C0000 conditional folded into the bridge. */
+    if (hir_builder_is_static_rand_and_try_emit_c(builder, tc, descr, nargs)) {
+        return false;
+    }
+
+    void *funcreg = hir_builder_temps_alloc_stack(builder);
+
+    if (container_is_immutable) {
+        if (is_function && is_statically_typed) {
+            /* Path (A): direct InvokeStaticFunction call. */
+            void *out = hir_builder_temps_alloc_stack(builder);
+            HirType callable_type = hir_type_from_object((PyObject *)callable);
+            phx_tc_emit(tc, hir_c_create_load_const(funcreg, callable_type));
+
+            void *call = hir_c_create_invoke_static_function_reg(
+                (size_t)(nargs + 1), out, target_func, return_type);
+            hir_c_set_operand(call, 0, funcreg);
+            for (long i = nargs - 1; i >= 0; i--) {
+                void *operand = phx_ptr_arr_pop(&tc->frame.stack);
+                hir_c_set_operand(call, (size_t)(i + 1), operand);
+            }
+            hir_deopt_set_frame_state(call, &tc->frame);
+            phx_tc_emit(tc, call);
+            phx_ptr_arr_push(&tc->frame.stack, out);
+            return false;
+        } else if (is_builtin && hir_builder_try_emit_direct_method_call_for_function_c(
+                builder, tc, descr, nargs)) {
+            /* Path (B): builtin fast-path took. */
+            return false;
+        }
+        /* Couldn't emit x64 call but know the callable; load it directly. */
+        HirType callable_type = hir_type_from_object((PyObject *)callable);
+        phx_tc_emit(tc, hir_c_create_load_const(funcreg, callable_type));
+    } else {
+        /* Patchable target: load indirect via deopt-base instr. */
+        phx_tc_emit(tc, hir_c_create_load_function_indirect_reg(
+            indirect_ptr, descr, funcreg, &tc->frame));
+    }
+
+    /* Path (C): VectorCall. */
+    void *arg_regs[nargs];
+    size_t arg_regs_count = 0;
+    hir_builder_setup_static_args_for_function_c(
+        builder, tc, descr, nargs, /*statically_invoked=*/0,
+        arg_regs, &arg_regs_count);
+
+    void *out = hir_builder_temps_alloc_stack(builder);
+    if (container_is_immutable) {
+        flags |= 4u;  /* CallFlags::Static = 1<<2 */
+    }
+
+    /* Add one for the function argument. */
+    void *call = hir_c_create_vectorcall_reg((size_t)(nargs + 1), out, flags);
+    for (long i = 0; i < nargs; i++) {
+        hir_c_set_operand(call, (size_t)(i + 1), arg_regs[i]);
+    }
+    hir_c_set_operand(call, 0, funcreg);
+    hir_deopt_set_frame_state(call, &tc->frame);
+    phx_tc_emit(tc, call);
+
+    hir_builder_fix_static_return_c(builder, tc, out, return_type);
+    phx_ptr_arr_push(&tc->frame.stack, out);
+    return true;
+}
+
 /* emitInvokeMethod — INVOKE_METHOD opcode. Mirrors C++ HIRBuilder::emitInvokeMethod
  * @ builder.cpp:3493.
  *

@@ -40,6 +40,28 @@ void hir_builder_setup_static_args_c(
     void *builder, void *tc, PyObject *descr, long nargs, int statically_typed,
     void **out_arg_regs, size_t *out_count);
 void *hir_builder_static_method_stack_pop_c(void *builder);
+
+/* INVOKE_* Phase 2 #3 (theologian L2430): bridges for emitInvokeFunction C
+ * body. Function-target variants of #2 bridges (different preloader lookup
+ * path: invokeFunctionTarget vs invokeMethodTarget) + invoke-target query +
+ * static-rand conditional. */
+void hir_builder_invoke_function_target_c(
+    void *builder, PyObject *descr,
+    int *out_container_is_immutable,
+    int *out_is_function,
+    int *out_is_statically_typed,
+    int *out_is_builtin,
+    void **out_callable,
+    void **out_func,
+    void **out_indirect_ptr,
+    HirType *out_return_type);
+int hir_builder_try_emit_direct_method_call_for_function_c(
+    void *builder, void *tc, PyObject *descr, long nargs);
+void hir_builder_setup_static_args_for_function_c(
+    void *builder, void *tc, PyObject *descr, long nargs, int statically_typed,
+    void **out_arg_regs, size_t *out_count);
+int hir_builder_is_static_rand_and_try_emit_c(
+    void *builder, void *tc, PyObject *descr, long nargs);
 } // extern "C"
 #include <vector>
 
@@ -137,6 +159,16 @@ class HIRBuilder {
   friend void ::hir_builder_setup_static_args_c(
       void*, void*, PyObject*, long, int, void**, size_t*);
   friend void* ::hir_builder_static_method_stack_pop_c(void*);
+  // INVOKE_* Phase 2 #3 (theologian L2430): function-target variants for
+  // emitInvokeFunction C body.
+  friend void ::hir_builder_invoke_function_target_c(
+      void*, PyObject*, int*, int*, int*, int*, void**, void**, void**, HirType*);
+  friend int ::hir_builder_try_emit_direct_method_call_for_function_c(
+      void*, void*, PyObject*, long);
+  friend void ::hir_builder_setup_static_args_for_function_c(
+      void*, void*, PyObject*, long, int, void**, size_t*);
+  friend int ::hir_builder_is_static_rand_and_try_emit_c(
+      void*, void*, PyObject*, long);
  public:
   const Preloader& preloader() const { return preloader_; }
   explicit HIRBuilder(const Preloader& preloader)
