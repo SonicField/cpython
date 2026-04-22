@@ -269,8 +269,6 @@ hir_bb_pop_front_instr(HirBasicBlock *bb) {
 
 /* ---- CFG destructor (C port of CFG::~CFG) ---- */
 
-extern void hir_bb_destroy(void *block);
-
 void hir_cfg_destroy_c(HirCFG *cfg) {
     while (1) {
         HirBasicBlock *block = hir_cfg_first_block(cfg);

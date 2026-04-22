@@ -94,6 +94,12 @@ typedef struct HirCFG {
 /* CFG destructor (C port of CFG::~CFG) */
 void hir_cfg_destroy_c(HirCFG *cfg);
 
+/* BasicBlock destructor — implemented in hir_c_api.cpp (C++ side delegates
+ * to `delete static_cast<BasicBlock*>(block)`). Promoted to this header
+ * per W25 Step B Class C1 → C2 conversion (hir_bb_* namespace family
+ * belongs in hir_basic_block_c.h). */
+void hir_bb_destroy(void *block);
+
 /* ---- CFG block list operations ---- */
 
 static inline HirBasicBlock *hir_cfg_first_block(const HirCFG *cfg) {
