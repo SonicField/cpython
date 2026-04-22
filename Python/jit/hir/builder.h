@@ -24,6 +24,8 @@ void *hir_builder_preloader_py_type(void *builder, PyObject *descr);
 void hir_builder_insert_run_periodic_activities_c(
     void *builder, void *func,
     void *check_block, void *succ_block, void *frame_state);
+void *hir_builder_get_kwnames(void *builder);
+void hir_builder_set_kwnames(void *builder, void *reg);
 } // extern "C"
 #include <vector>
 
@@ -108,6 +110,8 @@ class HIRBuilder {
   friend void* ::hir_builder_get_block_at_off(void*, int);
   friend void ::hir_builder_insert_run_periodic_activities_c(
       void*, void*, void*, void*, void*);
+  friend void* ::hir_builder_get_kwnames(void*);
+  friend void ::hir_builder_set_kwnames(void*, void*);
  public:
   const Preloader& preloader() const { return preloader_; }
   explicit HIRBuilder(const Preloader& preloader)

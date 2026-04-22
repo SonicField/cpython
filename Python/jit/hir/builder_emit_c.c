@@ -960,6 +960,43 @@ void hir_builder_emit_resume_c(
     /* tc->block already == succ_block (final state matches C++ tc.block = succ.block) */
 }
 
+/* emitKwNames — KW_NAMES opcode handler. Saves the keyword-names tuple
+ * (from co_consts[oparg]) into the HIRBuilder kwnames_ slot for the next
+ * CALL/CALL_KW to consume as part of the call's operands. Mirrors C++
+ * HIRBuilder::emitKwNames @ builder.cpp:3201.
+ *
+ * kwnames_ is a NON-STACK temp register on HIRBuilder (one slot, consumed
+ * by the next CALL opcode). emitKwNames asserts kwnames_ is empty before
+ * overwriting (matches C++ JIT_CHECK invariant). Bridge access to kwnames_
+ * via getter/setter (hir_builder_get_kwnames / hir_builder_set_kwnames) so
+ * future emitCall conversion can also access this state.
+ *
+ * AllocateNonStack equivalent: hir_func_alloc_register(func) — same path
+ * (TempAllocator::AllocateNonStack just calls env_->AllocateRegister at
+ * builder.cpp:298). emitLoadConst equivalent: hir_c_create_load_const(reg, type)
+ * + phx_tc_emit. Type::fromObject equivalent: hir_type_from_object(obj). */
+extern void *hir_builder_get_kwnames(void *builder);
+extern void hir_builder_set_kwnames(void *builder, void *reg);
+
+void hir_builder_emit_kw_names_c(
+        PhxTranslationContext *tc, void *func, void *builder,
+        PyCodeObject *code, int oparg) {
+    Py_ssize_t consts_len = PyTuple_Size(code->co_consts);
+    JIT_CHECK_C(oparg < consts_len,
+                "KW_NAMES index %d is greater than co_consts length %zd",
+                oparg, consts_len);
+    JIT_CHECK_C(hir_builder_get_kwnames(builder) == NULL,
+                "Trying to save KW_NAMES(%d) but previous kwnames_ value wasn't "
+                "consumed by a CALL* opcode yet",
+                oparg);
+
+    void *kwnames_reg = hir_func_alloc_register(func);
+    hir_builder_set_kwnames(builder, kwnames_reg);
+    PyObject *names_tuple = PyTuple_GET_ITEM(code->co_consts, oparg);
+    HirType type = hir_type_from_object(names_tuple);
+    phx_tc_emit(tc, hir_c_create_load_const(kwnames_reg, type));
+}
+
 /* emitLoadAttr generic — non-specialized LoadAttr2 fallback */
 extern void *hir_c_create_load_attr_reg2(void *dst, void *receiver, int32_t name_idx, void *fs);
 

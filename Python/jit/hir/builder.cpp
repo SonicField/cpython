@@ -3198,25 +3198,28 @@ extern "C" void hir_builder_insert_run_periodic_activities_c(
   b->insertRunPeriodicActivites(f->cfg, check, succ, *fs);
 }
 
+extern "C" void hir_builder_emit_kw_names_c(
+    void *tc, void *func, void *builder, PyCodeObject *code, int oparg);
+
 void HIRBuilder::emitKwNames(
     TranslationContext& tc,
     const BytecodeInstruction& bc_instr) {
-  auto index = bc_instr.oparg();
-  auto consts_len = PyTuple_Size(code_->co_consts);
-  JIT_CHECK(
-      index < consts_len,
-      "KW_NAMES index {} is greater than co_consts length {}",
-      index,
-      consts_len);
-  JIT_CHECK(
-      kwnames_ == nullptr,
-      "Trying to save KW_NAMES({}) but previous kwnames_ value wasn't consumed "
-      "by a CALL* opcode yet",
-      index);
+  hir_builder_emit_kw_names_c(
+      static_cast<void*>(&tc),
+      static_cast<void*>(current_func_),
+      static_cast<void*>(this),
+      code_,
+      bc_instr.oparg());
+}
 
-  kwnames_ = temps_.AllocateNonStack();
-  tc.emitLoadConst(
-      kwnames_, Type::fromObject(PyTuple_GET_ITEM(code_->co_consts, index)));
+extern "C" void *hir_builder_get_kwnames(void *builder) {
+  auto *b = static_cast<HIRBuilder*>(builder);
+  return static_cast<void*>(b->kwnames_);
+}
+
+extern "C" void hir_builder_set_kwnames(void *builder, void *reg) {
+  auto *b = static_cast<HIRBuilder*>(builder);
+  b->kwnames_ = static_cast<Register*>(reg);
 }
 
 extern "C" int hir_builder_emit_binary_op_c(void *tc, void *func, int opcode, int oparg, int specialized_opcode);
