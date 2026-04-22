@@ -3844,6 +3844,7 @@ void HIRBuilder::emitDeleteAttr(
 }
 
 extern "C" void hir_builder_emit_load_attr_generic_c(void *tc, void *func, void *receiver, int name_idx);
+extern "C" int hir_builder_emit_load_attr_slot_c(void *tc, void *func, void *builder, void *receiver, PyCodeObject *code, int name_idx, int instr_idx);
 
 void HIRBuilder::emitLoadAttr(
     TranslationContext& tc,
@@ -3938,51 +3939,12 @@ void HIRBuilder::emitLoadAttr(
         break;
       }
       case LOAD_ATTR_SLOT: {
-        // LOAD_ATTR_SLOT direct LoadField specialisation.
-        // For __slots__ types, cache->index is the byte offset from the
-        // object pointer to the slot value. Emit GuardType + direct
-        // LoadField at that offset, bypassing the generic C API path.
-        _Py_CODEUNIT* code_units = codeUnit(code_);
-        int instr_idx = bc_instr.opcodeIndex().value();
-        const _PyAttrCache* cache =
-            reinterpret_cast<const _PyAttrCache*>(&code_units[instr_idx + 1]);
-        uint32_t type_version =
-            cache->version[0] |
-            (static_cast<uint32_t>(cache->version[1]) << 16);
-        uint16_t slot_offset = cache->index;
-
-        PyTypeObject* slot_type = findTypeByVersionTag(type_version);
-        if (slot_type != nullptr &&
-            (slot_type->tp_subclasses == nullptr ||
-             PyDict_GET_SIZE(slot_type->tp_subclasses) == 0)) {
-          // Root the type so it lives as long as the compiled code.
-          // Without this, GC may collect the type during auto-compilation,
-          // causing GuardType to compare against a freed pointer.
-          current_func_->env.addReference((PyObject*)(
-              reinterpret_cast<PyObject*>(slot_type)));
-          Type type = Type::fromTypeExact(slot_type);
-          tc.emitGuardType(receiver, type, receiver);
-
-          PyObject* attr_name =
-              PyTuple_GET_ITEM(code_->co_names, name_idx);
-
-          // Direct load at the slot byte offset.
-          // CPython LOAD_ATTR_SLOT does: *(PyObject**)((char*)owner + index)
-          Register* attr = temps_.AllocateStack();
-          tc.emitLoadField(
-              attr, receiver, "slot",
-              static_cast<int>(slot_offset), TOptObject);
-
-          // Check attribute is not NULL (uninitialised slot).
-          Register* result = temps_.AllocateStack();
-          auto cf = tc.emitCheckField(
-              result, attr, attr_name, tc.frame);
-          cf->setGuiltyReg(receiver);
-
-          phx_ptr_arr_push(&tc.frame.stack, result);
+        if (hir_builder_emit_load_attr_slot_c(
+                static_cast<void*>(&tc), static_cast<void*>(current_func_),
+                static_cast<void*>(this), static_cast<void*>(receiver),
+                code_, name_idx, bc_instr.opcodeIndex().value())) {
           return;
         }
-        // Fallback: no type found or has subclasses — generic LoadAttr.
         break;
       }
       case LOAD_ATTR_INSTANCE_VALUE: {

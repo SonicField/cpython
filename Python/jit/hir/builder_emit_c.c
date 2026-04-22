@@ -669,6 +669,48 @@ void hir_builder_emit_load_method_c(PhxTranslationContext *tc, void *func, int n
     phx_ptr_arr_push(&tc->frame.stack, method_instance);
 }
 
+/* emitLoadAttrSlot — LOAD_ATTR_SLOT specialization */
+extern void hir_builder_get_attr_cache(void *builder, int instr_idx,
+                                        uint32_t *version_out, uint16_t *index_out);
+extern PyTypeObject *hir_find_type_by_version_tag(uint32_t version);
+extern PyObject *hir_func_add_reference(void *func, PyObject *obj);
+extern void *hir_c_create_check_field_reg(void *dst, void *src, void *name, void *fs);
+extern void hir_c_set_guilty_reg(void *instr, void *reg);
+
+int hir_builder_emit_load_attr_slot_c(
+        PhxTranslationContext *tc, void *func, void *builder,
+        void *receiver, PyCodeObject *code, int name_idx, int instr_idx) {
+    uint32_t type_version;
+    uint16_t slot_offset;
+    hir_builder_get_attr_cache(builder, instr_idx, &type_version, &slot_offset);
+
+    PyTypeObject *slot_type = hir_find_type_by_version_tag(type_version);
+    if (slot_type == NULL ||
+        (slot_type->tp_subclasses != NULL &&
+         PyDict_GET_SIZE((PyObject *)slot_type->tp_subclasses) > 0)) {
+        return 0;
+    }
+
+    hir_func_add_reference(func, (PyObject *)slot_type);
+    HirType type = hir_type_from_pytype(slot_type, 1);
+    phx_tc_emit(tc, hir_c_create_guard_type_reg(receiver, type, receiver));
+
+    PyObject *attr_name = PyTuple_GET_ITEM(code->co_names, name_idx);
+
+    void *attr = hir_func_alloc_register(func);
+    HirType t_opt_object = hir_type_union((HirType)HIR_TYPE_OBJECT, (HirType)HIR_TYPE_NULLPTR);
+    phx_tc_emit(tc, hir_c_create_load_field_reg(attr, receiver, "slot",
+        (intptr_t)slot_offset, t_opt_object, 0));
+
+    void *result = hir_func_alloc_register(func);
+    void *cf = hir_c_create_check_field_reg(result, attr, attr_name, &tc->frame);
+    hir_c_set_guilty_reg(cf, receiver);
+    phx_tc_emit(tc, cf);
+
+    phx_ptr_arr_push(&tc->frame.stack, result);
+    return 1;
+}
+
 /* emitLoadAttr generic — non-specialized LoadAttr2 fallback */
 extern void *hir_c_create_load_attr_reg2(void *dst, void *receiver, int32_t name_idx, void *fs);
 

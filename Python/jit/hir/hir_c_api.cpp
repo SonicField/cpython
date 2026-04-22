@@ -2661,28 +2661,18 @@ void hir_builder_get_attr_cache(void *builder, int instr_idx,
   *index_out = cache->index;
 }
 
-static PyTypeObject *findTypeByVersionTagWalk(PyTypeObject *type, uint32_t version) {
-  if (type->tp_version_tag == version) {
-    return type;
-  }
-  PyObject *subclasses = (PyObject *)type->tp_subclasses;
-  if (subclasses == nullptr) {
-    return nullptr;
-  }
-  Py_ssize_t pos = 0;
-  PyObject *ref;
-  while (PyDict_Next(subclasses, &pos, nullptr, &ref)) {
-    PyObject *subtype_obj = PyWeakref_GET_OBJECT(ref);
-    if (subtype_obj == Py_None) continue;
-    PyTypeObject *subtype = (PyTypeObject *)subtype_obj;
-    PyTypeObject *found = findTypeByVersionTagWalk(subtype, version);
-    if (found) return found;
-  }
-  return nullptr;
+// Delegate to the production-validated C++ implementation in builder.cpp.
+// The prior in-file walk (findTypeByVersionTagWalk) stripped six guards and
+// the static-builtin indirection from the C++ source, causing SIGSEGV on
+// force_compile-after-warmup. Delegation makes guard-strip impossible by
+// construction; future C++ retrofits propagate automatically. Full BRIDGE
+// SPEC TEMPLATE / W7 future-port spec is in the commit message.
+namespace jit::hir {
+PyTypeObject *findTypeByVersionTag(uint32_t version);
 }
 
 PyTypeObject *hir_find_type_by_version_tag(uint32_t version) {
-  return findTypeByVersionTagWalk(&PyBaseObject_Type, version);
+  return jit::hir::findTypeByVersionTag(version);
 }
 
 } /* extern "C" */
