@@ -5542,13 +5542,16 @@ void HIRBuilder::emitFormatSimple(CFG& cfg, TranslationContext& tc) {
   phx_ptr_arr_push(&stack, out);
 }
 
+extern "C" void hir_builder_emit_load_common_constant_c(
+    void *tc, void *builder, int oparg);
+
 void HIRBuilder::emitLoadCommonConstant(
     TranslationContext& tc,
     const BytecodeInstruction& bc_instr) {
-  Register* out = temps_.AllocateStack();
-  tc.emitLoadConst(
-      out, getContext()->typeForCommonConstant(bc_instr.oparg()));
-  phx_ptr_arr_push(&tc.frame.stack, out);
+  hir_builder_emit_load_common_constant_c(
+      static_cast<void*>(&tc),
+      static_cast<void*>(this),
+      bc_instr.oparg());
 }
 
 void HIRBuilder::emitLoadSpecial(

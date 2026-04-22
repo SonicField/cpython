@@ -1095,6 +1095,24 @@ void hir_builder_emit_load_iterable_arg_c(
     phx_ptr_arr_push(&tc->frame.stack, tuple_reg);
 }
 
+/* emitLoadCommonConstant — LOAD_COMMON_CONSTANT opcode handler. Allocates a
+ * stack temp, emits LoadConst with the type returned by the JIT context's
+ * common-constant table, pushes onto stack. Mirrors C++
+ * HIRBuilder::emitLoadCommonConstant @ builder.cpp:5545.
+ *
+ * Bridge: hir_get_context_type_for_common_constant wraps the C++ context
+ * accessor (jit::getContext()->typeForCommonConstant). Free-function bridge
+ * — no friend decl needed (no HIRBuilder access). */
+extern HirType hir_get_context_type_for_common_constant(int i);
+
+void hir_builder_emit_load_common_constant_c(
+        PhxTranslationContext *tc, void *builder, int oparg) {
+    void *out = hir_builder_temps_alloc_stack(builder);
+    HirType type = hir_get_context_type_for_common_constant(oparg);
+    phx_tc_emit(tc, hir_c_create_load_const(out, type));
+    phx_ptr_arr_push(&tc->frame.stack, out);
+}
+
 /* emitLoadAttr generic — non-specialized LoadAttr2 fallback */
 extern void *hir_c_create_load_attr_reg2(void *dst, void *receiver, int32_t name_idx, void *fs);
 

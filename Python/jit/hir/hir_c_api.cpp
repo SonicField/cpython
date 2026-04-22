@@ -530,6 +530,10 @@ void *jit_rt_load_module_dict_entry_addr(void) {
   return reinterpret_cast<void*>(JITRT_LoadModuleDictEntry);
 }
 
+HirType hir_get_context_type_for_common_constant(int i) {
+  return Type::toHirType(::jit::getContext()->typeForCommonConstant(i));
+}
+
 const char *jit_builtins_find(void *method_def) {
   auto* meth = static_cast<PyMethodDef*>(method_def);
   auto result = ::jit::getContext()->builtins().find(meth);
