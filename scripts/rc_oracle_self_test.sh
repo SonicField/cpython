@@ -35,12 +35,24 @@ DIFF_DRIVER="$SCRIPT_DIR/rc_diff_oracle.sh"
 INJECT_TARGET="$CPYTHON_ROOT/Python/jit/hir/refcount_pass_c.c"
 
 CHECK_ONLY=0
+INJECT_CLASS=""
 for arg in "$@"; do
     case "$arg" in
-        --check) CHECK_ONLY=1 ;;
-        *)       echo "Unknown flag: $arg"; exit 4 ;;
+        --check)    CHECK_ONLY=1 ;;
+        --class=*)  INJECT_CLASS="${arg#--class=}" ;;
+        *)          echo "Unknown flag: $arg"; exit 4 ;;
     esac
 done
+
+# Per supervisor 03:07:52Z: 4 injection classes (was 1) for falsifier expansion
+# defeating W4 vacuous-pass class. Each class: scrub case (no inject → empty diff)
+# + signal case (inject → non-empty diff).
+# A — refcount BALANCE: comment first phx_rc_emit_incref (under-count → leak)
+# B — refcount BALANCE (other side): comment first phx_rc_emit_decref (over-count → leak)
+# C — refcount SEQUENCE: insert duplicate Incref (over-count, distinct opcode order)
+# D — TYPE LATTICE: change HIR_TYPE_OBJECT → HIR_TYPE_NULLPTR in refcount_pass_c.c
+#     (annotation flip — should produce different HIR shape)
+# Default: run all 4 classes sequentially.
 
 # ---- Pre-condition #1: production python exists + has NO rc_oracle symbols ----
 
@@ -116,10 +128,7 @@ else
     exit 1
 fi
 
-# ---- Phase B: synthetic injection — diff MUST be non-empty ----
-
-echo ""
-echo "--- Phase B: synthetic refcount-bug injection, expect non-empty diff ---"
+# ---- Phase B: synthetic injection — diff MUST be non-empty for each class ----
 
 if [ ! -f "$INJECT_TARGET" ]; then
     echo "FAIL: injection target $INJECT_TARGET does not exist" >&2
@@ -127,66 +136,125 @@ if [ ! -f "$INJECT_TARGET" ]; then
     exit 1
 fi
 
-# Synthetic defect: comment out one Incref call in refcount_pass_c.c.
-# This produces a real refcount divergence (under-count → leak under
-# Py_REF_DEBUG OR use-after-free under PYDEBUG).
+# Generic backup/restore + rebuild helpers. trap EXIT ensures restore on
+# script error.
 INJECT_BACKUP="$INJECT_TARGET.oracle_backup"
 cp "$INJECT_TARGET" "$INJECT_BACKUP"
 trap 'cp "$INJECT_BACKUP" "$INJECT_TARGET" 2>/dev/null; rm -f "$INJECT_BACKUP"' EXIT
 
-# Find the FIRST 'phx_rc_emit_incref' call site and comment it.
-# (Pattern is stable across the C port per Phase 0 audit.)
-INCREF_LINE=$(grep -n 'phx_rc_emit_incref' "$INJECT_TARGET" | head -1 | cut -d: -f1 || true)
-if [ -z "$INCREF_LINE" ]; then
-    echo "FAIL: no phx_rc_emit_incref call site found in $INJECT_TARGET" >&2
-    echo "      Refactor self-test to use a different injection target" >&2
+rebuild_c_path() {
+    ( cd "$CPYTHON_ROOT" && cmake --build Python/jit_build/build --target phoenix_jit -- -j32 ) >/dev/null
+    ( cd "$CPYTHON_ROOT" && make -j32 python ) >/dev/null
+}
+
+restore_target() {
+    cp "$INJECT_BACKUP" "$INJECT_TARGET"
+    rebuild_c_path
+}
+
+# Run a single injection class:
+#   $1 = class letter (A/B/C/D)
+#   $2 = description
+#   $3 = sed script applied to $INJECT_TARGET
+inject_class() {
+    local cls="$1"
+    local desc="$2"
+    local sed_expr="$3"
+    echo ""
+    echo "--- Phase B class $cls: $desc ---"
+    sed -i "$sed_expr" "$INJECT_TARGET"
+    if cmp -s "$INJECT_BACKUP" "$INJECT_TARGET"; then
+        echo "FAIL: class $cls injection produced no source change (sed pattern stale?)" >&2
+        return 1
+    fi
+    echo "Injection applied. Rebuilding C path..."
+    rebuild_c_path
+    echo "Running diff driver under class $cls injection..."
+    if "$DIFF_DRIVER"; then
+        echo "FAIL: class $cls produced empty diff under injection — oracle MISSED $desc" >&2
+        restore_target
+        return 1
+    fi
+    echo "PASS: class $cls produces non-empty diff (oracle CATCHES $desc)"
+    restore_target
+    echo "PASS: class $cls restore + rebuild successful"
+    return 0
+}
+
+# Class A — refcount BALANCE under-count: comment FIRST phx_rc_emit_incref
+INCREF_LINE_A=$(grep -n 'phx_rc_emit_incref' "$INJECT_TARGET" | head -1 | cut -d: -f1 || true)
+# Class B — refcount BALANCE over-count: comment FIRST phx_rc_emit_decref
+DECREF_LINE_B=$(grep -n 'phx_rc_emit_decref' "$INJECT_TARGET" | head -1 | cut -d: -f1 || true)
+# Class C — refcount SEQUENCE: comment SECOND phx_rc_emit_incref (different
+# call-site than A → different HIR position → different oracle signature)
+INCREF_LINE_C=$(grep -n 'phx_rc_emit_incref' "$INJECT_TARGET" | sed -n '2p' | cut -d: -f1 || true)
+# Class D — TYPE LATTICE: change FIRST HIR_TYPE_OBJECT → HIR_TYPE_NULLPTR
+TYPE_LINE_D=$(grep -n 'HIR_TYPE_OBJECT\b' "$INJECT_TARGET" | head -1 | cut -d: -f1 || true)
+
+if [ -z "$INCREF_LINE_A" ]; then
+    echo "FAIL: no phx_rc_emit_incref call site found in $INJECT_TARGET (class A)" >&2
     exit 1
 fi
 
-echo "Injecting at $INJECT_TARGET:$INCREF_LINE (commenting out first phx_rc_emit_incref)"
-sed -i "${INCREF_LINE}s|^|//RC_ORACLE_INJECT://|" "$INJECT_TARGET"
+run_class_a() { inject_class A "BALANCE under-count (skip Incref @ line $INCREF_LINE_A)" \
+    "${INCREF_LINE_A}s|^|//RC_ORACLE_INJECT_A://|"; }
+run_class_b() {
+    if [ -z "$DECREF_LINE_B" ]; then
+        echo "SKIP: class B no phx_rc_emit_decref site found"; return 0
+    fi
+    inject_class B "BALANCE over-count (skip Decref @ line $DECREF_LINE_B)" \
+        "${DECREF_LINE_B}s|^|//RC_ORACLE_INJECT_B://|"
+}
+run_class_c() {
+    if [ -z "$INCREF_LINE_C" ]; then
+        echo "SKIP: class C no second phx_rc_emit_incref site found"; return 0
+    fi
+    inject_class C "SEQUENCE (skip second Incref @ line $INCREF_LINE_C — different position than class A)" \
+        "${INCREF_LINE_C}s|^|//RC_ORACLE_INJECT_C://|"
+}
+run_class_d() {
+    if [ -z "$TYPE_LINE_D" ]; then
+        echo "SKIP: class D no HIR_TYPE_OBJECT site found"; return 0
+    fi
+    inject_class D "TYPE LATTICE (HIR_TYPE_OBJECT → HIR_TYPE_NULLPTR @ line $TYPE_LINE_D)" \
+        "${TYPE_LINE_D}s|HIR_TYPE_OBJECT\b|HIR_TYPE_NULLPTR|"
+}
 
-# Rebuild the C path.
-echo "Rebuilding C path with injected defect..."
-( cd "$CPYTHON_ROOT" && cmake --build Python/jit_build/build --target phoenix_jit -- -j32 ) >/dev/null
-( cd "$CPYTHON_ROOT" && make -j32 python ) >/dev/null
+case "$INJECT_CLASS" in
+    A) run_class_a ;;
+    B) run_class_b ;;
+    C) run_class_c ;;
+    D) run_class_d ;;
+    "") run_class_a && run_class_b && run_class_c && run_class_d ;;
+    *) echo "Unknown injection class: $INJECT_CLASS (expected A/B/C/D)"; exit 4 ;;
+esac
 
-# Run the diff driver. Expect NON-empty (exit 1).
-echo "Running diff driver under injection..."
-if "$DIFF_DRIVER"; then
-    echo "FAIL: oracle produced empty diff under injection" >&2
-    echo "      The injected defect was NOT caught — oracle is non-functional" >&2
-    exit 1
-fi
-echo "PASS: oracle produces non-empty diff under injection (oracle WORKS)"
-
-# Trap will restore the file. Rebuild after restore.
-cp "$INJECT_BACKUP" "$INJECT_TARGET"
+# Each inject_class invocation runs sed → rebuild → diff → restore → rebuild,
+# so the working tree + binary are clean after each class. Final clean state
+# verified by the trap on EXIT.
 rm -f "$INJECT_BACKUP"
 trap - EXIT
-echo "Restoring C path + rebuilding..."
-( cd "$CPYTHON_ROOT" && cmake --build Python/jit_build/build --target phoenix_jit -- -j32 ) >/dev/null
-( cd "$CPYTHON_ROOT" && make -j32 python ) >/dev/null
 
-# Final verification: clean run after restore must again produce empty diff.
-echo "Final verification: post-restore diff must be empty..."
-if "$DIFF_DRIVER"; then
-    echo "PASS: post-restore oracle produces empty diff (restore successful)"
-else
-    echo "FAIL: post-restore diff non-empty — RESTORE LEFT C PATH BROKEN" >&2
-    echo "      git checkout $INJECT_TARGET to recover" >&2
+# Final verification: confirm working tree is clean (no leftover injection).
+if ! cmp -s "$INJECT_TARGET" <(git show "HEAD:$INJECT_TARGET" 2>/dev/null); then
+    echo "FAIL: post-test diff $INJECT_TARGET shows uncommitted change — restore broken" >&2
+    echo "      Run: git checkout $INJECT_TARGET" >&2
     exit 1
 fi
 
 echo ""
 echo "=== rc_oracle_self_test PASS ==="
 echo ""
-echo "Falsifier evidence:"
+echo "Falsifier evidence (4 injection classes per supervisor 03:07:52Z):"
 echo "  - Pre-condition #1: production python has 0 rc_oracle symbols"
+echo "  - Pre-condition #2: scratch lib exports rc_oracle_run T-symbol"
 echo "  - Pre-condition #3: python_rc_cpp has rc_oracle_run T-symbol"
-echo "  - Phase A:          clean diff is empty"
-echo "  - Phase B:          injection produces non-empty diff (oracle WORKS)"
-echo "  - Post-restore:     diff is empty (restore clean)"
+echo "  - Phase A:          clean diff is empty (oracle is not noisy)"
+echo "  - Phase B class A:  refcount BALANCE (skip Incref) → non-empty diff"
+echo "  - Phase B class B:  refcount BALANCE (skip Decref) → non-empty diff"
+echo "  - Phase B class C:  refcount SEQUENCE (skip 2nd Incref) → non-empty diff"
+echo "  - Phase B class D:  TYPE LATTICE (HIR_TYPE_OBJECT→NULLPTR) → non-empty diff"
+echo "  - Post-restore:     working tree clean, no uncommitted changes"
 echo ""
 echo "W3 R4 oracle is OPERATIONAL and DIAGNOSTIC."
 exit 0

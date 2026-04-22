@@ -38,9 +38,35 @@
 //     5. Oracle pin: this header is in docs/oracle_scratch/, included only by
 //        rc_oracle.cpp; CMakeLists.txt (Step 4) git-checkouts d81e5806c3 for
 //        the underlying jit/hir headers
-//   Falsifier (Step 5 deliverable): inject synthetic refcount divergence into
-//   C path, scripts/rc_diff_oracle.sh produces non-empty output. If empty
-//   under injection, oracle is non-functional.
+//     6. Oracle scope (theologian 02:41:54Z, supervisor 02:42:21Z): both
+//        branches dispatch the FULL Run() including pre/post passes
+//        (PhiElimination + bindGuards + splitCriticalEdges +
+//        removeTrampolineBlocks + optimizeLongDecrefRuns). C path uses C
+//        versions; C++ path uses C++ versions. Diff includes (a)
+//        refcount_insertion divergence AND (b) any divergence between C
+//        and C++ versions of the pre/post utility passes. Root-cause
+//        analysis must distinguish (a) from (b) using diff content.
+//     7. Oracle lifespan (theologian + supervisor 03:07:52Z, supersedes
+//        W12): utility decreases as emit methods diverge from d81e5806c3
+//        baseline. Clean-diff size grows over time as more HIR patterns
+//        appear that didn't exist at d81e5806c3. RETIREMENT TRIGGER: when
+//        scripts/rc_diff_oracle.sh on a CLEAN run produces >30% pre/post
+//        divergence noise, the oracle's signal-to-noise ratio is below
+//        diagnostic threshold. Retire (mark scripts/rc_diff_oracle.sh as
+//        archived; refer to scripts/rc_diff_oracle.sh.archived for
+//        historical reference). ESTIMATED LIFESPAN: 30-50 pushes from
+//        d81e5806c3 (push 35) → retirement window roughly push 65-85.
+//        Re-evaluate at push 50 (testkeeper does a clean diff, posts
+//        noise %).
+//   Falsifier (Step 5): 4 injection classes per supervisor 03:07:52Z
+//   defeating W4 vacuous-pass class. Each class injects a distinct
+//   refcount divergence into the C path, runs scripts/rc_diff_oracle.sh,
+//   asserts non-empty diff. If diff is empty under any class, oracle is
+//   non-functional for that defect family.
+//     A — BALANCE under-count: skip first Incref
+//     B — BALANCE over-count:  skip first Decref
+//     C — SEQUENCE: skip second Incref (different position than A)
+//     D — TYPE LATTICE: HIR_TYPE_OBJECT → HIR_TYPE_NULLPTR
 
 #pragma once
 
