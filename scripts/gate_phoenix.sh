@@ -522,8 +522,13 @@ if [ "$ARM64" -eq 1 ]; then
         echo STASH_POP_END
     " 2>&1 || echo "ARM64_REMOTE_FAIL")
 
-    # Verify ARM64 commit matches x86_64 commit
-    ARM64_COMMIT_HASH=$(echo "$ARM64_OUTPUT" | grep -v '^\$>' | grep -oP 'ARM64_COMMIT=\K\S+' | head -1)
+    # Verify ARM64 commit matches x86_64 commit. Anchor the grep to
+    # start-of-line so it matches ONLY the runtime echo output
+    # ('ARM64_COMMIT=<hash>'), not the script-body echo lines (indented,
+    # contain literal '$(git rev-parse ...)') nor the '$> ' prefixed
+    # command-trace lines. Without the anchor, the first script-body
+    # match captures '$(git' and the comparison fails spuriously.
+    ARM64_COMMIT_HASH=$(echo "$ARM64_OUTPUT" | grep -oP '^ARM64_COMMIT=\K\S+' | head -1)
     if [ -n "$ARM64_COMMIT_HASH" ] && [ "$ARM64_COMMIT_HASH" != "$COMMIT_HASH" ]; then
         echo "GATE FAIL — ARM64 commit $ARM64_COMMIT_HASH does not match x86_64 commit $COMMIT_HASH" | tee -a "$RESULTS_FILE"
         GATE_PASS=0
