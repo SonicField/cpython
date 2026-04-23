@@ -262,9 +262,16 @@ bool isSupportedOpcode(int opcode) {
     case UNPACK_EX:
     case UNPACK_SEQUENCE:
     case WITH_EXCEPT_START:
-    case YIELD_FROM:
     case YIELD_VALUE:
       return true;
+    // YIELD_FROM deopt: Alex 2026-04-23 W22 explicit one-case bypass of
+    // feedback_no_workarounds.md ('always root-cause, never bail-out/deopt').
+    // Refcount-pass-init n_in==0 generator-resume bug — JIT compilation of
+    // YIELD_FROM hits an inherited CinderX defect (deopt-assertion / immortal
+    // refcount underflow on resume) that 5 architectural fix iterations
+    // could not resolve cleanly. Author authority bypass per Alex L3076 +
+    // gatekeeper L3076. Functions containing YIELD_FROM fall back to the
+    // interpreter (correct, slightly slower). RULE STANDS for future cases.
     default:
       break;
   }
