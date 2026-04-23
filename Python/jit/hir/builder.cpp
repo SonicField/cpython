@@ -4531,6 +4531,10 @@ void HIRBuilder::emitGetANext(TranslationContext& tc) {
       static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
 
+extern "C" void hir_builder_emit_setup_with_common_c(
+    void *tc, void *builder, void *enter_id, void *exit_id,
+    int is_async, void **out_enter_result);
+
 Register* HIRBuilder::emitSetupWithCommon(
     TranslationContext& tc,
 #if PY_VERSION_HEX < 0x030C0000
@@ -4541,38 +4545,11 @@ Register* HIRBuilder::emitSetupWithCommon(
     PyObject* exit_id,
 #endif
     bool is_async) {
-  // Load the enter and exit attributes from the manager, push exit, and return
-  // the result of calling enter().
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* manager = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* enter = temps_.AllocateStack();
-  Register* exit = temps_.AllocateStack();
-  tc.emitLoadAttrSpecial(
-      enter,
-      manager,
-      enter_id,
-      is_async
-          ? "'%.200s' object does not support the asynchronous context manager "
-            "protocol"
-          : "'%.200s' object does not support the context manager protocol",
-      tc.frame);
-  tc.emitLoadAttrSpecial(
-      exit,
-      manager,
-      exit_id,
-      is_async
-          ? "'%.200s' object does not support the asynchronous context manager "
-            "protocol (missed __aexit__ method)"
-          : "'%.200s' object does not support the context manager protocol "
-            "(missed __exit__ method)",
-      tc.frame);
-  phx_ptr_arr_push(&stack, exit);
-
-  Register* enter_result = temps_.AllocateStack();
-  auto call = tc.emitVectorCall(1, enter_result, CallFlags::None);
-  call->setFrameState(tc.frame);
-  call->SetOperand(0, enter);
-  return enter_result;
+  void *enter_result = nullptr;
+  hir_builder_emit_setup_with_common_c(
+      &tc, this, (void*)enter_id, (void*)exit_id, is_async ? 1 : 0,
+      &enter_result);
+  return static_cast<Register*>(enter_result);
 }
 
 void HIRBuilder::emitBeforeWith(

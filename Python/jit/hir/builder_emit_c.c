@@ -4084,4 +4084,47 @@ void hir_builder_emit_primitive_load_const_c(
     (void)func;  /* unused; tc owns the emission */
 }
 
+/* W27c #1: emitSetupWithCommon — helper for emitSetupWith + emitBeforeWith.
+ * Mirrors C++ HIRBuilder::emitSetupWithCommon @ builder.cpp:4534.
+ *
+ * Loads __enter__ + __exit__ via emitLoadAttrSpecial, pushes exit, emits
+ * VectorCall(enter), returns enter_result via out-param. PY_VERSION_HEX
+ * conditional (_Py_Identifier vs PyObject*) folded in C++ stub: ids are
+ * passed as opaque void*. is_async selects the error message text. */
+void hir_builder_emit_setup_with_common_c(
+        PhxTranslationContext *tc,
+        void *builder,
+        void *enter_id,
+        void *exit_id,
+        int is_async,
+        void **out_enter_result) {
+    void *manager = phx_ptr_arr_pop(&tc->frame.stack);
+    void *enter = hir_builder_temps_alloc_stack(builder);
+    void *exit = hir_builder_temps_alloc_stack(builder);
+
+    const char *enter_fmt = is_async
+        ? "'%.200s' object does not support the asynchronous context manager "
+          "protocol"
+        : "'%.200s' object does not support the context manager protocol";
+    const char *exit_fmt = is_async
+        ? "'%.200s' object does not support the asynchronous context manager "
+          "protocol (missed __aexit__ method)"
+        : "'%.200s' object does not support the context manager protocol "
+          "(missed __exit__ method)";
+    phx_tc_emit(tc, hir_c_create_load_attr_special_reg(
+        enter, manager, enter_id, enter_fmt, &tc->frame));
+    phx_tc_emit(tc, hir_c_create_load_attr_special_reg(
+        exit, manager, exit_id, exit_fmt, &tc->frame));
+    phx_ptr_arr_push(&tc->frame.stack, exit);
+
+    void *enter_result = hir_builder_temps_alloc_stack(builder);
+    /* CallFlags::None = 0. VectorCall(1, enter_result, None) + setFrameState. */
+    void *call = hir_c_create_vectorcall_reg(1, enter_result, 0u);
+    hir_deopt_set_frame_state(call, &tc->frame);
+    hir_c_set_operand(call, 0, enter);
+    phx_tc_emit(tc, call);
+
+    *out_enter_result = enter_result;
+}
+
 
