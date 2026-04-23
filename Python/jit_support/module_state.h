@@ -235,3 +235,24 @@ void setModuleState(PyObject* mod);
 void removeModuleState();
 
 } // namespace cinderx
+
+// C bridge for accessing the ModuleState's builtin_members_ cache.
+//
+// Returns a borrowed reference to the cached member, or NULL if the type
+// is not in the cache OR the type's cached dict has no entry for `name`.
+//
+// Used by the pure-C blme_helpers_c.c port of
+// builtin_load_method_elimination.cpp's getMethodObjectFromType +
+// immutableMultithreadedTypeLookup helpers (W42-class Cat-A extraction
+// per theologian 20:03Z + supervisor 20:04Z + W27e PARTIAL precedent).
+//
+// Single-purpose, single-direction (read-only lookup) bridge. Internal
+// access to the C++ unordered_map is encapsulated; C callers see a
+// PyObject*-only surface.
+#ifdef __cplusplus
+extern "C" {
+#endif
+PyObject* phx_builtin_members_lookup(PyTypeObject* type, PyObject* name);
+#ifdef __cplusplus
+}
+#endif

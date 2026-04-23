@@ -5,6 +5,7 @@
 
 #include "cinderx/Common/py-portability.h"
 #include "cinderx/Jit/hir/hir_c_api.h"
+#include "cinderx/Jit/hir/blme_helpers_c.h"
 
 extern "C" void hir_reflow_types_c(void *func, void *start_block);
 #include "cinderx/Jit/hir/hir_instr_c.h"
@@ -29,129 +30,16 @@ struct MethodInvoke {
   CallMethod* call_method{nullptr};
 };
 
-#if PY_VERSION_HEX >= 0x030C0000
-
-PyObject* immutableMultithreadedTypeLookup(
-    PyTypeObject* type,
-    PyObject* name) {
-  PyObject* mro = type->tp_mro;
-  for (Py_ssize_t i = 0; i < PyTuple_GET_SIZE(mro); i++) {
-    PyTypeObject* mro_type =
-        reinterpret_cast<PyTypeObject*>(PyTuple_GET_ITEM(mro, i));
-    if (PyType_HasFeature(mro_type, _Py_TPFLAGS_STATIC_BUILTIN)) {
-      auto& builtins = cinderx::getModuleState()->builtinMembers();
-
-      auto members = builtins.find(mro_type);
-      if (members == builtins.end()) {
-        // We don't know anything about this builtin type.
-        return nullptr;
-      }
-      // We load all of the members from the MRO in the builtins
-      // cache so it's completely authorative.
-      return PyDict_GetItemWithError(members->second, name);
-    } else if (
-        !PyType_HasFeature(mro_type, Py_TPFLAGS_IMMUTABLETYPE) ||
-        !PyType_CheckExact(mro_type)) {
-      // We can't trust anything about this base type
-      return nullptr;
-    }
-
-    PyObject* method_obj =
-        PyDict_GetItemWithError(_PyType_GetDict(mro_type), name);
-    if (method_obj != nullptr) {
-      return method_obj;
-    }
-  }
-  return nullptr;
-}
-
-#endif
-
-// Gets a directly invokable method object from a JIT Type. This only succeeds
-// if we know the type can be directly invoked.
-PyObject* getMethodObjectFromType(Type receiver_type, PyObject* name) {
-  // This is a list of common builtin types whose methods cannot be overwritten
-  // from managed code and for which looking up the methods is guaranteed to
-  // not do anything "weird" that needs to happen at runtime, like make a
-  // network request.
-  // Note that due to the different staticmethod/classmethod/other descriptors,
-  // loading and invoking methods off an instance (e.g. {}.fromkeys(...)) is
-  // resolved and called differently than from the type (e.g.
-  // dict.fromkeys(...)). The code below handles the instance case only.
-#if PY_VERSION_HEX < 0x030C0000
-
-  HirType recv_hir = to_hir(receiver_type);
-  if (!(hir_type_is_subtype(recv_hir, to_hir(TArray)) ||
-        hir_type_is_subtype(recv_hir, to_hir(TBool)) ||
-        hir_type_is_subtype(recv_hir, to_hir(TBytesExact)) ||
-        hir_type_is_subtype(recv_hir, to_hir(TCode)) ||
-        hir_type_is_subtype(recv_hir, to_hir(TDictExact)) ||
-        hir_type_is_subtype(recv_hir, to_hir(TFloatExact)) ||
-        hir_type_is_subtype(recv_hir, to_hir(TListExact)) ||
-        hir_type_is_subtype(recv_hir, to_hir(TLongExact)) ||
-        hir_type_is_subtype(recv_hir, to_hir(TNoneType)) ||
-        hir_type_is_subtype(recv_hir, to_hir(TSetExact)) ||
-        hir_type_is_subtype(recv_hir, to_hir(TTupleExact)) ||
-        hir_type_is_subtype(recv_hir, to_hir(TUnicodeExact)))) {
-    return nullptr;
-  }
-  PyTypeObject* type = hir_type_runtime_py_type(&recv_hir);
-  if (type == nullptr) {
-    // This might happen for a variety of reasons, such as encountering a
-    // method load on a maybe-defined value where the definition occurs in a
-    // block of code that isn't seen by the compiler (e.g. in an except
-    // block).
-    JIT_DCHECK(
-        receiver_type == TBottom,
-        "Type {} expected to have PyTypeObject*",
-        receiver_type);
-    return nullptr;
-  }
-  return _PyType_Lookup(type, name);
-#else
-  HirType recv_hir = to_hir(receiver_type);
-  if (!hir_type_has_type_exact_spec(&recv_hir)) {
-    return nullptr;
-  }
-  PyTypeObject* type = hir_type_runtime_py_type(&recv_hir);
-  if (type == nullptr) {
-    // This might happen for a variety of reasons, such as encountering a
-    // method load on a maybe-defined value where the definition occurs in a
-    // block of code that isn't seen by the compiler (e.g. in an except
-    // block).
-    JIT_DCHECK(
-        receiver_type == TBottom,
-        "Type {} expected to have PyTypeObject*",
-        receiver_type);
-    return nullptr;
-  }
-
-  PyObject* method_obj = nullptr;
-  // In 3.12 we can't do PyType_Lookup because for built-in types it needs
-  // access to the current runtime, and in multi-threaded compile we don't
-  // have it. So we instead have a cache of all of the builtin types that we
-  // support this for.
-  auto& builtins = cinderx::getModuleState()->builtinMembers();
-
-  if (PyType_HasFeature(type, _Py_TPFLAGS_STATIC_BUILTIN)) {
-    auto it = builtins.find(hir_type_runtime_py_type(&recv_hir));
-    if (it != builtins.end()) {
-      method_obj = PyDict_GetItemWithError(it->second, name);
-    }
-  } else if (
-      PyType_HasFeature(type, Py_TPFLAGS_IMMUTABLETYPE) &&
-      PyType_CheckExact(type) && type->tp_dictoffset == 0) {
-    method_obj = immutableMultithreadedTypeLookup(type, name);
-    if (Py_TYPE(method_obj) != &PyClassMethodDescr_Type &&
-        Py_TYPE(method_obj) != &PyMethodDescr_Type &&
-        Py_TYPE(method_obj) != &PyWrapperDescr_Type &&
-        Py_TYPE(method_obj) != &PyFunction_Type) {
-      method_obj = nullptr;
-    }
-  }
-  return method_obj;
-#endif
-}
+/* immutableMultithreadedTypeLookup + getMethodObjectFromType: extracted
+ * to Python/jit/hir/blme_helpers_c.{c,h} as pure-C functions
+ * (phx_immutable_multithreaded_type_lookup +
+ * phx_get_method_object_from_type). W42-class Cat-A extraction per
+ * theologian 20:03Z + supervisor 20:04Z + W27e PARTIAL precedent.
+ *
+ * tryEliminateLoadMethod (below) calls phx_get_method_object_from_type
+ * via Type::toHirType conversion. Heavier methods (tryEliminateLoadMethod
+ * + Run) remain Cat-B accepted-residual due to ~17-bridge surface
+ * required for full conversion (exceeds W25b minimal-bridge budget). */
 
 // Returns true if LoadMethod/CallMethod/GetSecondOutput were removed.
 // Returns false if they could not be removed.
@@ -164,7 +52,23 @@ bool tryEliminateLoadMethod(Function& irfunc, MethodInvoke& invoke) {
 
   Register* receiver = invoke.load_method->receiver();
   Type receiver_type = receiver->type();
-  PyObject* method_obj = getMethodObjectFromType(receiver_type, name);
+  /* getMethodObjectFromType extracted to blme_helpers_c.c — call the
+   * pure-C version with HirType conversion. */
+  PyObject* method_obj = phx_get_method_object_from_type(to_hir(receiver_type), name);
+  /* Mirror the original .cpp's DCHECK on TBottom-when-no-runtime-type:
+   * the C helper returns NULL early when hir_type_runtime_py_type is
+   * NULL, but the JIT_DCHECK on receiver_type == TBottom belongs in
+   * the C++ caller where Type is in scope. */
+  if (method_obj == nullptr) {
+    HirType recv_hir = to_hir(receiver_type);
+    if (hir_type_has_type_exact_spec(&recv_hir) &&
+        hir_type_runtime_py_type(&recv_hir) == nullptr) {
+      JIT_DCHECK(
+          receiver_type == TBottom,
+          "Type {} expected to have PyTypeObject*",
+          receiver_type);
+    }
+  }
   if (method_obj == nullptr) {
     // No such method. Let the LoadMethod fail at runtime. _PyType_Lookup does
     // not raise an exception.

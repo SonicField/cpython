@@ -125,3 +125,16 @@ jit::UnorderedSet<PyObject*>& ModuleState::registeredCompilationUnits() {
 }
 
 } // namespace cinderx
+
+// C bridge for builtin_members_ lookup — see module_state.h declaration.
+// W42-class Cat-A extraction (theologian 20:03Z + supervisor 20:04Z) to
+// allow blme_helpers_c.c to access the cache from pure C without
+// depending on the C++ unordered_map / Ref<> types.
+extern "C" PyObject* phx_builtin_members_lookup(PyTypeObject* type, PyObject* name) {
+    auto& builtins = cinderx::getModuleState()->builtinMembers();
+    auto it = builtins.find(type);
+    if (it == builtins.end()) {
+        return nullptr;
+    }
+    return PyDict_GetItemWithError(it->second, name);
+}
