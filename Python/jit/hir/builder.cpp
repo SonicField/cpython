@@ -4080,23 +4080,13 @@ static inline Type element_type_from_seq_type(int seq_type) {
   }
 }
 
+extern "C" void hir_builder_emit_primitive_binary_op_c(
+    void *tc, void *builder, int oparg);
+
 void HIRBuilder::emitPrimitiveBinaryOp(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* right = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* left = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* result = temps_.AllocateStack();
-
-  BinaryOpKind op_kind = get_primitive_bin_op_kind(bc_instr);
-
-  if (is_double_binop(bc_instr.oparg())) {
-    tc.emitDoubleBinaryOp(result, op_kind, left, right);
-  } else {
-    tc.emitIntBinaryOp(result, op_kind, left, right);
-  }
-
-  phx_ptr_arr_push(&stack, result);
+  hir_builder_emit_primitive_binary_op_c(&tc, this, bc_instr.oparg());
 }
 
 void HIRBuilder::emitPrimitiveCompare(

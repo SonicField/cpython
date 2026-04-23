@@ -3702,4 +3702,109 @@ void hir_builder_emit_primitive_unbox_c(
     phx_ptr_arr_push(&tc->frame.stack, tmp);
 }
 
+/* W27a #3: emitPrimitiveBinaryOp (PRIMITIVE_BINARY_OP opcode, Static Python).
+ * Mirrors C++ HIRBuilder::emitPrimitiveBinaryOp @ builder.cpp:4085 + inlined
+ * static helpers get_primitive_bin_op_kind @ builder.cpp:3975 + is_double_binop
+ * @ builder.cpp:4035.
+ *
+ * PRIM_OP_* constants are #defined in cinderx/StaticPython/classloader.h
+ * (header avoided in C TU per existing convention — values hard-coded inline
+ * here as static-Python ABI is stable). Same pattern as builder_emit_c.c:2862.
+ *
+ * BinaryOpKind constants from hir_instr_c.h (HIR_BOP_*). */
+/* PRIM_OP_* mirror cinderx/StaticPython/classloader.h:70-90. */
+#define PHX_PRIM_OP_ADD_INT      0
+#define PHX_PRIM_OP_SUB_INT      1
+#define PHX_PRIM_OP_MUL_INT      2
+#define PHX_PRIM_OP_DIV_INT      3
+#define PHX_PRIM_OP_DIV_UN_INT   4
+#define PHX_PRIM_OP_MOD_INT      5
+#define PHX_PRIM_OP_MOD_UN_INT   6
+#define PHX_PRIM_OP_POW_INT      7
+#define PHX_PRIM_OP_LSHIFT_INT   8
+#define PHX_PRIM_OP_RSHIFT_INT   9
+#define PHX_PRIM_OP_RSHIFT_UN_INT 10
+#define PHX_PRIM_OP_XOR_INT      11
+#define PHX_PRIM_OP_OR_INT       12
+#define PHX_PRIM_OP_AND_INT      13
+#define PHX_PRIM_OP_NEG_INT      14
+#define PHX_PRIM_OP_INV_INT      15
+#define PHX_PRIM_OP_NOT_INT      16
+#define PHX_PRIM_OP_ADD_DBL      17
+#define PHX_PRIM_OP_SUB_DBL      18
+#define PHX_PRIM_OP_MUL_DBL      19
+#define PHX_PRIM_OP_DIV_DBL      20
+#define PHX_PRIM_OP_MOD_DBL      21
+#define PHX_PRIM_OP_POW_DBL      22
+#define PHX_PRIM_OP_POW_UN_INT   23
+
+/* PRIM_OP_* compare opcodes — different namespace per classloader.h. */
+#define PHX_PRIM_OP_EQ_INT       0
+#define PHX_PRIM_OP_NE_INT       1
+#define PHX_PRIM_OP_LT_INT       2
+#define PHX_PRIM_OP_LE_INT       3
+#define PHX_PRIM_OP_GT_INT       4
+#define PHX_PRIM_OP_GE_INT       5
+#define PHX_PRIM_OP_LT_UN_INT    6
+#define PHX_PRIM_OP_LE_UN_INT    7
+#define PHX_PRIM_OP_GT_UN_INT    8
+#define PHX_PRIM_OP_GE_UN_INT    9
+#define PHX_PRIM_OP_EQ_DBL       10
+#define PHX_PRIM_OP_NE_DBL       11
+#define PHX_PRIM_OP_LT_DBL       12
+#define PHX_PRIM_OP_LE_DBL       13
+#define PHX_PRIM_OP_GT_DBL       14
+#define PHX_PRIM_OP_GE_DBL       15
+
+void hir_builder_emit_primitive_binary_op_c(
+        PhxTranslationContext *tc,
+        void *builder,
+        int oparg) {
+    void *right = phx_ptr_arr_pop(&tc->frame.stack);
+    void *left = phx_ptr_arr_pop(&tc->frame.stack);
+    void *result = hir_builder_temps_alloc_stack(builder);
+
+    /* Map PRIM_OP_* → HIR_BOP_* (from get_primitive_bin_op_kind). */
+    int32_t op_kind;
+    switch (oparg) {
+        case PHX_PRIM_OP_ADD_DBL:
+        case PHX_PRIM_OP_ADD_INT:    op_kind = HIR_BOP_Add; break;
+        case PHX_PRIM_OP_AND_INT:    op_kind = HIR_BOP_And; break;
+        case PHX_PRIM_OP_DIV_INT:    op_kind = HIR_BOP_FloorDivide; break;
+        case PHX_PRIM_OP_DIV_UN_INT: op_kind = HIR_BOP_FloorDivideUnsigned; break;
+        case PHX_PRIM_OP_LSHIFT_INT: op_kind = HIR_BOP_LShift; break;
+        case PHX_PRIM_OP_MOD_INT:    op_kind = HIR_BOP_Modulo; break;
+        case PHX_PRIM_OP_MOD_UN_INT: op_kind = HIR_BOP_ModuloUnsigned; break;
+        case PHX_PRIM_OP_MUL_DBL:
+        case PHX_PRIM_OP_MUL_INT:    op_kind = HIR_BOP_Multiply; break;
+        case PHX_PRIM_OP_OR_INT:     op_kind = HIR_BOP_Or; break;
+        case PHX_PRIM_OP_RSHIFT_INT: op_kind = HIR_BOP_RShift; break;
+        case PHX_PRIM_OP_RSHIFT_UN_INT: op_kind = HIR_BOP_RShiftUnsigned; break;
+        case PHX_PRIM_OP_SUB_DBL:
+        case PHX_PRIM_OP_SUB_INT:    op_kind = HIR_BOP_Subtract; break;
+        case PHX_PRIM_OP_XOR_INT:    op_kind = HIR_BOP_Xor; break;
+        case PHX_PRIM_OP_DIV_DBL:    op_kind = HIR_BOP_TrueDivide; break;
+        case PHX_PRIM_OP_POW_UN_INT: op_kind = HIR_BOP_PowerUnsigned; break;
+        case PHX_PRIM_OP_POW_INT:
+        case PHX_PRIM_OP_POW_DBL:    op_kind = HIR_BOP_Power; break;
+        default:
+            JIT_CHECK_C(0, "Unhandled primitive binary op %d", oparg);
+            return;  /* unreachable */
+    }
+
+    /* is_double_binop test: DBL variants are the doubles, all others ints. */
+    int is_double = (oparg == PHX_PRIM_OP_ADD_DBL ||
+                     oparg == PHX_PRIM_OP_SUB_DBL ||
+                     oparg == PHX_PRIM_OP_DIV_DBL ||
+                     oparg == PHX_PRIM_OP_MUL_DBL ||
+                     oparg == PHX_PRIM_OP_POW_DBL);
+
+    if (is_double) {
+        phx_tc_emit(tc, hir_c_create_double_binary_op(result, op_kind, left, right));
+    } else {
+        phx_tc_emit(tc, hir_c_create_int_binary_op(result, op_kind, left, right));
+    }
+    phx_ptr_arr_push(&tc->frame.stack, result);
+}
+
 
