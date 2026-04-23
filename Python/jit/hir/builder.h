@@ -89,6 +89,10 @@ void hir_builder_setup_static_args_for_function_c(
     void **out_arg_regs, size_t *out_count);
 int hir_builder_is_static_rand_and_try_emit_c(
     void *builder, void *tc, PyObject *descr, long nargs);
+
+/* W27d #1 (theologian L2544): bridge for emitCopyFreeVars C body —
+ * grants access to private Register* func_ field. */
+void *hir_builder_func_register_c(void *builder);
 } // extern "C"
 #include <vector>
 
@@ -201,6 +205,8 @@ class HIRBuilder {
   // findExceptionHandler, getSimpleExceptInfo, emitCallExceptionHandler).
   friend void ::hir_builder_emit_call_method_exception_handler_inline_c(
       void*, void*, void*, int, void*, void*);
+  // W27d #1 (theologian L2544): grants C body access to private Register* func_.
+  friend void* ::hir_builder_func_register_c(void*);
  public:
   const Preloader& preloader() const { return preloader_; }
   explicit HIRBuilder(const Preloader& preloader)

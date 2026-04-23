@@ -3757,29 +3757,17 @@ void HIRBuilder::emitCopy(TranslationContext& tc, int item_idx) {
   hir_builder_emit_copy_c(static_cast<void*>(&tc), item_idx);
 }
 
-void HIRBuilder::emitCopyFreeVars(TranslationContext& tc, int nfreevars) {
-  JIT_CHECK(nfreevars > 0, "Can't initialize {} freevars", nfreevars);
-  JIT_CHECK(
-      nfreevars == numFreevars(code_),
-      "COPY_FREE_VARS oparg doesn't match the function's freevars tuple");
-  JIT_CHECK(func_ != nullptr, "No func_ in function with freevars");
+extern "C" void *hir_builder_func_register_c(void *builder) {
+  auto *self = static_cast<HIRBuilder*>(builder);
+  return self->func_;
+}
 
-  Register* func_closure = temps_.AllocateNonStack();
-  tc.emitLoadField(
-      func_closure,
-      func_,
-      "func_closure",
-      offsetof(PyFunctionObject, func_closure),
-      TTuple);
-  int offset = numLocalsplus(code_) - nfreevars;
-  for (int i = 0; i < nfreevars; ++i) {
-    Register* dst = static_cast<Register*>(tc.frame.localsplus.data[offset + i]);
-    JIT_CHECK(dst != nullptr, "No register for free var {}", i);
-    tc.emitLoadTupleItem(dst, func_closure, i);
-  }
-  if constexpr (PY_VERSION_HEX >= 0x030C0000) {
-    tc.emitInitFrameCellVars(func_, nfreevars);
-  }
+extern "C" void hir_builder_emit_copy_free_vars_c(
+    void *tc, void *func, void *builder, void *code, int nfreevars);
+
+void HIRBuilder::emitCopyFreeVars(TranslationContext& tc, int nfreevars) {
+  hir_builder_emit_copy_free_vars_c(
+      &tc, current_func_, this, code_, nfreevars);
 }
 
 extern "C" void hir_builder_emit_swap_c(void *tc, int item_idx);

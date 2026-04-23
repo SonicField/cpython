@@ -22,6 +22,7 @@
 #include "cinderx/StaticPython/checked_list.h"  /* Ci_CheckedList_TypeCheck (W27b #3) */
 #include "cinderx/StaticPython/checked_dict.h"  /* Ci_CheckedDict_TypeCheck (W27b #4) */
 #include "cinderx/StaticPython/static_array.h"  /* PyStaticArrayObject (W27c #5) */
+#include "cinderx/Common/code.h"               /* numFreevars/numLocalsplus (W27d #1) */
 
 /* PhxCallKind values — must match enum PhxCallKind in builder.h. C body
  * dispatches on these instead of opcode constants to avoid pulling in
@@ -4274,6 +4275,52 @@ void hir_builder_emit_sequence_set_c(
     }
     phx_tc_emit(tc, hir_c_create_store_array_item_reg(
         ob_item, adjusted_idx, value, sequence, elem_type));
+}
+
+/* W27d #1: emitCopyFreeVars (COPY_FREE_VARS, mainline). Mirrors C++
+ * HIRBuilder::emitCopyFreeVars @ builder.cpp:3760.
+ *
+ * Loads func_closure tuple from func_ register, then per-freevar:
+ *   localsplus[offset+i] = LoadTupleItem(func_closure, i)
+ * Then 3.12+ emits InitFrameCellVars(func, nfreevars).
+ *
+ * 1 NEW bridge (hir_builder_func_register_c) — accesses private Register* func_. */
+extern int numFreevars(PyCodeObject *code);
+extern int numLocalsplus(PyCodeObject *code);
+extern void *hir_builder_func_register_c(void *builder);
+
+void hir_builder_emit_copy_free_vars_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder,
+        void *code,
+        int nfreevars) {
+    PyCodeObject *code_obj = (PyCodeObject *)code;
+    JIT_CHECK_C(nfreevars > 0, "Can't initialize %d freevars", nfreevars);
+    JIT_CHECK_C(nfreevars == numFreevars(code_obj),
+        "COPY_FREE_VARS oparg doesn't match the function's freevars tuple");
+
+    void *func_reg = hir_builder_func_register_c(builder);
+    JIT_CHECK_C(func_reg != NULL, "No func_ in function with freevars");
+
+    void *func_closure = hir_func_alloc_register(func);
+    HirType t_tuple = HIR_TYPE_TUPLE;
+    phx_tc_emit(tc, hir_c_create_load_field_reg(
+        func_closure, func_reg, "func_closure",
+        (intptr_t)offsetof(PyFunctionObject, func_closure), t_tuple, 0));
+
+    int offset = numLocalsplus(code_obj) - nfreevars;
+    for (int i = 0; i < nfreevars; ++i) {
+        void *dst = tc->frame.localsplus.data[offset + i];
+        JIT_CHECK_C(dst != NULL, "No register for free var %d", i);
+        phx_tc_emit(tc, hir_c_create_load_tuple_item_reg(
+            dst, func_closure, (Py_ssize_t)i));
+    }
+
+#if PY_VERSION_HEX >= 0x030C0000
+    phx_tc_emit(tc, hir_c_create_init_frame_cell_vars_reg(
+        func_reg, (int32_t)nfreevars));
+#endif
 }
 
 
