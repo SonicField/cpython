@@ -160,21 +160,68 @@ combined-bridge decision). Build. Verify:
 - BUILD_EXIT=0 → bridge inventory has GAP (mutation silently absorbed
   somewhere) → reassess inventory before push, expand bridge surface
 
-**Acceptance:** push proceeds ONLY if Step B verification falsification
-PASSES (drift caught at expected location). Adds ~10min to W26 cycle
-but catches inventory gaps before they ship.
+**Acceptance:** Step B verification falsification PASS is **NECESSARY but
+NOT SUFFICIENT** for push. PASS confirms BRIDGE-INVENTORY completeness
+ONLY — it tests that the bridge surface catches signature drift. PASS does
+NOT confirm SEMANTIC EQUIVALENCE of the new C body vs the deleted C++
+baseline.
 
-**General principle (per supervisor L2469 + theologian future-spec):**
-all future workstream specs require post-Step-B falsification test in
-gate-completion criteria. Bridge inventory completeness must be
-empirically falsified, not just enumerated.
+Semantic equivalence requires SEPARATE gates (see §4b below). ALL of:
+inventory-completeness PASS (this gate) + semantic-equivalence gates (§4b)
+must PASS for push to proceed. §4 alone is insufficient.
+
+**Empirical proof (push 84, 95c9f9b891):** combined-bridge mutation PASSED
+inventory falsification (BUILD_EXIT=2 at builder.h:202 friend-decl), yet
+W21 golden still detected register-allocation HIR regression in
+attr_probe (PhxCallKind dispatch architecture required for fix at
+1553c14ae8). The §4 gate did its job (inventory complete); a separate
+semantic gate (W21 golden) caught the regression. Both classes of gate
+required.
+
+**General principle (per supervisor L2469 + theologian L2625 + pythia
+#87):** all future workstream specs require post-Step-B falsification
+test in gate-completion criteria AS NECESSARY-BUT-NOT-SUFFICIENT. Bridge
+inventory completeness must be empirically falsified, not just enumerated
+— but inventory-PASS does not substitute for semantic-equivalence
+verification.
+
+### Step B verification — semantic equivalence gates (§4b, MANDATORY)
+
+Distinct from §4 inventory-completeness gate. Validates that the new C
+body produces semantically-equivalent HIR vs the deleted C++ baseline.
+Three classes:
+
+1. **W21 golden** (`Lib/test/test_phoenix_jit_loadattr_golden.py`): force
+   compiles representative Python functions + diffs HIR output against
+   pinned golden. Catches register-allocation drift, opcode-dispatch
+   shifts, and HIR construction-order changes (push 84 demonstrated this
+   class — caught attr_probe regression that §4 inventory PASSED).
+2. **Falsifier suite 6/6**
+   (`Lib/test/test_phoenix_jit_inline_except_closure.py`): exercises
+   exception-handling + closure paths with sole-path force_compile.
+3. **Force_compile sole-path execution**: for converted methods, the
+   wiring gate force_compiles 5 mainline functions (per
+   `scripts/gate_phoenix.sh`). Sole-path divergence (compiles + correct
+   signatures + wrong HIR) caught here, not at §4 inventory gate.
+
+**Caveat — coverage gap for __static__-only paths:** force_compile + W21
+golden + falsifier exercise mainline Python paths only. Static Python
+emit-methods (PRIM_OP_*, BUILD_CHECKED_*, etc.) have NO sole-path
+coverage in current Phoenix tree (per W27e accepted-residual L2531+L2533
+framing). Cross-link: `feedback_dispatch_glue_categorization.md` for
+PARTIAL stub Cat-A/B classification.
+
+**Acceptance:** push proceeds ONLY if BOTH §4 inventory-completeness
+PASS AND §4b semantic-equivalence gates PASS. Either gate FAIL blocks
+push.
 
 ### Step C — extended verification (no new spec test, existing infra catches)
 
 emitAnyCall is exercised by virtually every benchmark + test. Existing
 test surface (falsifier 6/6, W21 golden, full test suite) IS the
-falsification. No §5.3-style mutation test needed — drift surface for
-emitAnyCall args was already validated in W25 + W25b cumulative work.
+semantic-equivalence gate per §4b. No §5.3-style mutation test needed —
+drift surface for emitAnyCall args was already validated in W25 + W25b
+cumulative work.
 
 ---
 
