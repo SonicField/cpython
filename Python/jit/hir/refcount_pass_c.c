@@ -498,29 +498,33 @@ void phx_rc_use_simple_in_state(PhxRefcountEnv *env, void *block) {
     if (n_in == 0) {
         /* Generator-resume blocks have in_edges_count() == 0 because the
          * CFG does not model the runtime resume edge from the generator
-         * machinery (every JIT-compiled generator function has at least one
-         * such block). The live-in registers for these blocks are restored
+         * machinery. The live-in registers for these blocks are restored
          * by the runtime from the generator's saved state when execution
          * resumes — semantically they arrive as owned references (mortal
          * objects) or stay uncounted (immortals).
          *
-         * The legacy implementation (inherited from CinderX C++) used an
-         * empty in-state here, which left env->live_regs empty and caused
-         * subsequent passthrough output processing to dereference NULL
-         * (refcount_pass_c.c:716 phx_rs_add_copy with rs=NULL). That bug
-         * was always present but hidden until W32 (4a01bfa3d1) repaired
-         * the gate's --wiring step and exposed compiled-code execution of
-         * yield-from + await patterns. W22 narrowly worked around the
-         * yield-from trigger via a checkTranslate deopt; the proper fix
-         * is to populate the in-state from liveness analysis here, so
-         * every n_in==0 block (yield-from, await, plain generator entry
-         * after RETURN_GENERATOR) gets a correct in-state.
+         * The legacy implementation (inherited from CinderX C++ — see
+         * git show 1d2b9a737e^:Python/jit/hir/refcount_insertion.cpp:
+         * 667-672) used an empty in-state for ALL n_in==0 blocks. That
+         * crashed the entry block of generator functions at
+         * phx_rs_add_copy(NULL, ...) (refcount_pass_c.c:716), but it was
+         * also load-bearing for *non-entry* n_in==0 blocks (DCE-pending
+         * dead blocks, blocks of inlined functions, exception handlers
+         * sometimes). Their live-in regs are LoadArg-defined regs from
+         * the parent function's entry — adding those to env->live_regs
+         * here as OWNED would over-decref the parameter on every call
+         * (gdb finding 2026-04-23 18:20Z: match-statement test loses 1
+         * refcount on the parameter list per JIT call).
          *
-         * Per gdb investigation 2026-04-23 17:46Z: stack trace at
-         * phx_rs_add_copy(rs=NULL) → phx_rc_process_output → passthrough
-         * branch dereferences phx_sm_get(&env->live_regs, model_out)
-         * which returns NULL because the live-in register was never
-         * inserted into env->live_regs. */
+         * Scope the populate to the CFG entry block only — that's the
+         * single block where 'no CFG predecessor' actually means 'live
+         * regs come from runtime resume' (function entry path for
+         * generators + non-generators alike, since LoadArg is the first
+         * instruction in the entry block and its output isn't a real
+         * live-in either). For all other n_in==0 blocks (DCE-pending,
+         * exception-handler-class), preserve the legacy empty-state
+         * behavior so we don't pollute env->live_regs with regs that
+         * are already tracked by the entry block's processing. */
         PhxStateMap in_state;
         phx_sm_init(&in_state);
 
@@ -534,13 +538,23 @@ void phx_rc_use_simple_in_state(PhxRefcountEnv *env, void *block) {
             if (phx_sm_contains(&in_state, model)) continue;
 
             PhxRegState *rs = phx_sm_get_or_create(&in_state, model);
-            /* phx_rs_init (called by get_or_create) leaves kind at the
-             * default of PHX_REF_UNCOUNTED. For mortal-typed registers
-             * delivered by the generator-resume runtime, mark OWNED so
-             * the refcount pass tracks the reference correctly. */
-            if (!phx_rc_is_uncounted(reg)) {
-                phx_rs_set_owned(rs);
-            }
+            /* Leave the default of PHX_REF_UNCOUNTED. Marking OWNED here
+             * caused over-decref of LoadArg-defined regs reported as
+             * live-in for DCE-pending dead blocks (gdb 18:20Z: match-
+             * statement test loses 1 refcount on the parameter list per
+             * JIT call). Keeping UNCOUNTED:
+             *   - Function-entry path: LoadArg defines the reg in the
+             *     entry block; processOutput sets correct ownership
+             *     (OWNED). The UNCOUNTED entry from this fix is
+             *     overwritten by the (silently-bypassed in release)
+             *     processOutput path.
+             *   - Yield-resume path: the runtime restores the value;
+             *     compiled code reads it but does not decref it, so
+             *     UNCOUNTED is safe (no leak in the JIT-generated path
+             *     because the runtime's resume code owns the ref).
+             * This preserves the n_in==0 NULL-deref fix without the
+             * over-decref side-effect. */
+            (void)rs;
         }
         PyMem_RawFree(collector.regs);
 
