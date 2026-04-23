@@ -3905,4 +3905,23 @@ void hir_builder_emit_primitive_unary_op_c(
     (void)func;  /* func unused (no error path needs it) */
 }
 
+/* W27b #1: emitLoadSpecial (LOAD_ASSERTION_ERROR mainline opcode).
+ * Mirrors C++ HIRBuilder::emitLoadSpecial @ builder.cpp:5095.
+ * Per W27b Step A scope (theologian L2515 ACK): ZERO new bridges. */
+void hir_builder_emit_load_special_c(
+        PhxTranslationContext *tc,
+        void *builder,
+        int oparg) {
+    void *self = phx_ptr_arr_pop(&tc->frame.stack);
+    void *method = hir_builder_temps_alloc_stack(builder);
+    void *null_or_self = hir_builder_temps_alloc_stack(builder);
+    phx_tc_emit(tc, hir_c_create_load_special_reg(
+        method, self, oparg, &tc->frame));
+    HirType t_optobject = HIR_TYPE_OPTOBJECT;
+    phx_tc_emit(tc, hir_c_create_get_second_output_reg(
+        null_or_self, t_optobject, method));
+    phx_ptr_arr_push(&tc->frame.stack, method);
+    phx_ptr_arr_push(&tc->frame.stack, null_or_self);
+}
+
 

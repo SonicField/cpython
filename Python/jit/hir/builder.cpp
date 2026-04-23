@@ -5092,17 +5092,13 @@ void HIRBuilder::emitLoadCommonConstant(
       bc_instr.oparg());
 }
 
+extern "C" void hir_builder_emit_load_special_c(
+    void *tc, void *builder, int oparg);
+
 void HIRBuilder::emitLoadSpecial(
     TranslationContext& tc,
     const BytecodeInstruction& bc_instr) {
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* self = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* method = temps_.AllocateStack();
-  Register* null_or_self = temps_.AllocateStack();
-  tc.emitLoadSpecial(method, self, bc_instr.oparg(), tc.frame);
-  tc.emitGetSecondOutput(null_or_self, TOptObject, method);
-  phx_ptr_arr_push(&stack, method);
-  phx_ptr_arr_push(&stack, null_or_self);
+  hir_builder_emit_load_special_c(&tc, this, bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_set_function_attribute_c(void *tc, int oparg);
