@@ -3650,5 +3650,30 @@ void hir_builder_emit_any_call_c(
     }
 }
 
+/* W27a #1: emitPrimitiveBox (PRIMITIVE_BOX opcode, Static Python).
+ * Mirrors C++ HIRBuilder::emitPrimitiveBox @ builder.cpp:3931 + inline
+ * boxPrimitive @ builder.cpp:3951 (TCBool fast-path branch).
+ *
+ * Per theologian L2509 W27a Step A pre-audit: ZERO new bridges. */
+void hir_builder_emit_primitive_box_c(
+        PhxTranslationContext *tc,
+        void *builder,
+        int oparg) {
+    void *tmp = hir_builder_temps_alloc_stack(builder);
+    void *src = phx_ptr_arr_pop(&tc->frame.stack);
+    HirType type = hir_prim_type_to_type(oparg);
+
+    /* Inline boxPrimitive: TCBool fast-path uses primitive_box_bool (no
+     * FrameState); other primitive types use primitive_box_reg with
+     * tc->frame as the FrameState. */
+    HirType t_cbool = HIR_TYPE_CBOOL;
+    if (hir_type_is_subtype(type, t_cbool)) {
+        phx_tc_emit(tc, hir_c_create_primitive_box_bool(tmp, src));
+    } else {
+        phx_tc_emit(tc, hir_c_create_primitive_box_reg(
+            tmp, src, type, &tc->frame));
+    }
+    phx_ptr_arr_push(&tc->frame.stack, tmp);
+}
 
 

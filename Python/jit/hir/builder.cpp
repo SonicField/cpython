@@ -3928,14 +3928,13 @@ void HIRBuilder::emitPrimitiveLoadConst(
   phx_ptr_arr_push(&tc.frame.stack, tmp);
 }
 
+extern "C" void hir_builder_emit_primitive_box_c(
+    void *tc, void *builder, int oparg);
+
 void HIRBuilder::emitPrimitiveBox(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* tmp = temps_.AllocateStack();
-  Register* src = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Type typ = prim_type_to_type(bc_instr.oparg());
-  boxPrimitive(tc, tmp, src, typ);
-  phx_ptr_arr_push(&tc.frame.stack, tmp);
+  hir_builder_emit_primitive_box_c(&tc, this, bc_instr.oparg());
 }
 
 void HIRBuilder::emitPrimitiveUnbox(
