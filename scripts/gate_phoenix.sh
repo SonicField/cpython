@@ -225,20 +225,33 @@ echo "JIT Smoke: PASS" | tee -a "$RESULTS_FILE"
 echo "" | tee -a "$RESULTS_FILE"
 echo "--- Step 3: Phoenix Tests ---" | tee -a "$RESULTS_FILE"
 PHOENIX_MODULES="test_phoenix_jit_arithmetic test_phoenix_jit_autocompile test_phoenix_jit_comparisons test_phoenix_jit_containers test_phoenix_jit_controlflow test_phoenix_jit_coverage test_phoenix_jit_functions test_phoenix_jit_generators test_phoenix_jit_inline_except_closure test_phoenix_jit_loadattr_golden test_phoenix_float test_phoenix_hir_type test_phoenix_profiling_hooks test_phoenix_deferred_compile test_phoenix_benchmark_correctness test_phoenix_usetype_float"
-PHOENIX_OUTPUT=$(JIT_ENABLE=1 ASAN_OPTIONS=detect_leaks=0 "$PYTHON" -m test $PHOENIX_MODULES 2>&1 || true)
+# W32 Option B: capture exit code as canonical SUCCESS/FAIL signal.
+# The output `Result: SUCCESS` literal can be missing (zero tests, format
+# drift) and previously misclassified clean runs as UNKNOWN. The exit
+# code is the authoritative signal.
+set +e
+PHOENIX_OUTPUT=$(JIT_ENABLE=1 ASAN_OPTIONS=detect_leaks=0 "$PYTHON" -m test $PHOENIX_MODULES 2>&1)
+PHOENIX_EXIT=$?
+set -e
 
 PHOENIX_TOTAL=$(echo "$PHOENIX_OUTPUT" | grep -oP 'Total tests: run=\K[0-9]+' || echo 0)
-PHOENIX_RESULT=$(echo "$PHOENIX_OUTPUT" | grep -oP 'Result: \K\w+' || echo "UNKNOWN")
+if [ $PHOENIX_EXIT -eq 0 ]; then
+    PHOENIX_RESULT="SUCCESS"
+else
+    PHOENIX_RESULT="FAIL"
+fi
 
 PHOENIX_MODULES_PASS=$(echo "$PHOENIX_OUTPUT" | grep -oP 'run=\K[0-9]+(?=/[0-9]+$)' | tail -1 || echo 0)
 PHOENIX_MODULES_TOTAL=$(echo "$PHOENIX_OUTPUT" | grep -oP 'run=[0-9]+/\K[0-9]+' | tail -1 || echo 0)
 
-echo "Phoenix: $PHOENIX_TOTAL tests, $PHOENIX_MODULES_PASS/$PHOENIX_MODULES_TOTAL modules, Result: $PHOENIX_RESULT" | tee -a "$RESULTS_FILE"
+echo "Phoenix: $PHOENIX_TOTAL tests, $PHOENIX_MODULES_PASS/$PHOENIX_MODULES_TOTAL modules, Result: $PHOENIX_RESULT (exit=$PHOENIX_EXIT)" | tee -a "$RESULTS_FILE"
 if [ "$PHOENIX_RESULT" != "SUCCESS" ]; then
     GATE_PASS=0
     FAILURES="$FAILURES Phoenix:$PHOENIX_RESULT"
     echo "Phoenix FAILURES:" | tee -a "$RESULTS_FILE"
-    echo "$PHOENIX_OUTPUT" | grep -E "FAIL|ERROR|CRASH|Assertion failed" | tee -a "$RESULTS_FILE"
+    # W32 Option A: tolerate grep-no-match (pipefail would otherwise kill
+    # the script before Step 4-6 ran).
+    { echo "$PHOENIX_OUTPUT" | grep -E "FAIL|ERROR|CRASH|Assertion failed" || true; } | tee -a "$RESULTS_FILE"
 fi
 
 # Step 4: CPython test suite (parallel, JIT enabled)
