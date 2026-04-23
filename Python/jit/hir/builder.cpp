@@ -4368,53 +4368,20 @@ void HIRBuilder::emitForIter(
       bc_instr.nextInstrOffset().value());
 }
 
-void HIRBuilder::emitGetYieldFromIter(CFG& cfg, TranslationContext& tc) {
-  Register* iter_in = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
+extern "C" void hir_builder_emit_get_yield_from_iter_c(
+    void *tc, void *func, void *builder, int code_flags,
+    void *cinderx_coro_type, void *py_coro_type);
 
-  bool in_coro = code_->co_flags & (CO_COROUTINE | CO_ITERABLE_COROUTINE);
-  BasicBlock* done_block = cfg.AllocateBlock();
-  BasicBlock* next_block = cfg.AllocateBlock();
-  BasicBlock* nop_block = cfg.AllocateBlock();
-  BasicBlock* is_coro_block = in_coro ? nop_block : cfg.AllocateBlock();
-
+void HIRBuilder::emitGetYieldFromIter(CFG& /*cfg*/, TranslationContext& tc) {
+  void *cinderx_coro_type = nullptr;
 #if PY_VERSION_HEX >= 0x030C0000
-  BasicBlock* check_coro_block = cfg.AllocateBlock();
-  tc.emitCondBranchCheckType(
-      iter_in,
-      Type::fromTypeExact(cinderx::getModuleState()->coroType()),
-      is_coro_block,
-      check_coro_block);
-
-  tc.block = check_coro_block;
+  cinderx_coro_type = static_cast<void*>(cinderx::getModuleState()->coroType());
 #endif
-  tc.emitCondBranchCheckType(
-      iter_in, Type::fromTypeExact(&PyCoro_Type), is_coro_block, next_block);
-
-  if (!in_coro) {
-    tc.block = is_coro_block;
-    tc.emitRaiseStatic(
-        0,
-        PyExc_TypeError,
-        "cannot 'yield from' a coroutine object in a non-coroutine generator",
-        tc.frame);
-  }
-
-  tc.block = next_block;
-
-  BasicBlock* slow_path = cfg.AllocateBlock();
-  Register* iter_out = temps_.AllocateStack();
-  tc.emitCondBranchCheckType(iter_in, TGen, nop_block, slow_path);
-
-  tc.block = slow_path;
-  tc.emitGetIter(iter_out, iter_in, tc.frame);
-  tc.emitBranch(done_block);
-
-  tc.block = nop_block;
-  tc.emitAssign(iter_out, iter_in);
-  tc.emitBranch(done_block);
-
-  tc.block = done_block;
-  phx_ptr_arr_push(&tc.frame.stack, iter_out);
+  hir_builder_emit_get_yield_from_iter_c(
+      &tc, current_func_, this,
+      static_cast<int>(code_->co_flags),
+      cinderx_coro_type,
+      static_cast<void*>(&PyCoro_Type));
 }
 
 extern "C" void hir_builder_emit_unpack_ex_c(void *tc, void *func, int oparg);

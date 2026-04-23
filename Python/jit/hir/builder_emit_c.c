@@ -4323,4 +4323,74 @@ void hir_builder_emit_copy_free_vars_c(
 #endif
 }
 
+/* W27d #2: emitGetYieldFromIter (GET_YIELD_FROM_ITER, mainline). Mirrors
+ * C++ HIRBuilder::emitGetYieldFromIter @ builder.cpp:4383.
+ *
+ * Pops iter_in. If in_coro: 3.12+ check cinderx coroType + PyCoro_Type
+ * (jump to nop_block on match else next_block); pre-3.12 only PyCoro_Type.
+ * If !in_coro: same checks but on match jump to is_coro_block which raises
+ * TypeError. Then in next_block: cond on TGen → nop (assign iter_in→iter_out)
+ * or slow_path (GetIter). All converge at done_block, push iter_out.
+ *
+ * cinderx coroType pre-fetched in C++ stub (NULL for pre-3.12). PyCoro_Type
+ * passed as void* to keep C body opaque-Python-types-only. */
+void hir_builder_emit_get_yield_from_iter_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder,
+        int code_flags,
+        void *cinderx_coro_type,  /* nullable; non-NULL only on 3.12+ */
+        void *py_coro_type) {
+    void *iter_in = phx_ptr_arr_pop(&tc->frame.stack);
+
+    /* CO_COROUTINE = 0x0100, CO_ITERABLE_COROUTINE = 0x0100000 */
+    int in_coro = (code_flags & 0x0100) || (code_flags & 0x0100000);
+
+    void *done_block = hir_cfg_alloc_block(func);
+    void *next_block = hir_cfg_alloc_block(func);
+    void *nop_block = hir_cfg_alloc_block(func);
+    void *is_coro_block = in_coro ? nop_block : hir_cfg_alloc_block(func);
+
+    if (cinderx_coro_type != NULL) {
+        /* 3.12+ extra check on cinderx coroType. */
+        void *check_coro_block = hir_cfg_alloc_block(func);
+        HirType cinderx_t = hir_type_from_pytype(
+            (PyTypeObject*)cinderx_coro_type, 1);
+        phx_tc_emit(tc, hir_c_create_cond_branch_check_type_cpp(
+            iter_in, cinderx_t, is_coro_block, check_coro_block));
+        tc->block = check_coro_block;
+    }
+    HirType pycoro_t = hir_type_from_pytype(
+        (PyTypeObject*)py_coro_type, 1);
+    phx_tc_emit(tc, hir_c_create_cond_branch_check_type_cpp(
+        iter_in, pycoro_t, is_coro_block, next_block));
+
+    if (!in_coro) {
+        tc->block = is_coro_block;
+        phx_tc_emit(tc, hir_c_create_raise_static_reg(
+            0, (void*)PyExc_TypeError,
+            "cannot 'yield from' a coroutine object in a non-coroutine generator",
+            &tc->frame));
+    }
+
+    tc->block = next_block;
+
+    void *slow_path = hir_cfg_alloc_block(func);
+    void *iter_out = hir_builder_temps_alloc_stack(builder);
+    HirType t_gen = HIR_TYPE_GEN;
+    phx_tc_emit(tc, hir_c_create_cond_branch_check_type_cpp(
+        iter_in, t_gen, nop_block, slow_path));
+
+    tc->block = slow_path;
+    phx_tc_emit(tc, hir_c_create_get_iter_reg(iter_out, iter_in, &tc->frame));
+    phx_tc_emit(tc, hir_c_create_branch_cpp(done_block));
+
+    tc->block = nop_block;
+    phx_tc_emit(tc, hir_c_create_assign_reg(iter_out, iter_in));
+    phx_tc_emit(tc, hir_c_create_branch_cpp(done_block));
+
+    tc->block = done_block;
+    phx_ptr_arr_push(&tc->frame.stack, iter_out);
+}
+
 
