@@ -134,3 +134,13 @@ Gatekeeper MUST grep for `reinterpret_cast.*HirType` and `reinterpret_cast.*cons
 ARM64 gate runs with `--with-pydebug` + `CMAKE_BUILD_TYPE=Debug` to catch JIT assertion bugs invisible in optimized builds. Use `scripts/build_phoenix.sh --pydebug --clean`.
 
 Pydebug gate checks auto-compilation path assertions (funcTypeChecks, JIT_DCHECK). force_compile tests may not work under pydebug (cinderjit module may not load).
+
+## ARM64 Commit-Match: Tree-Match Canonical
+
+CLAUDE.md's ARM64-commit-match rule guards against silent-bundle-failure (x86 and ARM64 building different content). The substantive check is content equivalence, not literal SHA equality. Verify via `git rev-parse <SHA>^{tree}` cross-arch + parent-SHA match.
+
+When devgpu004 receives a commit via `git am` (because the local bundle is multi-commits behind the canonical github remote), `git am` re-stamps the committer-date and the resulting SHA differs from the x86 SHA — even with `git am --committer-date-is-author-date`, because the chain of parent SHAs starts diverging the moment the bundle is stale. The trees stay byte-identical because the patch applies the same diff onto the same parent tree.
+
+In that case, **tree-match is canonical**: x86_64 TREE == ARM64 TREE proves the content is identical. SHA-match is a metadata artifact, not a content check. Testkeeper reports both SHAs in this scenario and gatekeeper accepts tree-match as the gate.
+
+For full SHA-match, refresh the bundle on devgpu004 between pushes (`git bundle create` on x86 + `scp` to devgpu004), or pursue W30 (point devgpu004's git origin at github directly).
