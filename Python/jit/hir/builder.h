@@ -626,14 +626,6 @@ class HIRBuilder {
   };
   std::vector<ExceptionTableEntry> exception_table_;
 
-  // B2: blocks that need to be added to the translation queue.
-  // emitInlineExceptionMatch populates this; translate() drains it.
-  struct PendingBlock {
-    BasicBlock* block;
-    FrameState frame;
-  };
-  std::vector<PendingBlock> pending_b2_blocks_;
-
   // Parse co_exceptiontable into exception_table_
   void parseExceptionTable();
 

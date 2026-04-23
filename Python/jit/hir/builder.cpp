@@ -2601,12 +2601,6 @@ void HIRBuilder::translate(
         break;
       }
     }
-    // B2: drain pending blocks from emitInlineExceptionMatch.
-    for (auto& pb : pending_b2_blocks_) {
-      queue.emplace_back(pb.block, std::move(pb.frame));
-    }
-    pending_b2_blocks_.clear();
-
     JIT_DCHECK(
         tc.block->GetTerminator() != nullptr &&
             !tc.block->GetTerminator()->IsSnapshot(),

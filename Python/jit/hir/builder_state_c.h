@@ -6,7 +6,8 @@
  * Class A members (5 immutable + nullable opaque pointers) extracted
  * from HIRBuilder. Class B members (block_map_, exception_table_, etc.)
  * remain C++-side and access via _cpp suffix bridges (push/clear/iterate)
- * until per-batch migration per spec §5 #1.
+ * until per-batch migration per spec §5 #1. (pending_b2_blocks_ was
+ * dead-state-deleted Phase 3 Batch 3 — zero writers post-W26 refactor.)
  *
  * Authorization: theologian 23:05:15Z + supervisor 23:02:34Z (Y) atomic.
  */
@@ -23,8 +24,8 @@ extern "C" {
 /* PhxHirBuilderState — opaque holder for HIRBuilder Class A state.
  * code + preloader are immutable post-ctor; current_func/func/kwnames
  * mutate during translate()/emit. Subsequent batches add Class B
- * opaque pointers (block_map, exception_table, pending_b2_blocks,
- * temps, static_method_stack). */
+ * opaque pointers (block_map, exception_table, temps,
+ * static_method_stack). */
 typedef struct PhxHirBuilderState {
     void *code;            /* PyCodeObject* (ctor, immutable) */
     const void *preloader; /* const Preloader& (ctor, immutable) */
