@@ -49,8 +49,14 @@ extern "C" int hir_remove_unreachable_blocks_c(void *func);
 #include <utility>
 #include <vector>
 
-/* Phase 1 #2: file-scope extern decls for C dispatch (post stub-delete). */
+/* Phase 1 #2/#3: file-scope extern decls for C dispatch (post stub-delete). */
 extern "C" void hir_builder_emit_format_simple_c(void *tc, void *func, void *builder);
+extern "C" void hir_builder_emit_build_checked_list_c(void *tc, void *builder, PyObject *const_arg);
+extern "C" void hir_builder_emit_build_checked_map_c(void *tc, void *builder, PyObject *const_arg);
+extern "C" void hir_builder_emit_sequence_get_c(void *tc, void *builder, int oparg);
+extern "C" void hir_builder_emit_sequence_set_c(void *tc, void *builder, int oparg);
+extern "C" void hir_builder_emit_get_yield_from_iter_c(
+    void *tc, void *func, void *builder, int code_flags, void *py_coro_type);
 
 namespace jit::hir {
 
@@ -1816,11 +1822,11 @@ void HIRBuilder::translate(
           emitMakeListTuple(tc, bc_instr);
           break;
         case BUILD_CHECKED_LIST: {
-          emitBuildCheckedList(tc, bc_instr);
+          hir_builder_emit_build_checked_list_c(&tc, this, constArg(bc_instr));
           break;
         }
         case BUILD_CHECKED_MAP: {
-          emitBuildCheckedMap(tc, bc_instr);
+          hir_builder_emit_build_checked_map_c(&tc, this, constArg(bc_instr));
           break;
         }
         case BUILD_MAP: {
@@ -2020,11 +2026,11 @@ void HIRBuilder::translate(
           break;
         }
         case SEQUENCE_GET: {
-          emitSequenceGet(tc, bc_instr);
+          hir_builder_emit_sequence_get_c(&tc, this, bc_instr.oparg());
           break;
         }
         case SEQUENCE_SET: {
-          emitSequenceSet(tc, bc_instr);
+          hir_builder_emit_sequence_set_c(&tc, this, bc_instr.oparg());
           break;
         }
         case LOAD_GLOBAL: {
@@ -2210,7 +2216,9 @@ void HIRBuilder::translate(
           break;
         }
         case GET_YIELD_FROM_ITER: {
-          emitGetYieldFromIter(irfunc.cfg, tc);
+          hir_builder_emit_get_yield_from_iter_c(&tc, current_func_, this,
+              static_cast<int>(code_->co_flags),
+              static_cast<void*>(&PyCoro_Type));
           break;
         }
         case MAKE_FUNCTION: {
@@ -4036,24 +4044,6 @@ void HIRBuilder::emitRefineType(
       static_cast<void*>(&tc), static_cast<void*>(this), code_, bc_instr.oparg());
 }
 
-extern "C" void hir_builder_emit_sequence_get_c(
-    void *tc, void *builder, int oparg);
-
-void HIRBuilder::emitSequenceGet(
-    TranslationContext& tc,
-    const jit::BytecodeInstruction& bc_instr) {
-  hir_builder_emit_sequence_get_c(&tc, this, bc_instr.oparg());
-}
-
-extern "C" void hir_builder_emit_sequence_set_c(
-    void *tc, void *builder, int oparg);
-
-void HIRBuilder::emitSequenceSet(
-    TranslationContext& tc,
-    const jit::BytecodeInstruction& bc_instr) {
-  hir_builder_emit_sequence_set_c(&tc, this, bc_instr.oparg());
-}
-
 extern "C" void hir_builder_emit_load_global_c(void *tc, void *func, void *builder, PyCodeObject *code, int opcode, int oparg);
 
 void HIRBuilder::emitLoadGlobal(
@@ -4098,24 +4088,6 @@ extern "C" void hir_builder_emit_list_to_tuple_c(void *tc, void *func);
 void HIRBuilder::emitListToTuple(TranslationContext& tc) {
   hir_builder_emit_list_to_tuple_c(
       static_cast<void*>(&tc), static_cast<void*>(current_func_));
-}
-
-extern "C" void hir_builder_emit_build_checked_list_c(
-    void *tc, void *builder, PyObject *const_arg);
-
-void HIRBuilder::emitBuildCheckedList(
-    TranslationContext& tc,
-    const jit::BytecodeInstruction& bc_instr) {
-  hir_builder_emit_build_checked_list_c(&tc, this, constArg(bc_instr));
-}
-
-extern "C" void hir_builder_emit_build_checked_map_c(
-    void *tc, void *builder, PyObject *const_arg);
-
-void HIRBuilder::emitBuildCheckedMap(
-    TranslationContext& tc,
-    const jit::BytecodeInstruction& bc_instr) {
-  hir_builder_emit_build_checked_map_c(&tc, this, constArg(bc_instr));
 }
 
 extern "C" void hir_builder_emit_build_map_c(void *tc, void *func, int oparg);
@@ -4268,17 +4240,6 @@ void HIRBuilder::emitForIter(
       static_cast<void*>(this),
       bc_instr.getJumpTarget().value(),
       bc_instr.nextInstrOffset().value());
-}
-
-extern "C" void hir_builder_emit_get_yield_from_iter_c(
-    void *tc, void *func, void *builder, int code_flags,
-    void *py_coro_type);
-
-void HIRBuilder::emitGetYieldFromIter(CFG& /*cfg*/, TranslationContext& tc) {
-  hir_builder_emit_get_yield_from_iter_c(
-      &tc, current_func_, this,
-      static_cast<int>(code_->co_flags),
-      static_cast<void*>(&PyCoro_Type));
 }
 
 extern "C" void hir_builder_emit_unpack_ex_c(void *tc, void *func, int oparg);

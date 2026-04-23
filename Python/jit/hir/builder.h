@@ -333,12 +333,6 @@ class HIRBuilder {
   void emitMakeListTuple(
       TranslationContext& tc,
       const jit::BytecodeInstruction& bc_instr);
-  void emitBuildCheckedList(
-      TranslationContext& tc,
-      const jit::BytecodeInstruction& bc_instr);
-  void emitBuildCheckedMap(
-      TranslationContext& tc,
-      const jit::BytecodeInstruction& bc_instr);
   void emitBuildMap(
       TranslationContext& tc,
       const jit::BytecodeInstruction& bc_instr);
@@ -389,7 +383,6 @@ class HIRBuilder {
    * caller-search gate + theologian 21:15:36Z methodology cross-check
    * PASS (4 pattern variants, 0 callers across 17 matches). */
   void emitGetIter(TranslationContext& tc, const jit::BytecodeInstruction& bc_instr);
-  void emitGetYieldFromIter(CFG& cfg, TranslationContext& tc);
   void emitListAppend(
       TranslationContext& tc,
       const BytecodeInstruction& bc_instr);
@@ -469,14 +462,8 @@ class HIRBuilder {
   void emitRefineType(
       TranslationContext& tc,
       const jit::BytecodeInstruction& bc_instr);
-  void emitSequenceGet(
-      TranslationContext& tc,
-      const jit::BytecodeInstruction& bc_instr);
   void emitSequenceRepeat(
       CFG& cfg,
-      TranslationContext& tc,
-      const jit::BytecodeInstruction& bc_instr);
-  void emitSequenceSet(
       TranslationContext& tc,
       const jit::BytecodeInstruction& bc_instr);
   void emitYieldValue(
