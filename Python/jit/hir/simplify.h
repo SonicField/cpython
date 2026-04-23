@@ -3,6 +3,7 @@
 #pragma once
 
 #include "cinderx/Jit/hir/pass.h"
+#include "cinderx/Jit/hir/simplify_c.h"
 
 namespace jit::hir {
 
@@ -25,5 +26,9 @@ class Simplify : public Pass {
  private:
   DISALLOW_COPY_AND_ASSIGN(Simplify);
 };
+
+inline void Simplify::Run(Function& func) {
+  hir_simplify_run_c(static_cast<void*>(&func));
+}
 
 } // namespace jit::hir
