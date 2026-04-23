@@ -2987,7 +2987,13 @@ void hir_builder_emit_unpack_sequence_c(
     /* P0: PEEK seq (do not pop yet — see PA). */
     void *seq = tc->frame.stack.data[tc->frame.stack.count - 1];
 
-    /* P0 specialized-opcode dispatch (skipped if stub passed -1). */
+    /* Batch 1 #4 PARTIAL→STUB: gate specialized_op consumption on
+     * jit_get_config()->specialized_opcodes here (was in C++ stub). */
+    if (!jit_get_config()->specialized_opcodes) {
+        specialized_op = -1;
+    }
+
+    /* P0 specialized-opcode dispatch (skipped if disabled or stub passed -1). */
     if (specialized_op >= 0) {
         phx_tc_emit(tc, hir_c_create_snapshot(&tc->frame));
         switch (specialized_op) {

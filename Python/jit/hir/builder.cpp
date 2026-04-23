@@ -4325,19 +4325,11 @@ void HIRBuilder::emitUnpackSequence(
     CFG& /*cfg*/,
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  // CFG& cfg unused — C body uses hir_cfg_alloc_block(func) instead.
-  // specialized_op = -1 signals C body to skip the P0 dispatch entirely
-  // (matches jit_get_config()->specialized_opcodes==false in C++ original).
-  int specialized_op = jit_get_config()->specialized_opcodes
-      ? bc_instr.specializedOpcode()
-      : -1;
   hir_builder_emit_unpack_sequence_c(
-      static_cast<void*>(&tc),
-      static_cast<void*>(current_func_),
-      static_cast<void*>(this),
+      &tc, current_func_, this,
       bc_instr.oparg(),
       bc_instr.baseOffset().value(),
-      specialized_op);
+      bc_instr.specializedOpcode());
 }
 
 extern "C" void hir_builder_emit_setup_finally_c(void *tc, int handler_off);
