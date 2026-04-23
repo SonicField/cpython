@@ -203,10 +203,6 @@ class Type {
   }
 
  private:
-  // HIRParser needs to be able to construct Type objects and then add them to
-  // an Environment.
-  friend class HIRParser;
-
   // Validity and kind of specialization. Note that this is a regular enum
   // rather than a bitset, so the bit values of each kind aren't important.
   enum SpecKind : bits_t {
