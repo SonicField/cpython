@@ -335,21 +335,10 @@ struct HIRBuilder::TranslationContext {
     return instr;
   }
 
-  template <typename T, typename... Args>
-  T* emitVariadic(
-      TempAllocator& temps,
-      std::size_t num_operands,
-      Args&&... args) {
-    Register* out = temps.AllocateStack();
-    auto call = emit<T>(num_operands, out, std::forward<Args>(args)...);
-    for (auto i = num_operands; i > 0; i--) {
-      Register* operand = static_cast<Register*>(phx_ptr_arr_pop(&frame.stack));
-      call->SetOperand(i - 1, operand);
-    }
-    call->setFrameState(frame);
-    phx_ptr_arr_push(&frame.stack, out);
-    return call;
-  }
+  // emitVariadic<T> + emitVariadicDeopt + emitCallMethod removed in
+  // PARTIAL→STUB Batch 1 (supervisor L2565 (a) dead-code cleanup): no
+  // callers remain post-W26 (emitAnyCall now uses hir_c_create_vectorcall_reg
+  // + hir_c_create_call_method_reg directly in C body).
 
   void emitSnapshot() {
     emitC(static_cast<Instr*>(hir_c_create_snapshot(
@@ -364,24 +353,7 @@ struct HIRBuilder::TranslationContext {
     return instr;
   }
 
-  // Non-template variadic emit for DeoptBase types (replaces emitVariadic<T>
-  // when T is a deleted DEFINE_SIMPLE_INSTR class).
-  void emitVariadicDeopt(int opcode, TempAllocator& temps,
-                         std::size_t num_operands) {
-    Register* out = temps.AllocateStack();
-    auto* instr = static_cast<Instr*>(
-        hir_c_alloc_instr(sizeof(DeoptBase), num_operands));
-    hir_c_init_deopt(instr, opcode);
-    hir_c_set_output(instr, out);
-    for (auto i = num_operands; i > 0; i--) {
-      Register* operand = static_cast<Register*>(
-          phx_ptr_arr_pop(&frame.stack));
-      instr->SetOperand(i - 1, operand);
-    }
-    instr->asDeoptBase()->setFrameState(frame);
-    phx_ptr_arr_push(&frame.stack, out);
-    emitC(instr);
-  }
+  // emitVariadicDeopt removed (see emitVariadic comment above).
 
   // Convenience: emit LoadConst via pure C factory.
   void emitLoadConst(Register* dst, Type type) {
@@ -785,11 +757,8 @@ struct HIRBuilder::TranslationContext {
     emitC(static_cast<Instr*>(hir_c_create_import_name_reg(dst, name_idx, fromlist, level, const_cast<void*>(static_cast<const void*>(&fs)))));
   }
 
-  // Batch 7: variadic call wrappers
-  CallMethod* emitCallMethod(size_t n, Register* dst, CallFlags flags) {
-    return static_cast<CallMethod*>(emitC(static_cast<Instr*>(
-        hir_c_create_call_method_reg(n, dst, static_cast<uint32_t>(flags)))));
-  }
+  // emitCallMethod removed (see top-of-class comment).
+
   Instr* emitCallStaticRetVoid(size_t n, void* addr) {
     return emitC(static_cast<Instr*>(hir_c_create_call_static_ret_void_reg(n, addr)));
   }
