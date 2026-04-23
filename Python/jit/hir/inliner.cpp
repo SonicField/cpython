@@ -2,6 +2,7 @@
 
 #include "cinderx/Jit/hir/inliner.h"
 #include "cinderx/Jit/hir/hir_c_api.h"
+#include "cinderx/Jit/hir/inliner_helpers_c.h"
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/jit_config_c.h"
@@ -97,14 +98,12 @@ void dlogAndCollectFailureStats(
 
 // Assigns a cost to every function, to be used when determining whether it
 // makes sense to inline or not.
+//
+// Tier 7 Batch 3 Cat-A: algorithmic body lives in pure C
+// (phx_code_cost in inliner_helpers_c.c). This wrapper preserves the
+// existing C++ size_t/PyCodeObject* signature.
 size_t codeCost(PyCodeObject* code) {
-  // Manually iterating through the code block to count real opcodes and not
-  // inline caches.  Not the best metric but it's something to start with.
-  size_t num_opcodes = 0;
-  for ([[maybe_unused]] auto& instr : BytecodeInstructionBlock{code}) {
-    num_opcodes++;
-  }
-  return num_opcodes;
+  return phx_code_cost(code);
 }
 
 // Most of these checks are only temporary and do not in perpetuity prohibit
