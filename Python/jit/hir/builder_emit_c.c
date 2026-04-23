@@ -4127,4 +4127,23 @@ void hir_builder_emit_setup_with_common_c(
     *out_enter_result = enter_result;
 }
 
+/* W27c #2: emitSetupWith — wraps SetupWithCommon + emitSetupFinally.
+ * Mirrors C++ HIRBuilder::emitSetupWith @ builder.cpp:4608.
+ *
+ * PY_VERSION_HEX conditional (3.10/3.11 __enter__/__exit__ vs 3.12+
+ * __aenter__/__aexit__ + is_async flip) folded into C++ stub. */
+void hir_builder_emit_setup_with_c(
+        PhxTranslationContext *tc,
+        void *builder,
+        void *enter_id,
+        void *exit_id,
+        int is_async,
+        int handler_off) {
+    void *enter_result = NULL;
+    hir_builder_emit_setup_with_common_c(
+        tc, builder, enter_id, exit_id, is_async, &enter_result);
+    hir_builder_emit_setup_finally_c(tc, handler_off);
+    phx_ptr_arr_push(&tc->frame.stack, enter_result);
+}
+
 
