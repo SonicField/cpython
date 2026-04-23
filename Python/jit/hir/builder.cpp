@@ -4267,31 +4267,13 @@ void HIRBuilder::emitBuildCheckedList(
   hir_builder_emit_build_checked_list_c(&tc, this, constArg(bc_instr));
 }
 
+extern "C" void hir_builder_emit_build_checked_map_c(
+    void *tc, void *builder, PyObject *const_arg);
+
 void HIRBuilder::emitBuildCheckedMap(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  PyObject* arg = constArg(bc_instr);
-  PyObject* descr = PyTuple_GET_ITEM(arg, 0);
-  Py_ssize_t dict_size = PyLong_AsLong(PyTuple_GET_ITEM(arg, 1));
-
-  Type type = preloader_.type(descr);
-  JIT_CHECK(
-      Ci_CheckedDict_TypeCheck(type.uniquePyType()),
-      "expected CheckedDict type");
-
-  Register* dict = temps_.AllocateStack();
-  tc.emitMakeCheckedDict(dict, dict_size, type, tc.frame);
-  // Fill dict
-  PhxPtrArray& stack = tc.frame.stack;
-  for (auto i = stack.count - dict_size * 2, end = stack.count; i < end;
-       i += 2) {
-    auto key = static_cast<Register*>(stack.data[i]);
-    auto value = static_cast<Register*>(stack.data[i + 1]);
-    auto result = temps_.AllocateStack();
-    tc.emitSetDictItem(result, dict, key, value, tc.frame);
-  }
-  stack.count -= (dict_size * 2);
-  phx_ptr_arr_push(&stack, dict);
+  hir_builder_emit_build_checked_map_c(&tc, this, constArg(bc_instr));
 }
 
 extern "C" void hir_builder_emit_build_map_c(void *tc, void *func, int oparg);

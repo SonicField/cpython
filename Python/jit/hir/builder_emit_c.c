@@ -3994,4 +3994,37 @@ void hir_builder_emit_build_checked_list_c(
     phx_ptr_arr_push(&tc->frame.stack, list);
 }
 
+/* W27b #4: emitBuildCheckedMap (BUILD_CHECKED_MAP, Static Python).
+ * Mirrors C++ HIRBuilder::emitBuildCheckedMap @ builder.cpp:4283. */
+void hir_builder_emit_build_checked_map_c(
+        PhxTranslationContext *tc,
+        void *builder,
+        PyObject *const_arg) {
+    PyObject *descr = PyTuple_GET_ITEM(const_arg, 0);
+    Py_ssize_t dict_size = PyLong_AsLong(PyTuple_GET_ITEM(const_arg, 1));
+
+    HirType type = hir_builder_preloader_type(builder, descr);
+    PyTypeObject *py_type = (PyTypeObject*)hir_builder_preloader_py_type(builder, descr);
+    JIT_CHECK_C(Ci_CheckedDict_TypeCheck(py_type), "expected CheckedDict type");
+
+    void *dict = hir_builder_temps_alloc_stack(builder);
+    phx_tc_emit(tc, hir_c_create_make_checked_dict_reg(
+        dict, (int32_t)dict_size, type, &tc->frame));
+
+    /* Fill dict by walking the bottom dict_size*2 stack entries left-to-right
+     * as (key, value) pairs and emitting SetDictItem for each. The original
+     * C++ pops from stack.data after the loop; we replicate that ordering. */
+    PhxPtrArray *stack = &tc->frame.stack;
+    for (size_t i = stack->count - (size_t)(dict_size * 2), end = stack->count;
+         i < end; i += 2) {
+        void *key = stack->data[i];
+        void *value = stack->data[i + 1];
+        void *result = hir_builder_temps_alloc_stack(builder);
+        phx_tc_emit(tc, hir_c_create_set_dict_item_reg(
+            result, dict, key, value, &tc->frame));
+    }
+    stack->count -= (size_t)(dict_size * 2);
+    phx_ptr_arr_push(stack, dict);
+}
+
 
