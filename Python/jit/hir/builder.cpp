@@ -49,6 +49,9 @@ extern "C" int hir_remove_unreachable_blocks_c(void *func);
 #include <utility>
 #include <vector>
 
+/* Phase 1 #2: file-scope extern decls for C dispatch (post stub-delete). */
+extern "C" void hir_builder_emit_format_simple_c(void *tc, void *func, void *builder);
+
 namespace jit::hir {
 
 namespace {
@@ -2454,7 +2457,7 @@ void HIRBuilder::translate(
           break;
         }
         case FORMAT_SIMPLE: {
-          emitFormatSimple(irfunc.cfg, tc);
+          hir_builder_emit_format_simple_c(&tc, current_func_, this);
           break;
         }
         case LOAD_COMMON_CONSTANT: {
@@ -4744,13 +4747,6 @@ void HIRBuilder::emitConvertValue(
     const jit::BytecodeInstruction& bc_instr) {
   hir_builder_emit_convert_value_c(
       static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
-}
-
-extern "C" void hir_builder_emit_format_simple_c(
-    void *tc, void *func, void *builder);
-
-void HIRBuilder::emitFormatSimple(CFG& /*cfg*/, TranslationContext& tc) {
-  hir_builder_emit_format_simple_c(&tc, current_func_, this);
 }
 
 extern "C" void hir_builder_emit_load_common_constant_c(

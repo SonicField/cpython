@@ -582,7 +582,6 @@ class HIRBuilder {
       TranslationContext& tc,
       const jit::BytecodeInstruction& bc_instr);
 
-  void emitFormatSimple(CFG& cfg, TranslationContext& tc);
 
   void emitLoadCommonConstant(
       TranslationContext& tc,
