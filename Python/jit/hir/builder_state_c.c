@@ -62,3 +62,22 @@ void hir_builder_state_parse_exception_table_c(
             depth_lasti & 1);
     }
 }
+
+int hir_builder_state_find_exception_handler_c(
+        PhxHirBuilderState *state,
+        void *builder,
+        int off,
+        int *out_idx) {
+    (void)state;  /* state unused (vector access via _cpp bridge). */
+    int n = hir_builder_state_exception_table_size_cpp(builder);
+    for (int i = 0; i < n; i++) {
+        int start, end, target, depth, lasti;
+        hir_builder_state_exception_table_entry_cpp(
+            builder, i, &start, &end, &target, &depth, &lasti);
+        if (off >= start && off < end) {
+            *out_idx = i;
+            return 1;
+        }
+    }
+    return 0;
+}

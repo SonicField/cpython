@@ -96,6 +96,9 @@ FIXTURES=(
     "hir_builder_state_init|Phase 3 Batch 1 state init (3 args)"
     "hir_builder_state_parse_exception_table_c|Phase 3 Batch 1 parseExceptionTable C body (2 args)"
     "hir_builder_state_exception_table_push_cpp|Phase 3 Batch 1 exception_table push bridge (6 args)"
+    "hir_builder_state_exception_table_size_cpp|Phase 3 Batch 2 exception_table size bridge (1 arg)"
+    "hir_builder_state_exception_table_entry_cpp|Phase 3 Batch 2 exception_table entry bridge (7 args)"
+    "hir_builder_state_find_exception_handler_c|Phase 3 Batch 2 findExceptionHandler C body (4 args)"
 )
 
 # Mutation: append ', int phx_w45_drift' before the closing paren of the
@@ -103,11 +106,12 @@ FIXTURES=(
 # since extern decls span 2 lines and definitions span more.
 mutate_bridge() {
     local symbol="$1"
-    # Match: void <symbol>( ... ) — capture inner contents, append drift param.
-    # Multi-line via perl -0777. Apply across all source files containing
-    # bridge decls / defs.
+    # Match: <return-type> <symbol>( ... ) — capture inner contents, append
+    # drift param. Multi-line via perl -0777. Return type is any non-paren
+    # token sequence (int, void, void*, bool, etc.). Apply across all
+    # source files containing bridge decls / defs.
     perl -i -0777 -pe \
-        "s/(void\s+${symbol}\s*\([^)]*?)\)/\${1}, int phx_w45_drift)/g" \
+        "s/(\b\w[\w\s\*]*?\s+${symbol}\s*\([^)]*?)\)/\${1}, int phx_w45_drift)/g" \
         "$BUILDER_CPP" "$BUILDER_EMIT_C" "$BUILDER_STATE_C_H" "$BUILDER_STATE_C"
 }
 

@@ -1243,16 +1243,41 @@ extern "C" void hir_builder_state_exception_table_push_cpp(
       lasti != 0});
 }
 
+extern "C" int hir_builder_state_exception_table_size_cpp(void *builder) {
+  HIRBuilder *self = static_cast<HIRBuilder*>(builder);
+  return static_cast<int>(self->exception_table_.size());
+}
+
+extern "C" void hir_builder_state_exception_table_entry_cpp(
+    void *builder,
+    int idx,
+    int *out_start,
+    int *out_end,
+    int *out_target,
+    int *out_depth,
+    int *out_lasti) {
+  HIRBuilder *self = static_cast<HIRBuilder*>(builder);
+  const auto &e = self->exception_table_[idx];
+  *out_start = e.start.value();
+  *out_end = e.end.value();
+  *out_target = e.target.value();
+  *out_depth = e.depth;
+  *out_lasti = e.lasti ? 1 : 0;
+}
+
 void HIRBuilder::parseExceptionTable() {
   hir_builder_state_parse_exception_table_c(&state_, this);
 }
 
 const HIRBuilder::ExceptionTableEntry* HIRBuilder::findExceptionHandler(
     BCOffset off) const {
-  for (const auto& entry : exception_table_) {
-    if (off >= entry.start && off < entry.end) {
-      return &entry;
-    }
+  int idx = -1;
+  if (hir_builder_state_find_exception_handler_c(
+          const_cast<PhxHirBuilderState*>(&state_),
+          const_cast<HIRBuilder*>(this),
+          off.value(),
+          &idx)) {
+    return &exception_table_[idx];
   }
   return nullptr;
 }

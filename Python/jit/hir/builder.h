@@ -212,6 +212,11 @@ class HIRBuilder {
   // private std::vector<ExceptionTableEntry> exception_table_.
   friend void ::hir_builder_state_exception_table_push_cpp(
       void*, int, int, int, int, int);
+  // Phase 3 Batch 2 (theologian 23:22:59Z): read-side bridges close the
+  // Class B-kept disposition for exception_table_ (read+write via bridge).
+  friend int ::hir_builder_state_exception_table_size_cpp(void*);
+  friend void ::hir_builder_state_exception_table_entry_cpp(
+      void*, int, int*, int*, int*, int*, int*);
  public:
   const Preloader& preloader() const { return preloader_; }
   explicit HIRBuilder(const Preloader& preloader)

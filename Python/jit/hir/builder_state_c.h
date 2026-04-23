@@ -61,6 +61,33 @@ void hir_builder_state_exception_table_push_cpp(
     int depth,
     int lasti);
 
+/* Phase 3 Batch 2: Class B read-side bridges for exception_table_.
+ * Closes Class B-kept disposition (read+write both via bridge). */
+
+/* Returns current vector size (number of entries). */
+int hir_builder_state_exception_table_size_cpp(void *builder);
+
+/* Reads entry fields by-value via flat ptr-args (matches push_cpp pattern).
+ * idx must be < size returned by _size_cpp. */
+void hir_builder_state_exception_table_entry_cpp(
+    void *builder,
+    int idx,
+    int *out_start,
+    int *out_end,
+    int *out_target,
+    int *out_depth,
+    int *out_lasti);
+
+/* Pure-C port of HIRBuilder::findExceptionHandler. Linear scan via
+ * size+entry bridges; on match, writes index of first matching entry
+ * to *out_idx and returns 1; else 0. C++ shim converts index → pointer
+ * via &exception_table_[idx] preserving caller-contract. */
+int hir_builder_state_find_exception_handler_c(
+    PhxHirBuilderState *state,
+    void *builder,
+    int off,
+    int *out_idx);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
