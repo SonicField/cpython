@@ -75,6 +75,8 @@ extern "C" void hir_builder_emit_primitive_unary_op_c(
     void *tc, void *func, void *builder, int oparg);
 extern "C" void hir_builder_emit_before_with_c(
     void *tc, void *builder, int opcode);
+extern "C" void hir_builder_emit_setup_with_c(
+    void *tc, void *builder, int oparg, int next_instr_off);
 
 namespace jit::hir {
 
@@ -2411,7 +2413,9 @@ void HIRBuilder::translate(
           break;
         }
         case SETUP_WITH: {
-          emitSetupWith(tc, bc_instr);
+          hir_builder_emit_setup_with_c(
+              &tc, this, bc_instr.oparg(),
+              bc_instr.nextInstrOffset().value());
           break;
         }
         case MATCH_CLASS: {
@@ -4293,33 +4297,6 @@ void HIRBuilder::emitSetupAsyncWith(
       bc_instr.nextInstrOffset() + BCIndex{bc_instr.oparg()}.asOffset();
   hir_builder_emit_setup_async_with_c(
       static_cast<void*>(&tc), handler_off.value());
-}
-
-extern "C" void hir_builder_emit_setup_with_c(
-    void *tc, void *builder, void *enter_id, void *exit_id,
-    int is_async, int handler_off);
-
-void HIRBuilder::emitSetupWith(
-    TranslationContext& tc,
-    const jit::BytecodeInstruction& bc_instr) {
-  void *enter_id;
-  void *exit_id;
-  int is_async;
-#if PY_VERSION_HEX < 0x030C0000
-  _Py_IDENTIFIER(__enter__);
-  _Py_IDENTIFIER(__exit__);
-  enter_id = (void*)&PyId___enter__;
-  exit_id = (void*)&PyId___exit__;
-  is_async = 0;
-#else
-  enter_id = (void*)&_Py_ID(__aenter__);
-  exit_id = (void*)&_Py_ID(__aexit__);
-  is_async = 1;
-#endif
-  BCOffset handler_off =
-      bc_instr.nextInstrOffset() + BCIndex{bc_instr.oparg()}.asOffset();
-  hir_builder_emit_setup_with_c(
-      &tc, this, enter_id, exit_id, is_async, handler_off.value());
 }
 
 extern "C" void hir_builder_emit_load_field_c(void *tc, void *func, void *builder, PyCodeObject *code, int oparg);

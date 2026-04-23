@@ -4136,18 +4136,38 @@ void hir_builder_emit_setup_with_common_c(
     *out_enter_result = enter_result;
 }
 
-/* W27c #2: emitSetupWith — wraps SetupWithCommon + emitSetupFinally.
- * Mirrors C++ HIRBuilder::emitSetupWith @ builder.cpp:4608.
+/* emitSetupWith — wraps SetupWithCommon + emitSetupFinally.
  *
- * PY_VERSION_HEX conditional (3.10/3.11 __enter__/__exit__ vs 3.12+
- * __aenter__/__aexit__ + is_async flip) folded into C++ stub. */
+ * Phase 1 #7 fold-into-C (theologian 22:30:11Z + supervisor 22:30:26Z):
+ * the 22-line PY_VERSION_HEX conditional + handler_off compute that
+ * previously lived in the C++ wrapper at builder.cpp:emitSetupWith now
+ * lives here. Caller passes the raw bytecode oparg + next_instr_off;
+ * this function derives enter_id/exit_id/is_async + handler_off
+ * locally.
+ *
+ * 2 invocation flavors:
+ *   - pre-3.12: __enter__/__exit__, is_async=false
+ *   - 3.12+: __aenter__/__aexit__, is_async=true */
 void hir_builder_emit_setup_with_c(
         PhxTranslationContext *tc,
         void *builder,
-        void *enter_id,
-        void *exit_id,
-        int is_async,
-        int handler_off) {
+        int oparg,
+        int next_instr_off) {
+    void *enter_id;
+    void *exit_id;
+    int is_async;
+#if PY_VERSION_HEX < 0x030C0000
+    _Py_IDENTIFIER(__enter__);
+    _Py_IDENTIFIER(__exit__);
+    enter_id = (void*)&PyId___enter__;
+    exit_id = (void*)&PyId___exit__;
+    is_async = 0;
+#else
+    enter_id = (void*)&_Py_ID(__aenter__);
+    exit_id = (void*)&_Py_ID(__aexit__);
+    is_async = 1;
+#endif
+    int handler_off = next_instr_off + oparg * (int)sizeof(_Py_CODEUNIT);
     void *enter_result = NULL;
     hir_builder_emit_setup_with_common_c(
         tc, builder, enter_id, exit_id, is_async, &enter_result);

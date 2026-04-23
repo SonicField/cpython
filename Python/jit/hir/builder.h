@@ -484,9 +484,6 @@ class HIRBuilder {
   void emitSetupAsyncWith(
       TranslationContext& tc,
       const jit::BytecodeInstruction& bc_instr);
-  void emitSetupWith(
-      TranslationContext& tc,
-      const jit::BytecodeInstruction& bc_instr);
   void emitYieldFrom(TranslationContext& tc, Register* out);
   void emitDispatchEagerCoroResult(
       CFG& cfg,
