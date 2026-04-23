@@ -48,6 +48,7 @@ done
 
 BUILDER_CPP="Python/jit/hir/builder.cpp"
 BUILDER_EMIT_C="Python/jit/hir/builder_emit_c.c"
+CMAKE_BUILD_DIR="Python/jit_build/build"
 
 if [ ! -f "$BUILDER_CPP" ] || [ ! -f "$BUILDER_EMIT_C" ]; then
     echo "ERROR: missing $BUILDER_CPP or $BUILDER_EMIT_C — wrong CWD?" >&2
@@ -147,7 +148,7 @@ for fixture in "${FIXTURES[@]}"; do
     # Build with mutation. Expect FAIL at dispatch site (call has OLD arity).
     BUILD_OUT=$(mktemp /tmp/w45_build.XXXXXX)
     BUILD_RC=0
-    cmake --build . --target jit -j8 > "$BUILD_OUT" 2>&1 || BUILD_RC=$?
+    cmake --build "$CMAKE_BUILD_DIR" --target jit -j8 > "$BUILD_OUT" 2>&1 || BUILD_RC=$?
 
     if [ "$BUILD_RC" -eq 0 ]; then
         echo "    [FAIL] build PASSED with mutated sig — DRIFT SURFACE UNDETECTED"
@@ -187,7 +188,7 @@ cp "$BACKUP_C" "$BUILDER_EMIT_C"
 if [ "$DRY_RUN" -eq 0 ]; then
     BUILD_OUT=$(mktemp /tmp/w45_build_restore.XXXXXX)
     BUILD_RC=0
-    cmake --build . --target jit -j8 > "$BUILD_OUT" 2>&1 || BUILD_RC=$?
+    cmake --build "$CMAKE_BUILD_DIR" --target jit -j8 > "$BUILD_OUT" 2>&1 || BUILD_RC=$?
     if [ "$BUILD_RC" -eq 0 ]; then
         echo "    [OK] post-restore build PASSED (working tree clean)"
     else
