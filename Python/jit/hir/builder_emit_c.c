@@ -4166,4 +4166,36 @@ void hir_builder_emit_before_with_c(
     phx_ptr_arr_push(&tc->frame.stack, enter_result);
 }
 
+/* W27c #4: emitSend (SEND opcode, mainline). Mirrors C++
+ * HIRBuilder::emitSend @ builder.cpp:4964.
+ *
+ * Pops value_out, peeks iter (stays on stack), allocs value_in + is_done,
+ * emits Send + GetSecondOutput<TCInt64>, pushes value_in, then cond-branch
+ * on is_done to (jump_target_block, next_instr_block) — both resolved by
+ * C++ stub via getBlockAtOff. */
+extern void *hir_builder_get_block_at_off(void *builder, int byte_offset);
+
+void hir_builder_emit_send_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder,
+        int jump_target_off,
+        int next_instr_off) {
+    void *value_out = phx_ptr_arr_pop(&tc->frame.stack);
+    void *iter = tc->frame.stack.data[tc->frame.stack.count - 1];  /* peek */
+    void *value_in = hir_builder_temps_alloc_stack(builder);
+    phx_tc_emit(tc, hir_c_create_send_reg(iter, value_out, value_in, &tc->frame));
+    /* AllocateNonStack equivalent: hir_func_alloc_register per
+     * builder_emit_c.c:929 convention. Avoids stack-temp tracking. */
+    void *is_done = hir_func_alloc_register(func);
+    HirType t_cint64 = HIR_TYPE_CINT64;
+    phx_tc_emit(tc, hir_c_create_get_second_output_reg(
+        is_done, t_cint64, value_in));
+    phx_ptr_arr_push(&tc->frame.stack, value_in);
+
+    void *done_block = hir_builder_get_block_at_off(builder, jump_target_off);
+    void *continue_block = hir_builder_get_block_at_off(builder, next_instr_off);
+    phx_tc_emit(tc, hir_c_create_cond_branch(is_done, done_block, continue_block));
+}
+
 

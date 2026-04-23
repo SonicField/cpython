@@ -4961,20 +4961,17 @@ void HIRBuilder::emitDictMerge(
       static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
+extern "C" void hir_builder_emit_send_c(
+    void *tc, void *func, void *builder,
+    int jump_target_off, int next_instr_off);
+
 void HIRBuilder::emitSend(
     TranslationContext& tc,
     const BytecodeInstruction& bc_instr) {
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* value_out = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* iter = static_cast<Register*>(stack.data[stack.count - 1]);
-  Register* value_in = temps_.AllocateStack();
-  tc.emitSend(iter, value_out, value_in, tc.frame);
-  Register* is_done = temps_.AllocateNonStack();
-  tc.emitGetSecondOutput(is_done, TCInt64, value_in);
-  phx_ptr_arr_push(&stack, value_in);
-  BasicBlock* done_block = getBlockAtOff(bc_instr.getJumpTarget());
-  BasicBlock* continue_block = getBlockAtOff(bc_instr.nextInstrOffset());
-  tc.emitCondBranch(is_done, done_block, continue_block);
+  hir_builder_emit_send_c(
+      &tc, current_func_, this,
+      bc_instr.getJumpTarget().value(),
+      bc_instr.nextInstrOffset().value());
 }
 
 extern "C" void hir_builder_emit_build_interpolation_c(void *tc, void *func, int oparg);
