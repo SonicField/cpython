@@ -5054,30 +5054,11 @@ void HIRBuilder::emitConvertValue(
       static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
-void HIRBuilder::emitFormatSimple(CFG& cfg, TranslationContext& tc) {
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&stack));
+extern "C" void hir_builder_emit_format_simple_c(
+    void *tc, void *func, void *builder);
 
-  BasicBlock* done_block = cfg.AllocateBlock();
-  BasicBlock* do_fmt_block = cfg.AllocateBlock();
-  BasicBlock* pass_through_block = cfg.AllocateBlock();
-
-  tc.emitCondBranchCheckType(
-      value, TUnicodeExact, pass_through_block, do_fmt_block);
-  Register* out = temps_.AllocateStack();
-
-  tc.block = do_fmt_block;
-  Register* fmt_spec = temps_.AllocateStack();
-  tc.emitLoadConst(fmt_spec, TNullptr);
-  tc.emitFormatWithSpec(out, value, fmt_spec, tc.frame);
-  tc.emitBranch(done_block);
-
-  tc.block = pass_through_block;
-  tc.emitRefineType(out, TUnicodeExact, value);
-  tc.emitBranch(done_block);
-
-  tc.block = done_block;
-  phx_ptr_arr_push(&stack, out);
+void HIRBuilder::emitFormatSimple(CFG& /*cfg*/, TranslationContext& tc) {
+  hir_builder_emit_format_simple_c(&tc, current_func_, this);
 }
 
 extern "C" void hir_builder_emit_load_common_constant_c(

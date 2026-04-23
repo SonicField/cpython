@@ -3924,4 +3924,43 @@ void hir_builder_emit_load_special_c(
     phx_ptr_arr_push(&tc->frame.stack, null_or_self);
 }
 
+/* W27b #2: emitFormatSimple (FORMAT_VALUE/FORMAT_SIMPLE mainline opcode).
+ * Mirrors C++ HIRBuilder::emitFormatSimple @ builder.cpp:5057.
+ * Block-creation pattern: cond-branch on TUnicodeExact → format-with-spec
+ * (slow path) OR refine-type (pass-through fast path) → done. */
+void hir_builder_emit_format_simple_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder) {
+    void *value = phx_ptr_arr_pop(&tc->frame.stack);
+
+    void *done_block = hir_cfg_alloc_block(func);
+    void *do_fmt_block = hir_cfg_alloc_block(func);
+    void *pass_through_block = hir_cfg_alloc_block(func);
+
+    HirType t_unicode_exact = HIR_TYPE_UNICODEEXACT;
+    phx_tc_emit(tc, hir_c_create_cond_branch_check_type_cpp(
+        value, t_unicode_exact, pass_through_block, do_fmt_block));
+
+    void *out = hir_builder_temps_alloc_stack(builder);
+
+    /* do_fmt_block: load null fmt_spec + emit format_with_spec + branch done. */
+    tc->block = do_fmt_block;
+    void *fmt_spec = hir_builder_temps_alloc_stack(builder);
+    HirType t_nullptr = HIR_TYPE_NULLPTR;
+    phx_tc_emit(tc, hir_c_create_load_const(fmt_spec, t_nullptr));
+    phx_tc_emit(tc, hir_c_create_format_with_spec_reg(
+        out, value, fmt_spec, &tc->frame));
+    phx_tc_emit(tc, hir_c_create_branch_cpp(done_block));
+
+    /* pass_through_block: refine value type + branch done. */
+    tc->block = pass_through_block;
+    phx_tc_emit(tc, hir_c_create_refine_type_reg(out, t_unicode_exact, value));
+    phx_tc_emit(tc, hir_c_create_branch_cpp(done_block));
+
+    /* done_block: continue with out on stack. */
+    tc->block = done_block;
+    phx_ptr_arr_push(&tc->frame.stack, out);
+}
+
 
