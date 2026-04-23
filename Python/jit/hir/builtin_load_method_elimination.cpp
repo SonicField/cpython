@@ -4,7 +4,6 @@
 #include "cinderx/Jit/hir/builtin_load_method_elimination.h"
 
 #include "cinderx/Common/py-portability.h"
-#include "cinderx/Jit/hir/analysis.h"
 #include "cinderx/Jit/hir/hir_c_api.h"
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"

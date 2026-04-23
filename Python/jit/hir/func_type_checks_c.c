@@ -24,7 +24,7 @@ static int is_single_cint(HirType h) {
         hir_type_is_subtype(h, (HirType)HIR_TYPE_CUINT64);
 }
 
-static int register_type_matches(HirType op_hir, HirOperandType expected) {
+int hir_register_type_matches(HirType op_hir, HirOperandType expected) {
     switch (expected.kind) {
     case HIR_CONSTRAINT_kType:
         return hir_type_is_subtype(op_hir, expected.type);
@@ -63,7 +63,7 @@ static int register_type_matches(HirType op_hir, HirOperandType expected) {
     JIT_ABORT_C("unknown constraint %d", expected.kind);
 }
 
-static int operands_must_match(HirOperandType op_type) {
+int hir_operands_must_match_op(HirOperandType op_type) {
     switch (op_type.kind) {
     case HIR_CONSTRAINT_kMatchAllAsCInt:
     case HIR_CONSTRAINT_kMatchAllAsPrimitive:
@@ -96,14 +96,14 @@ int hir_func_type_checks(HirFunction func) {
             size_t n_ops = hir_c_num_operands(instr);
 
             if (n_ops > 1 &&
-                operands_must_match(hir_c_get_operand_type(instr, 0))) {
+                hir_operands_must_match_op(hir_c_get_operand_type(instr, 0))) {
                 HirType join = (HirType)HIR_TYPE_BOTTOM;
                 for (size_t i = 0; i < n_ops; i++) {
                     HirRegister op = hir_c_get_operand(instr, i);
                     join = hir_type_union(join, hir_register_type(op));
                 }
                 HirOperandType expected = hir_c_get_operand_type(instr, 0);
-                if (!register_type_matches(join, expected)) {
+                if (!hir_register_type_matches(join, expected)) {
                     fprintf(stderr,
                         "TYPE MISMATCH in bb %d of '%s'\n"
                         "Instr (opcode %d) expected join of operands to match constraint %d\n",
@@ -115,7 +115,7 @@ int hir_func_type_checks(HirFunction func) {
                     HirRegister op = hir_c_get_operand(instr, i);
                     HirOperandType expected = hir_c_get_operand_type(instr, i);
                     HirType op_type = hir_register_type(op);
-                    if (!register_type_matches(op_type, expected)) {
+                    if (!hir_register_type_matches(op_type, expected)) {
                         fprintf(stderr,
                             "TYPE MISMATCH in bb %d of '%s'\n"
                             "Instr (opcode %d) expected operand %zu to match constraint %d\n",

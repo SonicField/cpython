@@ -13,7 +13,7 @@
 #include "cinderx/Jit/hir/hir_c_api.h"
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
-#include "cinderx/Jit/hir/analysis.h"
+#include "cinderx/Jit/hir/func_type_checks_c.h"
 #include "cinderx/Jit/bytecode_offsets.h"
 
 #include "cinderx/Jit/hir/type.h"
@@ -452,15 +452,14 @@ int hir_is_passthrough(HirInstr instr) {
 }
 
 int hir_operands_must_match(HirInstr instr, size_t operand_idx) {
-  OperandType op_type = as_instr(instr)->GetOperandType(operand_idx);
-  return operandsMustMatch(op_type) ? 1 : 0;
+  HirOperandType op_type = hir_c_get_operand_type(instr, operand_idx);
+  return hir_operands_must_match_op(op_type);
 }
 
 int hir_type_matches_operand(HirInstr instr, size_t operand_idx,
                              const HirType *type) {
-  OperandType expected = as_instr(instr)->GetOperandType(operand_idx);
-  Type cpp_type = Type::fromHirType(*type);
-  return registerTypeMatches(cpp_type, expected) ? 1 : 0;
+  HirOperandType expected = hir_c_get_operand_type(instr, operand_idx);
+  return hir_register_type_matches(*type, expected);
 }
 
 /* ---- Instruction count ---- */
