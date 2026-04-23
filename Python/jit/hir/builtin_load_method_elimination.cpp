@@ -5,6 +5,8 @@
 
 #include "cinderx/Common/py-portability.h"
 #include "cinderx/Jit/hir/hir_c_api.h"
+
+extern "C" void hir_reflow_types_c(void *func, void *start_block);
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/threaded_compile.h"
@@ -266,7 +268,7 @@ void BuiltinLoadMethodElimination::Run(Function& irfunc) {
     for (auto [lm, invoke] : invokes) {
       changed |= tryEliminateLoadMethod(irfunc, invoke);
     }
-    reflowTypes(irfunc);
+    hir_reflow_types_c(&irfunc, irfunc.cfg.entry_block);
   }
 }
 

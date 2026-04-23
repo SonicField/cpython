@@ -3,13 +3,9 @@
 #pragma once
 
 #include "cinderx/Jit/hir/function.h"
-#include "cinderx/Jit/hir/hir.h"
 
-#include <functional>
 #include <string>
 #include <string_view>
-#include <unordered_map>
-#include <unordered_set>
 
 namespace jit::hir {
 
@@ -29,37 +25,12 @@ class Pass {
   std::string name_;
 };
 
-// General utilities that a compiler pass might want to make use of.
-
-using RegUses = std::unordered_map<Register*, std::unordered_set<Instr*>>;
-
-// Recursively chase a list of assignments and get the original register value.
-// If there are no assignments then just get the register back.
-Register* chaseAssignOperand(Register* value);
-
-// Collect direct operand uses of all Registers in the given func, excluding
-// uses in FrameState or other metadata.
-RegUses collectDirectRegUses(Function& func);
-
-// Re-derive all Register types in the given function. Meant to be called after
-// SSAify and any optimizations that could refine the output type of an
-// instruction.
-void reflowTypes(Function& func);
-void reflowTypes(Function& func, BasicBlock* start);
-
-// Remove any blocks that consist of a single jump to another block.
-bool removeTrampolineBlocks(CFG* cfg);
-
-// Remove blocks that aren't reachable from the entry, whether or not they're
-// empty. Return true if it changed the graph and false otherwise.
-bool removeUnreachableBlocks(Function& func);
-
-// Remove instructions that aren't reachable from the entry. Return true if it
-// changed the graph and false otherwise.
-bool removeUnreachableInstructions(Function& func);
-
-// Replace cond branches where both sides go to the same block with a direct
-// branch.
-void simplifyRedundantCondBranches(CFG* cfg);
+// Free-function pass utilities (chaseAssignOperand, collectDirectRegUses,
+// reflowTypes, removeTrampolineBlocks, removeUnreachableBlocks,
+// removeUnreachableInstructions, simplifyRedundantCondBranches) are
+// implemented in pass_output_type_c.c (Batch 2-C: pass.cpp eliminated).
+// C++ callers in hir/ now invoke the hir_*_c entry points directly.
+// The RegUses heap container used by hir_collect_reg_uses + friends lives
+// inside hir_c_api.cpp (the C/C++ bridge boundary).
 
 } // namespace jit::hir

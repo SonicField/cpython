@@ -6,6 +6,8 @@
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/jit_config_c.h"
 
+extern "C" void hir_reflow_types_c(void *func, void *start_block);
+
 #include "internal/pycore_code.h"
 
 #include "cinderx/Common/extra-py-flags.h"
@@ -673,7 +675,7 @@ void InlineFunctionCalls::Run(Function& irfunc) {
 
     // We need to reflow types after every inline to propagate new type
     // information from the callee.
-    reflowTypes(irfunc);
+    hir_reflow_types_c(&irfunc, irfunc.cfg.entry_block);
   }
 
   // The inliner will make some blocks unreachable and we need to remove them

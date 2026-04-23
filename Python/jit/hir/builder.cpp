@@ -4,6 +4,9 @@
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_c_api.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
+
+extern "C" int hir_remove_trampoline_blocks_c(void *cfg);
+extern "C" int hir_remove_unreachable_blocks_c(void *func);
 #include "cinderx/Jit/jit_config_c.h"
 #include "cinderx/Jit/jit_rt.h"
 
@@ -1500,10 +1503,10 @@ std::unique_ptr<Function> HIRBuilder::buildHIR() {
 
   std::unique_ptr<Function> irfunc = preloader_.makeFunction();
   buildHIRImpl(irfunc.get(), /*frame_state=*/nullptr);
-  // Use removeTrampolineBlocks and removeUnreachableBlocks directly instead of
-  // Run because the rest of CleanCFG requires SSA.
-  removeTrampolineBlocks(&irfunc->cfg);
-  removeUnreachableBlocks(*irfunc);
+  // Use the C versions directly instead of the CleanCFG Pass because the
+  // rest of CleanCFG requires SSA.
+  hir_remove_trampoline_blocks_c(&irfunc->cfg);
+  hir_remove_unreachable_blocks_c(irfunc.get());
   return irfunc;
 }
 

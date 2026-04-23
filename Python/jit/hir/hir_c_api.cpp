@@ -26,6 +26,10 @@
 #include "cinderx/Jit/hir/function.h"
 #include "cinderx/Jit/hir/instr_effects_c.h"
 #include "cinderx/Jit/hir/pass.h"
+#include <unordered_map>
+#include <unordered_set>
+
+extern "C" int hir_remove_unreachable_instructions_c(void *func);
 #include "cinderx/Jit/context.h"
 #include "cinderx/Jit/jit_rt.h"
 
@@ -481,8 +485,21 @@ HirType hir_register_type(HirRegister reg) {
 
 /* ---- RegUses (opaque handle) ---- */
 
+/* RegUses typedef relocated from pass.h (Batch 2-C): used only by the 5
+ * bridge functions in this TU; the C++ collection lives at the C/C++ bridge
+ * boundary by design. */
+using RegUses = std::unordered_map<Register*, std::unordered_set<Instr*>>;
+
 HirRegUses hir_collect_reg_uses(HirFunction func) {
-  auto* uses = new RegUses(collectDirectRegUses(*as_func(func)));
+  auto* uses = new RegUses();
+  Function& fn = *as_func(func);
+  for (auto& block : fn.cfg.blocks) {
+    for (Instr& instr : block) {
+      for (size_t i = 0; i < instr.NumOperands(); ++i) {
+        (*uses)[instr.GetOperand(i)].insert(&instr);
+      }
+    }
+  }
   return static_cast<HirRegUses>(uses);
 }
 
@@ -627,7 +644,7 @@ int hir_remove_unreachable_blocks(HirFunction func) {
 }
 
 void hir_remove_unreachable_instructions(HirFunction func) {
-  removeUnreachableInstructions(*as_func(func));
+  hir_remove_unreachable_instructions_c(as_func(func));
 }
 
 extern "C" void hir_reflow_types_c(void *func, void *start_block);

@@ -14,6 +14,8 @@
 #include <unordered_set>
 #include <vector>
 
+extern "C" void hir_reflow_types_c(void *func, void *start_block);
+
 namespace jit::hir {
 
 
@@ -83,7 +85,7 @@ void SSAify::Run(Function& irfunc, BasicBlock* start) {
     delete ssablock;
   }
 
-  reflowTypes(irfunc, start);
+  hir_reflow_types_c(&irfunc, start);
 }
 
 Register* SSAify::getDefine(SSABasicBlock* ssablock, Register* reg) {
