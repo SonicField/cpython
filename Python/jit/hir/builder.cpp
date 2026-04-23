@@ -4258,26 +4258,13 @@ void HIRBuilder::emitListToTuple(TranslationContext& tc) {
       static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
 
+extern "C" void hir_builder_emit_build_checked_list_c(
+    void *tc, void *builder, PyObject *const_arg);
+
 void HIRBuilder::emitBuildCheckedList(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  PyObject* arg = constArg(bc_instr);
-  PyObject* descr = PyTuple_GET_ITEM(arg, 0);
-  Py_ssize_t list_size = PyLong_AsLong(PyTuple_GET_ITEM(arg, 1));
-
-  Type type = preloader_.type(descr);
-  JIT_CHECK(
-      Ci_CheckedList_TypeCheck(type.uniquePyType()),
-      "expected CheckedList type");
-
-  Register* list = temps_.AllocateStack();
-  auto instr = tc.emitMakeCheckedList(list_size, list, type, tc.frame);
-  // Fill list
-  for (size_t i = list_size; i > 0; i--) {
-    auto operand = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-    instr->SetOperand(i - 1, operand);
-  }
-  phx_ptr_arr_push(&tc.frame.stack, list);
+  hir_builder_emit_build_checked_list_c(&tc, this, constArg(bc_instr));
 }
 
 void HIRBuilder::emitBuildCheckedMap(

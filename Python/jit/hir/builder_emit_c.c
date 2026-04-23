@@ -19,6 +19,8 @@
 #include "internal/pycore_dict.h"          /* PyDictKeysObject (LOAD_ATTR_MODULE) */
 #include "opcode.h"
 #include "cinderx/Common/opcode_stubs.h"  /* YIELD_FROM stub for 3.12 (not in Include/opcode.h) */
+#include "cinderx/StaticPython/checked_list.h"  /* Ci_CheckedList_TypeCheck (W27b #3) */
+#include "cinderx/StaticPython/checked_dict.h"  /* Ci_CheckedDict_TypeCheck (W27b #4) */
 
 /* PhxCallKind values — must match enum PhxCallKind in builder.h. C body
  * dispatches on these instead of opcode constants to avoid pulling in
@@ -3961,6 +3963,35 @@ void hir_builder_emit_format_simple_c(
     /* done_block: continue with out on stack. */
     tc->block = done_block;
     phx_ptr_arr_push(&tc->frame.stack, out);
+}
+
+/* W27b #3: emitBuildCheckedList (BUILD_CHECKED_LIST, Static Python).
+ * Mirrors C++ HIRBuilder::emitBuildCheckedList @ builder.cpp:4261. */
+extern HirType hir_builder_preloader_type(void *builder, PyObject *descr);
+
+void hir_builder_emit_build_checked_list_c(
+        PhxTranslationContext *tc,
+        void *builder,
+        PyObject *const_arg) {
+    PyObject *descr = PyTuple_GET_ITEM(const_arg, 0);
+    Py_ssize_t list_size = PyLong_AsLong(PyTuple_GET_ITEM(const_arg, 1));
+
+    HirType type = hir_builder_preloader_type(builder, descr);
+    /* Debug-only assertion: preloader's resolved Python type must be a
+     * CheckedList subtype. Skipped in NDEBUG builds via JIT_CHECK_C. */
+    PyTypeObject *py_type = (PyTypeObject*)hir_builder_preloader_py_type(builder, descr);
+    JIT_CHECK_C(Ci_CheckedList_TypeCheck(py_type), "expected CheckedList type");
+
+    void *list = hir_builder_temps_alloc_stack(builder);
+    void *instr = hir_c_create_make_checked_list_reg(
+        (int32_t)list_size, list, type, &tc->frame);
+    /* Fill list right-to-left from stack. */
+    for (Py_ssize_t i = list_size; i > 0; i--) {
+        void *operand = phx_ptr_arr_pop(&tc->frame.stack);
+        hir_c_set_operand(instr, (size_t)(i - 1), operand);
+    }
+    phx_tc_emit(tc, instr);
+    phx_ptr_arr_push(&tc->frame.stack, list);
 }
 
 
