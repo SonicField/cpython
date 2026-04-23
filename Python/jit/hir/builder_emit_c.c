@@ -4467,4 +4467,60 @@ void hir_builder_emit_match_class_c(
     tc->block = done;
 }
 
+/* W27d #4: emitMatchMappingSequence (MATCH_MAPPING/MATCH_SEQUENCE, mainline).
+ * Mirrors C++ HIRBuilder::emitMatchMappingSequence @ builder.cpp:4823.
+ *
+ * Peeks top, loads ob_type → tp_flags, loads tf_flag const, IntBinaryOp<And>
+ * → and_result. Cond-branch on and_result → true (Py_True const) /
+ * false (Py_False const). Converges at done, pushes result. */
+void hir_builder_emit_match_mapping_sequence_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder,
+        uint64_t tf_flag) {
+    void *top = tc->frame.stack.data[tc->frame.stack.count - 1];
+
+    HirType t_type = HIR_TYPE_TYPE;
+    HirType t_cuint64 = HIR_TYPE_CUINT64;
+
+    void *type = hir_builder_temps_alloc_stack(builder);
+    phx_tc_emit(tc, hir_c_create_load_field_reg(
+        type, top, "ob_type",
+        (intptr_t)offsetof(PyObject, ob_type), t_type, 0));
+
+    void *tp_flags = hir_builder_temps_alloc_stack(builder);
+    phx_tc_emit(tc, hir_c_create_load_field_reg(
+        tp_flags, type, "tp_flags",
+        (intptr_t)offsetof(PyTypeObject, tp_flags), t_cuint64, 0));
+
+    void *flag = hir_builder_temps_alloc_stack(builder);
+    HirType flag_type = hir_type_from_cuint(tf_flag, t_cuint64);
+    phx_tc_emit(tc, hir_c_create_load_const(flag, flag_type));
+
+    void *and_result = hir_builder_temps_alloc_stack(builder);
+    phx_tc_emit(tc, hir_c_create_int_binary_op(
+        and_result, HIR_BOP_And, tp_flags, flag));
+
+    void *true_block = hir_cfg_alloc_block(func);
+    void *false_block = hir_cfg_alloc_block(func);
+    phx_tc_emit(tc, hir_c_create_cond_branch(and_result, true_block, false_block));
+
+    void *result = hir_builder_temps_alloc_stack(builder);
+    void *done = hir_cfg_alloc_block(func);
+
+    tc->block = true_block;
+    HirType t_true = hir_type_from_object(Py_True);
+    phx_tc_emit(tc, hir_c_create_load_const(result, t_true));
+    phx_tc_emit(tc, hir_c_create_branch_cpp(done));
+
+    tc->block = false_block;
+    HirType t_false = hir_type_from_object(Py_False);
+    phx_tc_emit(tc, hir_c_create_load_const(result, t_false));
+    phx_tc_emit(tc, hir_c_create_branch_cpp(done));
+
+    tc->block = done;
+    phx_ptr_arr_push(&tc->frame.stack, result);
+    (void)func;  /* hir_func_alloc_register not used here */
+}
+
 

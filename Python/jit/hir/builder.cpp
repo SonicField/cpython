@@ -4775,39 +4775,15 @@ void HIRBuilder::emitDispatchEagerCoroResult(
       code_->co_flags);
 }
 
+extern "C" void hir_builder_emit_match_mapping_sequence_c(
+    void *tc, void *func, void *builder, uint64_t tf_flag);
+
 void HIRBuilder::emitMatchMappingSequence(
-    CFG& cfg,
+    CFG& /*cfg*/,
     TranslationContext& tc,
     uint64_t tf_flag) {
-  Register* top = static_cast<Register*>(tc.frame.stack.data[tc.frame.stack.count - 1]);
-  auto type = temps_.AllocateStack();
-  tc.emitLoadField(type, top, "ob_type", offsetof(PyObject, ob_type), TType);
-  auto tp_flags = temps_.AllocateStack();
-  tc.emitLoadField(
-      tp_flags, type, "tp_flags", offsetof(PyTypeObject, tp_flags), TCUInt64);
-  auto flag = temps_.AllocateStack();
-  tc.emitLoadConst(flag, Type::fromCUInt(tf_flag, TCUInt64));
-
-  auto and_result = temps_.AllocateStack();
-  tc.emitIntBinaryOp(and_result, BinaryOpKind::kAnd, tp_flags, flag);
-
-  auto true_block = cfg.AllocateBlock();
-  auto false_block = cfg.AllocateBlock();
-  tc.emitCondBranch(and_result, true_block, false_block);
-
-  auto result = temps_.AllocateStack();
-  tc.block = true_block;
-  tc.emitLoadConst(result, Type::fromObject(Py_True));
-  auto done = cfg.AllocateBlock();
-  tc.emitBranch(done);
-
-  tc.block = false_block;
-  tc.emitLoadConst(result, Type::fromObject(Py_False));
-  tc.emitBranch(done);
-
-  tc.block = done;
-
-  phx_ptr_arr_push(&tc.frame.stack, result);
+  hir_builder_emit_match_mapping_sequence_c(
+      &tc, current_func_, this, tf_flag);
 }
 
 extern "C" void hir_builder_emit_match_class_c(
