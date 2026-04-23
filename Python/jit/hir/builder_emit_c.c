@@ -4146,4 +4146,24 @@ void hir_builder_emit_setup_with_c(
     phx_ptr_arr_push(&tc->frame.stack, enter_result);
 }
 
+/* W27c #3: emitBeforeWith — wraps SetupWithCommon, pushes enter_result.
+ * Mirrors C++ HIRBuilder::emitBeforeWith @ builder.cpp:4628.
+ *
+ * 3 invocation flavors (PY_VERSION_HEX + opcode-branch all folded into
+ * C++ stub passing the right ids + is_async down):
+ *   - pre-3.12: __aenter__/__aexit__, is_async=true
+ *   - 3.12+ BEFORE_ASYNC_WITH: __aenter__/__aexit__, is_async=true
+ *   - 3.12+ BEFORE_WITH: __enter__/__exit__, is_async=false */
+void hir_builder_emit_before_with_c(
+        PhxTranslationContext *tc,
+        void *builder,
+        void *enter_id,
+        void *exit_id,
+        int is_async) {
+    void *enter_result = NULL;
+    hir_builder_emit_setup_with_common_c(
+        tc, builder, enter_id, exit_id, is_async, &enter_result);
+    phx_ptr_arr_push(&tc->frame.stack, enter_result);
+}
+
 
