@@ -5,8 +5,14 @@
 #endif
 
 #include "cinderx/Common/log.h"
+#include "cinderx/StaticPython/type_code.h"
 
 #include <cstring>
+#include <optional>
+#include <string>
+
+static_assert(sizeof(jit::hir::Type) == 16, "Type should fit in two registers");
+static_assert(sizeof(intptr_t) == sizeof(int64_t), "Expected 64-bit pointers");
 
 namespace jit::hir {
 
@@ -151,6 +157,130 @@ inline Type& Type::operator&=(Type other) {
 
 inline Type& Type::operator-=(Type other) {
   return *this = *this - other;
+}
+
+// ---- Batch 2-E: bodies relocated from type.cpp (header-inline). ----
+// Most are trivial delegations to hir_type_c.h C functions; the two
+// non-trivial ones (runtimePyTypeDestructor + OwnedType::toHir) keep
+// their original C++ shape.
+
+inline std::string Type::specString() const {
+  HirType h = toHirType(*this);
+  char buf[256];
+  size_t n = hir_type_to_string_c(&h, buf, sizeof(buf), 0);
+  return std::string(buf, n < sizeof(buf) ? n : sizeof(buf) - 1);
+}
+
+inline std::string Type::toString() const {
+  HirType h = toHirType(*this);
+  char buf[256];
+  size_t n = hir_type_to_string_c(&h, buf, sizeof(buf), 0);
+  return std::string(buf, n < sizeof(buf) ? n : sizeof(buf) - 1);
+}
+
+inline std::string Type::toStringSafe() const {
+  HirType h = toHirType(*this);
+  char buf[256];
+  size_t n = hir_type_to_string_c(&h, buf, sizeof(buf), 1);
+  return std::string(buf, n < sizeof(buf) ? n : sizeof(buf) - 1);
+}
+
+inline Type Type::fromTypeImpl(PyTypeObject* type, bool exact) {
+  return fromHirType(hir_type_from_pytype(type, exact ? 1 : 0));
+}
+
+inline Type Type::fromType(PyTypeObject* type) {
+  return fromHirType(hir_type_from_pytype(type, 0));
+}
+
+inline Type Type::fromTypeExact(PyTypeObject* type) {
+  return fromHirType(hir_type_from_pytype(type, 1));
+}
+
+inline Type Type::fromObject(PyObject* obj) {
+  return fromHirType(hir_type_from_object(obj));
+}
+
+inline PyTypeObject* Type::uniquePyType() const {
+  HirType h = toHirType(*this);
+  return hir_type_unique_pytype(&h);
+}
+
+inline PyTypeObject* Type::runtimePyType() const {
+  HirType h = toHirType(*this);
+  return hir_type_runtime_pytype(&h);
+}
+
+inline std::optional<destructor> Type::runtimePyTypeDestructor() const {
+  // If we cannot determine a runtime type, the destructor is unknown.
+  auto type = runtimePyType();
+  if (type == nullptr) {
+    return std::nullopt;
+  }
+  // Calling Py_None's destructor is harmless on 3.11+ but crashes on 3.10.
+  if (type == Py_TYPE(Py_None)) {
+    return std::nullopt;
+  }
+  return std::make_optional(type->tp_dealloc);
+}
+
+inline PyObject* Type::asObject() const {
+  HirType h = toHirType(*this);
+  return hir_type_as_object(&h);
+}
+
+inline bool Type::isSingleValue() const {
+  HirType h = toHirType(*this);
+  return hir_type_is_single_value(&h);
+}
+
+inline bool Type::operator<=(Type other) const {
+  return hir_type_is_subtype(toHirType(*this), toHirType(other));
+}
+
+inline bool Type::specSubtype(Type other) const {
+  HirType a = toHirType(*this), b = toHirType(other);
+  return hir_type_spec_subtype(&a, &b);
+}
+
+inline Type Type::operator|(Type other) const {
+  return fromHirType(hir_type_union(toHirType(*this), toHirType(other)));
+}
+
+inline Type Type::operator&(Type other) const {
+  return fromHirType(hir_type_intersect(toHirType(*this), toHirType(other)));
+}
+
+inline Type Type::operator-(Type rhs) const {
+  return fromHirType(hir_type_subtract(toHirType(*this), toHirType(rhs)));
+}
+
+inline Type Type::asBoxed() const {
+  HirType h = toHirType(*this);
+  return fromHirType(hir_type_as_boxed(&h));
+}
+
+inline unsigned int Type::sizeInBytes() const {
+  HirType h = toHirType(*this);
+  return hir_type_size_in_bytes(&h);
+}
+
+inline Type OwnedType::toHir() const {
+  int prim_type = _PyClassLoader_GetTypeCode(type);
+  if (prim_type != TYPED_OBJECT) {
+    JIT_CHECK(!optional, "primitive types cannot be optional");
+    return prim_type_to_type(prim_type);
+  }
+
+  Type hir_type = exact ? Type::fromTypeExact(type) : Type::fromType(type);
+  if (optional) {
+    hir_type |= TNoneType;
+  }
+  return hir_type;
+}
+
+inline Type prim_type_to_type(int prim_type) {
+  return Type::fromHirType(hir_prim_type_to_type(prim_type));
 }
 
 } // namespace jit::hir
