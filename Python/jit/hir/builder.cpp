@@ -4089,56 +4089,13 @@ void HIRBuilder::emitPrimitiveBinaryOp(
   hir_builder_emit_primitive_binary_op_c(&tc, this, bc_instr.oparg());
 }
 
+extern "C" void hir_builder_emit_primitive_compare_c(
+    void *tc, void *builder, int oparg);
+
 void HIRBuilder::emitPrimitiveCompare(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* right = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* left = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* result = temps_.AllocateStack();
-  PrimitiveCompareOp op;
-  switch (bc_instr.oparg()) {
-    case PRIM_OP_EQ_INT:
-    case PRIM_OP_EQ_DBL:
-      op = PrimitiveCompareOp::kEqual;
-      break;
-    case PRIM_OP_NE_INT:
-    case PRIM_OP_NE_DBL:
-      op = PrimitiveCompareOp::kNotEqual;
-      break;
-    case PRIM_OP_LT_INT:
-      op = PrimitiveCompareOp::kLessThan;
-      break;
-    case PRIM_OP_LE_INT:
-      op = PrimitiveCompareOp::kLessThanEqual;
-      break;
-    case PRIM_OP_GT_INT:
-      op = PrimitiveCompareOp::kGreaterThan;
-      break;
-    case PRIM_OP_GE_INT:
-      op = PrimitiveCompareOp::kGreaterThanEqual;
-      break;
-    case PRIM_OP_LT_UN_INT:
-    case PRIM_OP_LT_DBL:
-      op = PrimitiveCompareOp::kLessThanUnsigned;
-      break;
-    case PRIM_OP_LE_UN_INT:
-    case PRIM_OP_LE_DBL:
-      op = PrimitiveCompareOp::kLessThanEqualUnsigned;
-      break;
-    case PRIM_OP_GT_UN_INT:
-    case PRIM_OP_GT_DBL:
-      op = PrimitiveCompareOp::kGreaterThanUnsigned;
-      break;
-    case PRIM_OP_GE_UN_INT:
-    case PRIM_OP_GE_DBL:
-      op = PrimitiveCompareOp::kGreaterThanEqualUnsigned;
-      break;
-    default:
-      JIT_ABORT("unsupported comparison");
-  }
-  tc.emitPrimitiveCompare(result, op, left, right);
-  phx_ptr_arr_push(&stack, result);
+  hir_builder_emit_primitive_compare_c(&tc, this, bc_instr.oparg());
 }
 
 void HIRBuilder::emitPrimitiveUnaryOp(

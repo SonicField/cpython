@@ -3807,4 +3807,53 @@ void hir_builder_emit_primitive_binary_op_c(
     phx_ptr_arr_push(&tc->frame.stack, result);
 }
 
+/* W27a #4: emitPrimitiveCompare (PRIMITIVE_COMPARE_OP opcode, Static Python).
+ * Mirrors C++ HIRBuilder::emitPrimitiveCompare @ builder.cpp:4097.
+ *
+ * PHX_PRIM_OP_* compare values from classloader.h (already #defined above).
+ * HIR_PCMP_* constants from hir_instr_c.h. */
+void hir_builder_emit_primitive_compare_c(
+        PhxTranslationContext *tc,
+        void *builder,
+        int oparg) {
+    void *right = phx_ptr_arr_pop(&tc->frame.stack);
+    void *left = phx_ptr_arr_pop(&tc->frame.stack);
+    void *result = hir_builder_temps_alloc_stack(builder);
+
+    int32_t op;
+    switch (oparg) {
+        case PHX_PRIM_OP_EQ_INT:
+        case PHX_PRIM_OP_EQ_DBL:
+            op = HIR_PCMP_Equal; break;
+        case PHX_PRIM_OP_NE_INT:
+        case PHX_PRIM_OP_NE_DBL:
+            op = HIR_PCMP_NotEqual; break;
+        case PHX_PRIM_OP_LT_INT:
+            op = HIR_PCMP_LessThan; break;
+        case PHX_PRIM_OP_LE_INT:
+            op = HIR_PCMP_LessThanEqual; break;
+        case PHX_PRIM_OP_GT_INT:
+            op = HIR_PCMP_GreaterThan; break;
+        case PHX_PRIM_OP_GE_INT:
+            op = HIR_PCMP_GreaterThanEqual; break;
+        case PHX_PRIM_OP_LT_UN_INT:
+        case PHX_PRIM_OP_LT_DBL:
+            op = HIR_PCMP_LessThanUnsigned; break;
+        case PHX_PRIM_OP_LE_UN_INT:
+        case PHX_PRIM_OP_LE_DBL:
+            op = HIR_PCMP_LessThanEqualUnsigned; break;
+        case PHX_PRIM_OP_GT_UN_INT:
+        case PHX_PRIM_OP_GT_DBL:
+            op = HIR_PCMP_GreaterThanUnsigned; break;
+        case PHX_PRIM_OP_GE_UN_INT:
+        case PHX_PRIM_OP_GE_DBL:
+            op = HIR_PCMP_GreaterThanEqualUnsigned; break;
+        default:
+            JIT_CHECK_C(0, "unsupported comparison %d", oparg);
+            return;  /* unreachable */
+    }
+    phx_tc_emit(tc, hir_c_create_primitive_compare(result, op, left, right));
+    phx_ptr_arr_push(&tc->frame.stack, result);
+}
+
 
