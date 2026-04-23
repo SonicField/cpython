@@ -48,12 +48,16 @@ done
 
 BUILDER_CPP="Python/jit/hir/builder.cpp"
 BUILDER_EMIT_C="Python/jit/hir/builder_emit_c.c"
+BUILDER_STATE_C_H="Python/jit/hir/builder_state_c.h"
+BUILDER_STATE_C="Python/jit/hir/builder_state_c.c"
 CMAKE_BUILD_DIR="Python/jit_build/build"
 
-if [ ! -f "$BUILDER_CPP" ] || [ ! -f "$BUILDER_EMIT_C" ]; then
-    echo "ERROR: missing $BUILDER_CPP or $BUILDER_EMIT_C — wrong CWD?" >&2
-    exit 1
-fi
+for f in "$BUILDER_CPP" "$BUILDER_EMIT_C" "$BUILDER_STATE_C_H" "$BUILDER_STATE_C"; do
+    if [ ! -f "$f" ]; then
+        echo "ERROR: missing $f — wrong CWD?" >&2
+        exit 1
+    fi
+done
 
 echo "=== w45_bridge_drift_falsifier.sh — W45 gate ==="
 echo "HEAD: $(git rev-parse HEAD)"
@@ -63,13 +67,19 @@ echo ""
 # Backup files atomically; restore on any exit.
 BACKUP_CPP=$(mktemp /tmp/w45_builder_cpp.XXXXXX)
 BACKUP_C=$(mktemp /tmp/w45_builder_emit_c.XXXXXX)
+BACKUP_STATE_H=$(mktemp /tmp/w45_builder_state_h.XXXXXX)
+BACKUP_STATE_C=$(mktemp /tmp/w45_builder_state_c.XXXXXX)
 cp "$BUILDER_CPP" "$BACKUP_CPP"
 cp "$BUILDER_EMIT_C" "$BACKUP_C"
+cp "$BUILDER_STATE_C_H" "$BACKUP_STATE_H"
+cp "$BUILDER_STATE_C" "$BACKUP_STATE_C"
 
 restore_files() {
     cp "$BACKUP_CPP" "$BUILDER_CPP" 2>/dev/null || true
     cp "$BACKUP_C" "$BUILDER_EMIT_C" 2>/dev/null || true
-    rm -f "$BACKUP_CPP" "$BACKUP_C" 2>/dev/null || true
+    cp "$BACKUP_STATE_H" "$BUILDER_STATE_C_H" 2>/dev/null || true
+    cp "$BACKUP_STATE_C" "$BUILDER_STATE_C" 2>/dev/null || true
+    rm -f "$BACKUP_CPP" "$BACKUP_C" "$BACKUP_STATE_H" "$BACKUP_STATE_C" 2>/dev/null || true
 }
 trap restore_files EXIT
 
@@ -83,6 +93,9 @@ FIXTURES=(
     "hir_builder_emit_copy_free_vars_c|Phase 1 #4 emitCopyFreeVars delegation (5 args)"
     "hir_builder_emit_get_yield_from_iter_c|Phase 1 #4 emitGetYieldFromIter delegation (5 args)"
     "hir_builder_emit_primitive_load_const_c|Phase 1 #5 emitPrimitiveLoadConst delegation (5 args)"
+    "hir_builder_state_init|Phase 3 Batch 1 state init (3 args)"
+    "hir_builder_state_parse_exception_table_c|Phase 3 Batch 1 parseExceptionTable C body (2 args)"
+    "hir_builder_state_exception_table_push_cpp|Phase 3 Batch 1 exception_table push bridge (6 args)"
 )
 
 # Mutation: append ', int phx_w45_drift' before the closing paren of the
@@ -91,24 +104,20 @@ FIXTURES=(
 mutate_bridge() {
     local symbol="$1"
     # Match: void <symbol>( ... ) — capture inner contents, append drift param.
-    # Multi-line via perl -0777.
+    # Multi-line via perl -0777. Apply across all source files containing
+    # bridge decls / defs.
     perl -i -0777 -pe \
         "s/(void\s+${symbol}\s*\([^)]*?)\)/\${1}, int phx_w45_drift)/g" \
-        "$BUILDER_CPP" "$BUILDER_EMIT_C"
+        "$BUILDER_CPP" "$BUILDER_EMIT_C" "$BUILDER_STATE_C_H" "$BUILDER_STATE_C"
 }
 
-# Verify mutation actually applied (perl substitution silently no-ops if
-# pattern doesn't match — guard against false-positive PASS where the
-# mutation didn't happen and build "passing" is meaningless).
+# Verify mutation actually applied somewhere (perl substitution silently
+# no-ops if pattern doesn't match — guard against false-positive PASS).
 verify_mutated() {
     local symbol="$1"
-    if ! grep -q "phx_w45_drift" "$BUILDER_CPP" 2>/dev/null; then
-        return 1
-    fi
-    if ! grep -q "phx_w45_drift" "$BUILDER_EMIT_C" 2>/dev/null; then
-        return 1
-    fi
-    return 0
+    grep -l "phx_w45_drift" \
+        "$BUILDER_CPP" "$BUILDER_EMIT_C" "$BUILDER_STATE_C_H" "$BUILDER_STATE_C" \
+        2>/dev/null | grep -q .
 }
 
 PASS=0
@@ -125,6 +134,8 @@ for fixture in "${FIXTURES[@]}"; do
     # Restore before each fixture (defensive).
     cp "$BACKUP_CPP" "$BUILDER_CPP"
     cp "$BACKUP_C" "$BUILDER_EMIT_C"
+    cp "$BACKUP_STATE_H" "$BUILDER_STATE_C_H"
+    cp "$BACKUP_STATE_C" "$BUILDER_STATE_C"
 
     # Mutate.
     mutate_bridge "$SYMBOL"
@@ -138,8 +149,10 @@ for fixture in "${FIXTURES[@]}"; do
 
     if [ "$DRY_RUN" -eq 1 ]; then
         echo "    [DRY] mutation applied; mutation-marker sites (build skipped):"
-        grep -n "phx_w45_drift" "$BUILDER_CPP" | sed 's/^/      cpp: /'
-        grep -n "phx_w45_drift" "$BUILDER_EMIT_C" | sed 's/^/      c:   /'
+        { grep -n "phx_w45_drift" "$BUILDER_CPP" 2>/dev/null || true; } | sed 's/^/      cpp:     /'
+        { grep -n "phx_w45_drift" "$BUILDER_EMIT_C" 2>/dev/null || true; } | sed 's/^/      emit_c:  /'
+        { grep -n "phx_w45_drift" "$BUILDER_STATE_C_H" 2>/dev/null || true; } | sed 's/^/      state_h: /'
+        { grep -n "phx_w45_drift" "$BUILDER_STATE_C" 2>/dev/null || true; } | sed 's/^/      state_c: /'
         SKIP=$((SKIP+1))
         echo ""
         continue
@@ -184,6 +197,8 @@ done
 echo "--- Restore + verify clean rebuild"
 cp "$BACKUP_CPP" "$BUILDER_CPP"
 cp "$BACKUP_C" "$BUILDER_EMIT_C"
+cp "$BACKUP_STATE_H" "$BUILDER_STATE_C_H"
+cp "$BACKUP_STATE_C" "$BUILDER_STATE_C"
 
 if [ "$DRY_RUN" -eq 0 ]; then
     BUILD_OUT=$(mktemp /tmp/w45_build_restore.XXXXXX)

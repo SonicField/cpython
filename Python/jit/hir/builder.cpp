@@ -1227,45 +1227,24 @@ HIRBuilder::BlockMap HIRBuilder::createBlocks(
 }
 
 
+extern "C" void hir_builder_state_exception_table_push_cpp(
+    void *builder,
+    int start,
+    int end,
+    int target,
+    int depth,
+    int lasti) {
+  HIRBuilder *self = static_cast<HIRBuilder*>(builder);
+  self->exception_table_.push_back(HIRBuilder::ExceptionTableEntry{
+      BCOffset{start},
+      BCOffset{end},
+      BCOffset{target},
+      depth,
+      lasti != 0});
+}
+
 void HIRBuilder::parseExceptionTable() {
-  PyObject* table_obj = code_->co_exceptiontable;
-  if (table_obj == nullptr || !PyBytes_Check(table_obj)) {
-    return;
-  }
-  const uint8_t* table =
-      reinterpret_cast<const uint8_t*>(PyBytes_AS_STRING(table_obj));
-  Py_ssize_t length = PyBytes_GET_SIZE(table_obj);
-  Py_ssize_t pos = 0;
-
-    // Variable-length integer decoder matching CPython 3.12 format (MSB first).
-    // Each byte: bits 0-5 = payload, bit 6 = continuation.
-    // First byte holds the most-significant bits of the value.
-    auto parse_varint = [&]() -> int {
-      int val = 0;
-      uint8_t b;
-      do {
-        JIT_DCHECK(pos < length, "Truncated exception table");
-        b = table[pos++];
-        val = (val << 6) | (b & 0x3F);
-      } while (b & 0x40);
-      return val;
-    };
-  while (pos < length) {
-    int start = parse_varint();
-    int size = parse_varint();
-    int target = parse_varint();
-    int depth_lasti = parse_varint();
-
-    // Exception table values are in instruction units (word offsets).
-    // Convert to byte offsets by multiplying by sizeof(_Py_CODEUNIT).
-    constexpr int scale = sizeof(_Py_CODEUNIT);
-    exception_table_.push_back(ExceptionTableEntry{
-        BCOffset{start * scale},
-        BCOffset{(start + size) * scale},
-        BCOffset{target * scale},
-        depth_lasti >> 1,
-        (depth_lasti & 1) != 0});
-  }
+  hir_builder_state_parse_exception_table_c(&state_, this);
 }
 
 const HIRBuilder::ExceptionTableEntry* HIRBuilder::findExceptionHandler(

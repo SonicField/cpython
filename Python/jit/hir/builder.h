@@ -7,6 +7,7 @@
 #include "cinderx/Common/util.h"
 #include "cinderx/Jit/bytecode.h"
 #include "cinderx/Jit/bytecode_offsets.h"
+#include "cinderx/Jit/hir/builder_state_c.h"
 #include "cinderx/Jit/hir/hir.h"
 #include "cinderx/Jit/hir/preload.h"
 
@@ -207,10 +208,17 @@ class HIRBuilder {
       void*, void*, void*, int, void*, void*);
   // W27d #1 (theologian L2544): grants C body access to private Register* func_.
   friend void* ::hir_builder_func_register_c(void*);
+  // Phase 3 Batch 1 (theologian 23:05:15Z): grants C-side bridge access to
+  // private std::vector<ExceptionTableEntry> exception_table_.
+  friend void ::hir_builder_state_exception_table_push_cpp(
+      void*, int, int, int, int, int);
  public:
   const Preloader& preloader() const { return preloader_; }
   explicit HIRBuilder(const Preloader& preloader)
-      : code_(preloader.code()), preloader_(preloader) {}
+      : code_(preloader.code()), preloader_(preloader) {
+    hir_builder_state_init(
+        &state_, static_cast<void*>(code_), static_cast<const void*>(&preloader_));
+  }
 
   // Translate the bytecode for code_ into HIR, in the context of the preloaded
   // globals and classloader lookups from preloader_.
@@ -679,6 +687,12 @@ class HIRBuilder {
   Register* kwnames_{nullptr};
 
   OperandStack static_method_stack_;
+
+  // Phase 3 Batch 1: Class A state mirror (code_, preloader_, current_func_,
+  // func_, kwnames_). Initialized in ctor; subsequent batches migrate
+  // mutator sites to update state_ in lockstep + remove duplicate C++
+  // members. C-body bridges (hir_builder_state_*_c) read state via this.
+  PhxHirBuilderState state_{};
 };
 
 } // namespace jit::hir
