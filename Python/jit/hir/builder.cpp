@@ -4951,8 +4951,15 @@ void HIRBuilder::checkTranslate() {
       // before reading the next instruction's opcode/oparg, otherwise
       // YIELD_VALUE at end-of-bytecode SIGSEGVs reading garbage memory.
       // (testkeeper 14:34:52Z auto-compile asyncio regression catch.)
-      BCOffset next_off = bci.nextInstrOffset();
-      if (next_off < bc_block.size()) {
+      //
+      // UNIT NOTE: nextInstrOffset() returns BCOffset (bytes); bc_block.size()
+      // returns Py_ssize_t in instruction-count units. Assigning to BCIndex
+      // auto-divides by sizeof(_Py_CODEUNIT) (per bytecode_offsets.h:176),
+      // matching the units of size(). This mirrors the existing 3.11+
+      // bounds-check pattern at builder.cpp:1143. (testkeeper 14:40:22Z
+      // catch on units mismatch in v2.)
+      BCIndex next_idx = bci.nextInstrOffset();
+      if (next_idx < bc_block.size()) {
         auto next_bc = bci.nextInstr();
         if (next_bc.opcode() == RESUME && next_bc.oparg() == 2) {
           throw std::runtime_error{fmt::format(
