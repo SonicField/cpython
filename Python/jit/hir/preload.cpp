@@ -2,6 +2,7 @@
 
 #include "cinderx/Jit/hir/preload.h"
 
+#include "cinderx/Jit/hir/preload_helpers_c.h"
 #include "cinderx/Common/dict.h"
 #include "cinderx/Common/extra-py-flags.h"
 #include "cinderx/Common/util.h"
@@ -28,15 +29,15 @@ static OwnedType resolve_type_descr(PyObject* descr) {
 }
 
 static FieldInfo resolve_field_descr(PyTupleObject* descr) {
-  int field_type;
-  Py_ssize_t offset = _PyClassLoader_ResolveFieldOffset((PyObject*)descr, &field_type);
-
-  JIT_CHECK(offset != -1, "failed to resolve field {}", repr((PyObject*)descr));
-
-  return {
-      offset,
-      prim_type_to_type(field_type),
-      (PyUnicodeObject*)PyTuple_GET_ITEM(descr, PyTuple_GET_SIZE(descr) - 1)};
+  /* Tier 7 Batch 2 Cat-A: pure-C body lives in preload_helpers_c.c
+   * (phx_resolve_field_descr). This wrapper preserves the existing
+   * FieldInfo return type (C++ Type) by converting HirType →
+   * Type::fromHirType at the boundary. */
+  Py_ssize_t offset;
+  HirType hir_type;
+  PyUnicodeObject* name;
+  phx_resolve_field_descr(descr, &offset, &hir_type, &name);
+  return {offset, Type::fromHirType(hir_type), name};
 }
 
 static void _fill_primitive_arg_types_helper(
