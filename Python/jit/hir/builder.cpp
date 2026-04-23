@@ -4899,8 +4899,7 @@ void HIRBuilder::checkTranslate() {
       banned_name_ids.insert(i);
     }
   }
-  BytecodeInstructionBlock bc_block{code_};
-  for (auto& bci : bc_block) {
+  for (auto& bci : BytecodeInstructionBlock{code_}) {
     auto opcode = bci.opcode();
     int oparg = bci.oparg();
     if (!isSupportedOpcode(opcode)) {
@@ -4927,46 +4926,6 @@ void HIRBuilder::checkTranslate() {
             "Cannot compile {} to HIR because it uses banned global '{}'",
             preloader_.fullname(),
             name_at(oparg))};
-      }
-    } else if (opcode == YIELD_VALUE) {
-      // W22 yield-from deopt: Alex 2026-04-23 explicit one-case bypass of
-      // feedback_no_workarounds.md. CPython 3.12 desugars 'yield from EXPR'
-      // into GET_YIELD_FROM_ITER + SEND-loop where the loop body is
-      // (YIELD_VALUE 2, RESUME 2, JUMP_BACKWARD_NO_INTERRUPT). The HIR
-      // YieldFrom instruction is emitted in builder_emit_c.c:hir_builder_emit_
-      // yield_value_c when next bytecode is RESUME with oparg==2 (the
-      // RESUME oparg discriminator: 0=function-start, 1=after-plain-yield,
-      // 2=after-yield-from, 3=after-await). Refcount-pass-init n_in==0 on
-      // the generator-resume bb crashes deopt with 'register not live'
-      // assertion (5 architectural fix iterations did not converge cleanly).
-      // Author authority bypass per Alex 14:00:40Z + gatekeeper 13:59:54Z +
-      // theologian 14:15:09Z + supervisor 14:14:50Z concur on (C) pattern-
-      // deopt scope. Plain yield (RESUME oparg==1) and await (RESUME
-      // oparg==3) STAY in the JIT — only the yield-from desugaring pattern
-      // falls back to the interpreter. RULE STANDS for future cases; this
-      // is the ONE explicit exception.
-      //
-      // Bounds check: nextInstrOffset() can go past end of bytecode for the
-      // last instruction (per Python/jit/bytecode.h:57 contract). Guard
-      // before reading the next instruction's opcode/oparg, otherwise
-      // YIELD_VALUE at end-of-bytecode SIGSEGVs reading garbage memory.
-      // (testkeeper 14:34:52Z auto-compile asyncio regression catch.)
-      //
-      // UNIT NOTE: nextInstrOffset() returns BCOffset (bytes); bc_block.size()
-      // returns Py_ssize_t in instruction-count units. Assigning to BCIndex
-      // auto-divides by sizeof(_Py_CODEUNIT) (per bytecode_offsets.h:176),
-      // matching the units of size(). This mirrors the existing 3.11+
-      // bounds-check pattern at builder.cpp:1143. (testkeeper 14:40:22Z
-      // catch on units mismatch in v2.)
-      BCIndex next_idx = bci.nextInstrOffset();
-      if (next_idx < bc_block.size()) {
-        auto next_bc = bci.nextInstr();
-        if (next_bc.opcode() == RESUME && next_bc.oparg() == 2) {
-          throw std::runtime_error{fmt::format(
-              "Cannot compile {} to HIR because it uses 'yield from' "
-              "(W22 deopt: YIELD_VALUE+RESUME-oparg-2 pattern)",
-              preloader_.fullname())};
-        }
       }
     }
   }

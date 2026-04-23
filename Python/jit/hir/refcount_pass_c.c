@@ -496,10 +496,56 @@ void phx_rc_use_simple_in_state(PhxRefcountEnv *env, void *block) {
     size_t n_in = hir_bb_in_edges_count(bb);
 
     if (n_in == 0) {
-        PhxStateMap empty;
-        phx_sm_init(&empty);
-        phx_rc_use_in_state(env, &empty);
-        phx_sm_destroy(&empty);
+        /* Generator-resume blocks have in_edges_count() == 0 because the
+         * CFG does not model the runtime resume edge from the generator
+         * machinery (every JIT-compiled generator function has at least one
+         * such block). The live-in registers for these blocks are restored
+         * by the runtime from the generator's saved state when execution
+         * resumes — semantically they arrive as owned references (mortal
+         * objects) or stay uncounted (immortals).
+         *
+         * The legacy implementation (inherited from CinderX C++) used an
+         * empty in-state here, which left env->live_regs empty and caused
+         * subsequent passthrough output processing to dereference NULL
+         * (refcount_pass_c.c:716 phx_rs_add_copy with rs=NULL). That bug
+         * was always present but hidden until W32 (4a01bfa3d1) repaired
+         * the gate's --wiring step and exposed compiled-code execution of
+         * yield-from + await patterns. W22 narrowly worked around the
+         * yield-from trigger via a checkTranslate deopt; the proper fix
+         * is to populate the in-state from liveness analysis here, so
+         * every n_in==0 block (yield-from, await, plain generator entry
+         * after RETURN_GENERATOR) gets a correct in-state.
+         *
+         * Per gdb investigation 2026-04-23 17:46Z: stack trace at
+         * phx_rs_add_copy(rs=NULL) → phx_rc_process_output → passthrough
+         * branch dereferences phx_sm_get(&env->live_regs, model_out)
+         * which returns NULL because the live-in register was never
+         * inserted into env->live_regs. */
+        PhxStateMap in_state;
+        phx_sm_init(&in_state);
+
+        RegCollector collector = {NULL, 0, 0};
+        hir_liveness_foreach_live_in(env->liveness_state, block,
+                                      init_in_state_collect_reg, &collector);
+
+        for (size_t i = 0; i < collector.count; i++) {
+            void *reg = collector.regs[i];
+            void *model = model_reg_rc(reg);
+            if (phx_sm_contains(&in_state, model)) continue;
+
+            PhxRegState *rs = phx_sm_get_or_create(&in_state, model);
+            /* phx_rs_init (called by get_or_create) leaves kind at the
+             * default of PHX_REF_UNCOUNTED. For mortal-typed registers
+             * delivered by the generator-resume runtime, mark OWNED so
+             * the refcount pass tracks the reference correctly. */
+            if (!phx_rc_is_uncounted(reg)) {
+                phx_rs_set_owned(rs);
+            }
+        }
+        PyMem_RawFree(collector.regs);
+
+        phx_rc_use_in_state(env, &in_state);
+        phx_sm_destroy(&in_state);
         return;
     }
 
