@@ -3676,4 +3676,30 @@ void hir_builder_emit_primitive_box_c(
     phx_ptr_arr_push(&tc->frame.stack, tmp);
 }
 
+/* W27a #2: emitPrimitiveUnbox (PRIMITIVE_UNBOX opcode, Static Python).
+ * Mirrors C++ HIRBuilder::emitPrimitiveUnbox @ builder.cpp:3941 + inline
+ * unboxPrimitive @ builder.cpp:3963 (TCBool|TCDouble error-check skip). */
+void hir_builder_emit_primitive_unbox_c(
+        PhxTranslationContext *tc,
+        void *builder,
+        int oparg) {
+    void *tmp = hir_builder_temps_alloc_stack(builder);
+    void *src = phx_ptr_arr_pop(&tc->frame.stack);
+    HirType type = hir_prim_type_to_type(oparg);
+
+    /* Inline unboxPrimitive: emit primitive_unbox_reg, then conditionally
+     * emit IsNegativeAndErrOccurred to detect unbox failure. The check is
+     * skipped for CBool|CDouble types (they cannot fail). */
+    phx_tc_emit(tc, hir_c_create_primitive_unbox_reg(tmp, src, type));
+    HirType cbool = HIR_TYPE_CBOOL;
+    HirType cdouble = HIR_TYPE_CDOUBLE;
+    HirType cbool_or_cdouble = hir_type_union(cbool, cdouble);
+    if (!hir_type_is_subtype(type, cbool_or_cdouble)) {
+        void *did_unbox_work = hir_builder_temps_alloc_stack(builder);
+        phx_tc_emit(tc, hir_c_create_is_neg_and_err_reg(
+            did_unbox_work, tmp, &tc->frame));
+    }
+    phx_ptr_arr_push(&tc->frame.stack, tmp);
+}
+
 
