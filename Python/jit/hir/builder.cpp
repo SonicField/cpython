@@ -262,16 +262,9 @@ bool isSupportedOpcode(int opcode) {
     case UNPACK_EX:
     case UNPACK_SEQUENCE:
     case WITH_EXCEPT_START:
+    case YIELD_FROM:
     case YIELD_VALUE:
       return true;
-    // YIELD_FROM deopt: Alex 2026-04-23 W22 explicit one-case bypass of
-    // feedback_no_workarounds.md ('always root-cause, never bail-out/deopt').
-    // Refcount-pass-init n_in==0 generator-resume bug — JIT compilation of
-    // YIELD_FROM hits an inherited CinderX defect (deopt-assertion / immortal
-    // refcount underflow on resume) that 5 architectural fix iterations
-    // could not resolve cleanly. Author authority bypass per Alex L3076 +
-    // gatekeeper L3076. Functions containing YIELD_FROM fall back to the
-    // interpreter (correct, slightly slower). RULE STANDS for future cases.
     default:
       break;
   }
@@ -4933,6 +4926,29 @@ void HIRBuilder::checkTranslate() {
             "Cannot compile {} to HIR because it uses banned global '{}'",
             preloader_.fullname(),
             name_at(oparg))};
+      }
+    } else if (opcode == YIELD_VALUE) {
+      // W22 yield-from deopt: Alex 2026-04-23 explicit one-case bypass of
+      // feedback_no_workarounds.md. CPython 3.12 desugars 'yield from EXPR'
+      // into GET_YIELD_FROM_ITER + SEND-loop where the loop body is
+      // (YIELD_VALUE 2, RESUME 2, JUMP_BACKWARD_NO_INTERRUPT). The HIR
+      // YieldFrom instruction is emitted in builder_emit_c.c:hir_builder_emit_
+      // yield_value_c when next bytecode is RESUME with oparg==2 (the
+      // RESUME oparg discriminator: 0=function-start, 1=after-plain-yield,
+      // 2=after-yield-from, 3=after-await). Refcount-pass-init n_in==0 on
+      // the generator-resume bb crashes deopt with 'register not live'
+      // assertion (5 architectural fix iterations did not converge cleanly).
+      // Author authority bypass per Alex L3076 + gatekeeper L3076 + theologian
+      // + supervisor concur on (C) pattern-deopt scope. Plain yield (RESUME
+      // oparg==1) and await (RESUME oparg==3) STAY in the JIT — only the
+      // yield-from desugaring pattern falls back to the interpreter.
+      // RULE STANDS for future cases; this is the ONE explicit exception.
+      auto next_bc = bci.nextInstr();
+      if (next_bc.opcode() == RESUME && next_bc.oparg() == 2) {
+        throw std::runtime_error{fmt::format(
+            "Cannot compile {} to HIR because it uses 'yield from' "
+            "(W22 deopt: YIELD_VALUE+RESUME-oparg-2 pattern)",
+            preloader_.fullname())};
       }
     }
   }
