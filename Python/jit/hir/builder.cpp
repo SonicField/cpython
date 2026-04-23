@@ -4155,42 +4155,13 @@ void HIRBuilder::emitSequenceGet(
   phx_ptr_arr_push(&stack, result);
 }
 
+extern "C" void hir_builder_emit_sequence_set_c(
+    void *tc, void *builder, int oparg);
+
 void HIRBuilder::emitSequenceSet(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  PhxPtrArray& stack = tc.frame.stack;
-  auto idx = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  auto sequence = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  auto value = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  auto adjusted_idx = temps_.AllocateStack();
-  auto oparg = bc_instr.oparg();
-  if (oparg == SEQ_LIST_INEXACT) {
-    auto type = temps_.AllocateStack();
-    tc.emitLoadField(
-        type, sequence, "ob_type", offsetof(PyObject, ob_type), TType);
-    tc.emitGuardIs(type, (PyObject*)&PyList_Type, type);
-    tc.emitRefineType(sequence, TListExact, sequence);
-  }
-  tc.emitCheckSequenceBounds(adjusted_idx, sequence, idx, tc.frame);
-  auto ob_item = temps_.AllocateStack();
-  if (oparg == SEQ_ARRAY_INT64) {
-    Register* offset_reg = temps_.AllocateStack();
-    tc.emitLoadConst(
-        offset_reg,
-        Type::fromCInt(offsetof(PyStaticArrayObject, ob_item), TCInt64));
-    tc.emitLoadFieldAddress(ob_item, sequence, offset_reg);
-  } else if (oparg == SEQ_LIST || oparg == SEQ_LIST_INEXACT) {
-    int offset = offsetof(PyListObject, ob_item);
-    tc.emitLoadField(ob_item, sequence, "ob_item", offset, TCPtr);
-  } else {
-    JIT_ABORT("Unsupported oparg for SEQUENCE_SET: {}", oparg);
-  }
-  tc.emitStoreArrayItem(
-      ob_item,
-      adjusted_idx,
-      value,
-      sequence,
-      element_type_from_seq_type(oparg));
+  hir_builder_emit_sequence_set_c(&tc, this, bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_load_global_c(void *tc, void *func, void *builder, PyCodeObject *code, int opcode, int oparg);

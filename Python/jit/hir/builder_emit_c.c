@@ -21,6 +21,7 @@
 #include "cinderx/Common/opcode_stubs.h"  /* YIELD_FROM stub for 3.12 (not in Include/opcode.h) */
 #include "cinderx/StaticPython/checked_list.h"  /* Ci_CheckedList_TypeCheck (W27b #3) */
 #include "cinderx/StaticPython/checked_dict.h"  /* Ci_CheckedDict_TypeCheck (W27b #4) */
+#include "cinderx/StaticPython/static_array.h"  /* PyStaticArrayObject (W27c #5) */
 
 /* PhxCallKind values — must match enum PhxCallKind in builder.h. C body
  * dispatches on these instead of opcode constants to avoid pulling in
@@ -4196,6 +4197,83 @@ void hir_builder_emit_send_c(
     void *done_block = hir_builder_get_block_at_off(builder, jump_target_off);
     void *continue_block = hir_builder_get_block_at_off(builder, next_instr_off);
     phx_tc_emit(tc, hir_c_create_cond_branch(is_done, done_block, continue_block));
+}
+
+/* W27c #5: emitSequenceSet (SEQUENCE_SET, Static Python). Mirrors C++
+ * HIRBuilder::emitSequenceSet @ builder.cpp:4158.
+ *
+ * SEQ_* values mirror cinderx/StaticPython/classloader.h (avoided in C TU).
+ * SEQ_LIST=0, SEQ_TUPLE=1, SEQ_LIST_INEXACT=2, SEQ_CHECKED_LIST=(1<<8)=256,
+ * SEQ_ARRAY_INT64=(TYPED_INT64<<4)|TYPED_ARRAY=(4<<4)|0x80=0xC0=192. */
+#define PHX_SEQ_LIST          0
+#define PHX_SEQ_TUPLE         1
+#define PHX_SEQ_LIST_INEXACT  2
+#define PHX_SEQ_CHECKED_LIST  256
+#define PHX_SEQ_ARRAY_INT64   0xC0
+
+void hir_builder_emit_sequence_set_c(
+        PhxTranslationContext *tc,
+        void *builder,
+        int oparg) {
+    void *idx = phx_ptr_arr_pop(&tc->frame.stack);
+    void *sequence = phx_ptr_arr_pop(&tc->frame.stack);
+    void *value = phx_ptr_arr_pop(&tc->frame.stack);
+    void *adjusted_idx = hir_builder_temps_alloc_stack(builder);
+
+    HirType t_type = HIR_TYPE_TYPE;
+    HirType t_listexact = HIR_TYPE_LISTEXACT;
+    HirType t_cint64 = HIR_TYPE_CINT64;
+    HirType t_cptr = HIR_TYPE_CPTR;
+
+    if (oparg == PHX_SEQ_LIST_INEXACT) {
+        void *type = hir_builder_temps_alloc_stack(builder);
+        phx_tc_emit(tc, hir_c_create_load_field_reg(
+            type, sequence, "ob_type",
+            (intptr_t)offsetof(PyObject, ob_type), t_type, 0));
+        phx_tc_emit(tc, hir_c_create_guard_is_reg(
+            type, (void*)&PyList_Type, type));
+        phx_tc_emit(tc, hir_c_create_refine_type_reg(
+            sequence, t_listexact, sequence));
+    }
+    phx_tc_emit(tc, hir_c_create_check_seq_bounds_reg(
+        adjusted_idx, sequence, idx, &tc->frame));
+
+    void *ob_item = hir_builder_temps_alloc_stack(builder);
+    if (oparg == PHX_SEQ_ARRAY_INT64) {
+        void *offset_reg = hir_builder_temps_alloc_stack(builder);
+        HirType offset_type = hir_type_from_cint(
+            (int64_t)offsetof(PyStaticArrayObject, ob_item), t_cint64);
+        phx_tc_emit(tc, hir_c_create_load_const(offset_reg, offset_type));
+        phx_tc_emit(tc, hir_c_create_load_field_address_reg(
+            ob_item, sequence, offset_reg));
+    } else if (oparg == PHX_SEQ_LIST || oparg == PHX_SEQ_LIST_INEXACT) {
+        intptr_t offset = (intptr_t)offsetof(PyListObject, ob_item);
+        phx_tc_emit(tc, hir_c_create_load_field_reg(
+            ob_item, sequence, "ob_item", offset, t_cptr, 0));
+    } else {
+        JIT_CHECK_C(0, "Unsupported oparg for SEQUENCE_SET: %d", oparg);
+    }
+
+    /* Inline element_type_from_seq_type @ builder.cpp:4068. */
+    HirType elem_type;
+    switch (oparg) {
+        case PHX_SEQ_LIST:
+        case PHX_SEQ_LIST_INEXACT:
+        case PHX_SEQ_CHECKED_LIST:
+        case PHX_SEQ_TUPLE: {
+            HirType t_object = HIR_TYPE_OBJECT;
+            elem_type = t_object;
+            break;
+        }
+        case PHX_SEQ_ARRAY_INT64:
+            elem_type = t_cint64;
+            break;
+        default:
+            JIT_CHECK_C(0, "Invalid sequence type: %d", oparg);
+            return;
+    }
+    phx_tc_emit(tc, hir_c_create_store_array_item_reg(
+        ob_item, adjusted_idx, value, sequence, elem_type));
 }
 
 
