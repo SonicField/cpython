@@ -4393,4 +4393,78 @@ void hir_builder_emit_get_yield_from_iter_c(
     phx_ptr_arr_push(&tc->frame.stack, iter_out);
 }
 
+/* W27d #3: emitMatchClass (MATCH_CLASS, mainline). Mirrors C++
+ * HIRBuilder::emitMatchClass @ builder.cpp:4858.
+ *
+ * Pops names/type/subject. Loads nargs as TCUInt64 const. Emits MatchClass
+ * → attrs_tuple. Refines attrs_tuple to TOptTupleExact (= TTupleExact |
+ * TNullptr). Cond-branch on attrs_tuple → true_block (refine to TTupleExact,
+ * pre-3.12 also load Py_True into if_success) / false_block (CheckErrOccurred,
+ * pre-3.12 load Py_False+assign subject; 3.12+ load Py_None and assign).
+ * Converges at done. Pushes tuple_or_none + (pre-3.12) if_success. */
+void hir_builder_emit_match_class_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder,
+        int oparg) {
+    void *names = phx_ptr_arr_pop(&tc->frame.stack);
+    void *type = phx_ptr_arr_pop(&tc->frame.stack);
+    void *subject = phx_ptr_arr_pop(&tc->frame.stack);
+
+    HirType t_cuint64 = HIR_TYPE_CUINT64;
+    void *nargs = hir_builder_temps_alloc_stack(builder);
+    HirType nargs_type = hir_type_from_cuint((uint64_t)oparg, t_cuint64);
+    phx_tc_emit(tc, hir_c_create_load_const(nargs, nargs_type));
+
+    void *attrs_tuple = hir_builder_temps_alloc_stack(builder);
+    phx_tc_emit(tc, hir_c_create_match_class_reg2(
+        attrs_tuple, subject, type, nargs, names));
+    /* TOptTupleExact = TTupleExact | TNullptr (per theologian L2544 fallback
+     * — HIR_TYPE_OPTTUPLEEXACT not in hir_type_c.h, construct via union). */
+    HirType t_tupleexact = HIR_TYPE_TUPLEEXACT;
+    HirType t_nullptr = HIR_TYPE_NULLPTR;
+    HirType t_opt_tupleexact = hir_type_union(t_tupleexact, t_nullptr);
+    phx_tc_emit(tc, hir_c_create_refine_type_reg(
+        attrs_tuple, t_opt_tupleexact, attrs_tuple));
+
+    void *tuple_or_none = hir_builder_temps_alloc_stack(builder);
+    phx_ptr_arr_push(&tc->frame.stack, tuple_or_none);
+    void *if_success = NULL;
+#if PY_VERSION_HEX < 0x030C0000
+    if_success = hir_builder_temps_alloc_stack(builder);
+    phx_ptr_arr_push(&tc->frame.stack, if_success);
+#endif
+
+    void *true_block = hir_cfg_alloc_block(func);
+    void *false_block = hir_cfg_alloc_block(func);
+    void *done = hir_cfg_alloc_block(func);
+
+    phx_tc_emit(tc, hir_c_create_cond_branch(attrs_tuple, true_block, false_block));
+
+    tc->block = true_block;
+    phx_tc_emit(tc, hir_c_create_refine_type_reg(
+        tuple_or_none, t_tupleexact, attrs_tuple));
+#if PY_VERSION_HEX < 0x030C0000
+    HirType t_true = hir_type_from_object(Py_True);
+    phx_tc_emit(tc, hir_c_create_load_const(if_success, t_true));
+#endif
+    phx_tc_emit(tc, hir_c_create_branch_cpp(done));
+
+    tc->block = false_block;
+    phx_tc_emit(tc, hir_c_create_check_err_occurred_reg(&tc->frame));
+#if PY_VERSION_HEX < 0x030C0000
+    HirType t_false = hir_type_from_object(Py_False);
+    phx_tc_emit(tc, hir_c_create_load_const(if_success, t_false));
+    phx_tc_emit(tc, hir_c_create_assign_reg(tuple_or_none, subject));
+#else
+    void *none_reg = hir_func_alloc_register(func);
+    HirType t_none = hir_type_from_object(Py_None);
+    phx_tc_emit(tc, hir_c_create_load_const(none_reg, t_none));
+    phx_tc_emit(tc, hir_c_create_assign_reg(tuple_or_none, none_reg));
+#endif
+    phx_tc_emit(tc, hir_c_create_branch_cpp(done));
+
+    tc->block = done;
+}
+
 

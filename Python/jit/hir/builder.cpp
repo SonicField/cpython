@@ -4810,56 +4810,15 @@ void HIRBuilder::emitMatchMappingSequence(
   phx_ptr_arr_push(&tc.frame.stack, result);
 }
 
+extern "C" void hir_builder_emit_match_class_c(
+    void *tc, void *func, void *builder, int oparg);
+
 void HIRBuilder::emitMatchClass(
-    CFG& cfg,
+    CFG& /*cfg*/,
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  PhxPtrArray& stack = tc.frame.stack;
-  Register* names = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* type = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  Register* subject = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  auto oparg = bc_instr.oparg();
-
-  auto nargs = temps_.AllocateStack();
-  tc.emitLoadConst(nargs, Type::fromCUInt(oparg, TCUInt64));
-
-  auto attrs_tuple = temps_.AllocateStack();
-  tc.emitMatchClass(attrs_tuple, subject, type, nargs, names);
-  tc.emitRefineType(attrs_tuple, TOptTupleExact, attrs_tuple);
-
-  Register* tuple_or_none = temps_.AllocateStack();
-  phx_ptr_arr_push(&stack, tuple_or_none);
-  Register* if_success = nullptr;
-  if constexpr (PY_VERSION_HEX < 0x030C0000) {
-    if_success = temps_.AllocateStack();
-    phx_ptr_arr_push(&stack, if_success);
-  }
-
-  auto true_block = cfg.AllocateBlock();
-  auto false_block = cfg.AllocateBlock();
-  auto done = cfg.AllocateBlock();
-
-  tc.emitCondBranch(attrs_tuple, true_block, false_block);
-  tc.block = true_block;
-  tc.emitRefineType(tuple_or_none, TTupleExact, attrs_tuple);
-  if constexpr (PY_VERSION_HEX < 0x030C0000) {
-    tc.emitLoadConst(if_success, Type::fromObject(Py_True));
-  }
-  tc.emitBranch(done);
-
-  tc.block = false_block;
-  tc.emitCheckErrOccurred(tc.frame);
-  if constexpr (PY_VERSION_HEX < 0x030C0000) {
-    tc.emitLoadConst(if_success, Type::fromObject(Py_False));
-    tc.emitAssign(tuple_or_none, subject);
-  } else {
-    Register* none = temps_.AllocateNonStack();
-    tc.emitLoadConst(none, Type::fromObject(Py_None));
-    tc.emitAssign(tuple_or_none, none);
-  }
-  tc.emitBranch(done);
-
-  tc.block = done;
+  hir_builder_emit_match_class_c(
+      &tc, current_func_, this, bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_match_keys_c(void *tc, void *func);
