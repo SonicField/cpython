@@ -73,6 +73,8 @@ extern "C" void hir_builder_emit_primitive_binary_op_c(void *tc, void *builder, 
 extern "C" void hir_builder_emit_primitive_compare_c(void *tc, void *builder, int oparg);
 extern "C" void hir_builder_emit_primitive_unary_op_c(
     void *tc, void *func, void *builder, int oparg);
+extern "C" void hir_builder_emit_before_with_c(
+    void *tc, void *builder, int opcode);
 
 namespace jit::hir {
 
@@ -2401,7 +2403,7 @@ void HIRBuilder::translate(
         }
         case BEFORE_ASYNC_WITH:
         case BEFORE_WITH: {
-          emitBeforeWith(tc, bc_instr);
+          hir_builder_emit_before_with_c(&tc, this, bc_instr.opcode());
           break;
         }
         case SETUP_ASYNC_WITH: {
@@ -4280,35 +4282,6 @@ Register* HIRBuilder::emitSetupWithCommon(
       &tc, this, (void*)enter_id, (void*)exit_id, is_async ? 1 : 0,
       &enter_result);
   return static_cast<Register*>(enter_result);
-}
-
-extern "C" void hir_builder_emit_before_with_c(
-    void *tc, void *builder, void *enter_id, void *exit_id, int is_async);
-
-void HIRBuilder::emitBeforeWith(
-    TranslationContext& tc,
-    [[maybe_unused]] const jit::BytecodeInstruction& bc_instr) {
-  void *enter_id;
-  void *exit_id;
-  int is_async;
-#if PY_VERSION_HEX < 0x030C0000
-  _Py_IDENTIFIER(__aenter__);
-  _Py_IDENTIFIER(__aexit__);
-  enter_id = (void*)&PyId___aenter__;
-  exit_id = (void*)&PyId___aexit__;
-  is_async = 1;
-#else
-  if (bc_instr.opcode() == BEFORE_ASYNC_WITH) {
-    enter_id = (void*)&_Py_ID(__aenter__);
-    exit_id = (void*)&_Py_ID(__aexit__);
-    is_async = 1;
-  } else {
-    enter_id = (void*)&_Py_ID(__enter__);
-    exit_id = (void*)&_Py_ID(__exit__);
-    is_async = 0;
-  }
-#endif
-  hir_builder_emit_before_with_c(&tc, this, enter_id, exit_id, is_async);
 }
 
 extern "C" void hir_builder_emit_setup_async_with_c(void *tc, int handler_off);

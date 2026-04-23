@@ -4155,20 +4155,43 @@ void hir_builder_emit_setup_with_c(
     phx_ptr_arr_push(&tc->frame.stack, enter_result);
 }
 
-/* W27c #3: emitBeforeWith — wraps SetupWithCommon, pushes enter_result.
- * Mirrors C++ HIRBuilder::emitBeforeWith @ builder.cpp:4628.
+/* emitBeforeWith — wraps SetupWithCommon, pushes enter_result.
  *
- * 3 invocation flavors (PY_VERSION_HEX + opcode-branch all folded into
- * C++ stub passing the right ids + is_async down):
- *   - pre-3.12: __aenter__/__aexit__, is_async=true
- *   - 3.12+ BEFORE_ASYNC_WITH: __aenter__/__aexit__, is_async=true
- *   - 3.12+ BEFORE_WITH: __enter__/__exit__, is_async=false */
+ * Phase 1 #6 fold-into-C (theologian 22:08:49Z + supervisor 22:08:58Z):
+ * the 25-line PY_VERSION_HEX/opcode-branch logic that previously lived
+ * in the C++ wrapper at builder.cpp:emitBeforeWith now lives here.
+ * Caller passes the raw bytecode opcode; this function derives the
+ * enter_id/exit_id/is_async outputs locally.
+ *
+ * 3 invocation flavors:
+ *   - pre-3.12: __aenter__/__aexit__, is_async=true (only async form on 3.10)
+ *   - 3.12+ BEFORE_ASYNC_WITH (52): __aenter__/__aexit__, is_async=true
+ *   - 3.12+ BEFORE_WITH (53): __enter__/__exit__, is_async=false */
 void hir_builder_emit_before_with_c(
         PhxTranslationContext *tc,
         void *builder,
-        void *enter_id,
-        void *exit_id,
-        int is_async) {
+        int opcode) {
+    void *enter_id;
+    void *exit_id;
+    int is_async;
+#if PY_VERSION_HEX < 0x030C0000
+    (void)opcode;  /* Pre-3.12 has only the async form. */
+    _Py_IDENTIFIER(__aenter__);
+    _Py_IDENTIFIER(__aexit__);
+    enter_id = (void*)&PyId___aenter__;
+    exit_id = (void*)&PyId___aexit__;
+    is_async = 1;
+#else
+    if (opcode == BEFORE_ASYNC_WITH) {
+        enter_id = (void*)&_Py_ID(__aenter__);
+        exit_id = (void*)&_Py_ID(__aexit__);
+        is_async = 1;
+    } else {
+        enter_id = (void*)&_Py_ID(__enter__);
+        exit_id = (void*)&_Py_ID(__exit__);
+        is_async = 0;
+    }
+#endif
     void *enter_result = NULL;
     hir_builder_emit_setup_with_common_c(
         tc, builder, enter_id, exit_id, is_async, &enter_result);

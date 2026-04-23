@@ -481,9 +481,6 @@ class HIRBuilder {
       PyObject* exit_id,
 #endif
       bool is_async);
-  void emitBeforeWith(
-      TranslationContext& tc,
-      const jit::BytecodeInstruction& bc_instr);
   void emitSetupAsyncWith(
       TranslationContext& tc,
       const jit::BytecodeInstruction& bc_instr);
