@@ -4097,50 +4097,13 @@ void HIRBuilder::emitRefineType(
       static_cast<void*>(&tc), static_cast<void*>(this), code_, bc_instr.oparg());
 }
 
+extern "C" void hir_builder_emit_sequence_get_c(
+    void *tc, void *builder, int oparg);
+
 void HIRBuilder::emitSequenceGet(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  PhxPtrArray& stack = tc.frame.stack;
-  auto idx = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  auto sequence = static_cast<Register*>(phx_ptr_arr_pop(&stack));
-  auto oparg = bc_instr.oparg();
-  if (oparg == SEQ_LIST_INEXACT) {
-    auto type = temps_.AllocateStack();
-    tc.emitLoadField(
-        type, sequence, "ob_type", offsetof(PyObject, ob_type), TType);
-    tc.emitGuardIs(type, (PyObject*)&PyList_Type, type);
-    tc.emitRefineType(sequence, TListExact, sequence);
-  }
-
-  Register* adjusted_idx;
-  int unchecked = oparg & SEQ_SUBSCR_UNCHECKED;
-  if (!unchecked) {
-    adjusted_idx = temps_.AllocateStack();
-    tc.emitCheckSequenceBounds(adjusted_idx, sequence, idx, tc.frame);
-  } else {
-    adjusted_idx = idx;
-    oparg &= ~SEQ_SUBSCR_UNCHECKED;
-  }
-  auto ob_item = temps_.AllocateStack();
-  auto result = temps_.AllocateStack();
-  if (oparg == SEQ_LIST || oparg == SEQ_LIST_INEXACT ||
-      oparg == SEQ_CHECKED_LIST) {
-    int offset = offsetof(PyListObject, ob_item);
-    tc.emitLoadField(ob_item, sequence, "ob_item", offset, TCPtr);
-  } else if (oparg == SEQ_ARRAY_INT64) {
-    Register* offset_reg = temps_.AllocateStack();
-    tc.emitLoadConst(
-        offset_reg,
-        Type::fromCInt(offsetof(PyStaticArrayObject, ob_item), TCInt64));
-    tc.emitLoadFieldAddress(ob_item, sequence, offset_reg);
-  } else {
-    JIT_ABORT("Unsupported oparg for SEQUENCE_GET: {}", oparg);
-  }
-
-  auto type = element_type_from_seq_type(oparg);
-  tc.emitLoadArrayItem(
-      result, ob_item, adjusted_idx, sequence, /*offset=*/0, type);
-  phx_ptr_arr_push(&stack, result);
+  hir_builder_emit_sequence_get_c(&tc, this, bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_sequence_set_c(
