@@ -4093,13 +4093,12 @@ void hir_builder_emit_primitive_load_const_c(
     (void)func;  /* unused; tc owns the emission */
 }
 
-/* W27c #1: emitSetupWithCommon — helper for emitSetupWith + emitBeforeWith.
- * Mirrors C++ HIRBuilder::emitSetupWithCommon @ builder.cpp:4534.
+/* emitSetupWithCommon — helper for emitSetupWith + emitBeforeWith.
  *
  * Loads __enter__ + __exit__ via emitLoadAttrSpecial, pushes exit, emits
- * VectorCall(enter), returns enter_result via out-param. PY_VERSION_HEX
- * conditional (_Py_Identifier vs PyObject*) folded in C++ stub: ids are
- * passed as opaque void*. is_async selects the error message text. */
+ * VectorCall(enter), returns enter_result via out-param. enter_id +
+ * exit_id are passed as opaque void* (caller picks _Py_Identifier* on
+ * pre-3.12 vs PyObject* on 3.12+). is_async selects error message text. */
 void hir_builder_emit_setup_with_common_c(
         PhxTranslationContext *tc,
         void *builder,

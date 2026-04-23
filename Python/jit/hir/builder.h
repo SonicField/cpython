@@ -471,16 +471,6 @@ class HIRBuilder {
   void emitEndAsyncFor(TranslationContext& tc);
   void emitGetAIter(TranslationContext& tc);
   void emitGetANext(TranslationContext& tc);
-  Register* emitSetupWithCommon(
-      TranslationContext& tc,
-#if PY_VERSION_HEX < 0x030C0000
-      _Py_Identifier* enter_id,
-      _Py_Identifier* exit_id,
-#else
-      PyObject* enter_id,
-      PyObject* exit_id,
-#endif
-      bool is_async);
   void emitSetupAsyncWith(
       TranslationContext& tc,
       const jit::BytecodeInstruction& bc_instr);

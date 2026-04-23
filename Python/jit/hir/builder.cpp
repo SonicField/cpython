@@ -4267,27 +4267,6 @@ void HIRBuilder::emitGetANext(TranslationContext& tc) {
       static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
 
-extern "C" void hir_builder_emit_setup_with_common_c(
-    void *tc, void *builder, void *enter_id, void *exit_id,
-    int is_async, void **out_enter_result);
-
-Register* HIRBuilder::emitSetupWithCommon(
-    TranslationContext& tc,
-#if PY_VERSION_HEX < 0x030C0000
-    _Py_Identifier* enter_id,
-    _Py_Identifier* exit_id,
-#else
-    PyObject* enter_id,
-    PyObject* exit_id,
-#endif
-    bool is_async) {
-  void *enter_result = nullptr;
-  hir_builder_emit_setup_with_common_c(
-      &tc, this, (void*)enter_id, (void*)exit_id, is_async ? 1 : 0,
-      &enter_result);
-  return static_cast<Register*>(enter_result);
-}
-
 extern "C" void hir_builder_emit_setup_async_with_c(void *tc, int handler_off);
 
 void HIRBuilder::emitSetupAsyncWith(
