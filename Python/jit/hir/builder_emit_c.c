@@ -4027,4 +4027,61 @@ void hir_builder_emit_build_checked_map_c(
     phx_ptr_arr_push(stack, dict);
 }
 
+/* W27b #5: emitPrimitiveLoadConst (PRIMITIVE_LOAD_CONST, Static Python).
+ * Mirrors C++ HIRBuilder::emitPrimitiveLoadConst @ builder.cpp:3902.
+ *
+ * Reads (num, type_code) pair from co_consts[oparg], maps type_code via
+ * hir_prim_type_to_type, builds the appropriate fromC* HirType (Bool via
+ * hir_type_from_cint with HIR_TYPE_CBOOL base; Double via hir_type_from_cdouble;
+ * UInt vs Int via TCUnsigned subtype check), emits LoadConst, pushes tmp. */
+void hir_builder_emit_primitive_load_const_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder,
+        void *code,
+        int oparg) {
+    PyCodeObject *code_obj = (PyCodeObject *)code;
+    void *tmp = hir_builder_temps_alloc_stack(builder);
+
+    JIT_CHECK_C(oparg < PyTuple_Size(code_obj->co_consts),
+        "PRIMITIVE_LOAD_CONST index out of bounds");
+    PyObject *num_and_type = PyTuple_GET_ITEM(code_obj->co_consts, oparg);
+    JIT_CHECK_C(PyTuple_Size(num_and_type) == 2,
+        "wrong size for PRIMITIVE_LOAD_CONST arg tuple");
+    PyObject *num = PyTuple_GET_ITEM(num_and_type, 0);
+    int type_code = (int)PyLong_AsSsize_t(PyTuple_GET_ITEM(num_and_type, 1));
+    HirType size = hir_prim_type_to_type(type_code);
+
+    /* Build TCUnsigned (= union of CUINT8/16/32/64) once via 3 hir_type_union
+     * calls — C99 has no compile-time type-set-union literal. */
+    HirType cuint8 = HIR_TYPE_CUINT8;
+    HirType cuint16 = HIR_TYPE_CUINT16;
+    HirType cuint32 = HIR_TYPE_CUINT32;
+    HirType cuint64 = HIR_TYPE_CUINT64;
+    HirType cunsigned = hir_type_union(cuint8,
+        hir_type_union(cuint16, hir_type_union(cuint32, cuint64)));
+
+    HirType cbool = HIR_TYPE_CBOOL;
+    HirType cdouble = HIR_TYPE_CDOUBLE;
+
+    HirType type;
+    if (hir_type_is_subtype(size, cdouble)) {
+        type = hir_type_from_cdouble(PyFloat_AsDouble(num));
+    } else if (hir_type_is_subtype(size, cbool)) {
+        /* Type::fromCBool(b) == Type{kCBool, kLifetimeBottom, kSpecInt, b}.
+         * hir_type_from_cint with HIR_TYPE_CBOOL base produces equivalent
+         * (same kCBool bits + kSpecInt flag + bool int_val). */
+        HirType cbool_local = HIR_TYPE_CBOOL;
+        type = hir_type_from_cint((num == Py_True) ? 1 : 0, cbool_local);
+    } else if (hir_type_is_subtype(size, cunsigned)) {
+        type = hir_type_from_cuint(PyLong_AsUnsignedLong(num), size);
+    } else {
+        type = hir_type_from_cint(PyLong_AsLong(num), size);
+    }
+
+    phx_tc_emit(tc, hir_c_create_load_const(tmp, type));
+    phx_ptr_arr_push(&tc->frame.stack, tmp);
+    (void)func;  /* unused; tc owns the emission */
+}
+
 

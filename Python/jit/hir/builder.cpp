@@ -3899,33 +3899,14 @@ void HIRBuilder::emitConvertPrimitive(
   hir_builder_emit_convert_primitive_c(static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
+extern "C" void hir_builder_emit_primitive_load_const_c(
+    void *tc, void *func, void *builder, void *code, int oparg);
+
 void HIRBuilder::emitPrimitiveLoadConst(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* tmp = temps_.AllocateStack();
-  int index = bc_instr.oparg();
-  JIT_CHECK(
-      index < PyTuple_Size(code_->co_consts),
-      "PRIMITIVE_LOAD_CONST index out of bounds");
-  PyObject* num_and_type = PyTuple_GET_ITEM(code_->co_consts, index);
-  JIT_CHECK(
-      PyTuple_Size(num_and_type) == 2,
-      "wrong size for PRIMITIVE_LOAD_CONST arg tuple")
-  PyObject* num = PyTuple_GET_ITEM(num_and_type, 0);
-  Type size =
-      prim_type_to_type(PyLong_AsSsize_t(PyTuple_GET_ITEM(num_and_type, 1)));
-  Type type = TBottom;
-  if (size == TCDouble) {
-    type = Type::fromCDouble(PyFloat_AsDouble(num));
-  } else if (size <= TCBool) {
-    type = Type::fromCBool(num == Py_True);
-  } else {
-    type = (size <= TCUnsigned)
-        ? Type::fromCUInt(PyLong_AsUnsignedLong(num), size)
-        : Type::fromCInt(PyLong_AsLong(num), size);
-  }
-  tc.emitLoadConst(tmp, type);
-  phx_ptr_arr_push(&tc.frame.stack, tmp);
+  hir_builder_emit_primitive_load_const_c(
+      &tc, current_func_, this, code_, bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_primitive_box_c(
