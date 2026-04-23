@@ -4334,17 +4334,26 @@ void hir_builder_emit_copy_free_vars_c(
  *
  * cinderx coroType pre-fetched in C++ stub (NULL for pre-3.12). PyCoro_Type
  * passed as void* to keep C body opaque-Python-types-only. */
+extern void *cinderx_get_module_state_coro_type_c(void);
+
 void hir_builder_emit_get_yield_from_iter_c(
         PhxTranslationContext *tc,
         void *func,
         void *builder,
         int code_flags,
-        void *cinderx_coro_type,  /* nullable; non-NULL only on 3.12+ */
         void *py_coro_type) {
     void *iter_in = phx_ptr_arr_pop(&tc->frame.stack);
 
     /* CO_COROUTINE = 0x0100, CO_ITERABLE_COROUTINE = 0x0100000 */
     int in_coro = (code_flags & 0x0100) || (code_flags & 0x0100000);
+
+    /* Fetch cinderx coroType inline via existing bridge (3.12+ only;
+     * returns NULL pre-3.12). Drops C++ stub from 9 lines to ~5. */
+#if PY_VERSION_HEX >= 0x030C0000
+    void *cinderx_coro_type = cinderx_get_module_state_coro_type_c();
+#else
+    void *cinderx_coro_type = NULL;
+#endif
 
     void *done_block = hir_cfg_alloc_block(func);
     void *next_block = hir_cfg_alloc_block(func);

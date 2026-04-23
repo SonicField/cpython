@@ -4302,17 +4302,12 @@ void HIRBuilder::emitForIter(
 
 extern "C" void hir_builder_emit_get_yield_from_iter_c(
     void *tc, void *func, void *builder, int code_flags,
-    void *cinderx_coro_type, void *py_coro_type);
+    void *py_coro_type);
 
 void HIRBuilder::emitGetYieldFromIter(CFG& /*cfg*/, TranslationContext& tc) {
-  void *cinderx_coro_type = nullptr;
-#if PY_VERSION_HEX >= 0x030C0000
-  cinderx_coro_type = static_cast<void*>(cinderx::getModuleState()->coroType());
-#endif
   hir_builder_emit_get_yield_from_iter_c(
       &tc, current_func_, this,
       static_cast<int>(code_->co_flags),
-      cinderx_coro_type,
       static_cast<void*>(&PyCoro_Type));
 }
 
