@@ -88,6 +88,17 @@ PhxBlockState *phx_rc_env_block_state(PhxRefcountEnv *env, void *block);
 /* Check if a register is definitely not reference-counted. */
 int phx_rc_is_uncounted(void *reg);
 
+/* Refcount-pass support helpers (Batch 2-B: promoted from
+ * refcount_env_bridge.cpp, replaces the per-caller extern decls in
+ * refcount_pass_c.c with a canonical header). */
+int phx_rc_reg_is_object(void *reg);
+int phx_rc_condbranch_check_type_is_wait_handle(void *instr);
+int phx_rc_is_passthrough(void *instr);
+int phx_rc_is_guard_is(void *instr);
+void phx_rc_fill_deopt_live_regs(const PhxStateMap *live_regs, void *instr_ptr);
+void *phx_rc_model_reg(void *reg);
+size_t phx_rc_get_rpo(void *func_ptr, void **out, size_t capacity);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
