@@ -296,7 +296,6 @@ class HIRBuilder {
       const jit::BytecodeInstruction& bc_instr,
       bool load_method);
   void emitCopy(TranslationContext& tc, int item_idx);
-  void emitCopyFreeVars(TranslationContext& tc, int nfreevars);
   void emitSwap(TranslationContext& tc, int item_idx);
   void emitMakeCell(TranslationContext& tc, int local_idx);
   void emitLoadDeref(
@@ -535,13 +534,6 @@ class HIRBuilder {
       TranslationContext& tc,
       const jit::BytecodeInstruction& bc_instr);
 
-  void
-  emitMatchMappingSequence(CFG& cfg, TranslationContext& tc, uint64_t tf_flag);
-
-  void emitMatchClass(
-      CFG& cfg,
-      TranslationContext& tc,
-      const jit::BytecodeInstruction& bc_instr);
   void emitMatchKeys(CFG& cfg, TranslationContext& tc);
 
   void emitDictUpdate(
@@ -551,7 +543,6 @@ class HIRBuilder {
       TranslationContext& tc,
       const BytecodeInstruction& bc_instr);
 
-  void emitSend(TranslationContext& tc, const BytecodeInstruction& bc_instr);
 
   void emitSetFunctionAttribute(
       TranslationContext& tc,
@@ -574,9 +565,6 @@ class HIRBuilder {
       TranslationContext& tc,
       const BytecodeInstruction& bc_instr);
 
-  void emitLoadSpecial(
-      TranslationContext& tc,
-      const BytecodeInstruction& bc_instr);
 
   void emitLoadBuildClass(TranslationContext& tc);
 

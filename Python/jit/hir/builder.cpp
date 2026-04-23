@@ -49,7 +49,7 @@ extern "C" int hir_remove_unreachable_blocks_c(void *func);
 #include <utility>
 #include <vector>
 
-/* Phase 1 #2/#3: file-scope extern decls for C dispatch (post stub-delete). */
+/* Phase 1 #2/#3/#4: file-scope extern decls for C dispatch (post stub-delete). */
 extern "C" void hir_builder_emit_format_simple_c(void *tc, void *func, void *builder);
 extern "C" void hir_builder_emit_build_checked_list_c(void *tc, void *builder, PyObject *const_arg);
 extern "C" void hir_builder_emit_build_checked_map_c(void *tc, void *builder, PyObject *const_arg);
@@ -57,6 +57,14 @@ extern "C" void hir_builder_emit_sequence_get_c(void *tc, void *builder, int opa
 extern "C" void hir_builder_emit_sequence_set_c(void *tc, void *builder, int oparg);
 extern "C" void hir_builder_emit_get_yield_from_iter_c(
     void *tc, void *func, void *builder, int code_flags, void *py_coro_type);
+extern "C" void hir_builder_emit_copy_free_vars_c(
+    void *tc, void *func, void *builder, void *code, int nfreevars);
+extern "C" void hir_builder_emit_load_special_c(void *tc, void *builder, int oparg);
+extern "C" void hir_builder_emit_match_class_c(void *tc, void *func, void *builder, int oparg);
+extern "C" void hir_builder_emit_match_mapping_sequence_c(
+    void *tc, void *func, void *builder, uint64_t tf_flag);
+extern "C" void hir_builder_emit_send_c(
+    void *tc, void *func, void *builder, int jump_target_off, int next_instr_off);
 
 namespace jit::hir {
 
@@ -1062,7 +1070,7 @@ void HIRBuilder::addInitializeCells([[maybe_unused]] TranslationContext& tc) {
   }
 
   if (nfreevars != 0) {
-    emitCopyFreeVars(tc, nfreevars);
+    hir_builder_emit_copy_free_vars_c(&tc, current_func_, this, code_, nfreevars);
   }
 #endif
 }
@@ -1875,7 +1883,7 @@ void HIRBuilder::translate(
           break;
         }
         case COPY_FREE_VARS: {
-          emitCopyFreeVars(tc, bc_instr.oparg());
+          hir_builder_emit_copy_free_vars_c(&tc, current_func_, this, code_, bc_instr.oparg());
           break;
         }
         case SWAP: {
@@ -1982,7 +1990,7 @@ void HIRBuilder::translate(
           break;
         }
         case LOAD_SPECIAL: {
-          emitLoadSpecial(tc, bc_instr);
+          hir_builder_emit_load_special_c(&tc, this, bc_instr.oparg());
           break;
         }
         case LOAD_TYPE: {
@@ -2397,7 +2405,7 @@ void HIRBuilder::translate(
           break;
         }
         case MATCH_CLASS: {
-          emitMatchClass(irfunc.cfg, tc, bc_instr);
+          hir_builder_emit_match_class_c(&tc, current_func_, this, bc_instr.oparg());
           break;
         }
         case MATCH_KEYS: {
@@ -2405,11 +2413,11 @@ void HIRBuilder::translate(
           break;
         }
         case MATCH_MAPPING: {
-          emitMatchMappingSequence(irfunc.cfg, tc, Py_TPFLAGS_MAPPING);
+          hir_builder_emit_match_mapping_sequence_c(&tc, current_func_, this, Py_TPFLAGS_MAPPING);
           break;
         }
         case MATCH_SEQUENCE: {
-          emitMatchMappingSequence(irfunc.cfg, tc, Py_TPFLAGS_SEQUENCE);
+          hir_builder_emit_match_mapping_sequence_c(&tc, current_func_, this, Py_TPFLAGS_SEQUENCE);
           break;
         }
         case GEN_START: {
@@ -2441,7 +2449,9 @@ void HIRBuilder::translate(
           break;
         }
         case SEND: {
-          emitSend(tc, bc_instr);
+          hir_builder_emit_send_c(&tc, current_func_, this,
+              bc_instr.getJumpTarget().value(),
+              bc_instr.nextInstrOffset().value());
           break;
         }
         case END_SEND: {
@@ -3709,14 +3719,6 @@ extern "C" void *hir_builder_func_register_c(void *builder) {
   return self->func_;
 }
 
-extern "C" void hir_builder_emit_copy_free_vars_c(
-    void *tc, void *func, void *builder, void *code, int nfreevars);
-
-void HIRBuilder::emitCopyFreeVars(TranslationContext& tc, int nfreevars) {
-  hir_builder_emit_copy_free_vars_c(
-      &tc, current_func_, this, code_, nfreevars);
-}
-
 extern "C" void hir_builder_emit_swap_c(void *tc, int item_idx);
 
 void HIRBuilder::emitSwap(TranslationContext& tc, int item_idx) {
@@ -4625,28 +4627,6 @@ void HIRBuilder::emitDispatchEagerCoroResult(
       code_->co_flags);
 }
 
-extern "C" void hir_builder_emit_match_mapping_sequence_c(
-    void *tc, void *func, void *builder, uint64_t tf_flag);
-
-void HIRBuilder::emitMatchMappingSequence(
-    CFG& /*cfg*/,
-    TranslationContext& tc,
-    uint64_t tf_flag) {
-  hir_builder_emit_match_mapping_sequence_c(
-      &tc, current_func_, this, tf_flag);
-}
-
-extern "C" void hir_builder_emit_match_class_c(
-    void *tc, void *func, void *builder, int oparg);
-
-void HIRBuilder::emitMatchClass(
-    CFG& /*cfg*/,
-    TranslationContext& tc,
-    const jit::BytecodeInstruction& bc_instr) {
-  hir_builder_emit_match_class_c(
-      &tc, current_func_, this, bc_instr.oparg());
-}
-
 extern "C" void hir_builder_emit_match_keys_c(void *tc, void *func);
 
 void HIRBuilder::emitMatchKeys(CFG& cfg, TranslationContext& tc) {
@@ -4670,19 +4650,6 @@ void HIRBuilder::emitDictMerge(
     const BytecodeInstruction& bc_instr) {
   hir_builder_emit_dict_merge_c(
       static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
-}
-
-extern "C" void hir_builder_emit_send_c(
-    void *tc, void *func, void *builder,
-    int jump_target_off, int next_instr_off);
-
-void HIRBuilder::emitSend(
-    TranslationContext& tc,
-    const BytecodeInstruction& bc_instr) {
-  hir_builder_emit_send_c(
-      &tc, current_func_, this,
-      bc_instr.getJumpTarget().value(),
-      bc_instr.nextInstrOffset().value());
 }
 
 extern "C" void hir_builder_emit_build_interpolation_c(void *tc, void *func, int oparg);
@@ -4720,15 +4687,6 @@ void HIRBuilder::emitLoadCommonConstant(
       static_cast<void*>(&tc),
       static_cast<void*>(this),
       bc_instr.oparg());
-}
-
-extern "C" void hir_builder_emit_load_special_c(
-    void *tc, void *builder, int oparg);
-
-void HIRBuilder::emitLoadSpecial(
-    TranslationContext& tc,
-    const BytecodeInstruction& bc_instr) {
-  hir_builder_emit_load_special_c(&tc, this, bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_set_function_attribute_c(void *tc, int oparg);
