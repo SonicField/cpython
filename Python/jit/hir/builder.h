@@ -381,13 +381,13 @@ class HIRBuilder {
       CFG& cfg,
       TranslationContext& tc,
       const jit::BytecodeInstruction& bc_instr);
-  bool emitInvokeFunction(
-      TranslationContext& tc,
-      const jit::BytecodeInstruction& bc_instr,
-      CallFlags flags);
-  bool emitInvokeNative(
-      TranslationContext& tc,
-      const jit::BytecodeInstruction& bc_instr);
+  /* emitInvokeFunction + emitInvokeNative deleted 2026-04-23 (Phase 1
+   * batch #1, builder.cpp burndown). 9-line delegation stubs had ZERO
+   * C++ callers — bytecode dispatch goes through hir_builder_emit_
+   * invoke_function_c + hir_builder_emit_invoke_native_c (in
+   * builder_emit_c.c) directly. Per supervisor 21:11:49Z exhaustive
+   * caller-search gate + theologian 21:15:36Z methodology cross-check
+   * PASS (4 pattern variants, 0 callers across 17 matches). */
   void emitGetIter(TranslationContext& tc, const jit::BytecodeInstruction& bc_instr);
   void emitGetYieldFromIter(CFG& cfg, TranslationContext& tc);
   void emitListAppend(
@@ -408,10 +408,8 @@ class HIRBuilder {
   void emitLoadMethodStatic(
       TranslationContext& tc,
       const jit::BytecodeInstruction& bc_instr);
-  bool emitInvokeMethod(
-      TranslationContext& tc,
-      const jit::BytecodeInstruction& bc_instr,
-      bool is_awaited);
+  /* emitInvokeMethod deleted 2026-04-23 (Phase 1 batch #1, see
+   * comment block at emitInvokeFunction deletion above). */
   void emitLoadField(
       TranslationContext& tc,
       const jit::BytecodeInstruction& bc_instr);

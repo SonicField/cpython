@@ -3331,17 +3331,6 @@ extern "C" bool hir_builder_emit_invoke_function_c(
     void *tc, void *func, void *builder,
     PyObject *descr, long nargs, uint32_t flags);
 
-bool HIRBuilder::emitInvokeFunction(
-    TranslationContext& tc,
-    const jit::BytecodeInstruction& bc_instr,
-    CallFlags flags) {
-  PyObject* arg = constArg(bc_instr);
-  PyObject* descr = PyTuple_GET_ITEM(arg, 0);
-  long nargs = PyLong_AsLong(PyTuple_GET_ITEM(arg, 1));
-  return hir_builder_emit_invoke_function_c(
-      &tc, current_func_, this, descr, nargs, static_cast<uint32_t>(flags));
-}
-
 /* C bridge: query NativeTarget fields from preloader_.
  * INVOKE_* Phase 2 #1 per theologian L2430. NativeTarget has only 2 fields
  * needed by C body (callable + return_type); primitive_arg_types not used
@@ -3358,16 +3347,6 @@ extern "C" void hir_builder_invoke_native_target_c(
 
 extern "C" void hir_builder_emit_invoke_native_c(
     void *tc, void *builder, PyObject *descr, PyObject *signature);
-
-bool HIRBuilder::emitInvokeNative(
-    TranslationContext& tc,
-    const jit::BytecodeInstruction& bc_instr) {
-  PyObject* arg = constArg(bc_instr);
-  PyObject* native_target_descr = PyTuple_GET_ITEM(arg, 0);
-  PyObject* signature = PyTuple_GET_ITEM(arg, 1);
-  hir_builder_emit_invoke_native_c(&tc, this, native_target_descr, signature);
-  return false;
-}
 
 extern "C" void hir_builder_emit_invoke_method_vector_call_c(
     void* tc, void* builder,
@@ -3481,17 +3460,6 @@ extern "C" void *hir_builder_static_method_stack_pop_c(void *builder) {
 extern "C" bool hir_builder_emit_invoke_method_c(
     void *tc, void *func, void *builder, PyObject *descr,
     long nargs, int is_awaited);
-
-bool HIRBuilder::emitInvokeMethod(
-    TranslationContext& tc,
-    const jit::BytecodeInstruction& bc_instr,
-    bool is_awaited) {
-  PyObject* arg = constArg(bc_instr);
-  PyObject* descr = PyTuple_GET_ITEM(arg, 0);
-  long nargs = PyLong_AsLong(PyTuple_GET_ITEM(arg, 1)) + 2; // thunk, self
-  return hir_builder_emit_invoke_method_c(
-      &tc, current_func_, this, descr, nargs, is_awaited ? 1 : 0);
-}
 
 extern "C" void hir_builder_emit_is_op_c(void *tc, void *func, int oparg);
 extern "C" void hir_builder_emit_contains_op_c(void *tc, void *func, int oparg);
