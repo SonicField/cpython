@@ -2826,15 +2826,14 @@ void HIRBuilder::emitPushNull(TranslationContext& tc) {
   hir_builder_emit_push_null_c(static_cast<void*>(&tc), static_cast<void*>(current_func_));
 }
 
-/* W26 (theologian L2462+L2466): emitAnyCall full conversion + 149b7e2d40
- * PartialConversion REABSORB. The await-tail dispatch is now inlined into
- * the C body of hir_builder_emit_any_call_c via the iterator + checkAsync
- * bridges below. The PartialConversion artifact bridge
- * hir_builder_emit_awaited_call_tail_c is REMOVED; its body lives in the
- * C body of emit_any_call now. REABSORB-WHEN trigger fired post push 81.
- *
- * Forward decl — checkAsyncWithError is defined static at builder.cpp:~4856,
- * below the emitAnyCall call site. */
+/* Forward decl — checkAsyncWithError is defined static at builder.cpp:~4856,
+ * below the emitAnyCall call site. (Prior W26 emitAnyCall conversion +
+ * 149b7e2d40 PartialConversion REABSORB notes were here; removed 2026-04-23
+ * in Phase 1 #1.5 atomic with INVOKE_* delegation-stub deletion to satisfy
+ * test_phoenix_partial_conversions assertion on the await-tail bridge
+ * substring per medic 21:16:05Z + theologian 21:17:23Z + supervisor
+ * 21:16:36Z lean (a). Original commit history preserves the conversion
+ * narrative.) */
 static std::pair<bool, bool> checkAsyncWithError(
     const BytecodeInstructionBlock&, BytecodeInstruction);
 
