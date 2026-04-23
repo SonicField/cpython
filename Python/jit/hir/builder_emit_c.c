@@ -2394,11 +2394,13 @@ extern void hir_builder_fix_static_return_c(
 void hir_builder_emit_invoke_method_vector_call_c(
         PhxTranslationContext *tc,
         void *builder,
-        void *out,
         void **arg_regs_data,
         size_t arg_regs_count,
         int is_awaited,
         HirType ret_type) {
+    /* Allocate out internally (was caller-allocated; moved into bridge per
+     * Batch 1 #3 PARTIAL→STUB cleanup so C++ stub can drop temps_.AllocateStack). */
+    void *out = hir_builder_temps_alloc_stack(builder);
     uint32_t flags = is_awaited ? 2u : 0u;  /* CallFlags::Awaited = 1<<1 */
     void *call = hir_c_create_vectorcall_reg(arg_regs_count, out, flags);
     for (size_t i = 0; i < arg_regs_count; i++) {
@@ -2599,10 +2601,9 @@ bool hir_builder_emit_invoke_method_c(
         phx_ptr_arr_push(&tc->frame.stack, out);
     } else {
         /* Dynamic dispatch via existing emitInvokeMethodVectorCall bridge.
-         * out is allocated INSIDE that bridge per its convention. */
-        void *out = hir_builder_temps_alloc_stack(builder);
+         * out is allocated INSIDE that bridge per Batch 1 #3 convention change. */
         hir_builder_emit_invoke_method_vector_call_c(
-            tc, builder, out, arg_regs, arg_regs_count, is_awaited, return_type);
+            tc, builder, arg_regs, arg_regs_count, is_awaited, return_type);
     }
     return true;
 }

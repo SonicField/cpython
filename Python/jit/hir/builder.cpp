@@ -3367,7 +3367,7 @@ bool HIRBuilder::emitInvokeNative(
 }
 
 extern "C" void hir_builder_emit_invoke_method_vector_call_c(
-    void* tc, void* builder, void* out,
+    void* tc, void* builder,
     void** arg_regs_data, size_t arg_regs_count,
     int is_awaited, HirType ret_type);
 
@@ -3376,11 +3376,8 @@ void HIRBuilder::emitInvokeMethodVectorCall(
     bool is_awaited,
     std::vector<Register*>& arg_regs,
     const InvokeTarget& target) {
-  Register* out = temps_.AllocateStack();
   hir_builder_emit_invoke_method_vector_call_c(
-      static_cast<void*>(&tc),
-      static_cast<void*>(this),
-      static_cast<void*>(out),
+      &tc, this,
       reinterpret_cast<void**>(arg_regs.data()),
       arg_regs.size(),
       is_awaited ? 1 : 0,
