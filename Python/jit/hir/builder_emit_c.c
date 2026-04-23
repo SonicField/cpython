@@ -4204,7 +4204,13 @@ void hir_builder_emit_send_c(
 
     void *done_block = hir_builder_get_block_at_off(builder, jump_target_off);
     void *continue_block = hir_builder_get_block_at_off(builder, next_instr_off);
-    phx_tc_emit(tc, hir_c_create_cond_branch(is_done, done_block, continue_block));
+    /* hir_c_create_cond_branch_cpp: uses Edge::set_to which manages the
+     * target BasicBlock's in_edges_ set. The pure-C hir_c_create_cond_branch
+     * bypasses Edge::set_to (writes edge.to directly), leaving target
+     * blocks unaware of their predecessor — which corrupts CFG-DFS in
+     * hir_remove_unreachable_blocks_c (W22 cluster gen_chain/await
+     * crash, gdb 19:11Z + librarian 19:13:55Z + feedback_edge_management.md). */
+    phx_tc_emit(tc, hir_c_create_cond_branch_cpp(is_done, done_block, continue_block));
 }
 
 /* W27c #5: emitSequenceSet (SEQUENCE_SET, Static Python). Mirrors C++
@@ -4455,7 +4461,8 @@ void hir_builder_emit_match_class_c(
     void *false_block = hir_cfg_alloc_block(func);
     void *done = hir_cfg_alloc_block(func);
 
-    phx_tc_emit(tc, hir_c_create_cond_branch(attrs_tuple, true_block, false_block));
+    /* _cpp variant required: Edge::set_to manages BasicBlock in_edges_. */
+    phx_tc_emit(tc, hir_c_create_cond_branch_cpp(attrs_tuple, true_block, false_block));
 
     tc->block = true_block;
     phx_tc_emit(tc, hir_c_create_refine_type_reg(
@@ -4519,7 +4526,8 @@ void hir_builder_emit_match_mapping_sequence_c(
 
     void *true_block = hir_cfg_alloc_block(func);
     void *false_block = hir_cfg_alloc_block(func);
-    phx_tc_emit(tc, hir_c_create_cond_branch(and_result, true_block, false_block));
+    /* _cpp variant required: Edge::set_to manages BasicBlock in_edges_. */
+    phx_tc_emit(tc, hir_c_create_cond_branch_cpp(and_result, true_block, false_block));
 
     void *result = hir_builder_temps_alloc_stack(builder);
     void *done = hir_cfg_alloc_block(func);
