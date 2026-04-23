@@ -190,6 +190,20 @@ else
     echo "W25 lint gate: PASS (0 lint-pattern externs)" | tee -a "$RESULTS_FILE"
 fi
 
+# Step 1e: W44 DO-NOT-USE caller gate
+echo "" | tee -a "$RESULTS_FILE"
+echo "--- Step 1e: W44 DO-NOT-USE Caller Gate ---" | tee -a "$RESULTS_FILE"
+W44_OUTPUT=$("$SCRIPT_DIR/check_do_not_use_callers.sh" --strict 2>&1) && W44_EXIT=0 || W44_EXIT=$?
+echo "$W44_OUTPUT" | tee -a "$RESULTS_FILE"
+if [ "$W44_EXIT" -ne 0 ]; then
+    echo "GATE FAIL — W44 DO-NOT-USE caller gate detected production callers" | tee -a "$RESULTS_FILE"
+    GATE_PASS=0
+    W44_VIOLATIONS=$(echo "$W44_OUTPUT" | grep -c "VIOLATION" || true)
+    FAILURES="$FAILURES w44_do_not_use:$W44_VIOLATIONS"
+else
+    echo "W44 DO-NOT-USE caller gate: PASS" | tee -a "$RESULTS_FILE"
+fi
+
 # Step 2: Verify JIT compiles and executes
 echo "" | tee -a "$RESULTS_FILE"
 echo "--- Step 2: JIT Smoke Test ---" | tee -a "$RESULTS_FILE"
