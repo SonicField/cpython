@@ -4098,41 +4098,14 @@ void HIRBuilder::emitPrimitiveCompare(
   hir_builder_emit_primitive_compare_c(&tc, this, bc_instr.oparg());
 }
 
+extern "C" void hir_builder_emit_primitive_unary_op_c(
+    void *tc, void *func, void *builder, int oparg);
+
 void HIRBuilder::emitPrimitiveUnaryOp(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  Register* value = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-  Register* result = temps_.AllocateStack();
-  PrimitiveUnaryOpKind op;
-  switch (bc_instr.oparg()) {
-    case PRIM_OP_NEG_INT: {
-      op = PrimitiveUnaryOpKind::kNegateInt;
-      tc.emitPrimitiveUnaryOp(result, op, value);
-      break;
-    }
-    case PRIM_OP_INV_INT: {
-      op = PrimitiveUnaryOpKind::kInvertInt;
-      tc.emitPrimitiveUnaryOp(result, op, value);
-      break;
-    }
-    case PRIM_OP_NOT_INT: {
-      op = PrimitiveUnaryOpKind::kNotInt;
-      tc.emitPrimitiveUnaryOp(result, op, value);
-      break;
-    }
-    case PRIM_OP_NEG_DBL: {
-      // For doubles, there's no easy way to unary negate a value, so just
-      // multiply it by -1
-      auto tmp = temps_.AllocateStack();
-      tc.emitLoadConst(tmp, Type::fromCDouble(-1.0));
-      tc.emitDoubleBinaryOp(result, BinaryOpKind::kMultiply, tmp, value);
-      break;
-    }
-    default: {
-      JIT_ABORT("unsupported unary op");
-    }
-  }
-  phx_ptr_arr_push(&tc.frame.stack, result);
+  hir_builder_emit_primitive_unary_op_c(
+      &tc, current_func_, this, bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_fast_len_c(void *tc, void *func, int oparg, int bc_offset);

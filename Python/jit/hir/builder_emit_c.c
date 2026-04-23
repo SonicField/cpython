@@ -3856,4 +3856,53 @@ void hir_builder_emit_primitive_compare_c(
     phx_ptr_arr_push(&tc->frame.stack, result);
 }
 
+/* W27a #5: emitPrimitiveUnaryOp (PRIMITIVE_UNARY_OP opcode, Static Python).
+ * Mirrors C++ HIRBuilder::emitPrimitiveUnaryOp @ builder.cpp:4156.
+ *
+ * UnaryOp PRIM_OP_* values are in a SEPARATE namespace from binary/compare
+ * (per classloader.h:110-113). PRIM_OP_NEG_DBL handled specially via
+ * load_const(-1.0) + double_multiply since there is no native double-negate. */
+#define PHX_PRIM_UOP_NEG_INT 0
+#define PHX_PRIM_UOP_INV_INT 1
+#define PHX_PRIM_UOP_NEG_DBL 2
+#define PHX_PRIM_UOP_NOT_INT 3
+
+void hir_builder_emit_primitive_unary_op_c(
+        PhxTranslationContext *tc,
+        void *func,
+        void *builder,
+        int oparg) {
+    void *value = phx_ptr_arr_pop(&tc->frame.stack);
+    void *result = hir_builder_temps_alloc_stack(builder);
+
+    switch (oparg) {
+        case PHX_PRIM_UOP_NEG_INT:
+            phx_tc_emit(tc, hir_c_create_primitive_unary_op(
+                result, HIR_PUOP_NegateInt, value));
+            break;
+        case PHX_PRIM_UOP_INV_INT:
+            phx_tc_emit(tc, hir_c_create_primitive_unary_op(
+                result, HIR_PUOP_InvertInt, value));
+            break;
+        case PHX_PRIM_UOP_NOT_INT:
+            phx_tc_emit(tc, hir_c_create_primitive_unary_op(
+                result, HIR_PUOP_NotInt, value));
+            break;
+        case PHX_PRIM_UOP_NEG_DBL: {
+            /* No native double-negate; emit load_const(-1.0) + multiply. */
+            void *tmp = hir_builder_temps_alloc_stack(builder);
+            HirType cdouble_neg1 = hir_type_from_cdouble(-1.0);
+            phx_tc_emit(tc, hir_c_create_load_const(tmp, cdouble_neg1));
+            phx_tc_emit(tc, hir_c_create_double_binary_op(
+                result, HIR_BOP_Multiply, tmp, value));
+            break;
+        }
+        default:
+            JIT_CHECK_C(0, "unsupported unary op %d", oparg);
+            return;  /* unreachable */
+    }
+    phx_ptr_arr_push(&tc->frame.stack, result);
+    (void)func;  /* func unused (no error path needs it) */
+}
+
 
