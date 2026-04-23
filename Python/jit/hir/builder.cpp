@@ -65,6 +65,14 @@ extern "C" void hir_builder_emit_match_mapping_sequence_c(
     void *tc, void *func, void *builder, uint64_t tf_flag);
 extern "C" void hir_builder_emit_send_c(
     void *tc, void *func, void *builder, int jump_target_off, int next_instr_off);
+extern "C" void hir_builder_emit_primitive_load_const_c(
+    void *tc, void *func, void *builder, void *code, int oparg);
+extern "C" void hir_builder_emit_primitive_box_c(void *tc, void *builder, int oparg);
+extern "C" void hir_builder_emit_primitive_unbox_c(void *tc, void *builder, int oparg);
+extern "C" void hir_builder_emit_primitive_binary_op_c(void *tc, void *builder, int oparg);
+extern "C" void hir_builder_emit_primitive_compare_c(void *tc, void *builder, int oparg);
+extern "C" void hir_builder_emit_primitive_unary_op_c(
+    void *tc, void *func, void *builder, int oparg);
 
 namespace jit::hir {
 
@@ -2002,27 +2010,27 @@ void HIRBuilder::translate(
           break;
         }
         case PRIMITIVE_LOAD_CONST: {
-          emitPrimitiveLoadConst(tc, bc_instr);
+          hir_builder_emit_primitive_load_const_c(&tc, current_func_, this, code_, bc_instr.oparg());
           break;
         }
         case PRIMITIVE_BOX: {
-          emitPrimitiveBox(tc, bc_instr);
+          hir_builder_emit_primitive_box_c(&tc, this, bc_instr.oparg());
           break;
         }
         case PRIMITIVE_UNBOX: {
-          emitPrimitiveUnbox(tc, bc_instr);
+          hir_builder_emit_primitive_unbox_c(&tc, this, bc_instr.oparg());
           break;
         }
         case PRIMITIVE_BINARY_OP: {
-          emitPrimitiveBinaryOp(tc, bc_instr);
+          hir_builder_emit_primitive_binary_op_c(&tc, this, bc_instr.oparg());
           break;
         }
         case PRIMITIVE_COMPARE_OP: {
-          emitPrimitiveCompare(tc, bc_instr);
+          hir_builder_emit_primitive_compare_c(&tc, this, bc_instr.oparg());
           break;
         }
         case PRIMITIVE_UNARY_OP: {
-          emitPrimitiveUnaryOp(tc, bc_instr);
+          hir_builder_emit_primitive_unary_op_c(&tc, current_func_, this, bc_instr.oparg());
           break;
         }
         case FAST_LEN: {
@@ -3836,34 +3844,6 @@ void HIRBuilder::emitConvertPrimitive(
   hir_builder_emit_convert_primitive_c(static_cast<void*>(&tc), static_cast<void*>(current_func_), bc_instr.oparg());
 }
 
-extern "C" void hir_builder_emit_primitive_load_const_c(
-    void *tc, void *func, void *builder, void *code, int oparg);
-
-void HIRBuilder::emitPrimitiveLoadConst(
-    TranslationContext& tc,
-    const jit::BytecodeInstruction& bc_instr) {
-  hir_builder_emit_primitive_load_const_c(
-      &tc, current_func_, this, code_, bc_instr.oparg());
-}
-
-extern "C" void hir_builder_emit_primitive_box_c(
-    void *tc, void *builder, int oparg);
-
-void HIRBuilder::emitPrimitiveBox(
-    TranslationContext& tc,
-    const jit::BytecodeInstruction& bc_instr) {
-  hir_builder_emit_primitive_box_c(&tc, this, bc_instr.oparg());
-}
-
-extern "C" void hir_builder_emit_primitive_unbox_c(
-    void *tc, void *builder, int oparg);
-
-void HIRBuilder::emitPrimitiveUnbox(
-    TranslationContext& tc,
-    const jit::BytecodeInstruction& bc_instr) {
-  hir_builder_emit_primitive_unbox_c(&tc, this, bc_instr.oparg());
-}
-
 void HIRBuilder::boxPrimitive(
     TranslationContext& tc,
     Register* dst,
@@ -3996,34 +3976,6 @@ static inline Type element_type_from_seq_type(int seq_type) {
       JIT_ABORT("Invalid sequence type: ({})", seq_type);
       // NOTREACHED
   }
-}
-
-extern "C" void hir_builder_emit_primitive_binary_op_c(
-    void *tc, void *builder, int oparg);
-
-void HIRBuilder::emitPrimitiveBinaryOp(
-    TranslationContext& tc,
-    const jit::BytecodeInstruction& bc_instr) {
-  hir_builder_emit_primitive_binary_op_c(&tc, this, bc_instr.oparg());
-}
-
-extern "C" void hir_builder_emit_primitive_compare_c(
-    void *tc, void *builder, int oparg);
-
-void HIRBuilder::emitPrimitiveCompare(
-    TranslationContext& tc,
-    const jit::BytecodeInstruction& bc_instr) {
-  hir_builder_emit_primitive_compare_c(&tc, this, bc_instr.oparg());
-}
-
-extern "C" void hir_builder_emit_primitive_unary_op_c(
-    void *tc, void *func, void *builder, int oparg);
-
-void HIRBuilder::emitPrimitiveUnaryOp(
-    TranslationContext& tc,
-    const jit::BytecodeInstruction& bc_instr) {
-  hir_builder_emit_primitive_unary_op_c(
-      &tc, current_func_, this, bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_fast_len_c(void *tc, void *func, int oparg, int bc_offset);

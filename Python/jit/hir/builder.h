@@ -426,31 +426,13 @@ class HIRBuilder {
   void emitConvertPrimitive(
       TranslationContext& tc,
       const jit::BytecodeInstruction& bc_instr);
-  void emitPrimitiveLoadConst(
-      TranslationContext& tc,
-      const jit::BytecodeInstruction& bc_instr);
   void emitIntLoadConstOld(
-      TranslationContext& tc,
-      const jit::BytecodeInstruction& bc_instr);
-  void emitPrimitiveBinaryOp(
-      TranslationContext& tc,
-      const jit::BytecodeInstruction& bc_instr);
-  void emitPrimitiveCompare(
-      TranslationContext& tc,
-      const jit::BytecodeInstruction& bc_instr);
-  void emitPrimitiveBox(
-      TranslationContext& tc,
-      const jit::BytecodeInstruction& bc_instr);
-  void emitPrimitiveUnbox(
       TranslationContext& tc,
       const jit::BytecodeInstruction& bc_instr);
   void emitImportFrom(
       TranslationContext& tc,
       const jit::BytecodeInstruction& bc_instr);
   void emitImportName(
-      TranslationContext& tc,
-      const jit::BytecodeInstruction& bc_instr);
-  void emitPrimitiveUnaryOp(
       TranslationContext& tc,
       const jit::BytecodeInstruction& bc_instr);
   void emitFastLen(
