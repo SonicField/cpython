@@ -430,9 +430,20 @@ void hir_reflow_types_c(void *func, void *start_block) {
         }
     }
 
-    /* Get RPO traversal from start_block */
-    void *rpo_blocks[4096];
-    size_t n_blocks = hir_cfg_get_rpo_from(func, start_block, rpo_blocks, 4096);
+    /* Get RPO traversal from start_block. Per D-1775660617 fix: handle
+     * the >4096-block overflow path (mirror of clean_cfg.c handler).
+     * Stack-allocated path covers the common case; heap fallback for
+     * pathological CFGs. */
+    void *rpo_stack[4096];
+    void **rpo_blocks = rpo_stack;
+    size_t rpo_cap = 4096;
+    size_t n_blocks = hir_cfg_get_rpo_from(func, start_block, rpo_blocks, rpo_cap);
+    if (n_blocks > rpo_cap) {
+        rpo_cap = n_blocks;
+        rpo_blocks = (void **)malloc(rpo_cap * sizeof(void *));
+        if (!rpo_blocks) return;
+        hir_cfg_get_rpo_from(func, start_block, rpo_blocks, rpo_cap);
+    }
 
     /* Fixed-point iteration: flow types forward */
     int changed = 1;
@@ -456,6 +467,8 @@ void hir_reflow_types_c(void *func, void *start_block) {
             }
         }
     }
+
+    if (rpo_blocks != rpo_stack) free(rpo_blocks);
 }
 
 /* ==== simplifyRedundantCondBranches C port ==== */
@@ -874,8 +887,17 @@ void hir_bind_guards_c(void *func) {
 
 void hir_optimize_long_decref_runs_c(void *func) {
     void *cfg = hir_func_cfg_ptr(func);
-    void *rpo_blocks[4096];
-    size_t n_blocks = hir_cfg_get_rpo_c(cfg, rpo_blocks, 4096);
+    /* Per D-1775660617 fix: handle the >4096-block overflow path. */
+    void *rpo_stack[4096];
+    void **rpo_blocks = rpo_stack;
+    size_t rpo_cap = 4096;
+    size_t n_blocks = hir_cfg_get_rpo_c(cfg, rpo_blocks, rpo_cap);
+    if (n_blocks > rpo_cap) {
+        rpo_cap = n_blocks;
+        rpo_blocks = (void **)malloc(rpo_cap * sizeof(void *));
+        if (!rpo_blocks) return;
+        hir_cfg_get_rpo_c(cfg, rpo_blocks, rpo_cap);
+    }
 
     for (size_t b = 0; b < n_blocks; b++) {
         void *block = rpo_blocks[b];
@@ -915,6 +937,8 @@ void hir_optimize_long_decref_runs_c(void *func) {
             }
         }
     }
+
+    if (rpo_blocks != rpo_stack) free(rpo_blocks);
 }
 
 /* ==== removeUnreachableInstructions C port ==== */
@@ -936,8 +960,17 @@ int hir_remove_unreachable_instructions_c(void *func) {
     void *cfg = hir_func_cfg_ptr(func);
 
     int modified = 0;
-    void *rpo_blocks[4096];
-    size_t n_blocks = hir_cfg_get_rpo_c(cfg, rpo_blocks, 4096);
+    /* Per D-1775660617 fix: handle the >4096-block overflow path. */
+    void *rpo_stack[4096];
+    void **rpo_blocks = rpo_stack;
+    size_t rpo_cap = 4096;
+    size_t n_blocks = hir_cfg_get_rpo_c(cfg, rpo_blocks, rpo_cap);
+    if (n_blocks > rpo_cap) {
+        rpo_cap = n_blocks;
+        rpo_blocks = (void **)malloc(rpo_cap * sizeof(void *));
+        if (!rpo_blocks) return 0;
+        hir_cfg_get_rpo_c(cfg, rpo_blocks, rpo_cap);
+    }
 
     PhxDominatorState *dom = phx_dom_create(func);
     PhxRegUses reg_uses;
@@ -1083,5 +1116,7 @@ int hir_remove_unreachable_instructions_c(void *func) {
         void *entry = *(void **)cfg;
         hir_reflow_types_c(func, entry);
     }
+
+    if (rpo_blocks != rpo_stack) free(rpo_blocks);
     return modified;
 }

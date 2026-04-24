@@ -242,12 +242,22 @@ void hir_preloader_ensure(void *py_func) {
 }
 
 size_t hir_cfg_get_rpo(struct HirCFG *cfg, struct HirBasicBlock **out, size_t capacity) {
+  /* Bug fix for D-1775660617 (theologian 2026-04-09 known-parked, pythia
+   * D-1775661187 risk flag): return the FULL RPO size so callers can
+   * detect overflow via `if (num_blocks > capacity)` and resize. The
+   * previous clamped return left clean_cfg.c + copy_propagation.c
+   * silently dropping blocks beyond their 256 initial capacity, surviving
+   * Assigns then tripped JIT_CHECK at lir/generator.cpp:1358 ("assign
+   * shouldn't be present") on functions with >256 BBs. Sibling
+   * hir_cfg_get_rpo_c (hir_cfg_rpo_c.c:67-75) already returned the
+   * un-clamped count; this harmonizes the two contracts. */
   auto rpo = as_cfg(cfg)->GetRPOTraversal();
-  size_t count = rpo.size() < capacity ? rpo.size() : capacity;
+  size_t actual = rpo.size();
+  size_t count = actual < capacity ? actual : capacity;
   for (size_t i = 0; i < count; i++) {
     out[i] = to_block(rpo[i]);
   }
-  return count;
+  return actual;
 }
 
 struct HirBasicBlock *hir_cfg_blocks_first(struct HirCFG *cfg) {
@@ -2504,10 +2514,15 @@ void *hir_cfg_blocks_next_ptr(void *cfg, void *block) {
 
 size_t hir_cfg_get_rpo_from(HirFunction func, void *start,
                             void **out, size_t capacity) {
+  /* Same fix as hir_cfg_get_rpo above: return un-clamped count so callers
+   * can detect overflow via `if (n > capacity) resize+refetch`. Sole
+   * caller pass_output_type_c.c:435 (hir_reflow_types_c) was missing the
+   * resize handler entirely; that handler is added in this same commit. */
   auto rpo = CFG::GetRPOTraversal(static_cast<BasicBlock*>(start));
-  size_t n = rpo.size() < capacity ? rpo.size() : capacity;
+  size_t actual = rpo.size();
+  size_t n = actual < capacity ? actual : capacity;
   for (size_t i = 0; i < n; i++) out[i] = rpo[i];
-  return n;
+  return actual;
 }
 
 HirType hir_return_type_c(void *callable_reg) {
