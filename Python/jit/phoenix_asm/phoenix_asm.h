@@ -36,6 +36,14 @@ typedef struct {
     int32_t  offset;
     uint8_t  scale;       /* 1, 2, 4, or 8 (x86 SIB) */
     uint8_t  size;        /* access size in bytes */
+    uint8_t  has_base;    /* nonzero if base register is used (DSecondary-2:
+                           * pre-DSecondary-2, base==RAX-by-default-zero-init
+                           * caused phx_fs_ptr to silently emit fs:disp(%rax)
+                           * — see W-C2 D-1777048937. has_base mirrors
+                           * has_index; constructors that take a base param
+                           * set has_base=1; pure-displacement constructors
+                           * (phx_fs_ptr) leave has_base=0. encode_modrm_mem
+                           * branches on !has_base to emit SIB pure-disp32. */
     uint8_t  has_index;   /* nonzero if index register is used */
     uint8_t  is_label_rel;/* nonzero for RIP-relative label addressing */
     uint8_t  segment;     /* segment override: 0=none, 4=FS, 5=GS */

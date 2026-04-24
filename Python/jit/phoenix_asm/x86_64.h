@@ -218,26 +218,21 @@ static inline PhxMem phx_dword_ptr(PhxGp base, int32_t offset) {
 
 /* FS segment memory operand — for TLS access (e.g. PyThreadState).
  *
- * D-1777048937 W-C2 fix: pre-fix this returned PhxMem with m.base
- * default-initialized to RAX (id=0), so encode_modrm_mem treated the
- * operand as `[RAX + disp]` and emitted `mov r, fs:disp(%rax)`. Under
- * release mode RAX happened to be 0 at the load_tstate call site, so
- * fs:[disp+0] resolved correctly; under pydebug RAX was non-zero and
- * fs:[disp+rax] read the wrong TLS slot, returning NULL/garbage tstate
- * and crashing later on tstate->cframe deref. is_abs_addr=1 triggers
- * the SIB pure-disp32 encoding (encode_modrm_mem:182-188) which emits
- * `04 25 disp32` — exactly the encoding FS-segment + pure-displacement
- * addressing requires. is_abs_addr is reused here for the SIB-disp32
- * shape, NOT for its conventional 'absolute 64-bit address' semantics.
- * TODO (DSecondary-2): add explicit has_base flag to PhxMem; refactor
- * phx_fs_ptr to use it instead of overloading is_abs_addr. */
+ * Closes W-C2 D-1777048937. Pre-DSecondary-2 (push 45 9e342abd7d) this
+ * had to overload is_abs_addr=1 to get the SIB pure-disp32 encoding,
+ * because PhxMem zero-init made base=RAX-by-default indistinguishable
+ * from a real RAX base. DSecondary-2 added an explicit has_base flag
+ * (mirror of has_index): constructors that take a base set has_base=1;
+ * pure-displacement constructors leave it 0. encode_modrm_mem branches
+ * on !has_base to emit `04 25 disp32` (SIB base=101). is_abs_addr is
+ * now restored to its conventional 'absolute 64-bit address' semantics
+ * and is unused here. */
 static inline PhxMem phx_fs_ptr(int32_t offset) {
     PhxMem m = {0};
     m.offset = offset;
     m.size = 8;
     m.segment = 4;  /* FS segment override */
-    m.is_abs_addr = 1;  /* triggers SIB pure-disp32 encoding (no base) */
-    m.abs_addr = (uint64_t)(int64_t)offset;  /* sign-extend for encoder */
+    /* has_base=0 (zero-init): no base register, encode as SIB pure-disp32 */
     return m;
 }
 

@@ -67,6 +67,7 @@ phx_a64_mem_pre(PhxGp base, int32_t offset) {
     m.base = base;
     m.offset = offset;
     m.size = 8;
+    m.has_base = 1;  /* DSecondary-2: explicit base present */
     m.is_pre_index = 1;
     return m;
 }
@@ -78,6 +79,7 @@ phx_a64_mem_post(PhxGp base, int32_t offset) {
     m.base = base;
     m.offset = offset;
     m.size = 8;
+    m.has_base = 1;  /* DSecondary-2: explicit base present */
     m.is_post_index = 1;
     return m;
 }
@@ -89,6 +91,7 @@ phx_a64_mem(PhxGp base, int32_t offset) {
     m.base = base;
     m.offset = offset;
     m.size = 8;
+    m.has_base = 1;  /* DSecondary-2: explicit base present */
     return m;
 }
 #endif

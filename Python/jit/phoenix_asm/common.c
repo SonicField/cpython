@@ -437,6 +437,7 @@ PhxMem phx_ptr(PhxGp base, int32_t offset) {
     m.offset = offset;
     m.scale = 1;
     m.size = base.size;
+    m.has_base = 1;
     m.has_index = 0;
     return m;
 }
@@ -450,6 +451,7 @@ PhxMem phx_ptr_index(PhxGp base, PhxGp index, uint8_t scale,
     m.offset = offset;
     m.scale = scale;
     m.size = base.size;
+    m.has_base = 1;
     m.has_index = 1;
     return m;
 }

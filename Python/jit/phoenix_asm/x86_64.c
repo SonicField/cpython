@@ -187,6 +187,20 @@ static int encode_modrm_mem(uint8_t *out, uint8_t reg_field, PhxMem mem) {
         return 6;
     }
 
+    /* No base register (e.g. phx_fs_ptr — segment + pure displacement) →
+       SIB disp32 encoding. Same byte sequence as is_abs_addr above; the
+       segment prefix (FS=0x64 / GS=0x65) is independently emitted by
+       emit_segment_prefix in the calling instruction encoder. DSecondary-2
+       (post W-C2 D-1777048937): explicit has_base=0 distinguishes 'no base'
+       from 'base=RAX (zero-init default)'. */
+    if (!mem.has_base) {
+        int32_t disp32 = mem.offset;
+        out[0] = 0x00 | (reg_field << 3) | 0x04; /* ModR/M: mod=00, r/m=100 */
+        out[1] = 0x25; /* SIB: scale=00, index=100(none), base=101(disp32) */
+        memcpy(out + 2, &disp32, 4);
+        return 6;
+    }
+
     int pos = 0;
     uint8_t base3 = reg3(mem.base);
     int32_t disp = mem.offset;
