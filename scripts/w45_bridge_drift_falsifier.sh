@@ -99,6 +99,7 @@ FIXTURES=(
     "hir_builder_state_exception_table_size_cpp|Phase 3 Batch 2 exception_table size bridge (1 arg)"
     "hir_builder_state_exception_table_entry_cpp|Phase 3 Batch 2 exception_table entry bridge (7 args)"
     "hir_builder_state_find_exception_handler_c|Phase 3 Batch 2 findExceptionHandler C body (4 args)"
+    "hir_builder_state_block_map_blocks_lookup_cpp|Phase 3 Batch 4 block_map blocks lookup bridge (2 args)"
 )
 
 # Mutation: append ', int phx_w45_drift' before the closing paren of the
@@ -111,7 +112,7 @@ mutate_bridge() {
     # token sequence (int, void, void*, bool, etc.). Apply across all
     # source files containing bridge decls / defs.
     perl -i -0777 -pe \
-        "s/(\b\w[\w\s\*]*?\s+${symbol}\s*\([^)]*?)\)/\${1}, int phx_w45_drift)/g" \
+        "s/(\b\w[\w\s\*]*?[\s\*]+${symbol}\s*\([^)]*?)\)/\${1}, int phx_w45_drift)/g" \
         "$BUILDER_CPP" "$BUILDER_EMIT_C" "$BUILDER_STATE_C_H" "$BUILDER_STATE_C"
 }
 

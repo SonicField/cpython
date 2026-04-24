@@ -89,6 +89,15 @@ int hir_builder_state_find_exception_handler_c(
     int off,
     int *out_idx);
 
+/* Phase 3 Batch 4 (X) Class B-kept disposition closure for block_map_:
+ * lookup the BasicBlock* registered for a given BCOffset in
+ * HIRBuilder.block_map_.blocks (a std::unordered_map<BCOffset,BasicBlock*>).
+ * JIT_DCHECK panics on not-found, mirroring the existing C++
+ * HIRBuilder::getBlockAtOff semantics. Returns BasicBlock* as void*. */
+void *hir_builder_state_block_map_blocks_lookup_cpp(
+    void *builder,
+    int off);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

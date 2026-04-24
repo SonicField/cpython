@@ -217,6 +217,11 @@ class HIRBuilder {
   friend int ::hir_builder_state_exception_table_size_cpp(void*);
   friend void ::hir_builder_state_exception_table_entry_cpp(
       void*, int, int*, int*, int*, int*, int*);
+  // Phase 3 Batch 4 (theologian 00:06:05Z): Class B-kept disposition
+  // closure for block_map_ — lookup bridge accesses
+  // block_map_.blocks (std::unordered_map) via friend.
+  friend void *::hir_builder_state_block_map_blocks_lookup_cpp(
+      void*, int);
  public:
   const Preloader& preloader() const { return preloader_; }
   explicit HIRBuilder(const Preloader& preloader)

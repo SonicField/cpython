@@ -1515,6 +1515,16 @@ BasicBlock* HIRBuilder::getBlockAtOff(BCOffset off) {
   return it->second;
 }
 
+extern "C" void *hir_builder_state_block_map_blocks_lookup_cpp(
+    void *builder,
+    int off) {
+  HIRBuilder *self = static_cast<HIRBuilder*>(builder);
+  auto it = self->block_map_.blocks.find(BCOffset{off});
+  JIT_DCHECK(
+      it != self->block_map_.blocks.end(), "No block for offset {}", off);
+  return static_cast<void*>(it->second);
+}
+
 std::unique_ptr<Function> buildHIR(const Preloader& preloader) {
   return HIRBuilder{preloader}.buildHIR();
 }
