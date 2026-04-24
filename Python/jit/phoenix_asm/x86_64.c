@@ -20,6 +20,8 @@
 #include "x86_64.h"
 #include "phoenix_asm.h"
 
+#include "cinderx/Common/jit_log_c.h"  /* JIT_CHECK_C (DSecondary-4) */
+
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -200,6 +202,15 @@ static int encode_modrm_mem(uint8_t *out, uint8_t reg_field, PhxMem mem) {
         memcpy(out + 2, &disp32, 4);
         return 6;
     }
+
+    /* DSecondary-4 (theologian 18:19:29Z (α) targeted + 18:21:56Z always-on
+       upgrade): reaching the base-register fallback with has_base=0 means a
+       future PhxMem constructor forgot to set has_base=1 — would silently
+       emit [RAX+disp] like the W-C2 D-1777048937 phx_fs_ptr bug. JIT_CHECK_C
+       (not assert()) catches in release too, since the W-C2 class only
+       manifests in release; encoder is compile-path so the branch cost is
+       paid once per JIT compilation, not per execution. */
+    JIT_CHECK_C(mem.has_base, "encode_modrm_mem: base-register branch reached with has_base=0 (missing constructor flag)");
 
     int pos = 0;
     uint8_t base3 = reg3(mem.base);
