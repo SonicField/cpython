@@ -206,15 +206,12 @@ class HIRBuilder {
       void*, void*, void*, int, void*, void*);
   // W27d #1 (theologian L2544): grants C body access to private Register* func_.
   friend void* ::hir_builder_func_register_c(void*);
-  // Phase 3 Batch 1 (theologian 23:05:15Z): grants C-side bridge access to
-  // private std::vector<ExceptionTableEntry> exception_table_.
-  friend void ::hir_builder_state_exception_table_push_cpp(
-      void*, int, int, int, int, int);
-  // Phase 3 Batch 2 (theologian 23:22:59Z): read-side bridges close the
-  // Class B-kept disposition for exception_table_ (read+write via bridge).
-  friend int ::hir_builder_state_exception_table_size_cpp(void*);
-  friend void ::hir_builder_state_exception_table_entry_cpp(
-      void*, int, int*, int*, int*, int*, int*);
+  // Tier 8 pilot Phase A (theologian 01:17:48Z + supervisor 01:18:35Z +
+  // 03:44:19Z patch-apply): exception_table_ migrated to PhxExceptionTable
+  // (pure-C container in PhxHirBuilderState); 3 _cpp bridges
+  // (push/size/entry) DELETED. findExceptionHandler + parseExceptionTable
+  // C++ shims rewired internally to PhxExceptionTable; Phase B will
+  // delete those shims.
   // Phase 3 Batch 4 (theologian 00:06:05Z): Class B-kept disposition
   // closure for block_map_ — lookup bridge accesses
   // block_map_.blocks (std::unordered_map) via friend.
@@ -619,17 +616,15 @@ class HIRBuilder {
   PyCodeObject* code_;
   BlockMap block_map_;
 
-  // Parsed exception table entries from co_exceptiontable (Layer 1).
-  struct ExceptionTableEntry {
-    BCOffset start;   // Start of try range (byte offset, inclusive)
-    BCOffset end;     // End of try range (byte offset, exclusive)
-    BCOffset target;  // Handler entry point (byte offset)
-    int depth;        // Stack depth at handler entry
-    bool lasti;       // Whether to push lasti
-  };
-  std::vector<ExceptionTableEntry> exception_table_;
+  // Tier 8 pilot Phase A: ExceptionTableEntry struct +
+  // std::vector<...> exception_table_ field migrated to
+  // PhxExceptionTable in PhxHirBuilderState.exception_table_phx
+  // (builder_state_c.h). C++ shims findExceptionHandler +
+  // parseExceptionTable kept (transient compatibility layer
+  // rewired internally to PhxExceptionTable); Phase B follow-up
+  // commit deletes those shims + remaining C++ field accesses.
 
-  // Parse co_exceptiontable into exception_table_
+  // Parse co_exceptiontable into PhxHirBuilderState.exception_table_phx
   void parseExceptionTable();
 
   // Find exception handler for a given bytecode offset

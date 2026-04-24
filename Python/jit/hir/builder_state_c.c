@@ -1,8 +1,10 @@
 /* Copyright (c) Meta Platforms, Inc. and affiliates.
  *
  * Pure-C port of HIRBuilder Class A state initialization +
- * parseExceptionTable algorithm. Phase 3 Batch 1 per
- * docs/tier7-phase3-hirbuilder-state-extraction-spec.md.
+ * parseExceptionTable + findExceptionHandler algorithms. Phase 3 Batch 1
+ * + Tier 8 pilot Phase A per
+ * docs/tier7-phase3-hirbuilder-state-extraction-spec.md +
+ * docs/tier8-class-b-cport-migrate-arm-spec.md.
  */
 
 #include "cinderx/Jit/hir/builder_state_c.h"
@@ -19,11 +21,20 @@ void hir_builder_state_init(
     state->current_func = NULL;
     state->func = NULL;
     state->kwnames = NULL;
+    phx_exception_table_init(&state->exception_table_phx);
+}
+
+void hir_builder_state_destroy(PhxHirBuilderState *state) {
+    phx_exception_table_destroy(&state->exception_table_phx);
 }
 
 void hir_builder_state_parse_exception_table_c(
         PhxHirBuilderState *state,
         void *builder) {
+    (void)builder;  /* Tier 8 pilot Phase A: PhxExceptionTable now lives
+                     * in state, not C++-side; builder param retained
+                     * for signature stability across Phase 3 Batch 1
+                     * + Tier 8 transition. Phase B will drop it. */
     PyCodeObject *code = (PyCodeObject*)state->code;
     PyObject *table_obj = code->co_exceptiontable;
     if (table_obj == NULL || !PyBytes_Check(table_obj)) {
@@ -53,13 +64,14 @@ void hir_builder_state_parse_exception_table_c(
 
         /* Convert instruction units to byte offsets. */
         const int scale = (int)sizeof(_Py_CODEUNIT);
-        hir_builder_state_exception_table_push_cpp(
-            builder,
-            start * scale,
-            (start + size) * scale,
-            target * scale,
-            depth_lasti >> 1,
-            depth_lasti & 1);
+        ExceptionTableEntry entry = {
+            .start = start * scale,
+            .end = (start + size) * scale,
+            .target = target * scale,
+            .depth = depth_lasti >> 1,
+            .lasti = (unsigned char)(depth_lasti & 1),
+        };
+        phx_exception_table_push(&state->exception_table_phx, &entry);
     }
 }
 
@@ -68,14 +80,15 @@ int hir_builder_state_find_exception_handler_c(
         void *builder,
         int off,
         int *out_idx) {
-    (void)state;  /* state unused (vector access via _cpp bridge). */
-    int n = hir_builder_state_exception_table_size_cpp(builder);
-    for (int i = 0; i < n; i++) {
-        int start, end, target, depth, lasti;
-        hir_builder_state_exception_table_entry_cpp(
-            builder, i, &start, &end, &target, &depth, &lasti);
-        if (off >= start && off < end) {
-            *out_idx = i;
+    (void)builder;  /* Tier 8 pilot Phase A: lookup goes via state's
+                     * PhxExceptionTable directly; builder param retained
+                     * for signature stability. Phase B will drop it. */
+    PhxExceptionTable *t = &state->exception_table_phx;
+    size_t n = phx_exception_table_size(t);
+    for (size_t i = 0; i < n; i++) {
+        const ExceptionTableEntry *e = phx_exception_table_at(t, i);
+        if (off >= e->start && off < e->end) {
+            *out_idx = (int)i;
             return 1;
         }
     }

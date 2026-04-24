@@ -1195,11 +1195,16 @@ HIRBuilder::BlockMap HIRBuilder::createBlocks(
   // This ensures exception handler basic blocks are created in the HIR,
   // even though Python 3.12+ does not emit SETUP_FINALLY opcodes.
   parseExceptionTable();
-  for (const auto& entry : exception_table_) {
-    block_starts.insert(entry.target.asIndex());
+  // Tier 8 pilot Phase A: iterate PhxExceptionTable directly.
+  for (size_t i = 0,
+              n = phx_exception_table_size(&state_.exception_table_phx);
+       i < n; i++) {
+    const ExceptionTableEntry* entry =
+        phx_exception_table_at(&state_.exception_table_phx, i);
+    block_starts.insert(BCOffset{entry->target}.asIndex());
     // B2: Also add except body start so we can branch to it.
     SimpleExceptInfo info;
-    if (getSimpleExceptInfo(entry, info)) {
+    if (getSimpleExceptInfo(*entry, info)) {
       block_starts.insert(info.except_body.asIndex());
     }
   }
@@ -1227,49 +1232,19 @@ HIRBuilder::BlockMap HIRBuilder::createBlocks(
 }
 
 
-extern "C" void hir_builder_state_exception_table_push_cpp(
-    void *builder,
-    int start,
-    int end,
-    int target,
-    int depth,
-    int lasti) {
-  HIRBuilder *self = static_cast<HIRBuilder*>(builder);
-  self->exception_table_.push_back(HIRBuilder::ExceptionTableEntry{
-      BCOffset{start},
-      BCOffset{end},
-      BCOffset{target},
-      depth,
-      lasti != 0});
-}
-
-extern "C" int hir_builder_state_exception_table_size_cpp(void *builder) {
-  HIRBuilder *self = static_cast<HIRBuilder*>(builder);
-  return static_cast<int>(self->exception_table_.size());
-}
-
-extern "C" void hir_builder_state_exception_table_entry_cpp(
-    void *builder,
-    int idx,
-    int *out_start,
-    int *out_end,
-    int *out_target,
-    int *out_depth,
-    int *out_lasti) {
-  HIRBuilder *self = static_cast<HIRBuilder*>(builder);
-  const auto &e = self->exception_table_[idx];
-  *out_start = e.start.value();
-  *out_end = e.end.value();
-  *out_target = e.target.value();
-  *out_depth = e.depth;
-  *out_lasti = e.lasti ? 1 : 0;
-}
+// Tier 8 pilot Phase A: 3 _cpp bridges (push_cpp/size_cpp/entry_cpp)
+// DELETED. exception_table_ now lives in PhxHirBuilderState.exception_table_phx
+// as a pure-C PhxExceptionTable container; C bodies access it directly via
+// phx_exception_table_* inline helpers. C++ shims below remain as transient
+// compatibility layer for one C++ caller site (builder.cpp:2883
+// emit_call_method_exception_handler_inline_c) + 2 builder.cpp readers
+// (lines 1198 + 1579); Phase B follow-up commit deletes them.
 
 void HIRBuilder::parseExceptionTable() {
   hir_builder_state_parse_exception_table_c(&state_, this);
 }
 
-const HIRBuilder::ExceptionTableEntry* HIRBuilder::findExceptionHandler(
+const ExceptionTableEntry* HIRBuilder::findExceptionHandler(
     BCOffset off) const {
   int idx = -1;
   if (hir_builder_state_find_exception_handler_c(
@@ -1277,7 +1252,7 @@ const HIRBuilder::ExceptionTableEntry* HIRBuilder::findExceptionHandler(
           const_cast<HIRBuilder*>(this),
           off.value(),
           &idx)) {
-    return &exception_table_[idx];
+    return phx_exception_table_at(&state_.exception_table_phx, (size_t)idx);
   }
   return nullptr;
 }
@@ -1288,7 +1263,9 @@ bool HIRBuilder::getSimpleExceptInfo(
   // Scan handler bytecodes for the pattern:
   //   PUSH_EXC_INFO, LOAD_GLOBAL <type>, CHECK_EXC_MATCH,
   //   POP_JUMP_IF_FALSE, POP_TOP
-  BytecodeInstruction bc{code_, handler.target};
+  // Tier 8 pilot Phase A: handler.target is now plain int (C struct);
+  // wrap in BCOffset for the C++ BytecodeInstruction ctor.
+  BytecodeInstruction bc{code_, BCOffset{handler.target}};
 
   if (bc.opcode() != PUSH_EXC_INFO) {
     return false;
@@ -1576,7 +1553,7 @@ BasicBlock* HIRBuilder::buildHIRImpl(
     // Suppress exception table for inlined callees to prevent B2
     // (emitBinaryOp -> findExceptionHandler -> emitInlineExceptionMatch)
     // from creating reachable handler blocks. All exceptions deopt.
-    exception_table_.clear();
+    phx_exception_table_clear(&state_.exception_table_phx);
   }
 
   // Ensure that the entry block isn't a loop header
