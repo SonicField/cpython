@@ -149,7 +149,7 @@ For full SHA-match, refresh the bundle on devgpu004 between pushes (`git bundle 
 
 Multi-file edit sequences (≥2 files) require working-tree integrity discipline:
 
-1. **Pre-edit baseline snapshot.** Before multi-file edit, capture `git status --short` + `git diff --name-only HEAD`. Confirm tree state is clean OR known-modified.
+1. **Pre-edit baseline snapshot.** Before multi-file edit, capture `git status --short` + `git diff --name-only HEAD`. Confirm tree state is clean OR known-modified. **Per 2026-04-24 PIR option (c):** also capture per-touched-file mtime via `stat -c "%Y %n"` baseline; verify before each subsequent write within the edit sequence (mtime mismatch on a file you didn't write = external revert; HALT).
 
 2. **Mid-edit integrity check.** If any touched file's mtime/content changes UNEXPECTEDLY during edit (not as result of agent's own write), HALT immediately. Restore to baseline via `git checkout HEAD -- <file>` per Alex directive D-1776434533.
 
