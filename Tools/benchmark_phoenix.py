@@ -1641,6 +1641,8 @@ def _run_worker(python_cmd, condition, compile_mode, only=None):
             else:
                 print(f"ERROR (exit {result.returncode}): {result.stderr[:200]}")
             return None
+        if result.stderr and any(k.startswith("PYTHONJITDUMP") for k in env):
+            sys.stderr.write(result.stderr)
         return json.loads(result.stdout)
     except subprocess.TimeoutExpired:
         print("TIMEOUT (300s)")
