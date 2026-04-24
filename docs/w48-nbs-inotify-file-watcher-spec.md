@@ -1,6 +1,20 @@
 # W48 — NBS-Suite Inotify File-Watcher Spec
 
-**Status:** FILE-NOW per supervisor 2026-04-24T02:46:15Z (b) +
+**Status:** CANCELLED-RESOLVED 2026-04-24T04:39:18Z per supervisor
+post Tier 8 Phase A landing. Root cause attribution at b83f0840fb
+(push 31, generalist 04:13:58Z) identified the 8-incident reverter
+as `scripts/w45_section_3_5_derivation_drift.sh` restore_files()
+overreach — internal infrastructure bug, NOT external file-watcher
+gap. Fix was a 25L script change (snapshot-based restore preserving
+pre-script unstaged state); no NBS-suite extension needed.
+
+This spec is RETAINED as institutional record of the cathedral-of-
+diagnostic-layers built before causal investigation per pythia #105
+'fever has name infection still spreads' framing. The W48 sketch
+remains valid for future undiagnosed file-state-revert classes IF
+they recur outside the §3.5-restore-trap pattern.
+
+**Original status (HISTORY):** FILE-NOW per supervisor 2026-04-24T02:46:15Z (b) +
 theologian 2026-04-24T02:46:01Z. Escalated from PIR §2.1 (a)
 DEFERRED → FILE-NOW per Tier 8 Phase A incident #7 (mtime-checkpoint
 agent-side discipline exhausted).

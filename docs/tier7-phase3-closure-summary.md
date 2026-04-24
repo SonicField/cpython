@@ -92,32 +92,43 @@ Phase 3 series: 1.27x → 1.29x → 1.28x → 1.26x → 1.29x → 1.26x. Net
 geo-mean change ≈ -1% across 6 batches; well within noise floor;
 zero floor violations.
 
-## Tier 8 pilot BLOCKED (push 28+, 2026-04-24)
+## Tier 8 pilot Phase A LANDED (push 32, 2026-04-24)
 
 Per `docs/tier8-class-b-cport-migrate-arm-spec.md` (theologian
 01:01:50Z, supervisor 01:02:46Z ADOPTED):
 
 - Pilot field: `exception_table_` (POD-equivalent per Phase 3 §2.2)
-- Phase A execution attempted at 01:18:35Z+, HALTED at 01:23:55Z by
-  external file-state revert (generalist 01:24:43Z observed-but-not-
-  attributed)
-- Resume gated on Alex disposition (01:25:09Z ping unanswered) +
-  fixup PIR (01:25:09Z + 02:14:16Z scope assigned, no result by
-  deadline)
-- DEADLINE = push 28 OR session-end per supervisor 02:13:12Z +
-  theologian 02:13:54Z; reached push 28 at 02:15:47Z
+- Phase A LANDED at commit 6945b96298 (push 32) — exception_table_
+  → PhxExceptionTable migration. NET +37L bundle, bridge-count delta
+  -3 (push_cpp + size_cpp + entry_cpp deleted)
+- Phase 3 + Tier 8 Phase A cumulative: +294L
 
-**Pythia #103 escape question RE-OPENED.** Phase 3 keep-bias is the
-END STATE pending future migrate-arm validation. The 'transitional
-foundation cost paid back' framing is HONEST-ASPIRATIONAL not
-RESOLVED. Tier 8 pilot remains FILED but UNVALIDATED. ZERO-C++
-terminal goal (MEMORY.md L70 + L104) remains gated on Tier 8 pilot
-landing in a future session.
+**Root cause attribution for 8-incident class (CLOSED).** Phase A
+execution attempted at 01:18:35Z+ originally HALTED at 01:23:55Z by
+APPARENT external file-state revert. After 8 incidents + 5 detection
+layers (mtime-checkpoint, lsof, auditctl, strace tests #1–#5,
+patch-apply Test #6 + Test #7 + Test #8), the reverter was identified
+as our own infrastructure: `scripts/w45_section_3_5_derivation_drift.sh`
+restore_files() function used `git checkout HEAD -- "${TOUCHED_FILES[@]}"`
+which destroyed any pre-existing unstaged user modifications on the
+fixture-touched file set (which is also the Tier 8 Phase A target
+file set). Fix landed at b83f0840fb (push 31): snapshot-based
+restore_files() preserves pre-script unstaged state. Sister-script
+audit per librarian 04:28:11Z: only this script had the unsafe
+pattern; no further hazard class.
 
-Phase 3 cumulative +257L is the END STATE for this session. Future
-session must re-attempt Tier 8 Phase A under same spec OR honestly
-amend Phase 3 closure framing to 'permanent scaffolding' if pilot is
-permanently unfeasible.
+**Pythia #103 escape question RESOLVED.** Phase 3 +257L was indeed
+TRANSITIONAL foundation cost; Tier 8 pilot Phase A migrate-arm is
+EMPIRICALLY VALIDATED via 6945b96298. Pythia #94 (3) commitment
+fully discharged. ZERO-C++ terminal goal (MEMORY.md L70 + L104)
+remains progress: full Tier 8 across remaining 3 Class B containers
+(block_map_, static_method_stack_, temps_) is the next direction
+per Tier 8 spec §1.1 container-shape transferability caveat (each
+container needs its own pilot per shape difference).
+
+Phase B (C++ shim deletion + caller-rewire) GATED on this Phase A
+land per Tier 8 spec §5 #12 forcing-function — now UNGATED, Phase B
+is the next workstream.
 
 ## Cross-link
 

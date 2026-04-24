@@ -9,9 +9,22 @@ librarian 02:34:46Z)
 **Triggered by:** pythia #105 (1)+(3) 2026-04-24T02:12:18Z + supervisor
 02:14:16Z scope assignment + pythia #104 (3) 2026-04-24T01:36:43Z
 
+**Status: RESOLVED 2026-04-24T04:13:58Z.** Root cause IDENTIFIED post
+incident #8 (testkeeper 03:53:05Z compile-check found PhxExceptionTable
+missing from staged builder_state_c.h despite Phase A apply). Generalist
+04:13:58Z attributed the 'reverter' to our own
+`scripts/w45_section_3_5_derivation_drift.sh` restore_files() function:
+`git checkout HEAD -- "${TOUCHED_FILES[@]}"` destroys pre-existing
+unstaged user modifications on fixture-touched files. Fix landed at
+b83f0840fb (push 31): snapshot-based restore_files() preserves
+pre-script unstaged state. Tier 8 Phase A re-attempted clean at
+6945b96298 (push 32). 8-incident class CLOSED with explicit root-cause
+attribution. Sister-script audit clean per librarian 04:28:11Z (only
+§3.5 script had unsafe pattern).
+
 ---
 
-## 1. Incident class: undiagnosed-recurring file-state-revert
+## 1. Incident class: undiagnosed-recurring file-state-revert (HISTORICAL — now RESOLVED)
 
 Six incidents on file (this PIR's 2026-04-24 incident + 5 priors per
 librarian 2026-04-24T01:46:19Z institutional memory):
