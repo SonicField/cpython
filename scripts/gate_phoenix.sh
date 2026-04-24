@@ -441,18 +441,20 @@ def block_map_resize_chain(n):
     if n == 9: return 'j'
     return 'z'
 
-# Tier 8 SECOND-PILOT Phase A pythia #119 (a) followup (theologian
-# 11:20:24Z + supervisor 11:20:43Z DEFER): n=294-class hash-clustering
-# coverage. block_map_resize_chain (10 arms) trips first resize at
-# insert #12 but does not exercise the 5 sequential resizes
-# (16->32->64->128->256->512) that re._parser:Tokenizer.__next at 294
-# blocks drives in production. This generates a 110-arm if-return chain
-# (~330 block_starts) via exec to keep the source compact; force_compile
-# must succeed AND produce the correct result for sampled arms -- proves
-# Knuth multiplicative h=key*2654435761u clusters acceptably at
-# production-scale BCOffset density.
+# Tier 8 SECOND-PILOT Phase A pythia #119 (a) closure (theologian
+# 11:20:24Z + 11:42:36Z + supervisor 11:42:49Z): n>=294 hash-clustering
+# coverage at the named pythia threshold. Push 41 (110 arms) achieved
+# n=223 BBs (PARTIAL closure); push 42 bumps to 150 arms targeting
+# n>=294 BBs to fully exercise the 5 sequential resizes
+# (16->32->64->128->256->512) that re._parser:Tokenizer.__next drives
+# in production. force_compile must succeed AND produce the correct
+# result for sampled arms -- proves Knuth multiplicative
+# h=key*2654435761u clusters acceptably at production-scale BCOffset
+# density. Measured: each Python 'if n==i: return i' arm produces
+# 2 HIR BBs (testkeeper 11:41:25Z PYTHONJITDUMPFINALHIR), so 150 arms
+# yields ~302 BBs.
 _n294_src = 'def block_map_n294_chain(n):\n'
-for _i in range(110):
+for _i in range(150):
     _n294_src += f'    if n == {_i}: return {_i}\n'
 _n294_src += '    return -1\n'
 exec(_n294_src)
@@ -477,8 +479,8 @@ tests = [
     (block_map_resize_chain, (9,), 'j'),
     (block_map_resize_chain, (99,), 'z'),
     (block_map_n294_chain, (0,), 0),
-    (block_map_n294_chain, (54,), 54),
-    (block_map_n294_chain, (109,), 109),
+    (block_map_n294_chain, (74,), 74),
+    (block_map_n294_chain, (149,), 149),
     (block_map_n294_chain, (200,), -1),
 ]
 for func, args, expected in tests:
