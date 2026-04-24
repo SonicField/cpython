@@ -1194,8 +1194,10 @@ HIRBuilder::BlockMap HIRBuilder::createBlocks(
   // Parse co_exceptiontable and add handler targets as block starts.
   // This ensures exception handler basic blocks are created in the HIR,
   // even though Python 3.12+ does not emit SETUP_FINALLY opcodes.
-  parseExceptionTable();
-  // Tier 8 pilot Phase A: iterate PhxExceptionTable directly.
+  // Tier 8 pilot Phase B: direct C-body call (parseExceptionTable C++
+  // shim deleted; HIRBuilder no longer has accessor methods).
+  hir_builder_state_parse_exception_table_c(&state_, this);
+  // Iterate PhxExceptionTable directly.
   for (size_t i = 0,
               n = phx_exception_table_size(&state_.exception_table_phx);
        i < n; i++) {
@@ -1232,30 +1234,14 @@ HIRBuilder::BlockMap HIRBuilder::createBlocks(
 }
 
 
-// Tier 8 pilot Phase A: 3 _cpp bridges (push_cpp/size_cpp/entry_cpp)
-// DELETED. exception_table_ now lives in PhxHirBuilderState.exception_table_phx
-// as a pure-C PhxExceptionTable container; C bodies access it directly via
-// phx_exception_table_* inline helpers. C++ shims below remain as transient
-// compatibility layer for one C++ caller site (builder.cpp:2883
-// emit_call_method_exception_handler_inline_c) + 2 builder.cpp readers
-// (lines 1198 + 1579); Phase B follow-up commit deletes them.
-
-void HIRBuilder::parseExceptionTable() {
-  hir_builder_state_parse_exception_table_c(&state_, this);
-}
-
-const ExceptionTableEntry* HIRBuilder::findExceptionHandler(
-    BCOffset off) const {
-  int idx = -1;
-  if (hir_builder_state_find_exception_handler_c(
-          const_cast<PhxHirBuilderState*>(&state_),
-          const_cast<HIRBuilder*>(this),
-          off.value(),
-          &idx)) {
-    return phx_exception_table_at(&state_.exception_table_phx, (size_t)idx);
-  }
-  return nullptr;
-}
+// Tier 8 pilot Phase A + Phase B (theologian 04:48:17Z + supervisor
+// 04:48:47Z): exception_table_ → PhxExceptionTable migration COMPLETE.
+// Phase A deleted 3 _cpp bridges (push_cpp/size_cpp/entry_cpp).
+// Phase B (this commit) deletes the 2 C++ shims (parseExceptionTable +
+// findExceptionHandler) and rewires their 2 callers to invoke the C
+// bodies + phx_exception_table_at directly. HIRBuilder no longer has
+// any accessor methods for exception_table_phx — bridges-only access
+// per spec §5 #5.
 
 bool HIRBuilder::getSimpleExceptInfo(
     const ExceptionTableEntry& handler,
@@ -2862,7 +2848,16 @@ extern "C" void hir_builder_emit_call_method_exception_handler_inline_c(
     void *call_instr, void *result_reg) {
   auto *self = static_cast<HIRBuilder*>(builder);
   BCOffset cur_off{base_offset};
-  const auto *handler = self->findExceptionHandler(cur_off);
+  // Tier 8 pilot Phase B: direct C-body call (findExceptionHandler C++
+  // shim deleted); convert returned index to entry pointer via
+  // phx_exception_table_at (preserves caller-contract).
+  int handler_idx = -1;
+  const ExceptionTableEntry *handler = nullptr;
+  if (hir_builder_state_find_exception_handler_c(
+          &self->state_, self, cur_off.value(), &handler_idx)) {
+    handler = phx_exception_table_at(
+        &self->state_.exception_table_phx, (size_t)handler_idx);
+  }
   if (handler == nullptr) {
     return;
   }

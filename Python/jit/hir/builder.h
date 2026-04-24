@@ -616,19 +616,14 @@ class HIRBuilder {
   PyCodeObject* code_;
   BlockMap block_map_;
 
-  // Tier 8 pilot Phase A: ExceptionTableEntry struct +
+  // Tier 8 pilot Phase A + Phase B: ExceptionTableEntry struct +
   // std::vector<...> exception_table_ field migrated to
   // PhxExceptionTable in PhxHirBuilderState.exception_table_phx
   // (builder_state_c.h). C++ shims findExceptionHandler +
-  // parseExceptionTable kept (transient compatibility layer
-  // rewired internally to PhxExceptionTable); Phase B follow-up
-  // commit deletes those shims + remaining C++ field accesses.
-
-  // Parse co_exceptiontable into PhxHirBuilderState.exception_table_phx
-  void parseExceptionTable();
-
-  // Find exception handler for a given bytecode offset
-  const ExceptionTableEntry* findExceptionHandler(BCOffset off) const;
+  // parseExceptionTable DELETED (Phase B per spec §5 #5).
+  // HIRBuilder no longer has accessor methods; all access via
+  // bridges (parse_exception_table_c + find_exception_handler_c +
+  // phx_exception_table_*).
 
   // B2: Info about a simple except pattern suitable for inlining.
   struct SimpleExceptInfo {
