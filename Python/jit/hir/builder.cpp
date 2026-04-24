@@ -1219,6 +1219,7 @@ void HIRBuilder::createBlocks(
   }
 
   // Allocate blocks
+  size_t inserts_this_call = 0;
   auto it = block_starts.begin();
   while (it != block_starts.end()) {
     BCIndex start_idx = *it;
@@ -1241,16 +1242,26 @@ void HIRBuilder::createBlocks(
         block->id,
         start_idx.value(),
         end_idx.value());
+    ++inserts_this_call;
   }
-  /* Phase B I1: at createBlocks return, the bc_block_array and
-   * block_map_phx must have matching populated counts (every loop
-   * iteration above inserts into BOTH in lockstep). bc_block_array.count
-   * is high-water-mark id+1; with allocation-monotonic ids and clear-
-   * at-top, it equals the number of inserts this call. */
+  /* Phase B I1 (γ-rephrase per W-PHASE-B-PYDEBUG, theologian 20:03:59Z):
+   * the original bc_block_array.count == block_map_phx.count check
+   * conflated semantics — bc_block_array.count is a HIGH-WATER-MARK
+   * (max(block_id)+1) across all createBlocks calls in this compile,
+   * while block_map_phx.count is the unique-key insert count THIS call.
+   * For inlined-callee createBlocks, block_map_phx is cleared at top
+   * but bc_block_array starts non-empty (preserves outer ids). The
+   * pre-fix assertion fires under pydebug (JIT_DCHECK is debug-only;
+   * release silently disagrees) on closure+except inlining
+   * (testkeeper 19:58:25Z: bc_block_array=15 vs block_map_phx=10,
+   * outer prefix len = 5). Correct invariant: lockstep inserts within
+   * THIS createBlocks call — track local count, compare to the per-
+   * call block_map_phx (also cleared at top). */
   JIT_DCHECK(
-      state_.bc_block_array_phx.count == state_.block_map_phx.count,
-      "Phase B I1: bc_block_array.count ({}) != block_map_phx.count ({})",
-      state_.bc_block_array_phx.count,
+      inserts_this_call == state_.block_map_phx.count,
+      "Phase B I1: createBlocks lockstep inserts ({}) != "
+      "block_map_phx.count ({})",
+      inserts_this_call,
       state_.block_map_phx.count);
 }
 
