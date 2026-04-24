@@ -92,29 +92,40 @@ Phase 3 series: 1.27x → 1.29x → 1.28x → 1.26x → 1.29x → 1.26x. Net
 geo-mean change ≈ -1% across 6 batches; well within noise floor;
 zero floor violations.
 
-## Tier 8 pilot scheduled
+## Tier 8 pilot BLOCKED (push 28+, 2026-04-24)
 
 Per `docs/tier8-class-b-cport-migrate-arm-spec.md` (theologian
 01:01:50Z, supervisor 01:02:46Z ADOPTED):
 
-- Pilot field: `exception_table_` (POD-equivalent per Phase 3 §2.2;
-  4 bridges → 0 on full port to PhxArray).
-- Acceptance criterion #10: pilot must net-subtract ≥ +257L of Phase 3
-  foundation cost (validates "transitional cost paid back" framing
-  vs "permanent scaffold").
-- Estimated pilot subtraction: ~-150L (4 bridge impls + 4 decls +
-  C++ struct/field/shims). Brings Phase 3 + Tier 8 cumulative from
-  +257L to ~+107L.
-- Full Tier 8 across all 4 Class B containers projects net-negative
-  vs Phase 3 foundation.
+- Pilot field: `exception_table_` (POD-equivalent per Phase 3 §2.2)
+- Phase A execution attempted at 01:18:35Z+, HALTED at 01:23:55Z by
+  external file-state revert (generalist 01:24:43Z observed-but-not-
+  attributed)
+- Resume gated on Alex disposition (01:25:09Z ping unanswered) +
+  fixup PIR (01:25:09Z + 02:14:16Z scope assigned, no result by
+  deadline)
+- DEADLINE = push 28 OR session-end per supervisor 02:13:12Z +
+  theologian 02:13:54Z; reached push 28 at 02:15:47Z
+
+**Pythia #103 escape question RE-OPENED.** Phase 3 keep-bias is the
+END STATE pending future migrate-arm validation. The 'transitional
+foundation cost paid back' framing is HONEST-ASPIRATIONAL not
+RESOLVED. Tier 8 pilot remains FILED but UNVALIDATED. ZERO-C++
+terminal goal (MEMORY.md L70 + L104) remains gated on Tier 8 pilot
+landing in a future session.
+
+Phase 3 cumulative +257L is the END STATE for this session. Future
+session must re-attempt Tier 8 Phase A under same spec OR honestly
+amend Phase 3 closure framing to 'permanent scaffolding' if pilot is
+permanently unfeasible.
 
 ## Cross-link
 
 - Phase 3 spec: `docs/tier7-phase3-hirbuilder-state-extraction-spec.md`
   (theologian 22:59:11Z, supervisor 22:59:54Z + 23:00:15Z amendments)
-- §5 amendment: pending theologian post-this-summary edit ("keep-bias
-  as design choice + Tier 8 migrate-arm pilot scheduled" — replaces
-  withdrawn "FINAL" framing per pythia #103)
+- §5 amendment: keep-bias as design choice; Tier 8 migrate-arm pilot
+  FILED but BLOCKED — see 'Tier 8 pilot BLOCKED' section above for
+  status (replaces withdrawn "FINAL" framing per pythia #103)
 - Tier 8 spec: `docs/tier8-class-b-cport-migrate-arm-spec.md`
   (theologian 01:01:50Z, supervisor 01:02:46Z ADOPTED)
 - W44: `scripts/check_do_not_use_callers.sh`,
