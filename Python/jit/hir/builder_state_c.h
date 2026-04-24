@@ -107,6 +107,20 @@ void *hir_builder_state_block_map_blocks_lookup_cpp(
  * (theologian 00:28:34Z + supervisor 00:28:51Z). */
 void *hir_builder_state_static_method_stack_pop_cpp(void *builder);
 
+/* Phase 3 Batch 6 (R-single ATOMIC) Class B-kept disposition closure
+ * for temps_ (TempAllocator): allocate a stack-temp Register from
+ * HIRBuilder.temps_.AllocateStack(). Renamed from
+ * hir_builder_temps_alloc_stack to align with state-bridge _cpp suffix
+ * convention (Batch 2/4/5 precedent). 71 C-side callers in
+ * builder_emit_c.c sed-renamed in lockstep. The other TempAllocator
+ * methods (AllocateNonStack, GetOrAllocateStack) stay C++-direct from
+ * C++ method context per as-needed discipline (zero C-side callers
+ * verified pre-Step-A by generalist 00:51:54Z + theologian 00:53:06Z).
+ *
+ * Closes Phase 3 §5 forcing-decision validation: all 5 Class B members
+ * disposed (4 closed via _cpp bridges, 1 dead-deleted). */
+void *hir_builder_state_temps_alloc_stack_cpp(void *builder);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

@@ -3163,7 +3163,7 @@ void HIRBuilder::emitLoadIterableArg(
       bc_instr.oparg());
 }
 
-extern "C" void *hir_builder_temps_alloc_stack(void *builder) {
+extern "C" void *hir_builder_state_temps_alloc_stack_cpp(void *builder) {
   auto *b = static_cast<HIRBuilder*>(builder);
   return static_cast<void*>(b->temps_.AllocateStack());
 }
