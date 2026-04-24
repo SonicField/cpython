@@ -40,7 +40,6 @@ int hir_builder_try_emit_direct_method_call_c(
 void hir_builder_setup_static_args_c(
     void *builder, void *tc, PyObject *descr, long nargs, int statically_typed,
     void **out_arg_regs, size_t *out_count);
-void *hir_builder_static_method_stack_pop_c(void *builder);
 
 /* W26 (theologian L2462+L2466): bridges for emitAnyCall full conversion +
  * 149b7e2d40 PartialConversion reabsorb. 4 NEW bridges: combined exception-
@@ -190,7 +189,7 @@ class HIRBuilder {
       void*, void*, PyObject*, long);
   friend void ::hir_builder_setup_static_args_c(
       void*, void*, PyObject*, long, int, void**, size_t*);
-  friend void* ::hir_builder_static_method_stack_pop_c(void*);
+  friend void* ::hir_builder_state_static_method_stack_pop_cpp(void*);
   // INVOKE_* Phase 2 #3 (theologian L2430): function-target variants for
   // emitInvokeFunction C body.
   friend void ::hir_builder_invoke_function_target_c(

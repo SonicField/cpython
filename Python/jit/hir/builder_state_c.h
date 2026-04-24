@@ -98,6 +98,15 @@ void *hir_builder_state_block_map_blocks_lookup_cpp(
     void *builder,
     int off);
 
+/* Phase 3 Batch 5 (P-strict) Class B-kept disposition closure for
+ * static_method_stack_ (jit::Stack<Register*>): pop the top entry and
+ * return it. Renamed from hir_builder_static_method_stack_pop_c to
+ * align with state-bridge _cpp suffix convention (Batch 2 + 4 precedent).
+ * The push side stays C++-direct from C++ method context (1 site at
+ * builder.cpp:3449); push_cpp bridge deferred per as-needed discipline
+ * (theologian 00:28:34Z + supervisor 00:28:51Z). */
+void *hir_builder_state_static_method_stack_pop_cpp(void *builder);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

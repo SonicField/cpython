@@ -2549,7 +2549,7 @@ bool hir_builder_emit_invoke_function_c(
  *   - hir_builder_invoke_method_target_c (InvokeTarget query)
  *   - hir_builder_try_emit_direct_method_call_c (path 1)
  *   - hir_builder_setup_static_args_c (arg_regs)
- *   - hir_builder_static_method_stack_pop_c (entry pop) */
+ *   - hir_builder_state_static_method_stack_pop_cpp (entry pop) */
 extern void hir_builder_invoke_method_target_c(
     void *builder, PyObject *descr,
     int *out_is_builtin, int *out_is_statically_typed, HirType *out_return_type);
@@ -2558,7 +2558,7 @@ extern int hir_builder_try_emit_direct_method_call_c(
 extern void hir_builder_setup_static_args_c(
     void *builder, void *tc, PyObject *descr, long nargs, int statically_typed,
     void **out_arg_regs, size_t *out_count);
-extern void *hir_builder_static_method_stack_pop_c(void *builder);
+extern void *hir_builder_state_static_method_stack_pop_cpp(void *builder);
 
 bool hir_builder_emit_invoke_method_c(
         PhxTranslationContext *tc,
@@ -2589,7 +2589,7 @@ bool hir_builder_emit_invoke_method_c(
         /* AllocateNonStack equivalent: hir_func_alloc_register
          * (TempAllocator::AllocateNonStack just calls env->AllocateRegister). */
         void *out = hir_func_alloc_register(func);
-        void *entry = hir_builder_static_method_stack_pop_c(builder);
+        void *entry = hir_builder_state_static_method_stack_pop_cpp(builder);
         void *invoke = hir_c_create_call_ind_reg2(
             (size_t)nargs + 1, out, "vtable invoke", return_type);
         hir_c_set_operand(invoke, 0, entry);

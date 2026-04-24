@@ -3494,7 +3494,7 @@ extern "C" void hir_builder_setup_static_args_c(
   }
 }
 
-extern "C" void *hir_builder_static_method_stack_pop_c(void *builder) {
+extern "C" void *hir_builder_state_static_method_stack_pop_cpp(void *builder) {
   auto *self = static_cast<HIRBuilder*>(builder);
   return self->static_method_stack_.pop();
 }
