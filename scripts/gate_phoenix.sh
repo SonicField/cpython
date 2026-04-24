@@ -204,6 +204,21 @@ else
     echo "W44 DO-NOT-USE caller gate: PASS" | tee -a "$RESULTS_FILE"
 fi
 
+# Step 1g: W45 §3.5 derivation-drift falsifier (per spec §2.7.3 #3).
+# Step 1f reserved for future W45 §1-§2 bridge-sig falsifier integration.
+echo "" | tee -a "$RESULTS_FILE"
+echo "--- Step 1g: W45 §3.5 Derivation-Drift Falsifier ---" | tee -a "$RESULTS_FILE"
+W45_35_OUTPUT=$("$SCRIPT_DIR/w45_section_3_5_derivation_drift.sh" --strict 2>&1) && W45_35_EXIT=0 || W45_35_EXIT=$?
+echo "$W45_35_OUTPUT" | tee -a "$RESULTS_FILE"
+if [ "$W45_35_EXIT" -ne 0 ]; then
+    echo "GATE FAIL — W45 §3.5 derivation-drift falsifier detected unprotected derivation surface" | tee -a "$RESULTS_FILE"
+    GATE_PASS=0
+    W45_35_FAILURES=$(echo "$W45_35_OUTPUT" | grep -c "\[FAIL\]" || true)
+    FAILURES="$FAILURES w45_section_3_5:$W45_35_FAILURES"
+else
+    echo "W45 §3.5 derivation-drift falsifier: PASS" | tee -a "$RESULTS_FILE"
+fi
+
 # Step 2: Verify JIT compiles and executes
 echo "" | tee -a "$RESULTS_FILE"
 echo "--- Step 2: JIT Smoke Test ---" | tee -a "$RESULTS_FILE"
