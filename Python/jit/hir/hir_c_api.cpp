@@ -2624,13 +2624,6 @@ void hir_deopt_set_frame_state(void *deopt_instr, const void *frame_state) {
 
 extern "C" {
 
-void *hir_builder_get_block_at_off(void *builder, int byte_offset) {
-  /* Phase 3 Batch 4 (X) Class B-kept: route through the state-flavored
-   * lookup bridge instead of the C++ method directly. The bridge
-   * accesses block_map_.blocks via friend declaration. */
-  return hir_builder_state_block_map_blocks_lookup_cpp(builder, byte_offset);
-}
-
 void *hir_builder_preloader_annotations(void *builder) {
   auto *b = static_cast<jit::hir::HIRBuilder*>(builder);
   return b->preloader().annotations();

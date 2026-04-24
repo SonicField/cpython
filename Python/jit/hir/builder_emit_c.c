@@ -9,6 +9,7 @@
 #include "cinderx/Jit/hir/hir_c_api.h"
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_basic_block_c.h"
+#include "cinderx/Jit/hir/builder_state_c.h"  /* PhxBlockMap + state accessor */
 #include "cinderx/Jit/hir/phx_frame_state.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
 #include "cinderx/Jit/hir/annotation_index_c.h"  /* HirAnnotationIndex (emitTypeAnnotationGuards) */
@@ -537,7 +538,6 @@ void hir_builder_emit_store_slice_c(PhxTranslationContext *tc, void *func) {
 }
 
 /* emitAsyncForHeaderYieldFrom — yield from async for header */
-extern void *hir_builder_get_block_at_off(void *builder, int byte_offset);
 
 void hir_builder_emit_async_for_header_yield_from_c(
         PhxTranslationContext *tc, void *func, void *builder,
@@ -552,10 +552,10 @@ void hir_builder_emit_async_for_header_yield_from_c(
     phx_ptr_arr_pop(&tc->frame.stack);
     phx_ptr_arr_push(&tc->frame.stack, out);
 
-    void *yf_cont_block = hir_builder_get_block_at_off(builder, next_instr_offset);
+    void *yf_cont_block = phx_block_map_lookup_or_panic(&phx_hir_builder_state(builder)->block_map_phx, next_instr_offset);
     PhxExecBlock *top = (PhxExecBlock *)tc->frame.block_stack_data;
     int handler_off = top[tc->frame.block_stack_count - 1].handler_off;
-    void *yf_done_block = hir_builder_get_block_at_off(builder, handler_off);
+    void *yf_done_block = phx_block_map_lookup_or_panic(&phx_hir_builder_state(builder)->block_map_phx, handler_off);
     phx_tc_emit(tc, hir_c_create_cond_branch_iter_not_done_cpp(out, yf_cont_block, yf_done_block));
 }
 
@@ -1621,7 +1621,6 @@ void hir_builder_emit_get_iter_c(
 }
 
 /* emitForIter — peek iterator, InvokeIterNext, CondBranchIterNotDone */
-extern void *hir_builder_get_block_at_off(void *builder, int byte_offset);
 
 void hir_builder_emit_for_iter_c(
         PhxTranslationContext *tc,
@@ -1637,8 +1636,8 @@ void hir_builder_emit_for_iter_c(
     void *next_val = hir_func_alloc_register(func);
     phx_tc_emit(tc, hir_c_create_invoke_iter_next_reg(next_val, iterator, &tc->frame));
     phx_ptr_arr_push(&tc->frame.stack, next_val);
-    void *footer = hir_builder_get_block_at_off(builder, jump_target);
-    void *body = hir_builder_get_block_at_off(builder, next_instr_offset);
+    void *footer = phx_block_map_lookup_or_panic(&phx_hir_builder_state(builder)->block_map_phx, jump_target);
+    void *body = phx_block_map_lookup_or_panic(&phx_hir_builder_state(builder)->block_map_phx, next_instr_offset);
     phx_tc_emit(tc, hir_c_create_cond_branch_iter_not_done_cpp(next_val, body, footer));
 }
 
@@ -1734,7 +1733,6 @@ void hir_builder_emit_fast_len_c(
 }
 
 /* ---- Tier 2 bridge externs (used by multiple emit methods) ---- */
-extern void *hir_builder_get_block_at_off(void *builder, int byte_offset);
 
 /* emitJumpIf — peek var, IsTruthy or direct, conditional branch */
 void hir_builder_emit_jump_if_c(
@@ -1775,8 +1773,8 @@ void hir_builder_emit_jump_if_c(
             false_off = next_instr_offset;
             break;
     }
-    void *true_block = hir_builder_get_block_at_off(builder, true_off);
-    void *false_block = hir_builder_get_block_at_off(builder, false_off);
+    void *true_block = phx_block_map_lookup_or_panic(&phx_hir_builder_state(builder)->block_map_phx, true_off);
+    void *false_block = phx_block_map_lookup_or_panic(&phx_hir_builder_state(builder)->block_map_phx, false_off);
     if (check_truthy) {
         void *tval = hir_func_alloc_register(func);
         phx_tc_emit(tc, hir_c_create_is_truthy_reg(tval, var, &tc->frame));
@@ -1903,8 +1901,8 @@ void hir_builder_emit_pop_jump_if_c(
             false_off = jump_target;
             break;
     }
-    void *true_block = hir_builder_get_block_at_off(builder, true_off);
-    void *false_block = hir_builder_get_block_at_off(builder, false_off);
+    void *true_block = phx_block_map_lookup_or_panic(&phx_hir_builder_state(builder)->block_map_phx, true_off);
+    void *false_block = phx_block_map_lookup_or_panic(&phx_hir_builder_state(builder)->block_map_phx, false_off);
 
     if (opcode == POP_JUMP_IF_FALSE || opcode == POP_JUMP_IF_TRUE) {
         void *is_true = hir_func_alloc_register(func);
@@ -1931,8 +1929,8 @@ void hir_builder_emit_pop_jump_if_none_c(
         int jump_target,
         int next_instr_offset) {
     void *var = phx_ptr_arr_pop(&tc->frame.stack);
-    void *true_block = hir_builder_get_block_at_off(builder, jump_target);
-    void *false_block = hir_builder_get_block_at_off(builder, next_instr_offset);
+    void *true_block = phx_block_map_lookup_or_panic(&phx_hir_builder_state(builder)->block_map_phx, jump_target);
+    void *false_block = phx_block_map_lookup_or_panic(&phx_hir_builder_state(builder)->block_map_phx, next_instr_offset);
 
     void *none = hir_func_alloc_register(func);
     HirType t_none = hir_type_from_object(Py_None);
@@ -4224,7 +4222,6 @@ void hir_builder_emit_before_with_c(
  * emits Send + GetSecondOutput<TCInt64>, pushes value_in, then cond-branch
  * on is_done to (jump_target_block, next_instr_block) — both resolved by
  * C++ stub via getBlockAtOff. */
-extern void *hir_builder_get_block_at_off(void *builder, int byte_offset);
 
 void hir_builder_emit_send_c(
         PhxTranslationContext *tc,
@@ -4244,8 +4241,8 @@ void hir_builder_emit_send_c(
         is_done, t_cint64, value_in));
     phx_ptr_arr_push(&tc->frame.stack, value_in);
 
-    void *done_block = hir_builder_get_block_at_off(builder, jump_target_off);
-    void *continue_block = hir_builder_get_block_at_off(builder, next_instr_off);
+    void *done_block = phx_block_map_lookup_or_panic(&phx_hir_builder_state(builder)->block_map_phx, jump_target_off);
+    void *continue_block = phx_block_map_lookup_or_panic(&phx_hir_builder_state(builder)->block_map_phx, next_instr_off);
     /* hir_c_create_cond_branch_cpp: uses Edge::set_to which manages the
      * target BasicBlock's in_edges_ set. The pure-C hir_c_create_cond_branch
      * bypasses Edge::set_to (writes edge.to directly), leaving target

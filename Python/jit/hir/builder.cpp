@@ -1164,6 +1164,12 @@ HIRBuilder::BlockMap HIRBuilder::createBlocks(
     Function& irfunc,
     const BytecodeInstructionBlock& bc_block) {
   BlockMap block_map;
+  /* Tier 8 SECOND-PILOT Phase A: blocks lookup table now lives in
+   * state_.block_map_phx. Clear before populating so successive
+   * createBlocks calls (e.g. inlined callees via inlineHIR) start with
+   * an empty hash, matching the prior re-assignment-of-empty-map
+   * semantics of the deleted std::unordered_map field. */
+  phx_block_map_clear(&state_.block_map_phx);
 
   // Mark the beginning of each basic block in the bytecode
   std::set<BCIndex> block_starts = {BCIndex{0}};
@@ -1223,7 +1229,11 @@ HIRBuilder::BlockMap HIRBuilder::createBlocks(
       end_idx = BCIndex{bc_block.size()};
     }
     auto block = irfunc.cfg.AllocateBlock();
-    block_map.blocks[start_idx] = block;
+    /* Tier 8 SECOND-PILOT Phase A: blocks lookup migrated from
+     * std::unordered_map<BCOffset,BasicBlock*> to PhxBlockMap (custom
+     * open-addressed hash) in PhxHirBuilderState.block_map_phx. */
+    phx_block_map_insert(
+        &state_.block_map_phx, BCOffset{start_idx}.value(), block);
     block_map.bc_blocks.emplace(
         std::piecewise_construct,
         std::forward_as_tuple(block),
@@ -1473,19 +1483,14 @@ void HIRBuilder::emitCallExceptionHandler(
 }
 
 BasicBlock* HIRBuilder::getBlockAtOff(BCOffset off) {
-  auto it = block_map_.blocks.find(off);
-  JIT_DCHECK(it != block_map_.blocks.end(), "No block for offset {}", off);
-  return it->second;
+  /* Tier 8 SECOND-PILOT Phase A: lookup migrated to PhxBlockMap. */
+  void *blk = phx_block_map_lookup(&state_.block_map_phx, off.value());
+  JIT_DCHECK(blk != nullptr, "No block for offset {}", off);
+  return static_cast<BasicBlock*>(blk);
 }
 
-extern "C" void *hir_builder_state_block_map_blocks_lookup_cpp(
-    void *builder,
-    int off) {
-  HIRBuilder *self = static_cast<HIRBuilder*>(builder);
-  auto it = self->block_map_.blocks.find(BCOffset{off});
-  JIT_DCHECK(
-      it != self->block_map_.blocks.end(), "No block for offset {}", off);
-  return static_cast<void*>(it->second);
+extern "C" PhxHirBuilderState *phx_hir_builder_state(void *builder) {
+  return &static_cast<HIRBuilder*>(builder)->state_;
 }
 
 std::unique_ptr<Function> buildHIR(const Preloader& preloader) {

@@ -8,9 +8,16 @@
  */
 
 #include "cinderx/Jit/hir/builder_state_c.h"
+#include "cinderx/Common/jit_log_c.h"
 #include "Python.h"
 
 #include <stdint.h>
+
+void *phx_block_map_lookup_or_panic(const PhxBlockMap *m, int key) {
+    void *blk = phx_block_map_lookup(m, key);
+    JIT_CHECK_C(blk != NULL, "No block for offset %d", key);
+    return blk;
+}
 
 void hir_builder_state_init(
         PhxHirBuilderState *state,
@@ -22,10 +29,12 @@ void hir_builder_state_init(
     state->func = NULL;
     state->kwnames = NULL;
     phx_exception_table_init(&state->exception_table_phx);
+    phx_block_map_init(&state->block_map_phx);
 }
 
 void hir_builder_state_destroy(PhxHirBuilderState *state) {
     phx_exception_table_destroy(&state->exception_table_phx);
+    phx_block_map_destroy(&state->block_map_phx);
 }
 
 void hir_builder_state_parse_exception_table_c(

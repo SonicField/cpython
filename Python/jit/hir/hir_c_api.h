@@ -850,9 +850,6 @@ void hir_instr_expand_into(void *original, void **expansion, size_t count);
 
 /* ---- Builder bridges (Tier 2 emit conversion) ---- */
 
-/* Get the BasicBlock* for a given bytecode offset from the builder's block map. */
-void *hir_builder_get_block_at_off(void *builder, int byte_offset);
-
 /* Read _PyAttrCache inline cache from bytecode at instr_idx.
  * Returns version (uint32) and index (uint16). */
 void hir_builder_get_attr_cache(void *builder, int instr_idx,

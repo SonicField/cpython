@@ -16,7 +16,6 @@
 #include <unordered_set>
 
 extern "C" {
-void *hir_builder_get_block_at_off(void *builder, int byte_offset);
 void *hir_builder_preloader_annotations(void *builder);
 int hir_builder_preloader_num_args(void *builder);
 HirType hir_builder_preloader_return_type(void *builder);
@@ -173,7 +172,6 @@ struct InlineResult {
 };
 
 class HIRBuilder {
-  friend void* ::hir_builder_get_block_at_off(void*, int);
   friend void ::hir_builder_insert_run_periodic_activities_c(
       void*, void*, void*, void*, void*);
   friend void* ::hir_builder_get_kwnames(void*);
@@ -212,11 +210,15 @@ class HIRBuilder {
   // (push/size/entry) DELETED. findExceptionHandler + parseExceptionTable
   // C++ shims rewired internally to PhxExceptionTable; Phase B will
   // delete those shims.
-  // Phase 3 Batch 4 (theologian 00:06:05Z): Class B-kept disposition
-  // closure for block_map_ — lookup bridge accesses
-  // block_map_.blocks (std::unordered_map) via friend.
-  friend void *::hir_builder_state_block_map_blocks_lookup_cpp(
-      void*, int);
+  // Tier 8 SECOND-PILOT Phase A (theologian 10:25:08Z + supervisor
+  // 10:25:19Z + 10:29:05Z): block_map_.blocks migrated from
+  // std::unordered_map<BCOffset,BasicBlock*> to PhxBlockMap (custom
+  // open-addressed hash) in PhxHirBuilderState.block_map_phx. The
+  // _cpp lookup bridge + the public hir_builder_get_block_at_off
+  // C-API DELETED; C-side callers use phx_hir_builder_state +
+  // phx_block_map_lookup directly. block_map_.bc_blocks (heavy
+  // BytecodeInstructionBlock value) STAYS on the C++ side this phase.
+  friend PhxHirBuilderState *::phx_hir_builder_state(void*);
  public:
   const Preloader& preloader() const { return preloader_; }
   explicit HIRBuilder(const Preloader& preloader)
@@ -575,8 +577,11 @@ class HIRBuilder {
       const InvokeTarget& target,
       TranslationContext& tc,
       long nargs);
+  /* Tier 8 SECOND-PILOT Phase A: BlockMap.blocks migrated to
+   * PhxBlockMap in PhxHirBuilderState.block_map_phx (custom hash);
+   * BlockMap retained holding only bc_blocks (heavy
+   * BytecodeInstructionBlock value-type, deferred to later phase). */
   struct BlockMap {
-    std::unordered_map<BCOffset, BasicBlock*> blocks;
     std::unordered_map<BasicBlock*, BytecodeInstructionBlock> bc_blocks;
   };
   BlockMap createBlocks(

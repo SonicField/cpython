@@ -422,6 +422,25 @@ def make_function_with_defaults():
         return a + 1
     return inner
 
+def block_map_resize_chain(n):
+    # Tier 8 SECOND-PILOT Phase A (testkeeper 10:29:06Z): deterministic
+    # PhxBlockMap_resize trigger via createBlocks. Each `if x: return`
+    # arm contributes 3 block_starts (branch target + branch fallthrough +
+    # terminator nextInstr). 8 arms * 3 + entry = ~25 block_starts; well
+    # past the 16*0.7=11.2 resize threshold so the resize path runs even
+    # if Python compiles the if-chain to fewer-than-expected block_starts.
+    if n == 0: return 'a'
+    if n == 1: return 'b'
+    if n == 2: return 'c'
+    if n == 3: return 'd'
+    if n == 4: return 'e'
+    if n == 5: return 'f'
+    if n == 6: return 'g'
+    if n == 7: return 'h'
+    if n == 8: return 'i'
+    if n == 9: return 'j'
+    return 'z'
+
 tests = [
     (straight_add, (3, 4), 7),
     (recursive_fib, (10,), 55),
@@ -438,6 +457,9 @@ tests = [
     (length_checks, (), (3, 5, 2, 4, 3)),
     (binop_arithmetic, (10, 3), 10 + 3 - (3*2) + (10//2) - (3%3)),
     (load_attr_generic, (), sys.maxsize),
+    (block_map_resize_chain, (5,), 'f'),
+    (block_map_resize_chain, (9,), 'j'),
+    (block_map_resize_chain, (99,), 'z'),
 ]
 for func, args, expected in tests:
     cinderjit.force_compile(func)

@@ -7,9 +7,11 @@
  *
  * Class A members (5 immutable + nullable opaque pointers) extracted
  * from HIRBuilder. Class B members migrated per-batch:
- *   exception_table_  → PhxExceptionTable (Tier 8 pilot Phase A)
- *   block_map_, temps_, static_method_stack_  remain C++-side via _cpp
- *   bridges (Phase 3 Batch 4/5/6 closure).
+ *   exception_table_         → PhxExceptionTable (Tier 8 pilot 1 Phase A/B)
+ *   block_map_.blocks        → PhxBlockMap (Tier 8 pilot 2 Phase A);
+ *                              block_map_.bc_blocks stays C++-side
+ *   temps_, static_method_stack_  remain C++-side via _cpp bridges
+ *                                 (Phase 3 Batch 5/6 closure).
  *   pending_b2_blocks_  dead-state-deleted Phase 3 Batch 3.
  *
  * Authorization: theologian 23:05:15Z + supervisor 23:02:34Z (Y) atomic
@@ -22,6 +24,7 @@
 
 #include "Python.h"
 #include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 
 #ifdef __cplusplus
@@ -95,18 +98,143 @@ static inline void phx_exception_table_clear(PhxExceptionTable *t) {
     /* Retain capacity for cheap re-fill in inlined-callee suppression. */
 }
 
+/* PhxBlockMap — open-addressed integer-keyed hash table mapping BCOffset
+ * (int) → BasicBlock* (void*). Tier 8 SECOND-PILOT Phase A replacement
+ * for the (now-deleted) std::unordered_map<BCOffset,BasicBlock*>
+ * block_map_.blocks field. Custom hash chosen per spec §2.1 strict path
+ * (theologian 10:25:08Z + supervisor 10:25:19Z): D2 measurement
+ * (generalist 10:24:28Z) showed re._parser:Tokenizer.__next at 294
+ * blocks; PhxArray linear-scan REJECTED, custom hash REQUIRED.
+ *
+ * Layout: power-of-2 capacity, linear probing, load factor 0.7 triggers
+ * resize (double). Hash: Knuth multiplicative on uint32_t. Empty slot
+ * sentinel: value==NULL. NULL-value invariant verified pre-commit
+ * (generalist 10:31:03Z): the sole insert site (builder.cpp:1226) takes
+ * value from CFG::AllocateBlock() = `new BasicBlock(id)` (cfg.h:139),
+ * which never returns NULL. */
+typedef struct PhxBlockMapEntry {
+    int key;     /* BCOffset.value() */
+    void *value; /* BasicBlock*; NULL = empty slot */
+} PhxBlockMapEntry;
+
+typedef struct PhxBlockMap {
+    PhxBlockMapEntry *entries;
+    size_t count;
+    size_t capacity; /* power-of-2; 0 ⇒ data NULL (lazy init) */
+} PhxBlockMap;
+
+#define PHX_BLOCK_MAP_INITIAL_CAP 16u
+#define PHX_BLOCK_MAP_LOAD_NUM 7u
+#define PHX_BLOCK_MAP_LOAD_DEN 10u
+
+static inline void phx_block_map_init(PhxBlockMap *m) {
+    m->entries = NULL;
+    m->count = 0;
+    m->capacity = 0;
+}
+
+static inline void phx_block_map_destroy(PhxBlockMap *m) {
+    if (m->entries) {
+        free(m->entries);
+        m->entries = NULL;
+    }
+    m->count = 0;
+    m->capacity = 0;
+}
+
+static inline void phx_block_map_clear(PhxBlockMap *m) {
+    if (m->entries && m->capacity) {
+        for (size_t i = 0; i < m->capacity; i++) {
+            m->entries[i].value = NULL;
+        }
+    }
+    m->count = 0;
+}
+
+/* Knuth multiplicative hash, mask to power-of-2 capacity. */
+static inline size_t phx_block_map_slot(size_t cap, int key) {
+    uint32_t h = (uint32_t)key * 2654435761u;
+    return (size_t)h & (cap - 1u);
+}
+
+/* Insert raw (assumes capacity > 0 and load not exceeded). */
+static inline void phx_block_map_insert_raw(
+        PhxBlockMap *m, int key, void *value) {
+    size_t i = phx_block_map_slot(m->capacity, key);
+    while (m->entries[i].value != NULL) {
+        if (m->entries[i].key == key) {
+            m->entries[i].value = value; /* overwrite, mirrors map[k]=v */
+            return;
+        }
+        i = (i + 1u) & (m->capacity - 1u);
+    }
+    m->entries[i].key = key;
+    m->entries[i].value = value;
+    m->count++;
+}
+
+static inline void phx_block_map_resize(PhxBlockMap *m, size_t new_cap) {
+    PhxBlockMapEntry *old_entries = m->entries;
+    size_t old_cap = m->capacity;
+    PhxBlockMapEntry *new_entries =
+        (PhxBlockMapEntry*)calloc(new_cap, sizeof(PhxBlockMapEntry));
+    m->entries = new_entries;
+    m->capacity = new_cap;
+    m->count = 0;
+    if (old_entries) {
+        for (size_t i = 0; i < old_cap; i++) {
+            if (old_entries[i].value != NULL) {
+                phx_block_map_insert_raw(
+                    m, old_entries[i].key, old_entries[i].value);
+            }
+        }
+        free(old_entries);
+    }
+}
+
+static inline void phx_block_map_insert(
+        PhxBlockMap *m, int key, void *value) {
+    if (m->capacity == 0) {
+        phx_block_map_resize(m, PHX_BLOCK_MAP_INITIAL_CAP);
+    } else if ((m->count + 1u) * PHX_BLOCK_MAP_LOAD_DEN
+               > m->capacity * PHX_BLOCK_MAP_LOAD_NUM) {
+        phx_block_map_resize(m, m->capacity * 2u);
+    }
+    phx_block_map_insert_raw(m, key, value);
+}
+
+/* Lookup; panics via JIT_CHECK_C on miss. Mirrors the JIT_DCHECK
+ * semantics of the deleted C++ HIRBuilder::getBlockAtOff. */
+void *phx_block_map_lookup_or_panic(const PhxBlockMap *m, int key);
+
+/* Lookup; returns NULL if not found (caller checks). */
+static inline void *phx_block_map_lookup(const PhxBlockMap *m, int key) {
+    if (m->capacity == 0) {
+        return NULL;
+    }
+    size_t i = phx_block_map_slot(m->capacity, key);
+    while (m->entries[i].value != NULL) {
+        if (m->entries[i].key == key) {
+            return m->entries[i].value;
+        }
+        i = (i + 1u) & (m->capacity - 1u);
+    }
+    return NULL;
+}
+
 /* PhxHirBuilderState — opaque holder for HIRBuilder Class A state +
  * Tier 8-migrated Class B containers (currently exception_table_phx
- * post Phase A pilot; remaining 3 Class B containers stay C++-side).
- * code + preloader are immutable post-ctor; current_func/func/kwnames
- * mutate during translate()/emit. */
+ * post pilot 1, block_map_phx post pilot 2; remaining 2 Class B
+ * containers stay C++-side). code + preloader are immutable post-ctor;
+ * current_func/func/kwnames mutate during translate()/emit. */
 typedef struct PhxHirBuilderState {
     void *code;            /* PyCodeObject* (ctor, immutable) */
     const void *preloader; /* const Preloader& (ctor, immutable) */
     void *current_func;    /* Function* (mutable, nullable) */
     void *func;            /* Register* (mutable, nullable) */
     void *kwnames;         /* Register* (mutable, nullable) */
-    PhxExceptionTable exception_table_phx; /* Tier 8 pilot Phase A */
+    PhxExceptionTable exception_table_phx; /* Tier 8 pilot 1 (Phase A) */
+    PhxBlockMap block_map_phx;             /* Tier 8 pilot 2 (Phase A) */
 } PhxHirBuilderState;
 
 /* Initialize state_ Class A fields from HIRBuilder ctor args. Mutable
@@ -144,14 +272,17 @@ int hir_builder_state_find_exception_handler_c(
     int off,
     int *out_idx);
 
-/* Phase 3 Batch 4 (X) Class B-kept disposition closure for block_map_:
- * lookup the BasicBlock* registered for a given BCOffset in
- * HIRBuilder.block_map_.blocks (a std::unordered_map<BCOffset,BasicBlock*>).
- * JIT_DCHECK panics on not-found, mirroring the existing C++
- * HIRBuilder::getBlockAtOff semantics. Returns BasicBlock* as void*. */
-void *hir_builder_state_block_map_blocks_lookup_cpp(
-    void *builder,
-    int off);
+/* Tier 8 SECOND-PILOT (block_map_) Phase A canonical state accessor.
+ * Returns the PhxHirBuilderState owned by the C++ HIRBuilder identified
+ * by the opaque builder handle. C-side callers obtain &state directly
+ * without indirecting through type-erased per-field bridges; replaces
+ * the deleted hir_builder_state_block_map_blocks_lookup_cpp + the
+ * deleted hir_builder_get_block_at_off (net bridge delta = -1 per Tier
+ * 8 spec §5 #11). Pattern reused by future Phase B/C/D pilots when
+ * additional fields migrate to PhxHirBuilderState; when HIRBuilder
+ * itself becomes pure-C the accessor body becomes a struct field
+ * read. */
+PhxHirBuilderState *phx_hir_builder_state(void *builder);
 
 /* Phase 3 Batch 5 (P-strict) Class B-kept disposition closure for
  * static_method_stack_ (jit::Stack<Register*>): pop the top entry and

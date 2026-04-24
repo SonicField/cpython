@@ -162,22 +162,24 @@ verify_fixture_3() {
 }
 expected_site_fixture_3="builder_state_c"
 
-# Fixture 4: hir_builder_state_block_map_blocks_lookup_cpp return-type
-# change in builder_state_c.h. Changes return type from `void *` to `int`;
-# the caller in hir_c_api.cpp returns the value as `void *` from a
-# `void *`-returning function (`hir_builder_get_block_at_off`), causing
-# a return-type incompatibility in C++.
+# Fixture 4: phx_hir_builder_state return-type change in
+# builder_state_c.h. Changes return type from `PhxHirBuilderState *` to
+# `int`; the C-side callers in builder_emit_c.c dereference the result
+# (`->block_map_phx`), so an int return type fails compilation. Replaces
+# the prior fixture-4 (block_map_blocks_lookup_cpp) which targeted a
+# bridge deleted by Tier 8 SECOND-PILOT Phase A (theologian 10:25:08Z +
+# supervisor 10:29:05Z).
 mutate_fixture_4() {
     snapshot_file_if_new "$BUILDER_STATE_C_H"
     perl -i -0777 -pe \
-        's/void \*hir_builder_state_block_map_blocks_lookup_cpp\(/int hir_builder_state_block_map_blocks_lookup_cpp(/g' \
+        's/PhxHirBuilderState \*phx_hir_builder_state\(/int phx_hir_builder_state(/g' \
         "$BUILDER_STATE_C_H"
     TOUCHED_FILES+=("$BUILDER_STATE_C_H")
 }
 verify_fixture_4() {
-    grep -q "^int hir_builder_state_block_map_blocks_lookup_cpp" "$BUILDER_STATE_C_H"
+    grep -q "^int phx_hir_builder_state" "$BUILDER_STATE_C_H"
 }
-expected_site_fixture_4="hir_c_api.cpp"
+expected_site_fixture_4="builder_emit_c.c"
 
 # --- Fixture runner --------------------------------------------------------
 
@@ -185,7 +187,7 @@ FIXTURES=(
     "1|BEFORE_ASYNC_WITH opcode-derivation (Phase 1 #6 emitBeforeWith)"
     "2|_Py_ID identifier-derivation (Phase 1 #7 emitSetupWith body)"
     "3|ExceptionTableEntry depth field rename (Phase 3 Batch 2)"
-    "4|block_map_blocks_lookup_cpp return-type void*->int (Phase 3 Batch 4)"
+    "4|phx_hir_builder_state return-type PhxHirBuilderState*->int (Tier 8 SECOND-PILOT)"
 )
 
 PASS=0
