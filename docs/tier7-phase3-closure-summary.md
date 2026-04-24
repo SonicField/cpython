@@ -48,7 +48,8 @@ opaque-pointer surface is the tractable Phase 3 endpoint.
 
 ## Foundation surface (carried to Tier 8)
 
-7 _cpp bridges shipped across B1–B6:
+9 extern surfaces shipped across B1–B6 (6 _cpp bridges + 2 _c
+algorithmic + 1 init):
 
 1. `hir_builder_state_init` (B1 ctor)
 2. `hir_builder_state_parse_exception_table_c` (B1 algorithm)
