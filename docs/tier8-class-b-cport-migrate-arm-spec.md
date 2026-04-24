@@ -28,6 +28,24 @@ ELIMINATED. Honest test of the keep-vs-migrate forcing-decision
 mechanism vs satisfying §5 by emptying the test set (per pythia #103
 critique).
 
+**AMENDMENT per pythia #104 2026-04-24 (container-shape transferability):**
+The `exception_table_` pilot validates ONLY the std::vector → typed-
+inline-array migration shape. Remaining 3 live Class B containers have
+DIFFERENT shapes that the vector-pilot does NOT predict transferability
+for:
+- `block_map_` is hash-shape (2× std::unordered_map) — needs hash-table
+  port, structurally different infra
+- `static_method_stack_` is stack-shape (jit::Stack<Register*> LIFO) —
+  needs stack port, different ops
+- `temps_` is allocator-shape (TempAllocator class with state) —
+  needs allocator port, fundamentally different from container
+
+Each remaining container requires its OWN pilot OR explicit
+re-validation per shape. Phase A success on `exception_table_` does
+not authorize 'pattern proven, do all 4'; full Tier 8 across all
+containers requires 4 separate pilot validations or a meta-spec
+demonstrating shape transferability.
+
 ### 1.2 Out-of-scope
 
 - Porting ALL 4 live Class B containers (multi-Tier-8 workstream;
@@ -94,16 +112,35 @@ Concrete migration shape:
    `findExceptionHandler` shims; HIRBuilder no longer touches
    exception_table_ at all (PhxHirBuilderState owns it pure-C).
 
-### 3.2 PhxArray prerequisite check
+### 3.2 Container infrastructure (corrected per Tier 8 Step A grep)
 
-Existing PhxArray usage (refcount_pass C-port) covers:
-- `PhxArray_push(arr, &elem)` — single-element push
-- `PhxArray_size(arr) → size_t`
-- `PhxArray_at(arr, i) → T*` (or equivalent index access)
+Original spec assumed generic `PhxArray<T>` template existed; Step A
+grep verification (generalist 2026-04-24T01:11:34Z) found only:
+- `PhxPtrArray` (void*-only dynamic array; not POD-inline)
+- `PhxStateMap` (refcount-specific hash map; not generic)
 
-If `PhxArray<T>` template is generic enough for `ExceptionTableEntry`
-(POD struct), pilot uses existing API as-is. If gaps surface, file
-W47 PhxArray-extension spec before pilot Step 1.
+No generic `PhxArray<T>` template exists. Three options surfaced:
+
+(A) `PhxPtrArray` + per-entry malloc: reuses existing infra; heap
+    fragmentation + malloc overhead per access.
+(B) **NEW `PhxExceptionTable` typed inline-storage struct in
+    `builder_state_c.{h,c}`**: purpose-built; ~30L new C; no
+    fragmentation; sets pilot precedent for per-container custom
+    structs.
+(C) Defer pilot, file W47 generic `PhxArray<T>` template: bigger
+    blast radius; multi-session template-design workstream itself.
+
+**ADOPTED: (B) per generalist 2026-04-24T01:11:34Z + theologian
+2026-04-24T01:12:14Z + supervisor TBD.** Pilot's job is validating
+that ONE Class B can be ported, not laying full Tier-8 infrastructure
+simultaneously. Per spec §1.2 out-of-scope ('not re-architecting
+PhxArray API beyond what pilot needs'), (C) is over-engineered.
+
+Post-pilot consideration: if (B) per-container custom struct (4
+containers = ~120L total infra) proves ugly across full Tier 8,
+W47 generic `PhxArray<T>` template SUPERSEDES via bulk refactor.
+(B) does not preclude (C); it sequences pilot first, generalization
+second.
 
 ---
 
@@ -164,18 +201,54 @@ Tier 8 pilot closure requires ALL:
    single bench <0.5x absolute).
 9. W45 §3.5 Fixture 3 amended to target C-side struct; still
    triggers build-fail.
-10. **Substantive C++-line burndown:** Phase 3 added +257L (B1-B6).
-    Tier 8 pilot must net-subtract enough that Phase 3+Tier-8
-    cumulative ≤ +0L (validates 'transitional foundation cost paid
-    back' framing, not 'permanent +257L scaffold').
+10. **Substantive C++-line burndown (LINE delta):** Phase 3 added
+    +257L (B1-B6). Pilot must net-subtract proportionally to its
+    container scope; cumulative ≤+0L is the FULL Tier-8 endpoint
+    (all 4 live Class B containers ported), NOT single-pilot
+    endpoint per theologian 2026-04-24T01:14:29Z amendment.
 
-Estimated subtraction from pilot:
-- 4 bridge impl bodies (~80L total, builder.cpp/builder_state_c.c)
-- 4 bridge decls (~20L, builder_state_c.h)
-- C++ struct + field + 2 method shims (~50L, builder.h + builder.cpp)
-- Total estimate: ~-150L (could bring B1-B6 +257L closer to ~+107L
-  cumulative; full Tier-8 across all 4 Class B containers projects
-  net-negative)
+    Estimated per-container subtraction:
+    - exception_table_ pilot ~-48L (~19% of Phase 3 +257L); pure-
+      C container infra cost (~+25L PhxExceptionTable) offsets some
+      bridge deletion (~-73L)
+    - block_map_ ~-50L (1 bridge + hash port)
+    - static_method_stack_ ~-30L (1 bridge + Stack port)
+    - temps_ ~-50L (1 bridge + alloc port)
+    - Full Tier 8 projection ~-180L cumulative; Phase 3+full-Tier 8
+      ~+77L; further surface elimination beyond Class B (HirBuilder
+      C++ class shim) needed for ≤+0L absolute.
+
+11. **Bridge-count delta acceptance (NEW per pythia #104 2026-04-24
+    + supervisor 01:37:05Z):** Each Tier 8 pilot must NET-SUBTRACT
+    bridges (or honestly add NEW bridges with W45 fixture coverage
+    same-commit). Closes 'Phase A adds helper bridges silently'
+    blind spot.
+
+    For exception_table_ pilot Phase A:
+    - Net bridge delta = -3 (delete push_cpp + size_cpp + entry_cpp;
+      keep find_exception_handler_c as algorithmic port)
+    - If Phase A adds ANY new helper bridges to port buildHIRImpl:1198
+      or emit_call_method_exception_handler_inline_c:2883, those
+      MUST appear in the same commit's W45 fixture set + bridge-count
+      delta becomes (-3 + new_count); spec acceptance requires net
+      negative
+    - W27a/W27b ZERO-new-bridge precedent (D-1776903189, D-1776904264)
+      is the structural target — pilot should not silently break it
+
+12. **Phase B FORCING-FUNCTION (NEW per pythia #104 + supervisor
+    01:37:05Z):** Tier 8 SECOND-PILOT (block_map_) Step A is
+    BLOCKED until exception_table_ Phase B commit lands. Phase B
+    deletes C++ findExceptionHandler + parseExceptionTable shims +
+    rewires builder.cpp:1198 + 2883 callers to PhxExceptionTable
+    direct.
+
+    Rationale: prevents 'Phase B never lands' keep-bias-one-layer-
+    deeper risk. Without forcing function, kept-shim-with-
+    PhxExceptionTable-internals replaces kept-vector — identical
+    retraction-debt shape with fresh _cpp surface stacked atop.
+    Block_map_ pilot represents the next opportunity to validate
+    migrate-arm; gating it on Phase B closure ensures no
+    half-migration accumulates.
 
 ---
 
