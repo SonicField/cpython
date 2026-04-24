@@ -144,3 +144,17 @@ When devgpu004 receives a commit via `git am` (because the local bundle is multi
 In that case, **tree-match is canonical**: x86_64 TREE == ARM64 TREE proves the content is identical. SHA-match is a metadata artifact, not a content check. Testkeeper reports both SHAs in this scenario and gatekeeper accepts tree-match as the gate.
 
 For full SHA-match, refresh the bundle on devgpu004 between pushes (`git bundle create` on x86 + `scp` to devgpu004), or pursue W30 (point devgpu004's git origin at github directly).
+
+## Pre-Edit Working-Tree Integrity (NEW)
+
+Multi-file edit sequences (≥2 files) require working-tree integrity discipline:
+
+1. **Pre-edit baseline snapshot.** Before multi-file edit, capture `git status --short` + `git diff --name-only HEAD`. Confirm tree state is clean OR known-modified.
+
+2. **Mid-edit integrity check.** If any touched file's mtime/content changes UNEXPECTEDLY during edit (not as result of agent's own write), HALT immediately. Restore to baseline via `git checkout HEAD -- <file>` per Alex directive D-1776434533.
+
+3. **Pre-commit verification.** At commit time, re-verify staged diff matches expected file-set + line-count forecast. If staged diff is missing expected files OR shows unexpected files, HALT (do NOT commit; investigate).
+
+4. **HALT response.** When integrity violation detected, restore to clean HEAD per gate-#3 prescription (librarian 01:46:19Z) + post observed-but-not-attributed report per don't-speculate-on-cause (generalist 01:24:43Z precedent). Surface trigger for supervisor disposition; do NOT auto-resume.
+
+Rationale: 5+ prior incidents (D-1775810621, D-1775669703, D-1776414469, D-1776434533, D-1776887480/D-1776890644) caused gate failures + false BUILD PASS + ARM64 build BLOCK. Per pythia #104 (3): gate #3 (HEAD==binary AND tree-clean during build) is REACTIVE; this discipline is PROACTIVE complement.
