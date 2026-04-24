@@ -71,7 +71,28 @@ Mark cache entries invalid via a separate shadow map indexed by dict pointer; ch
 ### Option D: Restructure cache key
 Drop `globals`/`builtins` raw pointers from the key entirely; key on the JIT'd function's identity, look up dicts dynamically. Pro: no aliasing issue. Con: changes hash semantics, cache invalidation gets complex.
 
-Likely best path: **Option B** with deferred-cleanup queue. Matches CPython's "watcher callback should not mutate watched state" guidance and resolves the 2026-03-30 re-entrancy.
+### Option E: Sync inline mark-invalidate, no companion-touch (W-A4-mid landing)
+Per theologian 2026-04-24T19:47:12Z reconciliation. Refines Option B
+without the deferred-queue infrastructure: handle `PyDict_EVENT_DEALLOCATED`
+inline, but ONLY on Phoenix-local state — never call
+`Ci_Watchers_UnwatchDict` (the 2026-03-30 crash trigger was specifically
+companion-dict touch). Operations:
+1. iterate `GlobalCacheManager::map_` for entries with key `globals==dict`
+   or `builtins==dict`; mark each cache entry value-cleared / drop
+2. erase `watch_map_[dict]` entry
+All operations on Phoenix's own GIL-protected state; no PyDict internals
+touched, no companion-dict touched. Compliant with CPython "watcher
+callback should not mutate watched state" guidance (mutates only
+Phoenix-local maps, not the dict).
+
+Estimate: ~1 session vs Option B's 3-4hr (no queue infra needed).
+
+Likely best path: **Option E** for the W-A4-mid mid-execution-unload
+class. Option B (deferred-queue) remains the cleaner long-term shape if
+future events require additional callback work that COULD touch the dict
+(in which case the queue's safe-point drain is needed); for the
+mid-execution-unload class alone, Option E's "no companion-touch"
+constraint is sufficient.
 
 ## 6. Sequencing
 
@@ -133,3 +154,59 @@ class TestModuleUnloadUAF(unittest.TestCase):
 - If the test cannot reproduce the UAF (i.e., the latent class is harder to trigger than predicted), W27 scope re-opens for design re-evaluation; do not silently close.
 
 **Implementation owner:** generalist (writes test before re-architecture work begins, per W27 falsification-first discipline).
+
+---
+
+## 9. W-A4-mid attempt 2026-04-24: CLOSED-by-non-reproduction
+
+Per W27 §8 acceptance criteria 'If the test cannot reproduce the UAF
+(i.e., the latent class is harder to trigger than predicted), W27
+scope re-opens for design re-evaluation; do not silently close.'
+
+Attempt summary (theologian + supervisor + testkeeper + generalist
+2026-04-24T19:44Z–19:59Z):
+
+1. Synthetic falsifier `Lib/test/test_phoenix_w27_module_unload_uaf.py`
+   written per §8 sketch. Does NOT reproduce: function's `__globals__`
+   strong-ref keeps mod.__dict__ alive past `del mod`; the freed-dict
+   scenario the test tries to construct never happens (testkeeper
+   19:54:21Z + valgrind-clean confirmation 19:56:02Z).
+
+2. Substitute falsifier: re-use existing `test_phoenix_jit_inline_except_closure`
+   (W27 doc §2 push-59 origin). Result: SIGABRT under x86_64 pydebug
+   on `test_load_deref_in_except_basic`, but NOT a W27 dict-watcher
+   UAF — fires the Phase B I1 invariant from
+   push 40 4145fe3fb0 SECOND-PILOT (`bc_block_array.count !=
+   block_map_phx.count`). DIFFERENT bug class surfaced as a side
+   effect (testkeeper 19:58:25Z); separately tracked as
+   W-PHASE-B-PYDEBUG.
+
+3. ARM64 pydebug at devgpu004 commit 66921f69b1 (older than push 40):
+   `test_phoenix_jit_inline_except_closure` PASSES. Does not surface
+   the W27 push-59 ARM64 SEGV any more either — the 2026-04-22 origin
+   condition appears to have been implicitly affected by intervening
+   pushes in the W22 / W-C2 / DSecondary chain (pushes 38–49) but
+   the precise causation is not traced.
+
+Outcome per §8 + supervisor 19:59:18Z:
+
+- W-A4-mid status: **CLOSED-by-non-reproduction** as of
+  2026-04-24T19:59Z. The empirical falsifier the §8 discipline
+  required does not reproduce the latent UAF on the canonical
+  workload OR a synthetic substitute.
+
+- Finalize-phase mitigation (§3) remains as standing partial
+  protection (`Py_IsFinalizing` early-return in
+  `phoenix_dict_watcher` + `GlobalCacheManager::clear`).
+
+- Mid-execution-unload class is NOT proven absent — only proven
+  not-currently-reproducible by the available falsifiers. Re-open
+  on new evidence (e.g. a future workload SEGV in
+  `phoenix_dict_watcher → notifyDictClear → updateCache`, or a
+  per-W-PreExistingAudit cinderx_dev oracle finding that surfaces
+  it).
+
+- The synthetic test
+  `Lib/test/test_phoenix_w27_module_unload_uaf.py` is preserved
+  as a regression sentinel: it currently passes; if Phoenix changes
+  ever cause it to FAIL, that re-opens W27 with concrete evidence.
