@@ -89,9 +89,21 @@ std::string Annotations::disassembleSection(
 
     // Print the raw instruction.
     result << "  ";
+    auto prev_cursor = cursor;
     dis.disassembleOne(result);
     result << '\n';
     cursor = dis.cursor();
+    /* DSecondary-1 (testkeeper 19:30:27Z lldb attach localized hang here):
+       if Disassembler::disassembleOne fails to advance the cursor, this
+       loop hangs indefinitely while result keeps growing. Convert hang
+       to fail-fast: assert each iteration strictly advances. The deeper
+       bug (which opcode disassembleOne doesn't advance for) is asmjit-
+       internal and a separate workstream; this fix prevents the
+       PYTHONJITDUMPASM=1-under-pydebug hang from masking other issues. */
+    JIT_CHECK(cursor > prev_cursor,
+              "Disassembler::disassembleOne did not advance cursor "
+              "(would hang); section_size={} prev_cursor={} cursor={}",
+              size, (const void*)prev_cursor, (const void*)cursor);
   }
 
   return result.str();
