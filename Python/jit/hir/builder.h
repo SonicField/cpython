@@ -210,14 +210,14 @@ class HIRBuilder {
   // (push/size/entry) DELETED. findExceptionHandler + parseExceptionTable
   // C++ shims rewired internally to PhxExceptionTable; Phase B will
   // delete those shims.
-  // Tier 8 SECOND-PILOT Phase A (theologian 10:25:08Z + supervisor
-  // 10:25:19Z + 10:29:05Z): block_map_.blocks migrated from
-  // std::unordered_map<BCOffset,BasicBlock*> to PhxBlockMap (custom
-  // open-addressed hash) in PhxHirBuilderState.block_map_phx. The
-  // _cpp lookup bridge + the public hir_builder_get_block_at_off
-  // C-API DELETED; C-side callers use phx_hir_builder_state +
-  // phx_block_map_lookup directly. block_map_.bc_blocks (heavy
-  // BytecodeInstructionBlock value) STAYS on the C++ side this phase.
+  // Tier 8 SECOND-PILOT Phases A + B: block_map_ ENTIRELY migrated.
+  // Phase A: .blocks → PhxBlockMap (custom open-addressed hash); the
+  // _cpp lookup bridge + hir_builder_get_block_at_off C-API DELETED;
+  // C-side callers use phx_hir_builder_state + phx_block_map_lookup
+  // directly. Phase B (theologian 11:13:21Z + supervisor 11:13:46Z):
+  // .bc_blocks → PhxBcBlockArray (dense array indexed by
+  // BasicBlock::id, exploiting allocation-monotonic id invariant);
+  // BlockMap struct + block_map_ field DELETED.
   friend PhxHirBuilderState *::phx_hir_builder_state(void*);
  public:
   const Preloader& preloader() const { return preloader_; }
@@ -577,14 +577,11 @@ class HIRBuilder {
       const InvokeTarget& target,
       TranslationContext& tc,
       long nargs);
-  /* Tier 8 SECOND-PILOT Phase A: BlockMap.blocks migrated to
-   * PhxBlockMap in PhxHirBuilderState.block_map_phx (custom hash);
-   * BlockMap retained holding only bc_blocks (heavy
-   * BytecodeInstructionBlock value-type, deferred to later phase). */
-  struct BlockMap {
-    std::unordered_map<BasicBlock*, BytecodeInstructionBlock> bc_blocks;
-  };
-  BlockMap createBlocks(
+  /* Tier 8 SECOND-PILOT Phase A + B: BlockMap struct DELETED. Both
+   * sub-fields (.blocks, .bc_blocks) migrated to PhxHirBuilderState
+   * (block_map_phx + bc_block_array_phx). createBlocks now writes
+   * directly into state_; return type void. */
+  void createBlocks(
       Function& irfunc,
       const BytecodeInstructionBlock& bc_block);
   BasicBlock* getBlockAtOff(BCOffset off);
@@ -619,7 +616,6 @@ class HIRBuilder {
   void advancePastYieldInstr(TranslationContext& tc);
 
   PyCodeObject* code_;
-  BlockMap block_map_;
 
   // Tier 8 pilot Phase A + Phase B: ExceptionTableEntry struct +
   // std::vector<...> exception_table_ field migrated to

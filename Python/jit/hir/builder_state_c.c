@@ -30,11 +30,13 @@ void hir_builder_state_init(
     state->kwnames = NULL;
     phx_exception_table_init(&state->exception_table_phx);
     phx_block_map_init(&state->block_map_phx);
+    phx_bc_block_array_init(&state->bc_block_array_phx);
 }
 
 void hir_builder_state_destroy(PhxHirBuilderState *state) {
     phx_exception_table_destroy(&state->exception_table_phx);
     phx_block_map_destroy(&state->block_map_phx);
+    phx_bc_block_array_destroy(&state->bc_block_array_phx);
 }
 
 void hir_builder_state_parse_exception_table_c(

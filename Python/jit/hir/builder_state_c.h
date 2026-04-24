@@ -8,8 +8,8 @@
  * Class A members (5 immutable + nullable opaque pointers) extracted
  * from HIRBuilder. Class B members migrated per-batch:
  *   exception_table_         → PhxExceptionTable (Tier 8 pilot 1 Phase A/B)
- *   block_map_.blocks        → PhxBlockMap (Tier 8 pilot 2 Phase A);
- *                              block_map_.bc_blocks stays C++-side
+ *   block_map_.blocks        → PhxBlockMap        (Tier 8 pilot 2 Phase A)
+ *   block_map_.bc_blocks     → PhxBcBlockArray    (Tier 8 pilot 2 Phase B)
  *   temps_, static_method_stack_  remain C++-side via _cpp bridges
  *                                 (Phase 3 Batch 5/6 closure).
  *   pending_b2_blocks_  dead-state-deleted Phase 3 Batch 3.
@@ -26,6 +26,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -222,6 +223,83 @@ static inline void *phx_block_map_lookup(const PhxBlockMap *m, int key) {
     return NULL;
 }
 
+/* PhxBcBlockEntry — POD mirror of BytecodeInstructionBlock {start, end}
+ * fields, sufficient to reconstruct one (the third constructor arg
+ * `code` is constant per-compile and lives on PhxHirBuilderState.code).
+ * Tier 8 SECOND-PILOT Phase B (theologian 11:13:21Z + supervisor
+ * 11:06:31Z): replaces the (now-deleted) std::unordered_map<BasicBlock*,
+ * BytecodeInstructionBlock> bc_blocks field via a dense array indexed
+ * by BasicBlock::id, exploiting the production-validated invariant that
+ * BasicBlock ids are allocation-monotonic from 0 (cfg.h:139-144). */
+typedef struct PhxBcBlockEntry {
+    int start; /* BCIndex.value() */
+    int end;   /* BCIndex.value() */
+} PhxBcBlockEntry;
+
+typedef struct PhxBcBlockArray {
+    PhxBcBlockEntry *data;
+    size_t count;    /* high-water-mark id+1 ever inserted (== max id +1) */
+    size_t capacity; /* allocated slots */
+} PhxBcBlockArray;
+
+#define PHX_BC_BLOCK_ARRAY_INITIAL_CAP 16u
+
+static inline void phx_bc_block_array_init(PhxBcBlockArray *a) {
+    a->data = NULL;
+    a->count = 0;
+    a->capacity = 0;
+}
+
+static inline void phx_bc_block_array_destroy(PhxBcBlockArray *a) {
+    if (a->data) {
+        free(a->data);
+        a->data = NULL;
+    }
+    a->count = 0;
+    a->capacity = 0;
+}
+
+static inline void phx_bc_block_array_clear(PhxBcBlockArray *a) {
+    a->count = 0;
+    /* Retain capacity for cheap re-fill on inlined-callee re-createBlocks. */
+}
+
+/* Insert at array[block_id] = {start, end}. Lazily grows capacity to
+ * cover block_id in a SINGLE realloc (theologian 11:19:42Z verification:
+ * use max(old*2, needed) instead of a doubling loop, so block_id=1000
+ * with old_cap=16 is one realloc not seven). Intermediate slots between
+ * old count and block_id are zero-filled (start=0, end=0 sentinel —
+ * never read because callers only look up block ids actually allocated
+ * by createBlocks; I2 invariant). */
+static inline void phx_bc_block_array_insert(
+        PhxBcBlockArray *a, int block_id, int start, int end) {
+    size_t needed = (size_t)block_id + 1u;
+    if (needed > a->capacity) {
+        size_t doubled = a->capacity ? a->capacity * 2u : PHX_BC_BLOCK_ARRAY_INITIAL_CAP;
+        size_t new_cap = doubled > needed ? doubled : needed;
+        size_t old_cap = a->capacity;
+        PhxBcBlockEntry *new_data = (PhxBcBlockEntry*)realloc(
+            a->data, new_cap * sizeof(PhxBcBlockEntry));
+        memset(new_data + old_cap, 0,
+               (new_cap - old_cap) * sizeof(PhxBcBlockEntry));
+        a->data = new_data;
+        a->capacity = new_cap;
+    }
+    a->data[block_id].start = start;
+    a->data[block_id].end = end;
+    if (needed > a->count) {
+        a->count = needed;
+    }
+}
+
+/* Read array[block_id]. Caller must guarantee block_id < a->count
+ * (invariant I2: never look up an id beyond createBlocks high-water).
+ * Returns by value; entry is just 8 bytes. */
+static inline PhxBcBlockEntry phx_bc_block_array_at(
+        const PhxBcBlockArray *a, int block_id) {
+    return a->data[block_id];
+}
+
 /* PhxHirBuilderState — opaque holder for HIRBuilder Class A state +
  * Tier 8-migrated Class B containers (currently exception_table_phx
  * post pilot 1, block_map_phx post pilot 2; remaining 2 Class B
@@ -235,6 +313,7 @@ typedef struct PhxHirBuilderState {
     void *kwnames;         /* Register* (mutable, nullable) */
     PhxExceptionTable exception_table_phx; /* Tier 8 pilot 1 (Phase A) */
     PhxBlockMap block_map_phx;             /* Tier 8 pilot 2 (Phase A) */
+    PhxBcBlockArray bc_block_array_phx;    /* Tier 8 pilot 2 (Phase B) */
 } PhxHirBuilderState;
 
 /* Initialize state_ Class A fields from HIRBuilder ctor args. Mutable

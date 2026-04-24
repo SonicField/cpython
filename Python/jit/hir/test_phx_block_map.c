@@ -198,6 +198,111 @@ static void test_08_clear(void) {
     PASS();
 }
 
+/* ================ PhxBcBlockArray (Tier 8 SECOND-PILOT Phase B) ================ */
+
+static void test_b01_init_destroy(void) {
+    PhxBcBlockArray a;
+    phx_bc_block_array_init(&a);
+    ASSERT(a.data == NULL, "init: data NULL");
+    ASSERT(a.count == 0, "init: count 0");
+    ASSERT(a.capacity == 0, "init: capacity 0");
+    phx_bc_block_array_destroy(&a);
+    PASS();
+}
+
+static void test_b02_insert_at(void) {
+    PhxBcBlockArray a;
+    phx_bc_block_array_init(&a);
+    phx_bc_block_array_insert(&a, 0, 100, 200);
+    phx_bc_block_array_insert(&a, 1, 300, 400);
+    phx_bc_block_array_insert(&a, 2, 500, 600);
+    ASSERT(a.count == 3, "count 3 after 3 inserts");
+    ASSERT(a.capacity == PHX_BC_BLOCK_ARRAY_INITIAL_CAP, "no grow yet");
+    PhxBcBlockEntry e0 = phx_bc_block_array_at(&a, 0);
+    PhxBcBlockEntry e1 = phx_bc_block_array_at(&a, 1);
+    PhxBcBlockEntry e2 = phx_bc_block_array_at(&a, 2);
+    ASSERT(e0.start == 100 && e0.end == 200, "entry 0");
+    ASSERT(e1.start == 300 && e1.end == 400, "entry 1");
+    ASSERT(e2.start == 500 && e2.end == 600, "entry 2");
+    phx_bc_block_array_destroy(&a);
+    PASS();
+}
+
+static void test_b03_grow_lazy(void) {
+    PhxBcBlockArray a;
+    phx_bc_block_array_init(&a);
+    /* Insert at id=20 with initial cap=16 — must grow to 32. */
+    phx_bc_block_array_insert(&a, 20, 1000, 2000);
+    ASSERT(a.capacity >= 21, "cap grew to cover id=20");
+    ASSERT(a.count == 21, "count is high-water id+1");
+    PhxBcBlockEntry e = phx_bc_block_array_at(&a, 20);
+    ASSERT(e.start == 1000 && e.end == 2000, "entry 20 lookup");
+    /* Grow further: insert at id=100 should bring cap >= 128. */
+    phx_bc_block_array_insert(&a, 100, 7, 8);
+    ASSERT(a.capacity >= 101, "cap grew to cover id=100");
+    ASSERT(a.count == 101, "count tracks new high-water");
+    PhxBcBlockEntry e100 = phx_bc_block_array_at(&a, 100);
+    ASSERT(e100.start == 7 && e100.end == 8, "entry 100 lookup");
+    /* Earlier entry survived realloc. */
+    PhxBcBlockEntry e20 = phx_bc_block_array_at(&a, 20);
+    ASSERT(e20.start == 1000 && e20.end == 2000, "entry 20 survived realloc");
+    phx_bc_block_array_destroy(&a);
+    PASS();
+}
+
+static void test_b04_n300(void) {
+    PhxBcBlockArray a;
+    phx_bc_block_array_init(&a);
+    /* 300 sequential inserts, mirrors hot-path createBlocks. */
+    for (int i = 0; i < 300; i++) {
+        phx_bc_block_array_insert(&a, i, i * 10, i * 10 + 5);
+    }
+    ASSERT(a.count == 300, "count 300");
+    ASSERT(a.capacity >= 300, "cap >= 300");
+    for (int i = 0; i < 300; i++) {
+        PhxBcBlockEntry e = phx_bc_block_array_at(&a, i);
+        ASSERT(e.start == i * 10 && e.end == i * 10 + 5, "n300 entry");
+    }
+    phx_bc_block_array_destroy(&a);
+    PASS();
+}
+
+static void test_b05_clear(void) {
+    PhxBcBlockArray a;
+    phx_bc_block_array_init(&a);
+    for (int i = 0; i < 10; i++) {
+        phx_bc_block_array_insert(&a, i, i, i + 1);
+    }
+    size_t cap_before = a.capacity;
+    phx_bc_block_array_clear(&a);
+    ASSERT(a.count == 0, "count reset");
+    ASSERT(a.capacity == cap_before, "capacity preserved");
+    /* Re-fill works (mirrors successive createBlocks for inlined callees). */
+    phx_bc_block_array_insert(&a, 0, 99, 100);
+    PhxBcBlockEntry e = phx_bc_block_array_at(&a, 0);
+    ASSERT(e.start == 99 && e.end == 100, "post-clear refill at id 0");
+    ASSERT(a.count == 1, "count restarts at 1");
+    phx_bc_block_array_destroy(&a);
+    PASS();
+}
+
+static void test_b06_overwrite_same_id(void) {
+    /* Mirrors a hypothetical re-insert at same id — last wins.
+     * Matches BlockMap.bc_blocks.emplace which would no-op on dup-key,
+     * BUT the array uses last-insert-wins. createBlocks never inserts
+     * the same id twice in a single call (allocation-monotonic), so
+     * semantic difference is unobservable in production. */
+    PhxBcBlockArray a;
+    phx_bc_block_array_init(&a);
+    phx_bc_block_array_insert(&a, 5, 1, 2);
+    phx_bc_block_array_insert(&a, 5, 99, 100);
+    PhxBcBlockEntry e = phx_bc_block_array_at(&a, 5);
+    ASSERT(e.start == 99 && e.end == 100, "overwrite latest wins");
+    ASSERT(a.count == 6, "count is high-water id+1, unchanged");
+    phx_bc_block_array_destroy(&a);
+    PASS();
+}
+
 int main(void) {
     printf("PhxBlockMap unit tests\n");
     printf("======================\n");
@@ -209,6 +314,15 @@ int main(void) {
     test_06_overwrite();
     test_07_lookup_miss();
     test_08_clear();
+    printf("\n");
+    printf("PhxBcBlockArray unit tests\n");
+    printf("==========================\n");
+    test_b01_init_destroy();
+    test_b02_insert_at();
+    test_b03_grow_lazy();
+    test_b04_n300();
+    test_b05_clear();
+    test_b06_overwrite_same_id();
     printf("======================\n");
     printf("Result: %d PASS / %d FAIL\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;

@@ -1160,16 +1160,17 @@ static bool should_snapshot(
 }
 
 // Compute basic block boundaries and allocate corresponding HIR blocks
-HIRBuilder::BlockMap HIRBuilder::createBlocks(
+void HIRBuilder::createBlocks(
     Function& irfunc,
     const BytecodeInstructionBlock& bc_block) {
-  BlockMap block_map;
-  /* Tier 8 SECOND-PILOT Phase A: blocks lookup table now lives in
-   * state_.block_map_phx. Clear before populating so successive
-   * createBlocks calls (e.g. inlined callees via inlineHIR) start with
-   * an empty hash, matching the prior re-assignment-of-empty-map
-   * semantics of the deleted std::unordered_map field. */
+  /* Tier 8 SECOND-PILOT Phase A + B: BlockMap struct deleted. Both
+   * sub-fields now live in state_:
+   *   .blocks    → state_.block_map_phx        (Phase A: PhxBlockMap)
+   *   .bc_blocks → state_.bc_block_array_phx   (Phase B: dense id-array)
+   * Clear both before populating so successive createBlocks calls
+   * (e.g. inlined callees via inlineHIR) start empty. */
   phx_block_map_clear(&state_.block_map_phx);
+  phx_bc_block_array_clear(&state_.bc_block_array_phx);
 
   // Mark the beginning of each basic block in the bytecode
   std::set<BCIndex> block_starts = {BCIndex{0}};
@@ -1229,18 +1230,28 @@ HIRBuilder::BlockMap HIRBuilder::createBlocks(
       end_idx = BCIndex{bc_block.size()};
     }
     auto block = irfunc.cfg.AllocateBlock();
-    /* Tier 8 SECOND-PILOT Phase A: blocks lookup migrated from
-     * std::unordered_map<BCOffset,BasicBlock*> to PhxBlockMap (custom
-     * open-addressed hash) in PhxHirBuilderState.block_map_phx. */
+    /* Phase A: BCOffset → BasicBlock* via PhxBlockMap. */
     phx_block_map_insert(
         &state_.block_map_phx, BCOffset{start_idx}.value(), block);
-    block_map.bc_blocks.emplace(
-        std::piecewise_construct,
-        std::forward_as_tuple(block),
-        std::forward_as_tuple(bc_block.code(), start_idx, end_idx));
+    /* Phase B: BasicBlock* → {start, end} via dense id-array. PyCodeObject*
+     * code is constant per-compile and lives on state_.code (set in ctor),
+     * so it is not stored per-entry. */
+    phx_bc_block_array_insert(
+        &state_.bc_block_array_phx,
+        block->id,
+        start_idx.value(),
+        end_idx.value());
   }
-
-  return block_map;
+  /* Phase B I1: at createBlocks return, the bc_block_array and
+   * block_map_phx must have matching populated counts (every loop
+   * iteration above inserts into BOTH in lockstep). bc_block_array.count
+   * is high-water-mark id+1; with allocation-monotonic ids and clear-
+   * at-top, it equals the number of inserts this call. */
+  JIT_DCHECK(
+      state_.bc_block_array_phx.count == state_.block_map_phx.count,
+      "Phase B I1: bc_block_array.count ({}) != block_map_phx.count ({})",
+      state_.bc_block_array_phx.count,
+      state_.block_map_phx.count);
 }
 
 
@@ -1539,7 +1550,7 @@ BasicBlock* HIRBuilder::buildHIRImpl(
   temps_ = TempAllocator(&irfunc->env);
 
   BytecodeInstructionBlock bc_instrs{code_};
-  block_map_ = createBlocks(*irfunc, bc_instrs);
+  createBlocks(*irfunc, bc_instrs);
   if (frame_state != nullptr) {
     // Suppress exception table for inlined callees to prevent B2
     // (emitBinaryOp -> findExceptionHandler -> emitInlineExceptionMatch)
@@ -1709,8 +1720,20 @@ void HIRBuilder::translate(
     }
     processed.emplace(tc.block);
 
-    // Translate remaining instructions into HIR
-    auto& bc_block = map_get(block_map_.bc_blocks, tc.block);
+    // Translate remaining instructions into HIR.
+    // Tier 8 SECOND-PILOT Phase B: bc_blocks is now state_.bc_block_array_phx
+    // (dense array indexed by BasicBlock::id). I2 invariant: tc.block came
+    // from the cfg traversal queue and was inserted by createBlocks; its id
+    // must be < high-water-mark.
+    JIT_DCHECK(
+        (size_t)tc.block->id < state_.bc_block_array_phx.count,
+        "Phase B I2: bc_block_array lookup id {} beyond high-water {}",
+        tc.block->id,
+        state_.bc_block_array_phx.count);
+    PhxBcBlockEntry _bc_e =
+        phx_bc_block_array_at(&state_.bc_block_array_phx, tc.block->id);
+    BytecodeInstructionBlock bc_block{
+        code_, BCIndex{_bc_e.start}, BCIndex{_bc_e.end}};
 
     // Safety: skip unreachable END_FOR blocks. With _PyOpcode_Deopt in
     // opcode(), getJumpTarget() correctly skips past END_FOR after
