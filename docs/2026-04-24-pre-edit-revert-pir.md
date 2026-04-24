@@ -23,11 +23,30 @@ librarian 2026-04-24T01:46:19Z institutional memory):
 | Uncommitted hir.h edit → false BUILD PASS | D-1776414469 | SYMPTOM-only | NONE — no actor identified |
 | Alex directive: always full commit checkouts, no partial reverts | D-1776434533 | DIRECTIVE-only | NONE — no diagnosis of cause |
 | Gate item #3 hardened: HEAD==binary AND tree-clean during build | D-1776887480 / D-1776890644 | GATE-hardening | NONE — no diagnosis of cause |
-| 2026-04-24T01:23Z external file-state revert during Tier 8 Phase A | (this incident) | SYMPTOM-only | NONE — generalist 01:24:43Z observed-but-not-attributed |
+| 2026-04-24T01:23Z external file-state revert during Tier 8 Phase A | (incident #6, this PIR) | SYMPTOM-only | NONE — generalist 01:24:43Z observed-but-not-attributed |
+| 2026-04-24T02:45Z external file-state revert during Tier 8 Phase A (R-retry) under enhanced mtime-checkpoint discipline | (incident #7) | SYMPTOM-only | NONE — generalist 02:45:12Z observed-but-not-attributed; mtime-checkpoint DETECTED proactive but did NOT prevent |
 
-**Conclusion:** 6 incidents, 0 root cause attributions on file. Class
+**Conclusion:** 7 incidents, 0 root cause attributions on file. Class
 labeled UNDIAGNOSED-RECURRING per pythia #105 (3) + CLAUDE.md
 amendment 03a0dcb569 (theologian 2026-04-24T02:14:46Z).
+
+**Incident #7 ESCALATION (2026-04-24T02:48:25Z):** Same external force
+re-reverted within 22 minutes of incident #6. mtime-checkpoint
+discipline (PIR §2.3 RECOMMENDED ADOPT) DETECTED at Write tool safety
+check + post-write system-reminders, but did NOT prevent recurrence.
+(R-retry) reasoning per supervisor 2026-04-24T02:39:00Z ('discipline
+addresses risk class') empirically INVALIDATED — agent-side mtime
+discipline is reactive HALT, not preventive block. Pythia #105 'fever
+has name infection still spreads' validated TWICE.
+
+**W48 ESCALATION:** Per supervisor 2026-04-24T02:46:58Z, theologian
+filed docs/w48-nbs-inotify-file-watcher-spec.md (NBS-suite inotify
+file-watcher daemon) elevating §2.1 option (a) from DEFERRED to
+ACTIVE workstream. W48 mechanism: pyinotify daemon as NBS-suite
+sidecar; narrow watch per agent edit-set; event correlation with
+agent Write tool calls; forensic snapshot for root-cause attribution
+(closes pythia #105 (3) zero-attribution gap). Cost ~3-5 sessions.
+Tier 8 pilot Phase A retry GATED on W48 landing.
 
 ---
 
