@@ -219,6 +219,24 @@ else
     echo "W45 §3.5 derivation-drift falsifier: PASS" | tee -a "$RESULTS_FILE"
 fi
 
+# Step 1h: W-I3-RUNTIME-ASSERT (IV) gate — BasicBlock::id immutability.
+# Detects id-mutation patterns that would silently corrupt PhxBcBlockArray
+# dense-array O(1) lookup (Tier 8 SECOND-PILOT Phase B). Per
+# docs/w-i3-runtime-assert-spec.md §2 (IV) + §7. Wired per librarian
+# 22:05:19Z framework guidance (mirrors 1e/1g delegation shape).
+echo "" | tee -a "$RESULTS_FILE"
+echo "--- Step 1h: W-I3 Invariant Gate ---" | tee -a "$RESULTS_FILE"
+I3_OUTPUT=$("$SCRIPT_DIR/check_i3_invariant.sh" --strict 2>&1) && I3_EXIT=0 || I3_EXIT=$?
+echo "$I3_OUTPUT" | tee -a "$RESULTS_FILE"
+if [ "$I3_EXIT" -ne 0 ]; then
+    echo "GATE FAIL — W-I3 invariant gate detected BasicBlock::id mutation" | tee -a "$RESULTS_FILE"
+    GATE_PASS=0
+    I3_VIOLATIONS=$(echo "$I3_OUTPUT" | grep -c "candidate I3 violation" || true)
+    FAILURES="$FAILURES w_i3:$I3_VIOLATIONS"
+else
+    echo "W-I3 invariant gate: PASS" | tee -a "$RESULTS_FILE"
+fi
+
 # Step 2: Verify JIT compiles and executes
 echo "" | tee -a "$RESULTS_FILE"
 echo "--- Step 2: JIT Smoke Test ---" | tee -a "$RESULTS_FILE"

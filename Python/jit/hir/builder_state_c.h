@@ -28,6 +28,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cinderx/Common/jit_log_c.h"  /* JIT_DCHECK_C (W-I3 (III) sentinel) */
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -234,6 +236,14 @@ static inline void *phx_block_map_lookup(const PhxBlockMap *m, int key) {
 typedef struct PhxBcBlockEntry {
     int start; /* BCIndex.value() */
     int end;   /* BCIndex.value() */
+#ifdef Py_DEBUG
+    /* W-I3-RUNTIME-ASSERT (III) per docs/w-i3-runtime-assert-spec.md §2:
+     * pydebug-only sentinel storing the block_id this entry was inserted
+     * for. Verified at lookup; mismatch => I3 invariant violation
+     * (BasicBlock::id mutated post-allocation, OR inserter/reader
+     * disagree on indexing). Zero release-build cost. */
+    int sentinel_id;
+#endif
 } PhxBcBlockEntry;
 
 typedef struct PhxBcBlockArray {
@@ -287,6 +297,9 @@ static inline void phx_bc_block_array_insert(
     }
     a->data[block_id].start = start;
     a->data[block_id].end = end;
+#ifdef Py_DEBUG
+    a->data[block_id].sentinel_id = block_id;  /* W-I3 (III) */
+#endif
     if (needed > a->count) {
         a->count = needed;
     }
@@ -294,9 +307,18 @@ static inline void phx_bc_block_array_insert(
 
 /* Read array[block_id]. Caller must guarantee block_id < a->count
  * (invariant I2: never look up an id beyond createBlocks high-water).
- * Returns by value; entry is just 8 bytes. */
+ * Returns by value; entry is just 8 bytes (release) / 12 bytes (pydebug
+ * with W-I3 (III) sentinel field). */
 static inline PhxBcBlockEntry phx_bc_block_array_at(
         const PhxBcBlockArray *a, int block_id) {
+#ifdef Py_DEBUG
+    JIT_DCHECK_C(
+        a->data[block_id].sentinel_id == block_id,
+        "W-I3 invariant violation: bc_block_array[%d].sentinel_id=%d "
+        "(BasicBlock::id mutated post-allocation, OR inserter/reader "
+        "disagree on indexing)",
+        block_id, a->data[block_id].sentinel_id);
+#endif
     return a->data[block_id];
 }
 
