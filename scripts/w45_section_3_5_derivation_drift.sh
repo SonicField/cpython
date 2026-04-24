@@ -74,13 +74,31 @@ echo "HEAD: $(git rev-parse HEAD)"
 echo "Mode: $([ $DRY_RUN -eq 1 ] && echo DRY-RUN || echo BUILD)"
 echo ""
 
-# Restore tracked files via `git checkout HEAD --` per spec §2.7.3.
-# Tracked file list assembled per fixture so we don't restore unrelated edits.
+# Restore tracked files to their PRE-SCRIPT-INVOCATION state. Per the
+# 8-incident root-cause investigation (2026-04-24, supervisor 04:14:27Z):
+# the prior `git checkout HEAD --` approach BLEW AWAY pre-existing
+# unstaged modifications on touched files (e.g., agent's in-flight
+# Tier 8 Phase A content), causing the recurring "external revert"
+# class. Fix: snapshot per-file content to /tmp on first touch; restore
+# from snapshot (not HEAD) so pre-script edits survive intact.
 TOUCHED_FILES=()
-restore_files() {
-    if [ "${#TOUCHED_FILES[@]}" -gt 0 ]; then
-        git checkout HEAD -- "${TOUCHED_FILES[@]}" 2>/dev/null || true
+declare -A FILE_SNAPSHOTS
+snapshot_file_if_new() {
+    local f="$1"
+    if [ -z "${FILE_SNAPSHOTS[$f]:-}" ]; then
+        local snap
+        snap=$(mktemp /tmp/w45_35_snap.XXXXXX)
+        cp "$f" "$snap"
+        FILE_SNAPSHOTS[$f]="$snap"
     fi
+}
+restore_files() {
+    for f in "${!FILE_SNAPSHOTS[@]}"; do
+        cp "${FILE_SNAPSHOTS[$f]}" "$f" 2>/dev/null || true
+        rm -f "${FILE_SNAPSHOTS[$f]}" 2>/dev/null || true
+        unset "FILE_SNAPSHOTS[$f]"
+    done
+    TOUCHED_FILES=()
 }
 trap restore_files EXIT
 
@@ -90,6 +108,7 @@ trap restore_files EXIT
 # body (builder_emit_c.c). Renames the constant to a non-existent symbol;
 # C-body comparison site fails to compile (undeclared identifier).
 mutate_fixture_1() {
+    snapshot_file_if_new "$BUILDER_EMIT_C"
     perl -i -pe 's/\bBEFORE_ASYNC_WITH\b/BEFORE_ASYNC_WITH_PHX_W45_DRIFT/g' \
         "$BUILDER_EMIT_C"
     TOUCHED_FILES+=("$BUILDER_EMIT_C")
@@ -104,6 +123,7 @@ expected_site_fixture_1="builder_emit_c.c"
 # the macro to a non-existent symbol so the C-body identifier site fails to
 # compile.
 mutate_fixture_2() {
+    snapshot_file_if_new "$BUILDER_EMIT_C"
     # Only target the _Py_ID call sites in emitSetupWith C body region.
     # Rename _Py_ID identifier in lines containing the bridge function name.
     # Use a sentinel substitution scoped to lines 4140-4220 (emit_setup_with_c +
@@ -121,22 +141,26 @@ verify_fixture_2() {
 }
 expected_site_fixture_2="builder_emit_c.c"
 
-# Fixture 3: ExceptionTableEntry struct field rename in builder.h. Renames
-# the `depth` field to `depth_phx_w45_drift`; the C++-side bridges
-# (push_cpp + entry_cpp) in builder.cpp access `e.depth` and `entry.depth`
-# — both fail to compile (no member named 'depth').
+# Fixture 3: ExceptionTableEntry struct field rename in builder_state_c.h.
+# Tier 8 pilot Phase A: ExceptionTableEntry moved from builder.h C++ struct
+# to builder_state_c.h C struct. Renames the `depth` field to
+# `depth_phx_w45_drift`; consumers in builder_state_c.c (parse +
+# find_exception_handler_c bodies populating entry.depth) and builder.cpp
+# (handler.depth in emitInlineExceptionMatch + emitCallExceptionHandler)
+# all fail to compile (no member named 'depth').
 mutate_fixture_3() {
+    snapshot_file_if_new "$BUILDER_STATE_C_H"
     perl -i -pe '
-        if (/^\s*int depth;\s*\/\//) {
+        if (/^\s*int depth;\s*\/\*/ && !/depth_phx_w45_drift/) {
             s/\bdepth\b/depth_phx_w45_drift/;
         }
-    ' "$BUILDER_H"
-    TOUCHED_FILES+=("$BUILDER_H")
+    ' "$BUILDER_STATE_C_H"
+    TOUCHED_FILES+=("$BUILDER_STATE_C_H")
 }
 verify_fixture_3() {
-    grep -q "depth_phx_w45_drift" "$BUILDER_H"
+    grep -q "depth_phx_w45_drift" "$BUILDER_STATE_C_H"
 }
-expected_site_fixture_3="builder.cpp"
+expected_site_fixture_3="builder_state_c"
 
 # Fixture 4: hir_builder_state_block_map_blocks_lookup_cpp return-type
 # change in builder_state_c.h. Changes return type from `void *` to `int`;
@@ -144,6 +168,7 @@ expected_site_fixture_3="builder.cpp"
 # `void *`-returning function (`hir_builder_get_block_at_off`), causing
 # a return-type incompatibility in C++.
 mutate_fixture_4() {
+    snapshot_file_if_new "$BUILDER_STATE_C_H"
     perl -i -0777 -pe \
         's/void \*hir_builder_state_block_map_blocks_lookup_cpp\(/int hir_builder_state_block_map_blocks_lookup_cpp(/g' \
         "$BUILDER_STATE_C_H"
