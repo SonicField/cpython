@@ -143,6 +143,15 @@ fi
 if [ "$ASAN" -eq 1 ]; then
     ASAN_FLAG="--with-address-sanitizer"
 fi
+# DSecondary-3 (W-C2 push-46 follow-up): --clean must remove pyconfig.h +
+# autoconf cache so toggling --pydebug ↔ release re-configures cleanly.
+# Pre-DSecondary-3 (testkeeper 17:08:14Z + 17:17:59Z forensic): --clean
+# removed BUILD_DIR but pyconfig.h survived; re-run without --pydebug
+# inherited stale '#define Py_DEBUG 1', JIT_DCHECK fired in 'release'
+# code, Phase B I1 invariant tripped → spurious gate FAIL on push-45.
+if [ "$CLEAN" -eq 1 ]; then
+    rm -f pyconfig.h config.status config.cache
+fi
 if [ -f pyconfig.h ] && grep -q '#define SIZEOF_VOID_P' pyconfig.h && [ "$CLEAN" -eq 0 ]; then
     echo "pyconfig.h exists and is valid — skipping configure"
 else
