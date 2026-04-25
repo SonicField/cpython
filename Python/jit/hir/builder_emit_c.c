@@ -3237,8 +3237,16 @@ static void build_inline_except_opcode_array_c(
         return;
     }
 
+    /* except_body_offset is a BCOffset.value() (BYTE OFFSET, see
+     * Python/jit/bytecode.cpp:8-14 for the C/C++ boundary convention).
+     * jit_bc_instr_init expects an INSTRUCTION INDEX. Convert at the
+     * boundary via the named helper. Subsequent re-inits inside the loop
+     * use jit_bc_instr_next_offset which already returns an instruction
+     * index. (Class A fix: was passing BYTES → OOB read past end of
+     * bytecode → garbage opcode → corrupt deopt.) */
     JitBytecodeInstr ebc;
-    jit_bc_instr_init(&ebc, code, except_body_offset);
+    jit_bc_instr_init(&ebc, code,
+                      phx_bc_offset_to_instr_index(except_body_offset));
     int emitted_terminator = 0;
     while (!emitted_terminator) {
         if (n == cap) {
@@ -3257,7 +3265,15 @@ static void build_inline_except_opcode_array_c(
 
         int op = jit_bc_instr_opcode(&ebc);
         int oparg = jit_bc_instr_oparg(&ebc);
-        int base_off = jit_bc_instr_base_offset(&ebc);
+        /* (Class C fix) jit_bc_instr_base_offset returns whatever was
+         * stored at init — INDEX after our Class A fix. But entry->base_offset
+         * is consumed downstream as BYTE OFFSET (cur_instr_offs assignment
+         * at line 3320 → BCOffset domain per phx_frame_state.h cur_instr_offs
+         * semantics, builder.cpp:1710/1774/4392). Convert at the WRITE site
+         * to preserve the original BYTES semantic. (Pre-Class-A fix this
+         * compensated by Class A's BYTES-as-INDEX init giving back BYTES
+         * here; Class C was dormant. Correct Class A exposed Class C.) */
+        int base_off = phx_bc_instr_index_to_offset(jit_bc_instr_base_offset(&ebc));
 
         OpcodeArrayEntry *entry = &arr[n++];
         entry->opcode = op;
@@ -3270,9 +3286,15 @@ static void build_inline_except_opcode_array_c(
             entry->const_obj = (void*)PyTuple_GET_ITEM(code->co_consts, oparg);
         }
         if (op == JUMP_BACKWARD || op == JUMP_BACKWARD_NO_INTERRUPT) {
-            int target = jit_bc_instr_get_jump_target(&ebc);
+            /* (Class B fix) jit_bc_instr_get_jump_target returns INSTRUCTION
+             * INDEX (codeUnit[]); phx_block_map keys are BYTE OFFSETS
+             * (per builder.cpp:1235 phx_block_map_insert with
+             * BCOffset.value()). Convert at the boundary via the named
+             * helper. */
+            int target_idx = jit_bc_instr_get_jump_target(&ebc);
+            int target_off = phx_bc_instr_index_to_offset(target_idx);
             entry->jump_target_block = phx_block_map_lookup_or_panic(
-                &phx_hir_builder_state(builder)->block_map_phx, target);
+                &phx_hir_builder_state(builder)->block_map_phx, target_off);
         }
 
         if (op == RETURN_VALUE || op == RETURN_CONST

@@ -55,6 +55,26 @@ int jit_bc_instr_next_offset(JitBytecodeInstr *bci);
 /* Raw word access (requires _Py_CODEUNIT from cpython/code.h) */
 #ifdef _Py_OPCODE
 _Py_CODEUNIT jit_bc_instr_word(JitBytecodeInstr *bci);
+
+/* Boundary-domain conversions between BCOffset (byte offsets, used by
+ * C++ BCOffset.value() and phx_block_map keys per builder.cpp:1235) and
+ * instruction indices (codeUnit[] indexing, used by all jit_bc_instr_*
+ * accessors and phx_block_map_lookup_or_panic argument). See
+ * Python/jit/bytecode.cpp:8-14 for the boundary convention.
+ *
+ * Use these named helpers at every C/C++ seam that crosses byte ↔ index
+ * units, per the boundary-domain rule (W-PROTOCOL-CODIFY, supervisor
+ * 2026-04-25 19:01:19Z + theologian 19:01:17Z). Inline arithmetic at the
+ * seam is the bug class: BCOffset/InstrIndex Class A + B + C mismatches
+ * in build_inline_except_opcode_array_c (W-2B-RECONVERT investigation
+ * found three boundary-domain bugs in a single helper across two HIR-diff
+ * Phase 0 cycles). */
+static inline int phx_bc_offset_to_instr_index(int byte_off) {
+    return byte_off / (int)sizeof(_Py_CODEUNIT);
+}
+static inline int phx_bc_instr_index_to_offset(int instr_idx) {
+    return instr_idx * (int)sizeof(_Py_CODEUNIT);
+}
 #endif
 
 /* Bytecode block iteration */
