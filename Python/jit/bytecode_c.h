@@ -62,18 +62,30 @@ _Py_CODEUNIT jit_bc_instr_word(JitBytecodeInstr *bci);
  * accessors and phx_block_map_lookup_or_panic argument). See
  * Python/jit/bytecode.cpp:8-14 for the boundary convention.
  *
- * Use these named helpers at every C/C++ seam that crosses byte ↔ index
- * units, per the boundary-domain rule (W-PROTOCOL-CODIFY, supervisor
- * 2026-04-25 19:01:19Z + theologian 19:01:17Z). Inline arithmetic at the
- * seam is the bug class: BCOffset/InstrIndex Class A + B + C mismatches
- * in build_inline_except_opcode_array_c (W-2B-RECONVERT investigation
- * found three boundary-domain bugs in a single helper across two HIR-diff
- * Phase 0 cycles). */
-static inline int phx_bc_offset_to_instr_index(int byte_off) {
-    return byte_off / (int)sizeof(_Py_CODEUNIT);
+ * W-PROTOCOL-CODIFY P5: TYPE-LEVEL DOMAIN ENFORCEMENT.
+ * Single-field struct typedefs make BcByteOffset and BcInstrIndex
+ * compile-time-distinct so the compiler catches accidental cross-domain
+ * assignment. Conversion functions take/return the wrapper types; raw int
+ * access is via the .v field. This is the STRUCTURAL form of the
+ * boundary-domain rule (supervisor 19:37:39Z STRONG CONCUR per pythia
+ * #138 #3, post W-2B-RECONVERT Class A→B→C cascade where naming-only
+ * enforcement degraded as theologian's HirType negative control predicted).
+ *
+ * Paired empirical controls (per librarian 19:18:55Z + 19:43:28Z):
+ *   POSITIVE: PhxMem has_base structural flag — JIT_CHECK_C didn't fire
+ *     on dual-arch gate; structural prevention worked.
+ *   NEGATIVE: HirType named-conversion-only — 14 reinterpret_casts
+ *     shipped broken until 2026-04-15 (f59580a0e6); naming alone degrades. */
+typedef struct { int v; } BcByteOffset;
+typedef struct { int v; } BcInstrIndex;
+
+static inline BcInstrIndex phx_bc_offset_to_instr_index(BcByteOffset off) {
+    BcInstrIndex out = { off.v / (int)sizeof(_Py_CODEUNIT) };
+    return out;
 }
-static inline int phx_bc_instr_index_to_offset(int instr_idx) {
-    return instr_idx * (int)sizeof(_Py_CODEUNIT);
+static inline BcByteOffset phx_bc_instr_index_to_offset(BcInstrIndex idx) {
+    BcByteOffset out = { idx.v * (int)sizeof(_Py_CODEUNIT) };
+    return out;
 }
 #endif
 
