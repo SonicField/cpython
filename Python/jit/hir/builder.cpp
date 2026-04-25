@@ -1347,9 +1347,7 @@ extern "C" void hir_builder_emit_inline_exception_match_c(
     HirType return_type,
     void* left, void* right, void* result,
     void* getitem_fn,
-    void* match_and_clear_fn,
-    const OpcodeArrayEntry_CXX* opcodes,
-    size_t opcode_count);
+    void* match_and_clear_fn);
 
 void HIRBuilder::emitInlineExceptionMatch(
     CFG& /*cfg*/,
@@ -1360,49 +1358,13 @@ void HIRBuilder::emitInlineExceptionMatch(
     Register* left,
     Register* right,
     Register* result) {
-  // Pre-resolve getitem_fn pointer per BINARY_SUBSCR_DICT specialization.
+  // W27c #2a: pre-resolve opcode array now built C-side via
+  // build_inline_except_opcode_array_c. C++ stub keeps only the
+  // getitem_fn pick + JITRT_MatchAndClearException reinterpret_cast
+  // (function pointers C++-mangled in jit_rt.cpp; cleanest to pass through).
   void* getitem_fn = (bc_instr.opcode() == BINARY_SUBSCR_DICT)
       ? reinterpret_cast<void*>(JITRT_DictGetItem)
       : reinterpret_cast<void*>(PyObject_GetItem);
-
-  // Iterate except_body bytecodes, build opcode array. Mirrors C++ original
-  // loop at builder.cpp:1404-1483 (pre-conversion). Pre-resolves const_obj
-  // (LOAD_CONST/RETURN_CONST) and jump_target_block (JUMP_BACKWARD*) to
-  // keep PyCodeObject + getBlockAtOff access on the C++ side.
-  std::vector<OpcodeArrayEntry_CXX> opcodes;
-  BytecodeInstruction ebc{code_, info.except_body};
-  bool emitted_terminator = false;
-  while (!emitted_terminator) {
-    OpcodeArrayEntry_CXX entry{
-        ebc.opcode(),
-        ebc.oparg(),
-        ebc.baseOffset().value(),
-        nullptr,
-        nullptr};
-    int op = entry.opcode;
-    if (op == LOAD_CONST || op == RETURN_CONST) {
-      entry.const_obj = PyTuple_GET_ITEM(code_->co_consts, entry.oparg);
-    }
-    if (op == JUMP_BACKWARD || op == JUMP_BACKWARD_NO_INTERRUPT) {
-      entry.jump_target_block =
-          static_cast<void*>(getBlockAtOff(ebc.getJumpTarget()));
-    }
-    // Detect terminator (matches C++ original's emitted_terminator logic).
-    if (op == RETURN_VALUE || op == RETURN_CONST
-        || op == JUMP_BACKWARD || op == JUMP_BACKWARD_NO_INTERRUPT) {
-      emitted_terminator = true;
-    } else if (op != POP_EXCEPT && op != POP_TOP && op != SWAP
-               && op != LOAD_FAST && op != LOAD_FAST_CHECK
-               && op != LOAD_FAST_AND_CLEAR && op != LOAD_CONST
-               && op != STORE_FAST && op != BINARY_OP) {
-      // Default → deopt → terminator.
-      emitted_terminator = true;
-    }
-    opcodes.push_back(entry);
-    if (!emitted_terminator) {
-      ebc = ebc.nextInstr();
-    }
-  }
 
   hir_builder_emit_inline_exception_match_c(
       static_cast<void*>(&tc),
@@ -1417,9 +1379,7 @@ void HIRBuilder::emitInlineExceptionMatch(
       static_cast<void*>(right),
       static_cast<void*>(result),
       getitem_fn,
-      reinterpret_cast<void*>(JITRT_MatchAndClearException),
-      opcodes.data(),
-      opcodes.size());
+      reinterpret_cast<void*>(JITRT_MatchAndClearException));
 }
 
 

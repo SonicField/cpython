@@ -24,6 +24,7 @@
 #include "cinderx/StaticPython/checked_dict.h"  /* Ci_CheckedDict_TypeCheck (W27b #4) */
 #include "cinderx/StaticPython/static_array.h"  /* PyStaticArrayObject (W27c #5) */
 #include "cinderx/Common/code.h"               /* numFreevars/numLocalsplus (W27d #1) */
+#include "cinderx/Jit/bytecode_c.h"            /* JitBytecodeInstr (W27c #2a) */
 
 /* PhxCallKind values — must match enum PhxCallKind in builder.h. C body
  * dispatches on these instead of opcode constants to avoid pulling in
@@ -3204,6 +3205,96 @@ typedef struct {
     void *jump_target_block;  /* HirBasicBlock for JUMP_BACKWARD*, else NULL */
 } OpcodeArrayEntry;
 
+/* W27c #2a: build OpcodeArrayEntry array by iterating bytecode starting at
+ * except_body_offset until a terminator is emitted. Mirrors the C++
+ * pre-resolve loop previously in builder.cpp HIRBuilder::emitInlineExceptionMatch
+ * (and emitCallExceptionHandler — reused by W27c #2b). Allocates via
+ * PyMem_RawMalloc (caller must PyMem_RawFree). On allocation failure
+ * sets *out_arr=NULL, *out_count=0 (caller treats as no-op).
+ *
+ * Terminator detection mirrors the original:
+ *   RETURN_VALUE / RETURN_CONST / JUMP_BACKWARD / JUMP_BACKWARD_NO_INTERRUPT
+ *     -> recognized terminator
+ *   anything OTHER than the explicit pass-through set
+ *   (POP_EXCEPT/POP_TOP/SWAP/LOAD_FAST/LOAD_FAST_CHECK/LOAD_FAST_AND_CLEAR/
+ *    LOAD_CONST/STORE_FAST/BINARY_OP)
+ *     -> default-case deopt-terminator
+ *
+ * Pre-resolves:
+ *   const_obj <- PyTuple_GET_ITEM(code->co_consts, oparg) for LOAD_CONST/RETURN_CONST
+ *   jump_target_block <- phx_block_map_lookup_or_panic(builder.block_map_phx, target)
+ *                       for JUMP_BACKWARD / JUMP_BACKWARD_NO_INTERRUPT */
+static void build_inline_except_opcode_array_c(
+        PyCodeObject *code, void *builder, int except_body_offset,
+        OpcodeArrayEntry **out_arr, size_t *out_count) {
+    size_t cap = 16;
+    size_t n = 0;
+    OpcodeArrayEntry *arr = (OpcodeArrayEntry*)PyMem_RawMalloc(
+        cap * sizeof(OpcodeArrayEntry));
+    if (arr == NULL) {
+        *out_arr = NULL;
+        *out_count = 0;
+        return;
+    }
+
+    JitBytecodeInstr ebc;
+    jit_bc_instr_init(&ebc, code, except_body_offset);
+    int emitted_terminator = 0;
+    while (!emitted_terminator) {
+        if (n == cap) {
+            size_t new_cap = cap * 2u;
+            OpcodeArrayEntry *new_arr = (OpcodeArrayEntry*)PyMem_RawRealloc(
+                arr, new_cap * sizeof(OpcodeArrayEntry));
+            if (new_arr == NULL) {
+                PyMem_RawFree(arr);
+                *out_arr = NULL;
+                *out_count = 0;
+                return;
+            }
+            arr = new_arr;
+            cap = new_cap;
+        }
+
+        int op = jit_bc_instr_opcode(&ebc);
+        int oparg = jit_bc_instr_oparg(&ebc);
+        int base_off = jit_bc_instr_base_offset(&ebc);
+
+        OpcodeArrayEntry *entry = &arr[n++];
+        entry->opcode = op;
+        entry->oparg = oparg;
+        entry->base_offset = base_off;
+        entry->const_obj = NULL;
+        entry->jump_target_block = NULL;
+
+        if (op == LOAD_CONST || op == RETURN_CONST) {
+            entry->const_obj = (void*)PyTuple_GET_ITEM(code->co_consts, oparg);
+        }
+        if (op == JUMP_BACKWARD || op == JUMP_BACKWARD_NO_INTERRUPT) {
+            int target = jit_bc_instr_get_jump_target(&ebc);
+            entry->jump_target_block = phx_block_map_lookup_or_panic(
+                &phx_hir_builder_state(builder)->block_map_phx, target);
+        }
+
+        if (op == RETURN_VALUE || op == RETURN_CONST
+            || op == JUMP_BACKWARD || op == JUMP_BACKWARD_NO_INTERRUPT) {
+            emitted_terminator = 1;
+        } else if (op != POP_EXCEPT && op != POP_TOP && op != SWAP
+                   && op != LOAD_FAST && op != LOAD_FAST_CHECK
+                   && op != LOAD_FAST_AND_CLEAR && op != LOAD_CONST
+                   && op != STORE_FAST && op != BINARY_OP) {
+            emitted_terminator = 1;
+        }
+
+        if (!emitted_terminator) {
+            int next_off = jit_bc_instr_next_offset(&ebc);
+            jit_bc_instr_init(&ebc, code, next_off);
+        }
+    }
+
+    *out_arr = arr;
+    *out_count = n;
+}
+
 /* hir_c_create_call_static_reg already declared at line ~720 with correct
  * 4-arg signature (size_t n_operands, void *dst, void *addr, HirType
  * ret_type). Per hir_c_api.h:305 canonical decl. NOT redeclaring here. */
@@ -3414,11 +3505,18 @@ void hir_builder_emit_inline_exception_match_c(
         void *right,
         void *result,
         void *getitem_fn,             /* JITRT_DictGetItem or PyObject_GetItem */
-        void *match_and_clear_fn,     /* JITRT_MatchAndClearException */
-        const OpcodeArrayEntry *opcodes,
-        size_t opcode_count) {
+        void *match_and_clear_fn) {   /* JITRT_MatchAndClearException */
     HirType t_opt_object = HIR_TYPE_OPTOBJECT;
     HirType t_object = HIR_TYPE_OBJECT;
+
+    /* W27c #2a: pre-resolve opcode array C-side (was C++ stub).
+     * code accessible via tc->frame.code (set by frame init in
+     * hir_builder_state_emit_phase). */
+    OpcodeArrayEntry *opcodes = NULL;
+    size_t opcode_count = 0;
+    build_inline_except_opcode_array_c(
+        (PyCodeObject*)tc->frame.code, builder, except_body_offset,
+        &opcodes, &opcode_count);
 
     /* P1: getitem CallStatic dispatch. */
     void *getitem_call = hir_c_create_call_static_reg(
@@ -3442,6 +3540,8 @@ void hir_builder_emit_inline_exception_match_c(
     /* P5: ok block — RefineType in-place SSA-rename. */
     tc->block = ok_block;
     phx_tc_emit(tc, hir_c_create_refine_type_reg(result, t_object, result));
+
+    PyMem_RawFree(opcodes);
 }
 
 /* emitCallExceptionHandler — CALL exception-match inline handler.
