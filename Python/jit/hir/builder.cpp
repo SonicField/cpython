@@ -1326,10 +1326,18 @@ bool HIRBuilder::getSimpleExceptInfo(
   return true;
 }
 
-// W27c #2a + #2b: OpcodeArrayEntry C++/C bridge struct eliminated. The
-// pre-resolve loop now runs entirely C-side via
-// build_inline_except_opcode_array_c in builder_emit_c.c, sharing the
-// helper between emitInlineExceptionMatch and emitCallExceptionHandler.
+// OpcodeArrayEntry — mirror of the C-side struct in builder_emit_c.c.
+// 5 fields per entry. Layout MUST match (verified via static_assert).
+struct OpcodeArrayEntry_CXX {
+  int opcode;
+  int oparg;
+  int base_offset;
+  void* const_obj;
+  void* jump_target_block;
+};
+static_assert(sizeof(OpcodeArrayEntry_CXX) <= 64,
+              "OpcodeArrayEntry size sanity");
+
 extern "C" void hir_builder_emit_inline_exception_match_c(
     void* tc, void* func, void* builder,
     int bc_base_offset,
@@ -1383,7 +1391,9 @@ extern "C" void hir_builder_emit_call_exception_handler_c(
     int except_body_offset,
     HirType return_type,
     void* result,
-    void* match_and_clear_fn);
+    void* match_and_clear_fn,
+    const OpcodeArrayEntry_CXX* opcodes,
+    size_t opcode_count);
 
 void HIRBuilder::emitCallExceptionHandler(
     CFG& /*cfg*/,
@@ -1399,11 +1409,45 @@ void HIRBuilder::emitCallExceptionHandler(
   //      preserved for Simplify, register allocation, other deopt paths.
   //   2. Pop the result that emitAnyCall pushed onto the stack — the C
   //      body's deopt path expects a clean stack at the CALL offset.
-  // W27c #2b: pre-resolve opcode array now built C-side via
-  // build_inline_except_opcode_array_c (shared with W27c #2a
-  // emitInlineExceptionMatch).
   call_instr->setSuppressExceptionDeopt(true);
   static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
+
+  // Build OpcodeArray identical-shape to emitInlineExceptionMatch — the
+  // dispatch loop in the shared C helper expects this layout. Pre-resolves
+  // const_obj (LOAD_CONST/RETURN_CONST) + jump_target_block (JUMP_BACKWARD*)
+  // to keep PyCodeObject + getBlockAtOff access on the C++ side.
+  std::vector<OpcodeArrayEntry_CXX> opcodes;
+  BytecodeInstruction ebc{code_, info.except_body};
+  bool emitted_terminator = false;
+  while (!emitted_terminator) {
+    OpcodeArrayEntry_CXX entry{
+        ebc.opcode(),
+        ebc.oparg(),
+        ebc.baseOffset().value(),
+        nullptr,
+        nullptr};
+    int op = entry.opcode;
+    if (op == LOAD_CONST || op == RETURN_CONST) {
+      entry.const_obj = PyTuple_GET_ITEM(code_->co_consts, entry.oparg);
+    }
+    if (op == JUMP_BACKWARD || op == JUMP_BACKWARD_NO_INTERRUPT) {
+      entry.jump_target_block =
+          static_cast<void*>(getBlockAtOff(ebc.getJumpTarget()));
+    }
+    if (op == RETURN_VALUE || op == RETURN_CONST
+        || op == JUMP_BACKWARD || op == JUMP_BACKWARD_NO_INTERRUPT) {
+      emitted_terminator = true;
+    } else if (op != POP_EXCEPT && op != POP_TOP && op != SWAP
+               && op != LOAD_FAST && op != LOAD_FAST_CHECK
+               && op != LOAD_FAST_AND_CLEAR && op != LOAD_CONST
+               && op != STORE_FAST && op != BINARY_OP) {
+      emitted_terminator = true;
+    }
+    opcodes.push_back(entry);
+    if (!emitted_terminator) {
+      ebc = ebc.nextInstr();
+    }
+  }
 
   hir_builder_emit_call_exception_handler_c(
       static_cast<void*>(&tc),
@@ -1415,7 +1459,9 @@ void HIRBuilder::emitCallExceptionHandler(
       info.except_body.value(),
       Type::toHirType(preloader_.returnType()),
       static_cast<void*>(result),
-      reinterpret_cast<void*>(JITRT_MatchAndClearException));
+      reinterpret_cast<void*>(JITRT_MatchAndClearException),
+      opcodes.data(),
+      opcodes.size());
 }
 
 BasicBlock* HIRBuilder::getBlockAtOff(BCOffset off) {

@@ -3568,22 +3568,14 @@ void hir_builder_emit_call_exception_handler_c(
         int except_body_offset,
         HirType return_type,
         void *result,
-        void *match_and_clear_fn) {
+        void *match_and_clear_fn,
+        const OpcodeArrayEntry *opcodes,
+        size_t opcode_count) {
     HirType t_object = HIR_TYPE_OBJECT;
 
     /* (D1) Pre-amble (setSuppressExceptionDeopt + pop result) is done on
      * the C++ stub side BEFORE this C body — see builder.cpp emitter.
      * The C body's first action is the ok/exc branch on result. */
-
-    /* W27c #2b: pre-resolve opcode array C-side (was C++ stub). Shares
-     * the helper with hir_builder_emit_inline_exception_match_c (W27c #2a).
-     * code accessible via tc->frame.code (set by frame init in
-     * hir_builder_state_emit_phase). */
-    OpcodeArrayEntry *opcodes = NULL;
-    size_t opcode_count = 0;
-    build_inline_except_opcode_array_c(
-        (PyCodeObject*)tc->frame.code, builder, except_body_offset,
-        &opcodes, &opcode_count);
 
     void *ok_block = hir_cfg_alloc_block(func);
     void *exc_match_block = hir_cfg_alloc_block(func);
@@ -3605,8 +3597,6 @@ void hir_builder_emit_call_exception_handler_c(
     tc->block = ok_block;
     phx_tc_emit(tc, hir_c_create_refine_type_reg(result, t_object, result));
     phx_ptr_arr_push(&tc->frame.stack, result);
-
-    PyMem_RawFree(opcodes);
 }
 
 /* emitAnyCall full conversion — W26 (theologian L2462+L2466).
