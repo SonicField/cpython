@@ -852,6 +852,83 @@ class TestJitAutoCompile(unittest.TestCase):
             return errors
         self._auto_test(f, [0, 1, 2, 3, 4])  # expect ['ZDE','IE','KE','VE','ok']
 
+    # ---- W-2A-DISPATCH-COVERAGE expanded sentinels (post-push-56) ----
+    # Per pythia #138 #2 + supervisor 20:39:03Z: push 55 was the FIRST commit
+    # in 'ACTIVE-dispatch territory' for the build_inline_except_opcode_array_c
+    # helper (Class A previously masked dispatch-loop coverage on multi-except
+    # paths via interpreter fallback). These sentinels exercise additional
+    # exception-handling shapes that route through emitInlineExceptionMatch
+    # (#2a) or emitCallExceptionHandler (#2b) under conditions not covered by
+    # the W-2B-RECONVERT regression sentinels.
+
+    def test_exc_try_else(self):
+        # try/else: the else branch runs when no exception fires. Exercises
+        # the 'no-raise' path of CALL-with-handler under JIT'd code.
+        def f(x):
+            result = 0
+            try:
+                result = x + 1
+            except Exception:
+                result = -1
+            else:
+                result *= 10
+            return result
+        self._auto_test(f, 5)  # expect (5+1)*10 = 60
+
+    def test_exc_try_finally_with_raise(self):
+        # try/finally with exception caught by outer: finally runs while
+        # exception propagates. Exercises emitCallExceptionHandler stack
+        # cleanup invariant (D1 pre-amble + D3 result re-push) when the
+        # call inside the try raises.
+        def f(x):
+            log = []
+            try:
+                try:
+                    if x < 0:
+                        raise ValueError("neg")
+                    log.append("ok")
+                finally:
+                    log.append("cleanup")
+            except ValueError:
+                log.append("caught")
+            return log
+        self._auto_test(f, -1)  # expect ['cleanup', 'caught']
+
+    def test_exc_nested_try_inner_catches(self):
+        # Nested try where inner except catches; outer block continues.
+        # Exercises emitInlineExceptionMatch in inner handler + outer
+        # FrameState/depth-trim correctness across nested handler scopes.
+        def f(x):
+            log = []
+            try:
+                try:
+                    if x % 2 == 0:
+                        raise ValueError("even")
+                    log.append(f"odd:{x}")
+                except ValueError:
+                    log.append("inner")
+                log.append("after-inner")
+            except Exception:
+                log.append("outer")
+            return log
+        self._auto_test(f, 4)  # expect ['inner', 'after-inner']
+
+    def test_exc_raise_in_handler(self):
+        # Re-raise a DIFFERENT exception type from inside an except handler.
+        # The new raise inside except is itself a CALL (the constructor of
+        # the new exception class), so emitCallExceptionHandler fires for
+        # the raise's CALL while we're already in handler dispatch — tests
+        # nested handler activation.
+        def f(x):
+            try:
+                try:
+                    raise ValueError("first")
+                except ValueError:
+                    raise RuntimeError("second")
+            except RuntimeError as e:
+                return str(e)
+        self._auto_test(f, 0)  # expect 'second'
+
     def test_exc_multiple_except(self):
         def f(x):
             try:
