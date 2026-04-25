@@ -1085,6 +1085,61 @@ void hir_builder_emit_load_attr_generic_c(PhxTranslationContext *tc, void *func,
     phx_ptr_arr_push(&tc->frame.stack, result);
 }
 
+/* emitLoadAttr — orchestrator (W27c CatA conversion per theologian
+ * 00:06:36Z + supervisor 00:07:10Z). Replaces builder.cpp emitLoadAttr
+ * dispatch glue. Caller passes oparg + specialized_op + instr_idx so
+ * this function owns: name_idx derivation, 3.12 LOAD_METHOD-merged-into-
+ * LOAD_ATTR routing, specialized-path dispatch, generic fallback. */
+void hir_builder_emit_load_attr_c(
+        PhxTranslationContext *tc, void *func, void *builder,
+        PyCodeObject *code, int oparg, int specialized_op, int instr_idx) {
+#if PY_VERSION_HEX >= 0x030C0000
+    int name_idx = oparg >> 1;
+    /* In 3.12 LOAD_METHOD has been merged into LOAD_ATTR; oparg low bit
+     * routes to LoadMethod. */
+    if (oparg & 1) {
+        hir_builder_emit_load_method_c(tc, func, name_idx);
+        return;
+    }
+#else
+    int name_idx = oparg;
+#endif
+
+    if (jit_get_config()->specialized_opcodes) {
+        /* Snapshot BEFORE popping operands -- deopt re-executes
+         * instruction (Bug 7 / Phoenix-introduced fix preserved). */
+        phx_tc_emit(tc, hir_c_create_snapshot(&tc->frame));
+    }
+    void *receiver = phx_ptr_arr_pop(&tc->frame.stack);
+
+    if (jit_get_config()->specialized_opcodes) {
+        switch (specialized_op) {
+            case LOAD_ATTR_MODULE:
+                if (hir_builder_emit_load_attr_module_c(
+                        tc, func, builder, receiver, code, name_idx, instr_idx)) {
+                    return;
+                }
+                break;
+            case LOAD_ATTR_SLOT:
+                if (hir_builder_emit_load_attr_slot_c(
+                        tc, func, builder, receiver, code, name_idx, instr_idx)) {
+                    return;
+                }
+                break;
+            case LOAD_ATTR_INSTANCE_VALUE:
+                if (hir_builder_emit_load_attr_instance_value_c(
+                        tc, func, builder, receiver, code, name_idx, instr_idx)) {
+                    return;
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+    hir_builder_emit_load_attr_generic_c(tc, func, receiver, name_idx);
+}
+
 /* emitBinaryOp — specialized guards + oparg dispatch + BinaryOp/InPlaceOp */
 
 static int32_t get_binary_op_kind_from_oparg_c(int oparg) {

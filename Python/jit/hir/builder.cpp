@@ -3642,69 +3642,18 @@ void HIRBuilder::emitDeleteAttr(
   hir_builder_emit_delete_attr_c(static_cast<void*>(&tc), bc_instr.oparg());
 }
 
-extern "C" void hir_builder_emit_load_attr_generic_c(void *tc, void *func, void *receiver, int name_idx);
-extern "C" int hir_builder_emit_load_attr_slot_c(void *tc, void *func, void *builder, void *receiver, PyCodeObject *code, int name_idx, int instr_idx);
-extern "C" int hir_builder_emit_load_attr_module_c(void *tc, void *func, void *builder, void *receiver, PyCodeObject *code, int name_idx, int instr_idx);
-extern "C" int hir_builder_emit_load_attr_instance_value_c(void *tc, void *func, void *builder, void *receiver, PyCodeObject *code, int name_idx, int instr_idx);
+extern "C" void hir_builder_emit_load_attr_c(
+    void *tc, void *func, void *builder,
+    PyCodeObject *code, int oparg, int specialized_op, int instr_idx);
 
 void HIRBuilder::emitLoadAttr(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  int oparg = bc_instr.oparg();
-  int name_idx = loadAttrIndex(oparg);
-
-  // In 3.12 LOAD_METHOD has been merged into LOAD_ATTR, and the oparg tells you
-  // which one it should be.
-  if constexpr (PY_VERSION_HEX >= 0x030C0000) {
-    if (oparg & 1) {
-      emitLoadMethod(tc, name_idx);
-      return;
-    }
-  }
-
-  if (jit_get_config()->specialized_opcodes) {
-    // Bug 7 fix: Snapshot BEFORE popping operands — deopt re-executes instruction
-    tc.emitSnapshot();
-  }
-  Register* receiver = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-
-  if (jit_get_config()->specialized_opcodes) {
-    switch (bc_instr.specializedOpcode()) {
-      case LOAD_ATTR_MODULE: {
-        if (hir_builder_emit_load_attr_module_c(
-                static_cast<void*>(&tc), static_cast<void*>(current_func_),
-                static_cast<void*>(this), static_cast<void*>(receiver),
-                code_, name_idx, bc_instr.opcodeIndex().value())) {
-          return;
-        }
-        break;
-      }
-      case LOAD_ATTR_SLOT: {
-        if (hir_builder_emit_load_attr_slot_c(
-                static_cast<void*>(&tc), static_cast<void*>(current_func_),
-                static_cast<void*>(this), static_cast<void*>(receiver),
-                code_, name_idx, bc_instr.opcodeIndex().value())) {
-          return;
-        }
-        break;
-      }
-      case LOAD_ATTR_INSTANCE_VALUE: {
-        if (hir_builder_emit_load_attr_instance_value_c(
-                static_cast<void*>(&tc), static_cast<void*>(current_func_),
-                static_cast<void*>(this), static_cast<void*>(receiver),
-                code_, name_idx, bc_instr.opcodeIndex().value())) {
-          return;
-        }
-        break;
-      }
-      default:
-        break;
-    }
-  }
-
-  hir_builder_emit_load_attr_generic_c(
+  hir_builder_emit_load_attr_c(
       static_cast<void*>(&tc), static_cast<void*>(current_func_),
-      static_cast<void*>(receiver), name_idx);
+      static_cast<void*>(this), code_,
+      bc_instr.oparg(), bc_instr.specializedOpcode(),
+      bc_instr.opcodeIndex().value());
 }
 
 extern "C" void hir_builder_emit_load_method_c(void *tc, void *func, int name_idx);
