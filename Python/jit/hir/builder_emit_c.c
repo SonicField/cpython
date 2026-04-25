@@ -3695,20 +3695,92 @@ void hir_builder_emit_any_call_c(
         void *builder,
         void *bc_instrs,
         void *bc_it,
-        int call_kind,        /* PhxCallKind enum (mapped from opcode by C++ stub) */
+        int opcode,            /* W27c full conversion: opcode dispatch C-side */
         int oparg,
-        int base_offset,
-        int is_awaited,
-        int is_kw_arg,        /* set for CALL_FUNCTION_KW + CALL_KW (kwnames flag) */
+        BcByteOffset base_offset,  /* W27c P5: BcByteOffset wrapper (Phase A.5) */
         void *code,
-        int code_flags,
-        PyObject *const_arg) {
-    /* CallFlags: None=0, KwArgs=1<<0=1, Awaited=1<<1=2, Static=1<<2=4.
+        int code_flags) {
+    /* W27c full PURE conversion (post Phase A.5): opcode→PhxCallKind switch,
+     * is_awaited check, and const_arg extraction all moved C-side from the
+     * former C++ stub. base_offset is now BcByteOffset per Phase A.5 P5
+     * wrapper (theologian P7 audit 20:53:51Z). C++ stub at builder.cpp
+     * HIRBuilder::emitAnyCall is now pure type-marshaling delegation
+     * (~12 lines), counts as PURE-CONVERTED per W27c #1 emitLoadAttr
+     * precedent.
      *
-     * call_kind dispatch (set by C++ stub) replaces direct opcode switching
-     * here so this C body does not need to import opcode constants. The
-     * opcode switch in the C++ stub maps each call-class opcode to one of
-     * the PHX_CALL_KIND_* values (defined in builder.h). */
+     * CallFlags: None=0, KwArgs=1<<0=1, Awaited=1<<1=2, Static=1<<2=4.
+     * PHX_CALL_KIND_* values defined in builder.h. */
+
+    /* Map opcode → (call_kind, is_kw_arg). CALL + CALL_FUNCTION_EX from
+     * Include/opcode.h (already included). CALL_FUNCTION/_KW/CALL_KW/
+     * CALL_METHOD from Python/jit_common/opcode_stubs.h (already included,
+     * stubbed >255 in 3.12 but kept in switch for forward compat).
+     *
+     * INVOKE_FUNCTION/NATIVE/METHOD are Cinder-specific opcodes from
+     * Python/jit_interp/3.12/cinder_opcode_ids.h. Local-defined here to
+     * avoid pulling cinder_opcode.h which would shadow Include/opcode.h's
+     * BINARY_OP_ADD_INT define + break #ifdef in BINARY_OP specialization
+     * (per existing comment at line 30). Values (209/216/185) verified
+     * against cinder_opcode_ids.h for 3.12; if cinder INVOKE_* values
+     * change, propagate here. */
+#ifndef INVOKE_FUNCTION
+#define INVOKE_FUNCTION 209
+#endif
+#ifndef INVOKE_NATIVE
+#define INVOKE_NATIVE 216
+#endif
+#ifndef INVOKE_METHOD
+#define INVOKE_METHOD 185
+#endif
+
+    int call_kind;
+    int is_kw_arg = 0;
+    switch (opcode) {
+        case CALL_FUNCTION:
+            call_kind = PHX_CALL_KIND_VECTOR_CALL; break;
+        case CALL_FUNCTION_KW:
+            call_kind = PHX_CALL_KIND_VECTOR_CALL; is_kw_arg = 1; break;
+        case CALL_FUNCTION_EX:
+            call_kind = PHX_CALL_KIND_CALL_EX; break;
+        case CALL:
+        case CALL_METHOD:
+            call_kind = PHX_CALL_KIND_CALL_METHOD; break;
+        case CALL_KW:
+            call_kind = PHX_CALL_KIND_CALL_METHOD; is_kw_arg = 1; break;
+        case INVOKE_FUNCTION:
+            call_kind = PHX_CALL_KIND_INVOKE_FUNCTION; break;
+        case INVOKE_NATIVE:
+            call_kind = PHX_CALL_KIND_INVOKE_NATIVE; break;
+        case INVOKE_METHOD:
+            call_kind = PHX_CALL_KIND_INVOKE_METHOD; break;
+        default:
+            JIT_CHECK_C(0, "Unhandled call opcode %d", opcode);
+            call_kind = PHX_CALL_KIND_VECTOR_CALL;  /* unreachable; silence warn */
+    }
+
+    /* is_awaited: GET_AWAITABLE-tail handling. Per HIRBuilder::emitAnyCall
+     * pre-W27c-PURE C++ stub: 3.12+ doesn't compute this here (returns 0);
+     * older Python checked code->co_flags & CO_COROUTINE + bc_it.nextInstr()
+     * == GET_AWAITABLE. Phoenix targets 3.12 exclusively per memory;
+     * forward-compat for older Python would need C-side bc_it/bc_instr
+     * accessors (out-of-scope for this conversion). */
+#if PY_VERSION_HEX >= 0x030C0000
+    int is_awaited = 0;
+#else
+#  error "is_awaited check needs C-side bc_it accessor for Python < 3.12; \
+not implemented per current 3.12-only target"
+#endif
+
+    /* const_arg = PyTuple_GET_ITEM(code->co_consts, oparg) per
+     * HIRBuilder::constArg @ builder.cpp pre-W27c-PURE. Borrowed ref to
+     * a co_consts entry; no refcount, no GC trigger. Lifetime = code
+     * object = compile duration. Only used for INVOKE_* paths. */
+    PyObject *const_arg = NULL;
+    if (opcode == INVOKE_FUNCTION || opcode == INVOKE_NATIVE
+        || opcode == INVOKE_METHOD) {
+        const_arg = PyTuple_GET_ITEM(((PyCodeObject*)code)->co_consts, oparg);
+    }
+
     uint32_t flags = is_awaited ? 2u : 0u;
     int call_used_is_awaited = 1;
 
@@ -3773,9 +3845,12 @@ void hir_builder_emit_any_call_c(
             /* B2: If this CALL is inside a try block with a simple except pattern,
              * inline the exception handler instead of deopting on exception.
              * Combined per W26 (B) decision: NULL-safe internally — does nothing
-             * if no handler matches OR not simple-pattern. */
+             * if no handler matches OR not simple-pattern.
+             *
+             * base_offset is BcByteOffset (P5 wrapper); unwrap .v at the
+             * boundary to existing raw-int hir_builder_emit_call_method_exception_handler_inline_c API. */
             hir_builder_emit_call_method_exception_handler_inline_c(
-                builder, tc, cfg, base_offset, call, out);
+                builder, tc, cfg, base_offset.v, call, out);
             break;
         }
         case PHX_CALL_KIND_INVOKE_FUNCTION: {

@@ -4,6 +4,7 @@
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_c_api.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
+#include "cinderx/Jit/bytecode_c.h"  /* BcByteOffset wrapper for emitAnyCall seam */
 
 extern "C" int hir_remove_trampoline_blocks_c(void *cfg);
 extern "C" int hir_remove_unreachable_blocks_c(void *func);
@@ -2852,77 +2853,26 @@ extern "C" int hir_builder_bc_it_oparg_c(void *bc_it) {
 extern "C" void hir_builder_emit_any_call_c(
     void *tc, void *cfg, void *func, void *builder,
     void *bc_instrs, void *bc_it,
-    int call_kind, int oparg, int base_offset,
-    int is_awaited, int is_kw_arg,
-    void *code, int code_flags,
-    PyObject *const_arg);
+    int opcode, int oparg, BcByteOffset base_offset,
+    void *code, int code_flags);
 
+// W27c full PURE conversion: opcode→PhxCallKind switch + is_awaited check
+// + const_arg extraction all moved to C body. C++ stub is now pure type
+// marshaling delegation; counts as PURE-CONVERTED per W27c #1 emitLoadAttr
+// precedent (98/100 → 99/100 + 1 PARTIAL Cat-B remaining = emitLoadMethodStatic).
 void HIRBuilder::emitAnyCall(
     CFG& cfg,
     TranslationContext& tc,
     jit::BytecodeInstructionBlock::Iterator& bc_it,
     const jit::BytecodeInstructionBlock& bc_instrs) {
   BytecodeInstruction bc_instr = *bc_it;
-  int opcode = bc_instr.opcode();
-  int oparg = bc_instr.oparg();
-  int base_offset = bc_instr.baseOffset().value();
-
-  // Map opcode → PhxCallKind (C body switches on enum to avoid pulling
-  // opcode constants into builder_emit_c.c, where cinder_opcode.h's
-  // Py_OPCODE_H header guard would shadow Include/opcode.h's
-  // BINARY_OP_ADD_INT define + break #ifdef in BINARY_OP specialization).
-  int call_kind;
-  int is_kw_arg = 0;
-  switch (opcode) {
-    case CALL_FUNCTION:
-      call_kind = PHX_CALL_KIND_VECTOR_CALL; break;
-    case CALL_FUNCTION_KW:
-      call_kind = PHX_CALL_KIND_VECTOR_CALL; is_kw_arg = 1; break;
-    case CALL_FUNCTION_EX:
-      call_kind = PHX_CALL_KIND_CALL_EX; break;
-    case CALL:
-    case CALL_METHOD:
-      call_kind = PHX_CALL_KIND_CALL_METHOD; break;
-    case CALL_KW:
-      call_kind = PHX_CALL_KIND_CALL_METHOD; is_kw_arg = 1; break;
-    case INVOKE_FUNCTION:
-      call_kind = PHX_CALL_KIND_INVOKE_FUNCTION; break;
-    case INVOKE_NATIVE:
-      call_kind = PHX_CALL_KIND_INVOKE_NATIVE; break;
-    case INVOKE_METHOD:
-      call_kind = PHX_CALL_KIND_INVOKE_METHOD; break;
-    default:
-      JIT_ABORT("Unhandled call opcode {} ({})", opcode, opcodeName(opcode));
-  }
-
-  int is_awaited;
-  if constexpr (PY_VERSION_HEX >= 0x030C0000) {
-    is_awaited = 0;
-  } else {
-    is_awaited = (code_->co_flags & CO_COROUTINE) &&
-        // We only need to be followed by GET_AWAITABLE to know we are awaited,
-        // but we also need to ensure the following LOAD_CONST and YIELD_FROM
-        // are inside this BytecodeInstructionBlock. This may not be the case if
-        // the 'await' is shared as in 'await (x if y else z)'.
-        bc_it.remainingIndices() >= 3 &&
-        bc_instr.nextInstr().opcode() == GET_AWAITABLE ? 1 : 0;
-  }
-
-  // Pre-extract const_arg for INVOKE_* paths — only used if opcode is one
-  // of INVOKE_FUNCTION/NATIVE/METHOD; NULL otherwise.
-  PyObject *const_arg = nullptr;
-  if (opcode == INVOKE_FUNCTION || opcode == INVOKE_NATIVE
-      || opcode == INVOKE_METHOD) {
-    const_arg = constArg(bc_instr);
-  }
-
   hir_builder_emit_any_call_c(
       &tc, &cfg, current_func_, this,
       const_cast<void*>(static_cast<const void*>(&bc_instrs)),
       &bc_it,
-      call_kind, oparg, base_offset, is_awaited, is_kw_arg,
-      code_, static_cast<int>(code_->co_flags),
-      const_arg);
+      bc_instr.opcode(), bc_instr.oparg(),
+      bc_byte_offset_from_int(bc_instr.baseOffset().value()),
+      code_, static_cast<int>(code_->co_flags));
 }
 
 extern "C" void hir_builder_emit_call_intrinsic_c(void *tc, void *func, int opcode, int oparg);
