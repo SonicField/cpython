@@ -79,12 +79,50 @@ _Py_CODEUNIT jit_bc_instr_word(JitBytecodeInstr *bci);
 typedef struct { int v; } BcByteOffset;
 typedef struct { int v; } BcInstrIndex;
 
+/* Named entry-point factories — Phase A.5 (W-PROTOCOL-CODIFY) per pythia
+ * #139 #1 + supervisor 20:51:44Z. These document the trust boundary
+ * where a raw int CROSSES INTO the wrapper-typed domain. Mid-flow
+ * propagation between BcByteOffset/BcInstrIndex is type-enforced by P5
+ * wrappers; entry-point wrap from raw int is an unchecked-trust contract
+ * the caller asserts. Use these factories instead of brace-init so
+ * grep/lint can audit entry points and enforce that callers explicitly
+ * named the source domain.
+ *
+ * USAGE: bc_byte_offset_from_int(BCOffset.value())   <-- input is BYTE OFFSET
+ *        bc_instr_index_from_int(jit_bc_instr_*_*())  <-- input is INSTRUCTION INDEX */
+static inline BcByteOffset bc_byte_offset_from_int(int v) {
+    BcByteOffset out = { v };
+    return out;
+}
+static inline BcInstrIndex bc_instr_index_from_int(int v) {
+    BcInstrIndex out = { v };
+    return out;
+}
+
 static inline BcInstrIndex phx_bc_offset_to_instr_index(BcByteOffset off) {
     BcInstrIndex out = { off.v / (int)sizeof(_Py_CODEUNIT) };
     return out;
 }
 static inline BcByteOffset phx_bc_instr_index_to_offset(BcInstrIndex idx) {
     BcByteOffset out = { idx.v * (int)sizeof(_Py_CODEUNIT) };
+    return out;
+}
+
+/* P5 expansion: VTABLE byte offset wrapper. NOT bytecode-byte (use
+ * BcByteOffset for that); this is offset-into-_PyType_VTable
+ * (vt_entries[slot] + member). Used by emitLoadMethodStatic seam
+ * (theologian P7 audit 2026-04-25 20:53:51Z found vte_state_offset +
+ * vte_load_offset as raw intptr_t = swap-risk Class-A-shape; wrapper
+ * prevents CROSS-DOMAIN swap). intptr_t (not int) for vtable size
+ * headroom — bytecode size fits int but vtable could exceed.
+ *
+ * Same-domain ordering protection (distinct VTableStateOffset /
+ * VTableLoadOffset typedefs) is OUT-OF-SCOPE per theologian spec
+ * (defer until ordering bug observed). */
+typedef struct { intptr_t v; } VTableByteOffset;
+
+static inline VTableByteOffset vtable_byte_offset_from_intptr(intptr_t v) {
+    VTableByteOffset out = { v };
     return out;
 }
 #endif

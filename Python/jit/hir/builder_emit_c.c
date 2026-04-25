@@ -3248,7 +3248,7 @@ static void build_inline_except_opcode_array_c(
      * no further conversion needed there. */
     JitBytecodeInstr ebc;
     {
-        BcByteOffset eb_off = { except_body_offset };
+        BcByteOffset eb_off = bc_byte_offset_from_int(except_body_offset);
         BcInstrIndex eb_idx = phx_bc_offset_to_instr_index(eb_off);
         jit_bc_instr_init(&ebc, code, eb_idx.v);
     }
@@ -3275,7 +3275,7 @@ static void build_inline_except_opcode_array_c(
          * downstream as BYTE OFFSET (cur_instr_offs assignment below →
          * BCOffset domain per phx_frame_state.h cur_instr_offs semantics,
          * builder.cpp:1710/1774/4392). Wrap, convert, unwrap. */
-        BcInstrIndex base_idx = { jit_bc_instr_base_offset(&ebc) };
+        BcInstrIndex base_idx = bc_instr_index_from_int(jit_bc_instr_base_offset(&ebc));
         int base_off = phx_bc_instr_index_to_offset(base_idx).v;
 
         OpcodeArrayEntry *entry = &arr[n++];
@@ -3293,7 +3293,7 @@ static void build_inline_except_opcode_array_c(
              * INDEX (codeUnit[]); phx_block_map keys are BYTE OFFSETS (per
              * builder.cpp:1235 phx_block_map_insert with BCOffset.value()).
              * Wrap, convert, unwrap. */
-            BcInstrIndex tgt_idx = { jit_bc_instr_get_jump_target(&ebc) };
+            BcInstrIndex tgt_idx = bc_instr_index_from_int(jit_bc_instr_get_jump_target(&ebc));
             BcByteOffset tgt_off = phx_bc_instr_index_to_offset(tgt_idx);
             entry->jump_target_block = phx_block_map_lookup_or_panic(
                 &phx_hir_builder_state(builder)->block_map_phx, tgt_off.v);
