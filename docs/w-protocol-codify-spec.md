@@ -194,6 +194,132 @@ conversion at write site or read site BEFORE the conversion lands.
 **Enforcement:** PR description template requires per-field audit
 table. Gatekeeper BLOCKs APPROVE if missing.
 
+### P8 — Phase 0' Coverage Extension to Perf-Regressing Benchmarks
+**Origin:** pythia #142 #1 + W-EMITANYCALL-INT-ARITH-PERF (theologian +
+supervisor 2026-04-25T22:46:24Z + 22:47:40Z). emitAnyCall conversion
+(push 59) showed 24-bench int_arith -10% with HIR-diff verified
+byte-identical on adjacent exception-handling sentinels — Phase 0'
+sentinel-only coverage missed the int_arith path; perf signal surfaced
+only at full 24-bench.
+
+**Rule:** Phase 0' HIR-diff coverage MUST extend to EVERY benchmark
+showing >5% delta in 24-bench full ABBA, not just the workstream's
+sentinel suite. Adjacent-test-only HIR-diff has empirically demonstrated
+blind spot to single-bench regressions in unrelated workloads.
+
+**Procedure:**
+1. After 24-bench ABBA, identify benchmarks with delta >5% (positive
+   or negative) vs baseline.
+2. For each identified bench: extract bench function source, dump HIR
+   pre/post conversion via `PYTHONJITDUMPFINALHIR=1`, precise-scrub
+   pointer-only addresses (per testkeeper 2026-04-25T22:14Z scrub
+   regex preserving type tags), structural diff.
+3. If any bench shows non-zero structural diff: bug located, investigate.
+4. If all benches show zero diff: no mechanism at HIR level; if perf
+   delta persists, escalate to compile-time + pure-runtime falsifiers
+   (per W-EMITANYCALL-INT-ARITH-PERF methodology).
+
+**Enforcement:** post-24-bench review identifies >5% benches; testkeeper
+or generalist runs Phase 0' HIR-diff on identified bench source
+functions before declaring conversion clean. Add to gate Step 7 ABBA
+post-processing.
+
+**Why this rule:** sentinel suites are usually exception-handling-shaped
+(matches W-2B-RECONVERT origin). Conversions touching general code paths
+(CALL dispatch, attribute access, opcode emit) need HIR-diff coverage on
+representative workloads, not just exception paths.
+
+### P9 — Filesystem-First Cross-Check Before Fabrication HALT
+**Origin:** medic 2026-04-22 false positive on testkeeper build claim
+(CLAUDE.md filesystem-first principle codified) + medic 2026-04-25
+false positive on generalist HIR-diff claim (refuted via /tmp filesystem
+evidence at 22:51:47Z; medic retracted at 22:53:44Z). Two session-log-
+only fabrication HALTs in 3 days; shepard 22:54:22Z escalation.
+
+**Rule:** Any agent posting a HALLUCINATION/fabrication warning against
+another agent's claim of having performed an action (build, test, dump,
+file creation, etc.) MUST first verify via filesystem evidence —
+`stat -c %Y` on referenced files, `ls -la` of named paths, `grep` of
+named log contents — BEFORE posting the warning. Session-log scans
+alone are insufficient because actions may be performed via Bash tool
+calls not captured in tmux session logs.
+
+**Procedure:**
+1. Identify the artifact the claim implies should exist (file, log,
+   binary, output).
+2. `ls -la <path>` + `stat -c %Y <path>` to confirm existence + mtime
+   alignment with claim timestamp.
+3. If artifact exists: claim is plausible; do not HALT — instead post
+   QUERY asking for filesystem evidence reference.
+4. If artifact does NOT exist: HALT is justified; cite the missing path.
+5. NEVER cite session-log absence as sole evidence.
+
+**Enforcement:** medic + any other agent issuing fabrication warnings
+post commands they ran to verify. If commands omitted, warning is
+treated as preliminary; recipient may request filesystem evidence
+before responding.
+
+**Why this rule:** false-positive HALTs cost ~5-10min per incident
+(target agent must refute, medic retracts, team re-syncs). Filesystem
+check costs ~30s. The discipline difference is methodological, not
+effort-based.
+
+### P10 — Variance Characterization Before (B) Investigation
+**Origin:** W-EMITANYCALL-INT-ARITH-PERF closure 2026-04-25T22:57:29Z.
+Mirrors agent-memory `feedback_falsifier_convergent_negative.md`
+(3-falsifier convergent negative + variance re-runs +
+'investigated-no-quick-fix' framing); P10 codifies the team-process
+side; agent-memory codifies the per-agent reasoning discipline.
+24-bench int_arith 0.95x at push 59 triggered (B) investigation; 3
+falsifiers (HIR-diff + compile-time + pure-runtime) all PASS; variance
+re-characterization on push 59 binary alone showed 1.05/1.08/1.09x
+across 3 runs — 4 percentage-point spread. The 0.95x reading was
+outlier sampling, not regression. ~30min (B) investigation cost was
+correctly spent on falsifier discipline, but variance-first would have
+short-circuited.
+
+**Rule:** When 24-bench shows single-benchmark delta >5% (positive or
+negative) on single-invocation reading, characterize variance via 3+
+targeted re-runs of that bench on the post-conversion binary BEFORE
+opening (B) investigation. If variance band exceeds delta magnitude OR
+central tendency is consistent with baseline, close as
+variance-discovered (NOT regression).
+
+**Procedure:**
+1. Identify benchmarks with >5% delta in 24-bench full ABBA.
+2. Re-run each identified bench standalone with --reps=3 on the same
+   post-conversion binary, 3 independent invocations.
+3. Compute mean + range across 3 isolated invocations.
+4. **Critical (per pythia #143 #1 amendment 2026-04-25T23:21:18Z):**
+   Run AT LEAST ONE full-24-bench re-run on the same binary. Isolated
+   re-runs measure bench-in-isolation variance; full-24-bench re-runs
+   measure bench-position-in-sequence variance (page-cache, branch-
+   predictor, allocator history, subprocess-position effects). The two
+   are different statistical populations. Closure REQUIRES both
+   in-isolation AND in-context corroboration.
+5. If 24-bench reading is OUTSIDE BOTH the 3-run isolated range AND
+   the full-24-bench re-run reading → real signal, proceed to (B)
+   investigation.
+6. If 24-bench reading is WITHIN the 3-run isolated range AND the
+   full-24-bench re-run shows similar reading → variance, close as
+   measurement artifact + log to W-{NAME}-PERF for methodology
+   improvement (NOT real regression).
+7. If isolated and in-context disagree (isolated clean but
+   full-24-bench reproduces ~original delta) → real signal in
+   sequence-context (likely cold-start/page-cache/predictor-warmth);
+   investigate at that layer, NOT in-isolation.
+
+**Enforcement:** post-24-bench review identifies >5% benches; testkeeper
+runs variance characterization (3-run targeted) before any (B)
+investigation request. Add to gate Step 7 ABBA post-processing.
+
+**Why this rule:** ~30min variance check costs ~10x less than (B)
+investigation cycle (compile-time + runtime + HIR-diff falsifiers).
+P10 short-circuits variance-driven false positives at the cheapest
+methodology layer. Critically: P10 does NOT replace (B) — if variance
+check confirms regression, (B) still runs. P10 is a pre-filter, not
+a substitute.
+
 ## Cross-Cutting Rules
 
 ### CC1 — Class-of-Bug Audit Triggered by Boundary Fix
