@@ -783,6 +783,75 @@ class TestJitAutoCompile(unittest.TestCase):
                 return -1
         self._auto_test(f, 5)
 
+    def test_exc_binary_subscr_dict_in_try(self):
+        # Class A latent-fix sentinel for build_inline_except_opcode_array_c
+        # BCOffset/InstrIndex unit mismatch (W-2B-RECONVERT, 3-class fix).
+        # BINARY_SUBSCR inside try-except specializes to BINARY_SUBSCR_DICT
+        # post-warmup, routing exception handling through emitInlineExceptionMatch
+        # which invokes the helper. Exercises the Class A entry path.
+        def f(d, k):
+            try:
+                return d[k]
+            except KeyError:
+                return -1
+        self._auto_test(f, {"a": 1, "b": 2}, "a")
+
+    def test_exc_continue_in_loop(self):
+        # Class B latent-fix sentinel for build_inline_except_opcode_array_c
+        # phx_block_map_lookup_or_panic INDEX vs BYTES key mismatch
+        # (theologian audit 18:42:53Z).
+        # `continue` in except body compiles to POP_TOP + JUMP_BACKWARD; both
+        # in helper's recognized list, so iteration reaches JUMP_BACKWARD and
+        # calls phx_block_map_lookup_or_panic. Exercises Class B fix.
+        def f(n):
+            result = 0
+            for x in range(n):
+                try:
+                    if x % 2 == 0:
+                        raise ValueError
+                    result += x
+                except ValueError:
+                    continue
+            return result
+        self._auto_test(f, 10)  # expect 1+3+5+7+9=25
+
+    def test_exc_multi_except_in_loop(self):
+        # Class C latent-fix sentinel for build_inline_except_opcode_array_c
+        # entry->base_offset INDEX-vs-BYTES domain mismatch (Phase 0' HIR-diff
+        # 19:14Z, fix at 8e0c73e5da). Reduced from
+        # test_phoenix_jit_controlflow.test_multiple_exceptions_in_loop which
+        # deterministically crashed under Class A+B fix without Class C.
+        # Pattern: 4 except clauses inside for-loop. The first handler's
+        # except body terminates with JUMP_FORWARD (skip past handlers 2-4),
+        # which is NOT in helper's recognized opcode list → DEFAULT case →
+        # Deopt with cur_instr_offs = entry->base_offset. Pre-Class-C-fix
+        # (post-A+B): cur_instr_offs got INDEX (half the BYTE value) →
+        # interpreter resumed at wrong bytecode position → SIGSEGV.
+        def f(ops):
+            errors = []
+            for op_kind in ops:
+                try:
+                    if op_kind == 0:
+                        raise ZeroDivisionError
+                    elif op_kind == 1:
+                        raise IndexError
+                    elif op_kind == 2:
+                        raise KeyError
+                    elif op_kind == 3:
+                        raise ValueError
+                    else:
+                        errors.append("ok")
+                except ZeroDivisionError:
+                    errors.append("ZDE")
+                except IndexError:
+                    errors.append("IE")
+                except KeyError:
+                    errors.append("KE")
+                except ValueError:
+                    errors.append("VE")
+            return errors
+        self._auto_test(f, [0, 1, 2, 3, 4])  # expect ['ZDE','IE','KE','VE','ok']
+
     def test_exc_multiple_except(self):
         def f(x):
             try:
