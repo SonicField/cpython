@@ -91,6 +91,12 @@ int hir_builder_is_static_rand_and_try_emit_c(
 /* W27d #1 (theologian L2544): bridge for emitCopyFreeVars C body —
  * grants access to private Register* func_ field. */
 void *hir_builder_func_register_c(void *builder);
+
+/* (D) emitLoadMethodStatic full PURE conversion bridges. Forward decls
+ * required so friend lines in HIRBuilder match a real global declaration
+ * (build error otherwise). */
+int hir_builder_preloader_invoke_method_slot_c(void *builder, PyObject *descr);
+void hir_builder_state_static_method_stack_push_cpp(void *builder, void *reg);
 } // extern "C"
 #include <vector>
 
