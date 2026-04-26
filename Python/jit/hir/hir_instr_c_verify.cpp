@@ -141,6 +141,15 @@ struct HirInstrLayoutVerifier {
     static_assert(sizeof(HirUnicodeCompare) == sizeof(UnicodeCompare));
     static_assert(sizeof(HirCompareBool) == sizeof(CompareBool));
     static_assert(sizeof(HirPrimitiveCompare) == sizeof(PrimitiveCompare));
+    /* W-PYTORCH-CM-(i) hardening: hir_c_compare_op casts to HirCompare*
+     * (HIR_DEOPT_FIELDS); hir_c_primitive_compare_op casts to
+     * HirPrimitiveCompare* (HIR_INSTR_FIELDS). Their `op` fields are at
+     * DIFFERENT offsets — must never be conflated by a future single-accessor
+     * shortcut. Recurrence prevention per feedback_class_of_bug_audit.md +
+     * pythia #161 #4. */
+    static_assert(offsetof(HirCompare, op) != offsetof(HirPrimitiveCompare, op),
+                  "HirCompare and HirPrimitiveCompare must have distinct `op` "
+                  "field offsets — cannot share a single accessor");
     /* T2-B Batch 3: Type-field struct sizes */
     static_assert(sizeof(HirLoadConst) == sizeof(LoadConst));
     static_assert(sizeof(HirRefineType) == sizeof(RefineType));

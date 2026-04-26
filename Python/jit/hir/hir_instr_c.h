@@ -746,6 +746,15 @@ static inline int32_t hir_c_compare_op(const void *instr) {
     return ((const HirCompare *)instr)->op;
 }
 
+/* W-PYTORCH-CM root-cause fix: HirPrimitiveCompare uses HIR_INSTR_FIELDS,
+ * NOT HIR_DEOPT_FIELDS. The op field is at a different offset than in
+ * HirCompare. Casting to HirCompare* and reading ->op reads ~64 bytes past
+ * the slab end, into adjacent (often freed) memory — caused valgrind UAF
+ * at simplify_primitive_compare_c, F7 R1 misclassified as false positive. */
+static inline int32_t hir_c_primitive_compare_op(const void *instr) {
+    return ((const HirPrimitiveCompare *)instr)->op;
+}
+
 static inline int32_t hir_c_inplace_op_kind(const void *instr) {
     return ((const HirInPlaceOp *)instr)->op;
 }

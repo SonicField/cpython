@@ -15,6 +15,7 @@
 #include "cinderx/Jit/hir/hir_basic_block_c.h"
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
+#include "cinderx/Common/jit_log_c.h"
 #include "cinderx/Common/py-portability.h"
 #include "Python.h"
 #include "pycore_global_strings.h"
@@ -700,9 +701,21 @@ void *simplify_compare_c(SimplifyEnv *env, const void *instr) {
 
 /* ---- simplifyPrimitiveCompare (full C port) ---- */
 void *simplify_primitive_compare_c(SimplifyEnv *env, const void *instr) {
+    /* W-PYTORCH-CM-PHOENIX-CRASH F7 falsifier (theologian + supervisor
+     * 04:17:43Z): ASAN reports UAF here citing rpo_c.c:32/73 as alloc/free,
+     * but RPO array is unrelated to this read site — slot likely reused
+     * post-HirCompare-destroy. Verify opcode is intact before reading
+     * compare-op-specific field. PASS = ASAN false-positive (slot reuse),
+     * FAIL = true UAF / corrupted instr. */
+    /* R1: JIT_CHECK_C (always-on) — JIT_DCHECK_C was pydebug-only and got
+     * compiled out of release ASAN build (testkeeper 04:24:42Z). */
+    JIT_CHECK_C(hir_c_opcode(instr) == HIR_OP_PrimitiveCompare,
+                "simplify_primitive_compare_c called with non-PrimitiveCompare "
+                "opcode %d (instr=%p) — F7 falsifier for W-PYTORCH-CM-PHOENIX-CRASH",
+                hir_c_opcode(instr), instr);
     void *left = hir_c_get_operand(instr, 0);
     void *right = hir_c_get_operand(instr, 1);
-    int32_t op = hir_c_compare_op(instr);
+    int32_t op = hir_c_primitive_compare_op(instr);
 
     if (op == HIR_PCMP_Equal || op == HIR_PCMP_NotEqual) {
         HirType left_type = hir_register_type(left);
