@@ -3285,44 +3285,41 @@ void HIRBuilder::emitInvokeMethodVectorCall(
 
 extern "C" void hir_builder_emit_load_method_static_c(
     void* tc, void* func, void* builder,
-    int is_classmethod,
-    intptr_t vte_state_offset,
-    intptr_t vte_load_offset,
-    int is_static,
-    void** out_entry_func);
+    int oparg, void* code);
 
+// (D) emitLoadMethodStatic full PURE conversion per theologian 00:02:12Z
+// scoping + supervisor 00:04:33Z hold-lift. Phase 3D 99/100 → 100/100
+// PURE-CONVERTED. C++ stub is now pure type marshaling delegation; all
+// substantive logic (constArg + _PyClassLoader_IsClassMethodDescr +
+// vtable offset computation + invokeMethodTarget lookup +
+// static_method_stack push) moved to C body via 2 new bridges
+// (hir_builder_preloader_invoke_method_slot_c +
+// hir_builder_state_static_method_stack_push_cpp) + classloader.h/vtable.h
+// includes. A1 'classloader.h C++-only' design framing was incomplete —
+// vtable.h is already C-compatible (extern "C" wrapped, pure typedef
+// struct, no C++ idioms).
 void HIRBuilder::emitLoadMethodStatic(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  PyObject* arg = constArg(bc_instr);
-  PyObject* descr = PyTuple_GET_ITEM(arg, 0);
-  bool is_classmethod = _PyClassLoader_IsClassMethodDescr(arg);
-  const InvokeTarget& target = preloader_.invokeMethodTarget(descr);
-  // Pre-compute vtable byte offsets in C++ stub (avoids classloader.h
-  // dependency in the C body — _PyType_VTable + _PyType_VTableEntry
-  // struct definitions stay C++-side per A1 design).
-  size_t entry_offset = offsetof(_PyType_VTable, vt_entries) +
-      target.slot * sizeof(_PyType_VTableEntry);
-  intptr_t vte_state_offset =
-      static_cast<intptr_t>(entry_offset + offsetof(_PyType_VTableEntry, vte_state));
-  intptr_t vte_load_offset =
-      static_cast<intptr_t>(entry_offset + offsetof(_PyType_VTableEntry, vte_load));
-  void* entry_func = nullptr;
   hir_builder_emit_load_method_static_c(
       static_cast<void*>(&tc),
       static_cast<void*>(current_func_),
       static_cast<void*>(this),
-      static_cast<int>(is_classmethod),
-      vte_state_offset,
-      vte_load_offset,
-      static_cast<int>(target.is_statically_typed),
-      &entry_func);
-  // Post-call: static_method_stack_.push handled in C++ side per A1
-  // (zero new bridges). C body always writes out_entry_func; we push
-  // only when is_statically_typed, mirroring the C++ original.
-  if (target.is_statically_typed && entry_func != nullptr) {
-    static_method_stack_.push(static_cast<Register*>(entry_func));
-  }
+      bc_instr.oparg(),
+      static_cast<void*>(code_));
+}
+
+// (D) Bridges for C body of emitLoadMethodStatic.
+extern "C" int hir_builder_preloader_invoke_method_slot_c(
+    void *builder, PyObject *descr) {
+  auto *self = static_cast<HIRBuilder*>(builder);
+  return static_cast<int>(self->preloader_.invokeMethodTarget(descr).slot);
+}
+
+extern "C" void hir_builder_state_static_method_stack_push_cpp(
+    void *builder, void *reg) {
+  auto *self = static_cast<HIRBuilder*>(builder);
+  self->static_method_stack_.push(static_cast<Register*>(reg));
 }
 
 /* C bridges for emitInvokeMethod (INVOKE_* Phase 2 #2 per theologian L2430).

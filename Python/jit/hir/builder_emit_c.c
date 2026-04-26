@@ -23,6 +23,7 @@
 #include "cinderx/StaticPython/checked_list.h"  /* Ci_CheckedList_TypeCheck (W27b #3) */
 #include "cinderx/StaticPython/checked_dict.h"  /* Ci_CheckedDict_TypeCheck (W27b #4) */
 #include "cinderx/StaticPython/static_array.h"  /* PyStaticArrayObject (W27c #5) */
+#include "cinderx/StaticPython/classloader.h"   /* _PyType_VTable + _PyClassLoader_IsClassMethodDescr ((D) emitLoadMethodStatic) */
 #include "cinderx/Common/code.h"               /* numFreevars/numLocalsplus (W27d #1) */
 #include "cinderx/Jit/bytecode_c.h"            /* JitBytecodeInstr (W27c #2a) */
 
@@ -2939,19 +2940,53 @@ void hir_builder_emit_get_awaitable_c(
  * unconditionally so the C++ stub can decide whether to push it onto
  * static_method_stack_ based on is_static (gates the stack push only). */
 
+/* (D) emitLoadMethodStatic full PURE conversion bridges (declared in
+ * builder.cpp): preloader-slot lookup + static-method-stack push +
+ * is_classmethod check (already extern "C" in classloader.h). */
+extern int hir_builder_preloader_invoke_method_slot_c(
+    void *builder, PyObject *descr);
+extern void hir_builder_state_static_method_stack_push_cpp(
+    void *builder, void *reg);
+
+/* hir_builder_invoke_method_target_c (existing) returns is_statically_typed
+ * + is_builtin + return_type via out-params. We reuse it for is_static
+ * lookup (existing extern in W26 INVOKE_* path). */
+extern void hir_builder_invoke_method_target_c(
+    void *builder, PyObject *descr,
+    int *out_is_builtin, int *out_is_statically_typed, HirType *out_return_type);
+
 void hir_builder_emit_load_method_static_c(
         PhxTranslationContext *tc,
         void *func,
         void *builder,
-        int is_classmethod,
-        intptr_t vte_state_offset,
-        intptr_t vte_load_offset,
-        int is_static,
-        void **out_entry_func) {
+        int oparg,
+        void *code) {
     HirType t_type = HIR_TYPE_TYPE;
     HirType t_object = HIR_TYPE_OBJECT;
     HirType t_cptr = HIR_TYPE_CPTR;
     HirType t_opt_object = HIR_TYPE_OPTOBJECT;
+
+    /* (D) C-side derivations: const-arg + classmethod check + slot lookup +
+     * is_static lookup + vtable byte offsets. All previously C++ stub. */
+    PyObject *arg = (PyObject*)PyTuple_GET_ITEM(((PyCodeObject*)code)->co_consts, oparg);
+    PyObject *descr = (PyObject*)PyTuple_GET_ITEM(arg, 0);
+    int is_classmethod = _PyClassLoader_IsClassMethodDescr(arg);
+    int slot = hir_builder_preloader_invoke_method_slot_c(builder, descr);
+    int is_builtin_unused = 0, is_static = 0;
+    HirType return_type_unused = HIR_TYPE_OBJECT;
+    hir_builder_invoke_method_target_c(builder, descr,
+        &is_builtin_unused, &is_static, &return_type_unused);
+
+    /* W-PROTOCOL-CODIFY P5: VTableByteOffset wrappers for vtable-domain
+     * offsets (theologian P7 audit 20:53:51Z). Compute via vtable.h structs
+     * (now C-side accessible — A1 framing was incomplete; vtable.h is
+     * already extern "C" + pure typedef struct). */
+    intptr_t entry_offset_raw = (intptr_t)offsetof(_PyType_VTable, vt_entries) +
+        (intptr_t)slot * (intptr_t)sizeof(_PyType_VTableEntry);
+    VTableByteOffset vte_state_offset_w = vtable_byte_offset_from_intptr(
+        entry_offset_raw + (intptr_t)offsetof(_PyType_VTableEntry, vte_state));
+    VTableByteOffset vte_load_offset_w = vtable_byte_offset_from_intptr(
+        entry_offset_raw + (intptr_t)offsetof(_PyType_VTableEntry, vte_load));
 
     /* P2: pop self, alloc type. */
     void *self = phx_ptr_arr_pop(&tc->frame.stack);
@@ -2973,13 +3008,13 @@ void hir_builder_emit_load_method_static_c(
         vtable, type, "tp_cache",
         (intptr_t)offsetof(PyTypeObject, tp_cache), t_object, 0));
     phx_tc_emit(tc, hir_c_create_load_field_reg(
-        func_obj, vtable, "vte_state", vte_state_offset, t_object, 0));
+        func_obj, vtable, "vte_state", vte_state_offset_w.v, t_object, 0));
 
     /* P4: alloc entry_func + vtable_load (NonStack), CallInd. */
     void *entry_func = hir_func_alloc_register(func);
     void *vtable_load = hir_func_alloc_register(func);
     phx_tc_emit(tc, hir_c_create_load_field_reg(
-        vtable_load, vtable, "vte_load", vte_load_offset, t_cptr, 0));
+        vtable_load, vtable, "vte_load", vte_load_offset_w.v, t_cptr, 0));
 
     void *call = hir_c_create_call_ind_reg2(3, func_obj, "vte_load", t_opt_object);
     hir_c_set_operand(call, 0, vtable_load);
@@ -2988,12 +3023,16 @@ void hir_builder_emit_load_method_static_c(
     hir_deopt_set_frame_state(call, &tc->frame);
     phx_tc_emit(tc, call);
 
-    /* P5: conditional GetSecondOutput; always write out_entry_func. */
+    /* P5: conditional GetSecondOutput; conditionally push to
+     * static_method_stack (was C++ stub responsibility, moved to C body
+     * via push bridge). */
     if (is_static) {
         phx_tc_emit(tc, hir_c_create_get_second_output_reg(
             entry_func, t_cptr, func_obj));
+        if (entry_func != NULL) {
+            hir_builder_state_static_method_stack_push_cpp(builder, entry_func);
+        }
     }
-    *out_entry_func = entry_func;
 
     /* P6: push func_obj THEN self (order matters per C++ line 3660-3661). */
     phx_ptr_arr_push(&tc->frame.stack, func_obj);
