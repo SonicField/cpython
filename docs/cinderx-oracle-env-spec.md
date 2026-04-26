@@ -42,27 +42,47 @@ possible:
 
 ### 2. JIT Activation Verification
 
-cinderx_dev JIT activation cannot be assumed from `-X jit` flag alone.
-Verification REQUIRED:
+**v2 (2026-04-26 post-execution): Phoenix and cinderx_dev have different
+JIT-activation API names + import patterns. Both require explicit module
+load before force_compile.**
 
+Phoenix-side (verified working at push 60):
 ```bash
-# Method 1: explicit compile + verify
-PYTHONPATH=/path/to/benchmark cinderx_dev_python -c "
-import cinderjit, benchmark_phoenix
+PYTHONJITALL=1 PYTHONPATH=/path/to/benchmark phoenix_python -c "
+import _cinderx           # MUST import first (loads C extension)
+import cinderjit          # only available after _cinderx import
+import benchmark_phoenix
 cinderjit.force_compile(benchmark_phoenix.bench_int_arith)
-assert cinderjit.is_jit_compiled(benchmark_phoenix.bench_int_arith), 'JIT not active'
+assert cinderjit.is_jit_compiled(benchmark_phoenix.bench_int_arith)
 "
 ```
 
-If `cinderjit.force_compile` or `cinderjit.is_jit_compiled` are not exposed
-in cinderx_dev (different API), use Cinder-equivalent:
+cinderx_dev-side (verified working 2026-04-26T02:39Z):
 ```bash
-# Method 2: cinder API (verify via cinder.is_jit_compiled or _cinder)
-cinderx_dev_python -c "import _cinderjit; print(_cinderjit.get_runtime_helper_addr())"
+LD_LIBRARY_PATH=/home/alexturner/local/cinderx_dev/python-3.12 \
+PYTHONPATH=/home/alexturner/local/cinderx_dev/cinderx/cinderx/PythonLib:/path/to/benchmark \
+~/local/cinderx_dev/python-3.12/python -c "
+from cinderx import jit   # cinderx package, jit submodule
+import benchmark_phoenix
+jit.force_compile(benchmark_phoenix.bench_int_arith)
+assert jit.is_jit_compiled(benchmark_phoenix.bench_int_arith)
+"
 ```
 
-If neither method confirms JIT activation, the oracle reading is INVALID
-(JIT didn't run; comparison is interpreter-vs-Phoenix-JIT, not
+**Critical v2 corrections from v1:**
+- Phoenix: NOT `import cinderjit` directly — requires `import _cinderx` first
+  to load the C extension that registers cinderjit module. v1 spec was wrong.
+- cinderx_dev: NOT `import cinderjit` — uses `from cinderx import jit`. Module
+  layout differs from Phoenix.
+- cinderx_dev binary path: `~/local/cinderx_dev/python-3.12/python` (NOT
+  `~/local/cinderx_dev/cinderx/python` as v1 assumed).
+- cinderx_dev requires LD_LIBRARY_PATH to find libpython3.12.so.1.0 +
+  PYTHONPATH to find cinderx package.
+- `-X jit` flag: insufficient (didn't activate JIT in 2026-04-26T01:16Z dry-run).
+  Always use force_compile + is_jit_compiled to verify activation.
+
+If neither force_compile nor is_jit_compiled returns True, the oracle reading
+is INVALID (JIT didn't run; comparison is interpreter-vs-something, not
 JIT-vs-JIT).
 
 ### 3. Test-Harness Equivalence
@@ -116,19 +136,36 @@ Cinder-inherited):
      → PHOENIX-INTRODUCED (open bisect against cinderx_dev oracle as
      known-clean reference).
 
-## Failure Modes (Observed 2026-04-26T01:16:27Z)
+## Failure Modes (Observed 2026-04-26T01:16:27Z + 02:33Z dry-run)
 
-- **JIT didn't activate** (-X jit insufficient): use Method 1 force_compile.
+- **JIT didn't activate** (-X jit insufficient): use force_compile + verify.
 - **Cross-arch confound** (ARM64 cinderx_dev vs x86_64 Phoenix): build
   same-arch first.
 - **Vanilla baseline missing on devgpu004** (W-ARM64-VANILLA-INFRA debt):
   use targeted bench median instead of ABBA harness.
+- **Wrong binary path** (v1 assumed `cinderx/python`): actual is
+  `python-3.12/python`.
+- **Missing shared library** (libpython3.12.so.1.0): set LD_LIBRARY_PATH.
+- **Wrong import name** (v1 assumed cinderjit on cinderx_dev): use
+  `from cinderx import jit`.
+- **Phoenix import order** (v1 assumed `import cinderjit` works directly):
+  must `import _cinderx` first.
 
-## Application
+## Application Result (2026-04-26T02:39Z)
 
-Next oracle invocation: try_except_callee + nn_module_forward
-discrimination per W-PERF-PRE-W27C-BISECT (push 60 PROVISIONAL-PRE-EXISTING
-labels). Apply this spec to obtain valid Phoenix-vs-Cinder verdict.
+Oracle executed try_except_callee + nn_module_forward + bench_int_arith
+discrimination per W-PERF-PRE-W27C-BISECT (push 60 PROVISIONAL labels):
 
-If oracle confirms INHERITED, PROVISIONAL → PRE-EXISTING (true).
-If oracle confirms PHOENIX-INTRODUCED, open bisect to localize commit.
+| Bench                   | cinderx_dev | Phoenix-ARM64-p60 | Verdict           |
+|-------------------------|-------------|-------------------|-------------------|
+| bench_int_arith         | 4.1ms       | 3.7ms             | Phoenix 10% faster |
+| bench_try_except_callee | 1.6ms       | 1.3ms             | Phoenix 19% faster |
+| bench_deep_class        | 1.1ms       | 1.0ms             | Phoenix 9% faster  |
+
+Verdict: try_except_callee + nn_module_forward (= bench_deep_class)
+sub-1.0x-vs-vanilla = INHERITED FROM CINDER. Phoenix not regression
+source. PROVISIONAL → CONFIRMED-INHERITED. W-PERF-PRE-W27C-BISECT
+CLOSED-by-oracle-confirmation 2026-04-26T02:40:16Z.
+
+If future oracle confirms INHERITED, PROVISIONAL → CONFIRMED-INHERITED.
+If future oracle confirms PHOENIX-INTRODUCED, open bisect to localize commit.
