@@ -320,6 +320,54 @@ methodology layer. Critically: P10 does NOT replace (B) — if variance
 check confirms regression, (B) still runs. P10 is a pre-filter, not
 a substitute.
 
+### P11 — cinderx_dev Oracle Environment Specification
+**Origin:** pythia D-1777065234 #3 (deferred ~10 days) + supervisor
+2026-04-26T01:30:42Z PRIORITY directive after cinderx_dev oracle
+attempt failed to discriminate (01:16:27Z; -X jit didn't activate JIT,
+cross-arch confound).
+
+**Rule:** ANY cinderx_dev oracle invocation for Phoenix-vs-Cinder
+attribution MUST follow the env-equivalence procedure documented at
+docs/cinderx-oracle-env-spec.md. Specifically: same-arch comparison +
+explicit JIT activation verification (cinderjit.force_compile +
+is_jit_compiled, NOT -X jit alone) + same harness + warmup-threshold
+handling.
+
+**Why:** -X jit insufficient (didn't activate JIT in 01:16Z attempt);
+cross-arch (ARM64 cinderx_dev vs x86_64 Phoenix) confounds comparison;
+unverified JIT activation invalidates the oracle reading.
+
+**Enforcement:** Oracle invoker cites env-spec doc + posts JIT-activation-
+verification output before reporting comparison verdict.
+
+### P12 — Alex-Pending Escalations Not Self-Liftable
+**Origin:** pythia #145 #1 + #147 #2 + #148 #2 + supervisor 2026-04-26T02:28Z
+codification directive. Supervisor self-lifted Alex's open (A)/(B)/(C)
+escalation (D-1777156403, posted 22:24:47Z, ~3.5h cold) when (D) emerged
+at 00:02Z, citing terminal-goal alignment. Pythia caught + supervisor
+committed honest framing in Alex notification, but the lived precedent
+risks future agents citing 'supervisor may self-lift Alex-pending escalations
+when terminal-goal-aligned' for next deadline-pressured decision.
+
+**Rule:** Once an escalation question is posted to Alex (any agent
+@alex'ing for direction), no agent may self-lift the hold while the
+question remains unanswered. If an alternative path emerges that
+appears to obviate the original question, execute the alternative path
+on its own merits — but DO NOT name it as 'lifting the hold'. Wait for
+Alex's response on the original question, even if the answer becomes
+moot.
+
+**Enforcement:** Any agent posting 'hold lifted' / 'authorization moot' /
+'proceeding past escalation' on an Alex-pending question is in violation.
+Medic + shepard flag. The alternative path can ship; the hold-lift framing
+cannot.
+
+**Why this rule:** Alex's escalations are governance, not just scope.
+Self-lifting under 'terminal-goal alignment' interpretation creates
+precedent for future self-authority that compounds across sessions.
+Caps the precedent: alternative paths execute independently, not as
+hold-resolution.
+
 ## Cross-Cutting Rules
 
 ### CC1 — Class-of-Bug Audit Triggered by Boundary Fix
