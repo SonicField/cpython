@@ -233,6 +233,15 @@ struct HirInstrLayoutVerifier {
     /* LoadAttr: name_idx + already_optimized */
     static_assert(offsetof(HirLoadAttr, name_idx) == offsetof(LoadAttr, name_idx_));
     static_assert(offsetof(HirLoadAttr, already_optimized) == offsetof(LoadAttr, already_optimized_));
+    /* LoadMethodBase set (LoadMethod / LoadMethodCached /
+     * LoadModuleMethodCached): no concrete C++ class exists — Phoenix
+     * allocates these directly via the HIR_OP_LoadMethod{,Cached,...}
+     * C factories. Layout consistency across the three C structs is
+     * by-construction (all expand HIR_DEOPT_NAMEIDX_FIELDS); cross-arch
+     * compatibility with DeoptBaseWithNameIdx::name_idx_ is covered
+     * indirectly by the FillTypeAttrCache check above (same macro). */
+    static_assert(offsetof(HirLoadMethod, name_idx) == offsetof(HirLoadMethodCached, name_idx));
+    static_assert(offsetof(HirLoadMethod, name_idx) == offsetof(HirLoadModuleMethodCached, name_idx));
 
     /* Existing Batch 4b container-field offsetof checks */
     static_assert(offsetof(HirFillTypeAttrCache, cache_id) == offsetof(FillTypeAttrCache, cache_id_));
