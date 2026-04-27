@@ -147,6 +147,51 @@ land):
   + ABBA gate verification per BLME precedent, _c.c port + .cpp
   delegation). No class-state work.
 
+### 4.A.5 — Class-state extraction PROBE (per pythia #188 2026-04-27)
+**Authorized:** supervisor 2026-04-27T09:36:01Z. Inserted between Phase
+4.A and 4.B to surface class-state extraction risks BEFORE Phase 4.C
+sunk-cost begins. Pythia #188 framing: "a rehearsal in an empty
+theater predicts only that the lights work" — Phase 4.A pilots (BLME,
+printer, hir_instr_c_verify, hir) have ZERO HirBuilder class-state
+dependency, so they validate the algorithm-port + bridge-dissolution
+pattern but NOT the harder Class A/B migration that Phase 4.C requires.
+
+**Scope (1 commit, ~30-50 LOC):**
+- Pick the SIMPLEST Class A field for migration: recommend `kwnames_`
+  (`Register*`, mirrored to `state_.kwnames`, low call-site count).
+  Rationale: it's a Pilot 5 dry-run on the cheapest field; failure
+  surfaces structural problems (silent-drift, mutator-site enumeration
+  gap, JIT_DCHECK equality drift) before the 1500 LOC sunk in 4.A is
+  fully committed.
+- Steps:
+  1. grep all `kwnames_` C++ direct-access sites in builder.cpp.
+  2. Migrate each access to read/write `state_.kwnames` instead of the
+     C++ duplicate field.
+  3. JIT_DCHECK on equality of `state_.kwnames == kwnames_` at every
+     mutator site (until the C++ field is deleted).
+  4. Delete the C++ `kwnames_` field. Re-grep returns zero references.
+  5. Run full Phase JIT test suite + ABBA + ARM64.
+
+**Acceptance:** the 1-commit probe must pass the per-trajectory metric
+(§5.0) AND introduce zero functional regressions. If any of:
+- Mutator-site enumeration miss (a write site uses C++ field without
+  state_ update — silent drift)
+- JIT_DCHECK equality failure during migration
+- ABBA regression
+- ARM64 build failure or test divergence
+...then PAUSE Phase 4.B + 4.C. Theologian re-spec the Class B-kept
+migration approach before more pilots commit.
+
+**Why kwnames_ specifically:** least call-site count among Class A
+mirrored fields (sub-10 estimated; vs code_ at 46, current_func_ at
+~30, preloader_ at 28); pure setter/getter semantics (no
+container/lifecycle complexity). Failure modes are concentrated.
+
+**Why before 4.B:** §5.A close gate is LOC-trajectory only and won't
+catch class-state failure modes. inliner.cpp (4.B medium-state) gates
+on Pilot 3 (temps_) anyway, so the probe surface naturally precedes
+4.B without re-sequencing.
+
 ### 4.B — Medium-state HIR files
 - `inliner.cpp` 704 LOC — uses HIRBuilder for inlineHIR; depends on
   Phase 4.C class-state migration partially landing
@@ -397,7 +442,21 @@ canonical reference; no further input needed unless re-opened.
 
 5. **Phase 4 acceptance criteria:** ALL of:
    - PhxHirBuilderState contains 100% of HIRBuilder state (zero C++
-     duplicates)
+     duplicates). **Operational falsifier (per pythia #188 +
+     supervisor 2026-04-27T09:36:01Z):** the following grep MUST
+     return zero hits in `Python/jit/hir/builder.cpp`:
+     ```
+     grep -nE '\b(code_|preloader_|current_func_|temps_|func_|kwnames_|static_method_stack_)\b' \
+       Python/jit/hir/builder.cpp \
+       | grep -vE '(state_\.|hir_builder_state_[a-z_]+_c?p?p?\(|^[[:space:]]*//)'
+     ```
+     Acceptable hits: (a) accesses through `state_.<field>`, (b)
+     bridge function definitions/calls (`hir_builder_state_*_c` /
+     `_cpp`), (c) comments. Any other hit is an unmigrated C++
+     direct member access — fail acceptance until grep returns
+     clean. (Refine the pattern when Pilot 5 deletes the C++ field
+     mirrors entirely; at that point the field name should not
+     appear at all in builder.cpp.)
    - builder.cpp ≤ 200 LOC (thin entry-point wrapper or zero per
      decision #4)
    - hir.cpp + printer.cpp + inliner.cpp + preload.cpp + blme +
