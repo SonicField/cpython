@@ -1,11 +1,15 @@
-# gen_simple — JIT generator-creation overhead (Phoenix-stable known-cost)
+# gen_simple — JIT generator-creation overhead (Phoenix-introduced; stable within Phoenix)
 
-**Status:** KNOWN-COST, fix-class workstream queued post-terminal-goal
-pure-C completion (per Alex priority order). NOT a recent regression;
-stable across 11+ days, 6+ sessions, multiple unrelated commit
-surfaces. Documented per supervisor 2026-04-27T15:15:20Z disposition
-following pythia #195 catch on prior "pre-existing structural causal
-absence" framing.
+**Status:** PHOENIX-INTRODUCED regression CONFIRMED via cinderx_dev
+Tier-1 falsifier (generalist 2026-04-27T17:25:42Z; see
+"Tier-1 falsifier" section below). Fix-class bisect workstream queued
+post-terminal-goal pure-C completion (per Alex priority order); next-
+session HARD per supervisor 2026-04-27T15:48:09Z re-anchor. NOT a
+recent regression; stable across 11+ days, 6+ sessions, multiple
+unrelated commit surfaces — the introducing commit is upstream of
+Phase-3D-start and inherited by every subsequent ABBA. Documented per
+supervisor 2026-04-27T15:15:20Z disposition following pythia #195
+catch on prior "pre-existing structural causal absence" framing.
 
 ## Symptom
 
@@ -52,6 +56,42 @@ measurements:
 `cinderjit.auto()` is the cost driver. Phoenix-with-JIT-disabled is
 within 3% of vanilla (harmless CPython-branch overhead). Phoenix-JIT
 adds 142ms (29% on top of JIT_OFF) on this workload.
+
+## Tier-1 falsifier — cinderx_dev oracle (generalist 2026-04-27T17:25:42Z)
+
+Per `feedback_assume_phoenix_regression.md` Alex 2026-04-24
+directive: regressions presumed Phoenix-introduced; cinderx_dev
+oracle is the Tier-1 falsifier. cinderx_dev is the upstream Cinder
+JIT that Phoenix descends from; if it runs the same workload
+efficiently, the regression is Phoenix-introduced.
+
+Method: identical `bench_gen_simple(8_700_000)` workload + 3-warmup +
+3-measure + median, run on cinderx_dev binary with `cinderjit.auto()`:
+
+```bash
+PYTHONPATH=/home/alexturner/local/cinderx_dev/cinderx/cinderx/PythonLib \
+  /home/alexturner/local/cinderx_dev/venv/bin/python /tmp/oracle_test.py
+```
+
+| Configuration | gen_simple median |
+|---|---|
+| Vanilla CPython 3.12 | 505 ms |
+| **cinderx_dev + CinderJIT (auto)** | **504 ms** |
+| Phoenix interpreter (no `cinderjit.auto`) | 472 ms |
+| Phoenix + `cinderjit.auto` (= ABBA condition) | 670 ms |
+
+**VERDICT:** cinderx_dev runs gen_simple at vanilla speed (504ms ≈
+505ms vanilla); Phoenix's JIT is the OUTLIER at 670ms. Cinder's JIT
+handles short-lived generator dispatch efficiently; Phoenix's port
+broke it at some commit between cinder/cinderx_dev divergence and
+Phase-3D-start. Phoenix-INTRODUCED regression CONFIRMED per Alex's
+2026-04-24 Tier-1 falsifier discipline.
+
+The "Phoenix-stable known-cost" framing in the rest of this doc
+remains accurate within Phoenix's own commit history (the cost
+hasn't drifted across recent commits) but it is NOT
+architectural-cost — it's a fixable bug whose introducing commit
+predates the observed-stable window.
 
 ## Hypothesis (mechanism candidate, not yet confirmed)
 
@@ -102,18 +142,26 @@ NOT cite this doc.
 
 ## Resumption gate (when fix-class work opens)
 
-1. Re-baseline `gen_simple` standalone (vanilla / Phoenix-JIT-off /
-   Phoenix-JIT-on) to confirm the ~0.73x ratio still holds; if not,
-   reframe.
-2. Profile JIT-compiled `bench_gen_simple` under `perf record` or
+1. Re-baseline `gen_simple` standalone (vanilla / cinderx_dev /
+   Phoenix-JIT-off / Phoenix-JIT-on) to confirm the ~1.33x cinderx_dev
+   vs Phoenix-JIT ratio still holds; if not, reframe.
+2. **Bisect Phoenix history with cinderx_dev as speed-oracle.** The
+   Tier-1 falsifier (above) confirms Phoenix-introduced. Bisect
+   between Phase-3D-start and HEAD with `bench_gen_simple` against
+   the cinderx_dev 504ms target finds the introducing commit.
+   Alternatively, if Phase-3D-start is already 670ms-class, bisect
+   pre-Phase-3D Phoenix history. Estimated 10-20 build+test cycles;
+   testkeeper-only per build-lock.
+3. Profile JIT-compiled `bench_gen_simple` under `perf record` or
    `cProfile` (note cProfile distorts vanilla baseline by ~3.8x; use
    `perf` for clean comparison).
-3. Diff JIT-emitted code for `bench_gen_simple` outer loop vs
-   interpreter dispatch — look for per-iteration generator-frame
-   prologue weight.
-4. Falsify each hypothesis-class candidate above; document which is
+4. Diff JIT-emitted code for `bench_gen_simple` outer loop vs
+   cinderx_dev's JIT-emitted code AND Phoenix's interpreter dispatch
+   — look for per-iteration generator-frame prologue weight that
+   diverged from Cinder's path.
+5. Falsify each hypothesis-class candidate above; document which is
    load-bearing.
-5. Heavy-tier instrumentation (analogous to W-PYTORCH-CM (ii)
+6. Heavy-tier instrumentation (analogous to W-PYTORCH-CM (ii)
    tp_alloc-watchpoint pattern) only after lighter probes converge or
    exhaust.
 
