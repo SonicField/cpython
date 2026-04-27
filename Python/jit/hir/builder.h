@@ -231,11 +231,13 @@ class HIRBuilder {
   // BlockMap struct + block_map_ field DELETED.
   friend PhxHirBuilderState *::phx_hir_builder_state(void*);
  public:
-  const Preloader& preloader() const { return preloader_; }
+  const Preloader& preloader() const {
+    return *static_cast<const Preloader*>(state_.preloader);
+  }
   explicit HIRBuilder(const Preloader& preloader)
-      : code_(preloader.code()), preloader_(preloader) {
+      : code_(preloader.code()) {
     hir_builder_state_init(
-        &state_, static_cast<void*>(code_), static_cast<const void*>(&preloader_));
+        &state_, static_cast<void*>(code_), static_cast<const void*>(&preloader));
   }
 
   // Translate the bytecode for code_ into HIR, in the context of the preloaded
@@ -674,7 +676,11 @@ class HIRBuilder {
       DeoptBase* call_instr,
       Register* result);
 
-  const Preloader& preloader_;
+  // §4.A.5c PROBE-1 2026-04-27: preloader_ migrated to state_.preloader
+  // (smallest >15 single-setter — purest const-after-ctor shape; per-field
+  // bracket validation per pythia #190 + supervisor 14:36:42Z + theologian
+  // 14:36:45Z). C++ field deleted; preloader() getter reads from
+  // state_.preloader. Probe-1 of the §4.A.5c bracket-validation gate.
 
   // Set during translate() — gives emitLoadAttr etc. access to the environment
   // for addReference calls on type objects found during compilation.
@@ -687,14 +693,16 @@ class HIRBuilder {
 
   OperandStack static_method_stack_;
 
-  // Phase 3 Batch 1: Class A state mirror (code_, preloader_, current_func_,
-  // func_). Initialized in ctor; subsequent batches migrate mutator sites
-  // to update state_ in lockstep + remove duplicate C++ members. C-body
-  // bridges (hir_builder_state_*_c) read state via this.
-  // §4.A.5 PROBE 2026-04-27: kwnames_ migrated to state_.kwnames; the
-  // last constant from a KW_NAMES opcode now lives there. C++ field
-  // deleted; bridges hir_builder_get/set_kwnames read/write state_.kwnames
-  // directly. Pilot-5 dry-run per pythia #188 + supervisor 09:36:01Z.
+  // Phase 3 Batch 1: Class A state mirror (code_, current_func_, func_).
+  // Initialized in ctor; subsequent batches migrate mutator sites to update
+  // state_ in lockstep + remove duplicate C++ members. C-body bridges
+  // (hir_builder_state_*_c) read state via this.
+  // §4.A.5 PROBE 2026-04-27: kwnames_ migrated to state_.kwnames; bridges
+  // hir_builder_get/set_kwnames read/write state_.kwnames directly.
+  // §4.A.5c PROBE-1 2026-04-27: preloader_ migrated to state_.preloader;
+  // preloader() getter reads from state_.preloader. Smallest >15
+  // single-setter (26 reads, const-after-ctor); validates the >15 bracket
+  // single-commit-deletion pattern per supervisor 14:36:42Z.
   PhxHirBuilderState state_{};
 };
 

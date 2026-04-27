@@ -1042,7 +1042,7 @@ void HIRBuilder::addLoadArgs(TranslationContext& tc, int num_args) {
     if (i == starargs_idx) {
       tc.emitLoadArg(dst, i, TTupleExact);
     } else {
-      Type type = preloader_.checkArgType(i);
+      Type type = preloader().checkArgType(i);
       tc.emitLoadArg(dst, i, type);
     }
   }
@@ -1313,7 +1313,7 @@ bool HIRBuilder::getSimpleExceptInfo(
   BCOffset except_body = bc.nextInstrOffset();
 
   // Resolve exception type at JIT compile time via preloader.
-  PyObject* exc_type = preloader_.global(name_idx);
+  PyObject* exc_type = preloader().global(name_idx);
   if (exc_type == nullptr) {
     return false;
   }
@@ -1367,7 +1367,7 @@ void HIRBuilder::emitInlineExceptionMatch(
       static_cast<int>(handler.depth),
       static_cast<void*>(info.exc_type),
       info.except_body.value(),
-      Type::toHirType(preloader_.returnType()),
+      Type::toHirType(preloader().returnType()),
       static_cast<void*>(left),
       static_cast<void*>(right),
       static_cast<void*>(result),
@@ -1414,7 +1414,7 @@ void HIRBuilder::emitCallExceptionHandler(
       static_cast<int>(handler.depth),
       static_cast<void*>(info.exc_type),
       info.except_body.value(),
-      Type::toHirType(preloader_.returnType()),
+      Type::toHirType(preloader().returnType()),
       static_cast<void*>(result),
       reinterpret_cast<void*>(JITRT_MatchAndClearException));
 }
@@ -1449,7 +1449,7 @@ std::unique_ptr<Function> buildHIR(const Preloader& preloader) {
 std::unique_ptr<Function> HIRBuilder::buildHIR() {
   checkTranslate();
 
-  std::unique_ptr<Function> irfunc = preloader_.makeFunction();
+  std::unique_ptr<Function> irfunc = preloader().makeFunction();
   buildHIRImpl(irfunc.get(), /*frame_state=*/nullptr);
   // Use the C versions directly instead of the CleanCFG Pass because the
   // rest of CleanCFG requires SSA.
@@ -1504,12 +1504,12 @@ BasicBlock* HIRBuilder::buildHIRImpl(
       entry_block,
       FrameState{
           code_,
-          preloader_.globals(),
-          preloader_.builtins(),
+          preloader().globals(),
+          preloader().builtins(),
           /*parent=*/frame_state}};
   allocateLocalsplus(&irfunc->env, entry_tc.frame);
 
-  addLoadArgs(entry_tc, preloader_.numArgs());
+  addLoadArgs(entry_tc, preloader().numArgs());
 
   // Consider checking if the code object or preloader uses runtime func and
   // drop the frame_state == nullptr check.  Inlined functions should load a
@@ -1561,8 +1561,8 @@ InlineResult HIRBuilder::inlineHIR(
   // the Return and use it as the output of the call instruction.
   Register* return_val = caller->env.AllocateRegister();
   BasicBlock* exit_block = caller->cfg.AllocateBlock();
-  if (preloader_.returnType() <= TPrimitive) {
-    exit_block->append<Return>(return_val, preloader_.returnType());
+  if (preloader().returnType() <= TPrimitive) {
+    exit_block->append<Return>(return_val, preloader().returnType());
   } else {
     exit_block->append<Return>(return_val);
   }
@@ -2067,10 +2067,10 @@ void HIRBuilder::translate(
         case RETURN_PRIMITIVE: {
           Type type = prim_type_to_type(bc_instr.oparg());
           JIT_CHECK(
-              type <= preloader_.returnType(),
+              type <= preloader().returnType(),
               "bad return type {}, expected {}",
               type,
-              preloader_.returnType());
+              preloader().returnType());
           Register* reg = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
           tc.emitReturn(reg, type);
           break;
@@ -2080,7 +2080,7 @@ void HIRBuilder::translate(
               tc.frame.block_stack.isEmpty(),
               "Returning with non-empty block stack");
           Register* reg = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-          Type ret_type = preloader_.returnType();
+          Type ret_type = preloader().returnType();
           if (jit_get_config()->refine_static_python && ret_type < TObject) {
             tc.emitRefineType(reg, ret_type, reg);
           }
@@ -3195,7 +3195,7 @@ extern "C" void hir_builder_invoke_function_target_c(
     void **out_indirect_ptr,
     HirType *out_return_type) {
   auto *self = static_cast<HIRBuilder*>(builder);
-  const InvokeTarget& target = self->preloader_.invokeFunctionTarget(descr);
+  const InvokeTarget& target = self->preloader().invokeFunctionTarget(descr);
   *out_container_is_immutable = target.container_is_immutable ? 1 : 0;
   *out_is_function = target.is_function ? 1 : 0;
   *out_is_statically_typed = target.is_statically_typed ? 1 : 0;
@@ -3209,7 +3209,7 @@ extern "C" void hir_builder_invoke_function_target_c(
 extern "C" int hir_builder_try_emit_direct_method_call_for_function_c(
     void *builder, void *tc, PyObject *descr, long nargs) {
   auto *self = static_cast<HIRBuilder*>(builder);
-  const InvokeTarget& target = self->preloader_.invokeFunctionTarget(descr);
+  const InvokeTarget& target = self->preloader().invokeFunctionTarget(descr);
   return self->tryEmitDirectMethodCall(
       target, *static_cast<HIRBuilder::TranslationContext*>(tc), nargs) ? 1 : 0;
 }
@@ -3218,7 +3218,7 @@ extern "C" void hir_builder_setup_static_args_for_function_c(
     void *builder, void *tc, PyObject *descr, long nargs, int statically_typed,
     void **out_arg_regs, size_t *out_count) {
   auto *self = static_cast<HIRBuilder*>(builder);
-  const InvokeTarget& target = self->preloader_.invokeFunctionTarget(descr);
+  const InvokeTarget& target = self->preloader().invokeFunctionTarget(descr);
   auto arg_regs = self->setupStaticArgs(
       *static_cast<HIRBuilder::TranslationContext*>(tc), target, nargs,
       statically_typed != 0);
@@ -3232,7 +3232,7 @@ extern "C" int hir_builder_is_static_rand_and_try_emit_c(
     void *builder, void *tc, PyObject *descr, long nargs) {
 #if PY_VERSION_HEX >= 0x030C0000
   auto *self = static_cast<HIRBuilder*>(builder);
-  const InvokeTarget& target = self->preloader_.invokeFunctionTarget(descr);
+  const InvokeTarget& target = self->preloader().invokeFunctionTarget(descr);
   if (self->isStaticRand(target) && self->tryEmitStaticRandCall(
           target, *static_cast<HIRBuilder::TranslationContext*>(tc), nargs)) {
     return 1;
@@ -3248,7 +3248,7 @@ extern "C" bool hir_builder_emit_invoke_function_c(
     void *tc, void *func, void *builder,
     PyObject *descr, long nargs, uint32_t flags);
 
-/* C bridge: query NativeTarget fields from preloader_.
+/* C bridge: query NativeTarget fields from preloader().
  * INVOKE_* Phase 2 #1 per theologian L2430. NativeTarget has only 2 fields
  * needed by C body (callable + return_type); primitive_arg_types not used
  * by the emit path. Always populates outputs; never NULL since preloader_
@@ -3313,7 +3313,7 @@ void HIRBuilder::emitLoadMethodStatic(
 extern "C" int hir_builder_preloader_invoke_method_slot_c(
     void *builder, PyObject *descr) {
   auto *self = static_cast<HIRBuilder*>(builder);
-  return static_cast<int>(self->preloader_.invokeMethodTarget(descr).slot);
+  return static_cast<int>(self->preloader().invokeMethodTarget(descr).slot);
 }
 
 extern "C" void hir_builder_state_static_method_stack_push_cpp(
@@ -3338,7 +3338,7 @@ extern "C" void hir_builder_invoke_method_target_c(
     void *builder, PyObject *descr,
     int *out_is_builtin, int *out_is_statically_typed, HirType *out_return_type) {
   auto *self = static_cast<HIRBuilder*>(builder);
-  const InvokeTarget& target = self->preloader_.invokeMethodTarget(descr);
+  const InvokeTarget& target = self->preloader().invokeMethodTarget(descr);
   *out_is_builtin = target.is_builtin ? 1 : 0;
   *out_is_statically_typed = target.is_statically_typed ? 1 : 0;
   *out_return_type = Type::toHirType(target.return_type);
@@ -3347,7 +3347,7 @@ extern "C" void hir_builder_invoke_method_target_c(
 extern "C" int hir_builder_try_emit_direct_method_call_c(
     void *builder, void *tc, PyObject *descr, long nargs) {
   auto *self = static_cast<HIRBuilder*>(builder);
-  const InvokeTarget& target = self->preloader_.invokeMethodTarget(descr);
+  const InvokeTarget& target = self->preloader().invokeMethodTarget(descr);
   return self->tryEmitDirectMethodCall(
       target, *static_cast<HIRBuilder::TranslationContext*>(tc), nargs) ? 1 : 0;
 }
@@ -3356,7 +3356,7 @@ extern "C" void hir_builder_setup_static_args_c(
     void *builder, void *tc, PyObject *descr, long nargs, int statically_typed,
     void **out_arg_regs, size_t *out_count) {
   auto *self = static_cast<HIRBuilder*>(builder);
-  const InvokeTarget& target = self->preloader_.invokeMethodTarget(descr);
+  const InvokeTarget& target = self->preloader().invokeMethodTarget(descr);
   auto arg_regs = self->setupStaticArgs(
       *static_cast<HIRBuilder::TranslationContext*>(tc), target, nargs,
       statically_typed != 0);
@@ -4498,7 +4498,7 @@ void HIRBuilder::checkTranslate() {
       throw std::runtime_error{fmt::format(
           "Cannot compile {} to HIR because it contains unsupported opcode {} "
           "({})",
-          preloader_.fullname(),
+          preloader().fullname(),
           opcode,
           opcodeName(opcode))};
     } else if (opcode == LOAD_GLOBAL) {
@@ -4509,14 +4509,14 @@ void HIRBuilder::checkTranslate() {
           throw std::runtime_error{fmt::format(
               "Cannot compile {} to HIR because it uses super() without an "
               "attribute or method after it",
-              preloader_.fullname())};
+              preloader().fullname())};
         }
         oparg = oparg >> 1;
       }
       if (banned_name_ids.contains(oparg)) {
         throw std::runtime_error{fmt::format(
             "Cannot compile {} to HIR because it uses banned global '{}'",
-            preloader_.fullname(),
+            preloader().fullname(),
             name_at(oparg))};
       }
     }
