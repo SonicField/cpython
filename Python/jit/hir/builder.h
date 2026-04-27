@@ -234,6 +234,12 @@ class HIRBuilder {
   const Preloader& preloader() const {
     return *static_cast<const Preloader*>(state_.preloader);
   }
+  // §4.A.5c PROBE-2 2026-04-27: current_func_ migrated to
+  // state_.current_func; getter reads from state, write site
+  // (translate(): line ~1636) writes state_.current_func directly.
+  Function* current_func() const {
+    return static_cast<Function*>(state_.current_func);
+  }
   explicit HIRBuilder(const Preloader& preloader)
       : code_(preloader.code()) {
     hir_builder_state_init(
@@ -682,10 +688,6 @@ class HIRBuilder {
   // 14:36:45Z). C++ field deleted; preloader() getter reads from
   // state_.preloader. Probe-1 of the §4.A.5c bracket-validation gate.
 
-  // Set during translate() — gives emitLoadAttr etc. access to the environment
-  // for addReference calls on type objects found during compilation.
-  Function* current_func_{nullptr};
-
   TempAllocator temps_{nullptr};
 
   // Tracks the function for compilations that require it.
@@ -693,7 +695,7 @@ class HIRBuilder {
 
   OperandStack static_method_stack_;
 
-  // Phase 3 Batch 1: Class A state mirror (code_, current_func_, func_).
+  // Phase 3 Batch 1: Class A state mirror (code_, func_).
   // Initialized in ctor; subsequent batches migrate mutator sites to update
   // state_ in lockstep + remove duplicate C++ members. C-body bridges
   // (hir_builder_state_*_c) read state via this.
@@ -703,6 +705,11 @@ class HIRBuilder {
   // preloader() getter reads from state_.preloader. Smallest >15
   // single-setter (26 reads, const-after-ctor); validates the >15 bracket
   // single-commit-deletion pattern per supervisor 14:36:42Z.
+  // §4.A.5c PROBE-2 2026-04-27: current_func_ migrated to
+  // state_.current_func; current_func() getter reads from state, write site
+  // (translate(): builder.cpp:~1636) writes state_.current_func directly.
+  // 96 reads + 1 write (single-direct-write shape) — validates >15 bracket
+  // for the structurally distinct shape vs PROBE-1's const-after-ctor.
   PhxHirBuilderState state_{};
 };
 
