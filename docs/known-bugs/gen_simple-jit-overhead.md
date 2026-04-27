@@ -8,18 +8,33 @@ session HARD per supervisor 2026-04-27T15:48:09Z re-anchor. NOT a
 recent regression; stable across 11+ days, 6+ sessions, multiple
 unrelated commit surfaces.
 
-**Bisect bound REVISED 2026-04-27T19:30Z (theologian audit + supervisor
-2026-04-27T19:31:15Z):** the introducing commit PRE-DATES Phase 3D
-Step 1 (42d0a0b227, 2026-04-01). Earliest in-tree gen_simple
-measurement at 0.75x is 2026-03-31 (`docs/benchmarks/x86_64_abba_2026-03-31.md`),
-predating 42d0a0b227 by 1 day. Bisect bound is therefore NOT
-42d0a0b227..HEAD; needs pre-2026-03-31 Phoenix history. The
-contemporaneous arm64 annotation (`docs/benchmarks/arm64_abba_2026-04-01.md`)
-hypothesizes "Generator resume path has JIT infrastructure overhead
-(deopt trampoline)" — direct deopt-trampoline-removal investigation
-may shortcut full bisect. Documented per supervisor 2026-04-27T15:15:20Z
-disposition following pythia #195 catch on prior "pre-existing
-structural causal absence" framing.
+**Bisect bound REVISED 2026-04-27T19:30Z + NARROWED 2026-04-27T20:09Z
+(theologian audits + supervisor 2026-04-27T19:31:15Z):** the
+introducing commit PRE-DATES Phase 3D Step 1 (42d0a0b227, 2026-04-01)
+AND POST-DATES Phoenix's CinderX-extraction commit bd00b75500
+(2026-03-30 07:11:41 -0700). Earliest in-tree gen_simple measurement
+at 0.75x is 2026-03-31 (`docs/benchmarks/x86_64_abba_2026-03-31.md`),
+~1 day after extraction.
+
+**Branch-point falsifier (theologian 2026-04-27T20:09:27Z):**
+cinderx_dev HEAD is a51869294 (2026-03-19), 11 days OLDER than
+Phoenix's extraction-commit. Zero cinderx_dev commits exist after
+2026-03-30. The "inherited-unfix" alternative hypothesis is
+FALSIFIED — cinderx_dev cannot have acquired post-extraction fixes
+Phoenix is missing. The 504ms cinderx_dev result vs 670ms Phoenix
+result is a measurement of Phoenix-introduced regression at
+extraction time, not inferred from HEAD-vs-HEAD.
+
+**Bisect bound NARROWED:** `bd00b75500..2026-03-31`. The CinderX-
+extraction commit itself OR the very first post-extraction commit
+is the suspect window. May resolve to single-commit identification,
+not a multi-commit bisect range. The contemporaneous arm64 annotation
+(`docs/benchmarks/arm64_abba_2026-04-01.md`) hypothesizes "Generator
+resume path has JIT infrastructure overhead (deopt trampoline)" —
+direct deopt-trampoline-removal investigation may shortcut formal
+bisect across the narrow window. Documented per supervisor
+2026-04-27T15:15:20Z disposition following pythia #195 catch on
+prior "pre-existing structural causal absence" framing.
 
 ## Symptom
 
@@ -160,12 +175,15 @@ NOT cite this doc.
    Phoenix-JIT-off / Phoenix-JIT-on) to confirm the ~1.33x cinderx_dev
    vs Phoenix-JIT ratio still holds; if not, reframe.
 2. **Bisect Phoenix history with cinderx_dev as speed-oracle.** The
-   Tier-1 falsifier (above) confirms Phoenix-introduced. Bisect bound
-   per Status-section revision (theologian 2026-04-27T19:30Z): NOT
-   42d0a0b227..HEAD; the regression was already present at
-   2026-03-31 (pre-Phase-3D-Step-1). Bound is pre-2026-03-31 Phoenix
-   history through the earliest in-tree benchmark commit. Estimated
-   10-20 build+test cycles; testkeeper-only per build-lock.
+   Tier-1 falsifier + branch-point falsifier (above) confirm
+   Phoenix-introduced at extraction. Bisect bound per Status-section
+   revision + narrowing (theologian 2026-04-27T19:30Z + 20:09Z):
+   NOT 42d0a0b227..HEAD; bound is `bd00b75500..2026-03-31` (the
+   CinderX-extraction commit through the first ABBA-with-regression
+   measurement, ~1 day window). May resolve to single-commit
+   identification rather than multi-commit bisect range. Estimated
+   1-5 build+test cycles given narrow window; testkeeper-only per
+   build-lock.
 
    **Shortcut candidate (pre-bisect):** the contemporaneous arm64
    annotation (`docs/benchmarks/arm64_abba_2026-04-01.md`)
