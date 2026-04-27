@@ -1517,6 +1517,25 @@ static inline int hir_c_is_deopt_base(const void *instr) {
 static inline int hir_c_is_replayable(const void *instr) {
     return hir_instr_info_is_replayable(hir_c_opcode(instr));
 }
+static inline int hir_c_is_call_method(const void *instr) {
+    return hir_c_opcode(instr) == HIR_OP_CallMethod;
+}
+static inline int hir_c_is_load_method_super(const void *instr) {
+    return hir_c_opcode(instr) == HIR_OP_LoadMethodSuper;
+}
+static inline int hir_c_is_get_second_output(const void *instr) {
+    return hir_c_opcode(instr) == HIR_OP_GetSecondOutput;
+}
+/* C-side mirror of jit::hir::isLoadMethodBase (hir.cpp:725): returns
+ * true for LoadMethod, LoadMethodCached, LoadModuleMethodCached. Used
+ * by builtin_load_method_elimination to filter the LoadMethod-class
+ * dispatch heads it can rewrite. */
+static inline int hir_c_is_load_method_base(const void *instr) {
+    int op = hir_c_opcode(instr);
+    return op == HIR_OP_LoadMethod ||
+           op == HIR_OP_LoadMethodCached ||
+           op == HIR_OP_LoadModuleMethodCached;
+}
 
 /* ==== Phi query functions (no BasicBlock dependency) ==== */
 
