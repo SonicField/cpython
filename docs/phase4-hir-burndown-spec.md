@@ -230,68 +230,146 @@ land):
 
 ## 5. Intermediate checkpoint gates (per pythia #186 2026-04-27)
 
-The Phase-4-close LOC-delete falsifier (§7 falsifier #1, ≥80% LOC
+The Phase-4-close LOC-delete falsifier (§8 falsifier #1, ≥80% LOC
 delete) is a single trigger at the END of Phase 4. Pythia #186 flagged
 that this leaves no mid-flight signal: BLME alone (the easiest pilot)
 won't validate Phase 4.C class-state path or the ≥80% target.
 
-**Mid-Phase-4 checkpoint gates** (added per pythia #186):
+### 5.0 — Three-trajectory metric (per pythia #187 2026-04-27)
+
+Net-LOC alone is NOT a valid Phase-4 metric. Algorithm bodies port to
+C while the C++ shell (Pass class wrapper, virtual interface) STAYS
+until bridge dissolution in Phase 4.E. Single net-LOC delta will
+false-positive abort during 4.A-D as C accumulates and shells linger.
+
+Each checkpoint MUST evaluate **three trajectories independently**
+against projection:
+
+1. **C added (cumulative across landed files):** new `_c.c` body LOC.
+   Expected POSITIVE during 4.A-D; reflects algorithm migration.
+   Healthy range: roughly equal to or modestly exceeding original
+   .cpp algorithm LOC (BLME precedent: 184 LOC .cpp → 295 LOC .c due
+   to comments + container helpers).
+
+2. **C++ removed (cumulative across landed files):** algorithm bodies
+   deleted from `.cpp` files. Expected NEGATIVE during 4.A-D as
+   algorithm bodies migrate; **excludes shell residue** (remaining
+   `.cpp` shells are not "removed" yet, they're "shell-pending").
+   Healthy: each landed file's .cpp shrinks to ≤25 LOC shell
+   (Pass class + Run() forwarding to C entry).
+
+3. **Shell-pending (file count + cumulative LOC):** `.cpp` shells
+   awaiting deletion in Phase 4.E. These MUST contain only Pass class
+   wrapper + Run() forwarding; algorithm bodies in C. Tracked per
+   file. Phase 4.E deletion gates on whether the shell's C++ Pass
+   class is still consumed externally (compiler.cpp pass chain) —
+   most shells delete when compiler.cpp's pass-chain rewires to C
+   entries.
+
+**Net-LOC delta** is reported as derived (C added − C++ removed) but
+NEVER as primary pass/fail criterion. Strongly negative net-LOC only
+becomes the metric in Phase 4.E (bridge dissolution + shell deletion).
+
+**Per-file accounting template** (record at each file's commit):
+```
+File: <name>.cpp
+  Pre-port  C++ LOC: <N>
+  Post-port C++ LOC: <M>  (shell)
+  C++ removed:       N − M
+  C added (_c.c):    <K>
+  Net delta:         K − (N − M)
+  Shell-pending: yes (forwarding Pass class)
+```
 
 ### 5.A — Phase 4.A close gate
-**Trigger:** when 3 of 4 Phase 4.A files have landed (3,786 - 957/377/184
-= 2,602 LOC C++ deleted target before printer.cpp/hir.cpp).
-**Pass criteria:**
-- Cumulative C++ delete ≥ 2,200 LOC (85% of 2,602 target)
-- Per-commit ABBA: same-session geo-mean ≥ -5% across the 3 files
-- Zero functional regressions on the 7-test Phoenix JIT suite
-- ARM64 dual-arch tree-match clean for every commit
+**Trigger:** when 3 of 4 Phase 4.A files have landed (printer.cpp /
+hir_instr_c_verify.cpp / blme / hir.cpp; trigger when the 3rd lands,
+hold-out re-spec on 4th if needed).
+**Per-trajectory pass criteria:**
+- **C++ removed (algorithm bodies):** ≥85% of landed files' original
+  .cpp algorithm LOC migrated to C. Per-file shell residue ≤25 LOC
+  acceptable. (Reference: BLME landed at 21 LOC shell from 184 LOC
+  pre-port; ratio = 0.114, well within budget.)
+- **C added:** within 30%-150% of algorithm-LOC-migrated band (C
+  port may add comments + container helpers; ≥150% indicates
+  over-engineering, ≤30% indicates incomplete port).
+- **Shell-pending:** every landed file has its .cpp shell tracked
+  for Phase 4.E deletion eligibility (grep shows only Pass class +
+  Run() forwarding).
+- **Per-commit ABBA:** same-session geo-mean ≥ -5% across the 3
+  files (Phase 3D protocol).
+- **Functional:** zero regressions on the 7-test Phoenix JIT suite.
+- **ARM64 dual-arch tree-match** clean for every commit.
 **Fail action:** PAUSE Phase 4.B start; theologian re-spec the §4.A
-remaining file (likely hir.cpp 1,268 LOC if it's the holdout).
+remaining file (likely hir.cpp 1,268 LOC if it's the holdout) OR the
+C-added-band that triggered the failure.
 
 ### 5.B — Phase 4.B close gate
 **Trigger:** preload.cpp + inliner.cpp both landed.
-**Pass criteria:**
-- Cumulative Phase 4.A+B C++ delete ≥ 3,400 LOC (84% of 4,060 target)
-- Inliner.cpp post-Pilot-3 verification: temps_ usage in inlineHIR
-  goes through PhxTempAllocator with zero _cpp bridge calls
-- Same per-commit ABBA + ARM64 + functional gates
+**Per-trajectory pass criteria:**
+- **C++ removed (algorithm bodies):** ≥85% of preload.cpp +
+  inliner.cpp algorithm LOC migrated; per-file shell ≤25 LOC.
+- **C added:** within 30%-150% band as §5.A.
+- **Shell-pending:** preload.cpp + inliner.cpp shells tracked.
+- **Inliner.cpp Pilot-3 dependency check:** temps_ usage in inlineHIR
+  goes through PhxTempAllocator with zero _cpp bridge calls.
+- Same per-commit ABBA + ARM64 + functional gates.
 **Fail action:** PAUSE Phase 4.C scope expansion; theologian re-spec
-the inliner-temps_ interaction.
+the inliner-temps_ interaction or C-added band.
 
-### 5.C — Phase 4.C Pilot 3 entry gate (per §7 falsifier #1)
+### 5.C — Phase 4.C Pilot 3 entry gate (per §8 falsifier #1)
 **Trigger:** before Pilot 3 (temps_ migration) commits begin.
 **Pass criteria:**
 - PhxTempAllocator design doc landed (analogous to PhxExceptionTable
-  spec) — theologian-authored, supervisor-approved
+  spec) — theologian-authored, supervisor-approved.
 - Reference benchmark: same-session ABBA on TempAllocator-heavy
   workload (e.g. simplify_c benchmark suite, or fibonacci/nqueens
-  which exercise register allocation)
-- Pre-Pilot-3 baseline geo-mean recorded
-**Fail action:** STAND DOWN Pilot 3; investigate whether PhxRegisterArray
-realloc pattern matches std::vector growth.
+  which exercise register allocation).
+- Pre-Pilot-3 baseline geo-mean recorded.
+**Fail action:** STAND DOWN Pilot 3; investigate whether
+PhxRegisterArray realloc pattern matches std::vector growth.
 
 ### 5.D — Phase 4.C Pilot 5 (Class A delete) per-field gate
 **Trigger:** before each of the 5 Class A field deletions.
 **Pass criteria:**
 - Pre-deletion grep: zero remaining C++ direct accesses to the field
-  outside of `state_.<field>` reads
-- Mutator-site enumeration matches inventory in §2
+  outside of `state_.<field>` reads.
+- Mutator-site enumeration matches inventory in §2.
 - JIT_DCHECK on equality of `state_.<field>` vs C++ mirror passes
-  during full test suite
-**Fail action:** keep the C++ mirror until grep returns clean; do not
-delete on incomplete migration.
+  during full test suite.
+**Fail action:** keep the C++ mirror until grep returns clean; do
+not delete on incomplete migration.
 
 ### 5.E — Phase 4.D dispatch loop entry gate
 **Trigger:** before translate() conversion commits begin.
-**Pass criteria:**
+**Per-trajectory pass criteria:**
 - Phase 4.A-C all landed (no C++ HirBuilder state remains except
-  TranslationContext + dispatch)
-- Cumulative C++ delete ≥ 8,500 LOC (75% of pre-Phase-4.D target of
-  11,319 LOC excluding bridge)
+  TranslationContext + dispatch).
+- **C++ removed (algorithm bodies, cumulative 4.A+B+C):** ≥85% of
+  the original 4,060 LOC + Pilot 3/4 container LOC migrated. Shells
+  for hir/printer/inliner/preload/blme/verify all ≤25 LOC.
+- **Shell-pending count:** 6 (the 4.A+B file shells); compiler.cpp
+  pass-chain rewire to C entries scheduled in 4.E.
+- **C added cumulative** within 30%-150% band of algorithm migration.
 - Golden-output capture of representative HIR for 5+ functions BEFORE
-  conversion (per §6 decision #5 acceptance criteria)
-**Fail action:** if cumulative <8,500 LOC, the bottom-up sequencing
-assumption is failing; theologian re-spec.
+  conversion (per §6 decision #5 acceptance criteria).
+**Fail action:** if any trajectory fails, the bottom-up sequencing
+assumption is failing on that dimension; theologian re-spec only the
+failing dimension (do not re-spec what's working).
+
+### 5.F — Phase 4.E close gate (NEW per pythia #187 — net-LOC validity)
+**Trigger:** after Phase 4.E bridge dissolution + shell deletion
+commits land.
+**Pass criteria — net-LOC IS the metric here:**
+- Net LOC delta strongly negative: ≥10,000 LOC C++ removed (algorithm
+  + shell + bridge dissolution) − C added (cumulative across 4.A-D).
+- Phase 4 acceptance criteria §6 #5 ALL met:
+  PhxHirBuilderState 100% of state, builder.cpp ≤200 LOC, hir_c_api.cpp
+  HIR-internal-only bridges deleted (~600-1,000 LOC), all Phase 4.A+B
+  files at ≤25 LOC shell or zero.
+- Per-commit ABBA, functional, ARM64 gates clean throughout.
+**Fail action:** Phase 4 EXIT BLOCKED; theologian + supervisor
+post-mortem to identify which dimension under-performed.
 
 ---
 
