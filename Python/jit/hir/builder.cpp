@@ -2535,7 +2535,7 @@ void HIRBuilder::translate(
   }
 
   JIT_CHECK(
-      kwnames_ == nullptr,
+      state_.kwnames == nullptr,
       "Stashed a KW_NAMES value for function {} but never consumed it",
       irfunc.fullname);
 
@@ -2927,12 +2927,12 @@ void HIRBuilder::emitKwNames(
 
 extern "C" void *hir_builder_get_kwnames(void *builder) {
   auto *b = static_cast<HIRBuilder*>(builder);
-  return static_cast<void*>(b->kwnames_);
+  return b->state_.kwnames;
 }
 
 extern "C" void hir_builder_set_kwnames(void *builder, void *reg) {
   auto *b = static_cast<HIRBuilder*>(builder);
-  b->kwnames_ = static_cast<Register*>(reg);
+  b->state_.kwnames = reg;
 }
 
 extern "C" int hir_builder_emit_binary_op_c(void *tc, void *func, int opcode, int oparg, int specialized_opcode);

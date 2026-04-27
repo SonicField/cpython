@@ -685,15 +685,16 @@ class HIRBuilder {
   // Tracks the function for compilations that require it.
   Register* func_{nullptr};
 
-  // Tracks the most recent constant read from a KW_NAMES opcode.
-  Register* kwnames_{nullptr};
-
   OperandStack static_method_stack_;
 
   // Phase 3 Batch 1: Class A state mirror (code_, preloader_, current_func_,
-  // func_, kwnames_). Initialized in ctor; subsequent batches migrate
-  // mutator sites to update state_ in lockstep + remove duplicate C++
-  // members. C-body bridges (hir_builder_state_*_c) read state via this.
+  // func_). Initialized in ctor; subsequent batches migrate mutator sites
+  // to update state_ in lockstep + remove duplicate C++ members. C-body
+  // bridges (hir_builder_state_*_c) read state via this.
+  // §4.A.5 PROBE 2026-04-27: kwnames_ migrated to state_.kwnames; the
+  // last constant from a KW_NAMES opcode now lives there. C++ field
+  // deleted; bridges hir_builder_get/set_kwnames read/write state_.kwnames
+  // directly. Pilot-5 dry-run per pythia #188 + supervisor 09:36:01Z.
   PhxHirBuilderState state_{};
 };
 
