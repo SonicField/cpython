@@ -230,21 +230,109 @@ Filter to direct-access sites only. Report site count + classify per
 the bracket above. Theologian patch-shape review verifies the chosen
 migration mode matches the site-count bracket.
 
-**Failure-mode predictions per bracket:**
-- ≤5 sites: silent-drift risk LOW (3-4 site enumeration is verifiable
-  by inspection + grep). kwnames_ probe c2f255e5c9 demonstrates this.
-- 6-15 sites: silent-drift risk MEDIUM. JIT_DCHECK equality required.
-- >15 sites: silent-drift risk HIGH. JIT_DCHECK equality + per-mutator
-  batch migration + per-batch ABBA + per-batch ARM64 STRICT. code_ at
-  46 sites likely needs 4-6 batches; preloader_ at 28 likely needs
-  3-4 batches; current_func_ at 30 likely needs 3-4 batches. Each
-  batch carries its own gate.
+**Pre-Pilot-5 per-field CALL-PATH SHAPE audit (NEW per pythia #190
+2026-04-27)**: site count alone is insufficient — call-path SHAPE
+governs whether single-commit migration is safe for the bracket.
+Classify each direct-access site by mutator pattern:
+
+| Shape | Description | Example | Migration constraint |
+|---|---|---|---|
+| **single-setter** | All writes go through ONE C++ setter function (or bridge body); reads may be many but writes funnel through a single line | `kwnames_` (all writes via `hir_builder_set_kwnames` body, 1 line) | Single-commit OK (if also ≤5 sites) |
+| **multi-direct-assignment** | Writes happen via N direct C++ `field_ = X;` statements scattered through the file; no funnel | likely `code_` (set in ctor + buildHIRImpl + ...) | Multi-commit + per-mutator JIT_DCHECK equality REQUIRED, regardless of site count |
+| **write-during-iteration** | Writes happen INSIDE a loop that reads the field (e.g. iterating over a container holding the field's value); parallel-state DCHECK is racy because the equality assertion fires mid-iteration | TBD per audit; likely `current_func_` if any pass mutates while iterating | Multi-commit per-mutator batch + per-iteration-block DCHECK fence + supervisor-approved iteration-safe migration plan REQUIRED |
+
+**SHAPE OVERRIDES COUNT.** A field at 3 sites with multi-direct-
+assignment shape is migrated under the multi-commit + DCHECK rule, NOT
+the single-commit rule. A field at 10 sites with single-setter shape
+may be migrated single-commit (count says 6-15 multi-commit; shape
+says single-setter is safe — supervisor reviews the conflict per
+patch-shape).
+
+**Audit procedure**: for each field, run the site-count grep AND
+manually classify each write site. Report:
+```
+Field: <field>_
+  Site count: N
+  Read sites: N_r (no migration constraint)
+  Write sites: N_w
+    Shape: single-setter / multi-direct-assignment / write-during-iteration
+    Setter funnel (if single-setter): <function name>
+    Direct assignment lines (if multi-direct): line:N, line:M, ...
+    Iteration writers (if write-during-iteration): line:N (in <loop function>)
+  Migration mode: <bracket> + <shape override if any>
+```
+Theologian patch-shape review verifies BOTH bracket AND shape match
+the proposed migration mode.
+
+**Failure-mode predictions per bracket × shape:**
+- ≤5 sites + single-setter: silent-drift risk LOW. kwnames_ precedent.
+- ≤5 sites + multi-direct-assignment: silent-drift risk MEDIUM. Shape
+  overrides count → multi-commit + DCHECK.
+- 6-15 sites + single-setter: silent-drift risk LOW-MEDIUM. May qualify
+  for single-commit per shape override; supervisor reviews.
+- 6-15 sites + multi-direct-assignment: silent-drift risk MEDIUM.
+  Standard multi-commit + DCHECK.
+- >15 sites + any shape: silent-drift risk HIGH. Multi-commit per-batch
+  + per-batch ABBA + per-batch ARM64 STRICT. code_ at 46 sites likely
+  needs 4-6 batches; preloader_ at 28 likely 3-4; current_func_ at 30
+  likely 3-4. Each batch carries its own gate.
+- ANY count + write-during-iteration: silent-drift risk HIGH due to
+  in-loop equality races. Supervisor-approved iteration-safe migration
+  plan required BEFORE any commit.
 
 **Spec authority**: this section (§4.A.5b) supersedes any inferred
 "single-commit migration is the new pattern" reading from the
-kwnames_ probe outcome. The pattern applies ONLY to ≤5-site-class
-fields. Pilot 5 in §4.C MUST classify per this bracket BEFORE
-authoring any migration commit.
+kwnames_ probe outcome. The pattern applies ONLY to ≤5-site
+single-setter fields. Pilot 5 in §4.C MUST classify per this bracket
+× shape BEFORE authoring any migration commit.
+
+### 4.A.5c — Bracket-validation probe gate (NEW per pythia #190 2026-04-27)
+
+**Authorized:** supervisor 2026-04-27T11:29:30Z (3). The §4.A.5b
+acknowledgment "DO-NOT-EXTRAPOLATE" is a written warning, not a
+falsifier — nothing fires before Pilot 5 multi-commit work begins on
+unproven brackets. This section adds operational probe gates: each
+bracket beyond the kwnames_-class ≤5 must have a passed probe BEFORE
+cluster work in that bracket commences.
+
+**Probe gates (one per unproven bracket):**
+
+1. **6-15 single-setter probe.** Pick the smallest 6-15-site
+   single-setter Class A field per the §4.A.5b audit (TBD per
+   measured shape; may be `func_` if site count + shape align).
+   Single-commit migration with shape-override-justified single-commit.
+   Acceptance: same as kwnames_ probe (zero functional regressions,
+   ABBA clean, ARM64 STRICT clean, falsifier grep zero hits).
+   **Validates:** single-setter shape override safety for 6-15 count.
+
+2. **6-15 multi-direct-assignment probe.** Pick the smallest 6-15-site
+   multi-direct-assignment Class A field. Multi-commit migration with
+   per-mutator JIT_DCHECK equality. Acceptance: same gates + DCHECK
+   pre-deletion verification.
+   **Validates:** multi-commit + DCHECK methodology infra at the
+   6-15 count tier, BEFORE the >15 tier inherits the same approach.
+
+3. **>15 multi-direct-assignment probe.** Pick the smallest >15-site
+   field — likely `preloader_` at 28 sites if shape qualifies, or
+   `current_func_` at ~30. Multi-commit per-batch + per-batch ABBA +
+   per-batch ARM64 STRICT.
+   **Validates:** the heaviest bracket BEFORE `code_` at 46 sites
+   commits its 4-6 batches.
+
+**Sequencing**: probes 1+2 may run in parallel (different fields).
+Probe 3 sequences AFTER 1+2 land (to inherit their lessons). `code_`
+(46 sites, the heaviest field) sequences LAST in Pilot 5, after
+probe 3 validates the per-batch infra.
+
+**Cost (per probe):** ~1-3 commits, 1 session each; total Pilot 5
+prep cost = ~3-9 commits before cluster work begins. Compared to
+~13-19 commits for the cluster work itself, this is acceptable
+overhead for de-risking unproven brackets.
+
+**Fail action (any probe):** PAUSE Pilot 5 cluster work in the
+failing bracket. Theologian re-spec the bracket (likely splitting it
+further or amending the migration mode). Continue work in other
+brackets that have validated probes.
 
 ### 4.B — Medium-state HIR files
 - `inliner.cpp` 704 LOC — uses HIRBuilder for inlineHIR; depends on
@@ -477,6 +565,17 @@ failing dimension (do not re-spec what's working).
 ### 5.F — Phase 4.E close gate (NEW per pythia #187 — net-LOC validity)
 **Trigger:** after Phase 4.E bridge dissolution + shell deletion
 commits land.
+**Prerequisite (per pythia #190 + supervisor 2026-04-27T11:29:30Z (2)):**
+compiler.cpp:236 MUST call the C entry (`phx_hir_build` or equivalent),
+NOT the C++ `hir::buildHIR(preloader)` shell. Verified by:
+```
+grep -n 'hir::buildHIR\|phx_hir_build' Python/jit/compiler.cpp
+```
+Expected: zero hits for `hir::buildHIR`, ≥1 hit for `phx_hir_build`
+(the C entry). FAIL THIS PREREQUISITE → Phase 4 EXIT is BLOCKED until
+the rewire lands. Do NOT evaluate the pass criteria below until
+prerequisite passes — the §6 #5 "builder.cpp ≤ 200 LOC" criterion is
+unreachable while the C++ shell is still consumed.
 **Pass criteria — net-LOC IS the metric here:**
 - Net LOC delta strongly negative: ≥10,000 LOC C++ removed (algorithm
   + shell + bridge dissolution) − C added (cumulative across 4.A-D).
@@ -508,9 +607,26 @@ canonical reference; no further input needed unless re-opened.
    PhxTranslationContext + factory pattern + free-function emit
    dispatch.
 
-4. **compiler.cpp caller rewire:** DEFER to Phase 4.D (single 1-line
-   change at compiler.cpp:236; low cost when builder.cpp shim is being
-   shrunk anyway).
+4. **compiler.cpp caller rewire:** REFRAMED 2026-04-27 per pythia #190
+   + supervisor 2026-04-27T11:29:30Z (2): single 1-line change at
+   compiler.cpp:236 from `hir::buildHIR(preloader)` to
+   `phx_hir_build(state)`. Originally framed as "DEFER to Phase 4.D"
+   but pythia #190 caught a sequencing bug: the rewire is a HARD
+   PREREQUISITE of Phase 4.E close-gate evaluation, not a 4.D-only
+   concern. Without the rewire, builder.cpp's C++ Pass class shell
+   cannot be deleted (compiler.cpp still consumes it), and the §6 #5
+   acceptance criterion "builder.cpp ≤ 200 LOC" cannot be met
+   regardless of Phase 4.A-C completion.
+
+   **Reframed disposition**: rewire MUST land before §5.F Phase 4.E
+   close gate fires. If Phase 4.D dispatch loop work runs ahead of
+   the rewire being unblocked (e.g. compiler.cpp itself migrates in
+   Phase 7+), the rewire becomes Phase 4.E's first commit, not 4.D's.
+   Either path is acceptable; what is NOT acceptable is reaching §5.F
+   evaluation with the rewire unscheduled. §5.F Phase 4.E close gate
+   includes an explicit prerequisite check: "compiler.cpp:236 calls
+   the C entry, not the C++ shell" — fail this and Phase 4 EXIT is
+   BLOCKED until the rewire lands.
 
 5. **Phase 4 acceptance criteria:** ALL of:
    - PhxHirBuilderState contains 100% of HIRBuilder state (zero C++
