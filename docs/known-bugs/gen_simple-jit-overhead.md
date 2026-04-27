@@ -6,10 +6,20 @@ Tier-1 falsifier (generalist 2026-04-27T17:25:42Z; see
 post-terminal-goal pure-C completion (per Alex priority order); next-
 session HARD per supervisor 2026-04-27T15:48:09Z re-anchor. NOT a
 recent regression; stable across 11+ days, 6+ sessions, multiple
-unrelated commit surfaces — the introducing commit is upstream of
-Phase-3D-start and inherited by every subsequent ABBA. Documented per
-supervisor 2026-04-27T15:15:20Z disposition following pythia #195
-catch on prior "pre-existing structural causal absence" framing.
+unrelated commit surfaces.
+
+**Bisect bound REVISED 2026-04-27T19:30Z (theologian audit + supervisor
+2026-04-27T19:31:15Z):** the introducing commit PRE-DATES Phase 3D
+Step 1 (42d0a0b227, 2026-04-01). Earliest in-tree gen_simple
+measurement at 0.75x is 2026-03-31 (`docs/benchmarks/x86_64_abba_2026-03-31.md`),
+predating 42d0a0b227 by 1 day. Bisect bound is therefore NOT
+42d0a0b227..HEAD; needs pre-2026-03-31 Phoenix history. The
+contemporaneous arm64 annotation (`docs/benchmarks/arm64_abba_2026-04-01.md`)
+hypothesizes "Generator resume path has JIT infrastructure overhead
+(deopt trampoline)" — direct deopt-trampoline-removal investigation
+may shortcut full bisect. Documented per supervisor 2026-04-27T15:15:20Z
+disposition following pythia #195 catch on prior "pre-existing
+structural causal absence" framing.
 
 ## Symptom
 
@@ -111,6 +121,8 @@ workstream opens:
 
 | Date | Benchmark log | gen_simple ratio |
 |---|---|---|
+| **2026-03-31** | **`docs/benchmarks/x86_64_abba_2026-03-31.md`** | **0.75x** (PRE-Phase-3D, earliest in-tree) |
+| **2026-04-01** | **`docs/benchmarks/arm64_abba_2026-04-01.md`** | **0.80x** (PRE-Phase-3D Step 1; deopt-trampoline hypothesis annotated contemporaneously) |
 | 2026-04-16 | `docs/benchmarks/abba_x86_64_20260416.md` | 0.73x |
 | 2026-04-16 | `docs/benchmarks/abba_arm64_20260416.md` | 0.76x |
 | 2026-04-22 | `docs/benchmarks/abba_push45_20260422_040152.md` | 0.72x |
@@ -121,10 +133,12 @@ workstream opens:
 | 2026-04-27 | `docs/benchmarks/abba_kwnames_probe_2026-04-27.md` | 0.75x |
 | 2026-04-27 | `docs/benchmarks/abba_preloader_probe_2026-04-27.md` | 0.73x |
 
-Ratio range 0.70-0.76x over 11+ days, 9 logged runs, 6+ commit
+Ratio range 0.70-0.80x over 27+ days, 11 logged runs, 8+ commit
 surfaces. The variance is consistent with same-session ABBA noise
 floor (~3-7% per `feedback_abba_cross_session.md`); no commit in this
-window introduced or removed the cost.
+window introduced or removed the cost. **Critical: 2026-03-31 +
+2026-04-01 entries pre-date Phase 3D Step 1 (42d0a0b227, 2026-04-01).
+The introducing commit predates Phase 3D entirely.**
 
 ## Anti-pattern guard
 
@@ -146,12 +160,20 @@ NOT cite this doc.
    Phoenix-JIT-off / Phoenix-JIT-on) to confirm the ~1.33x cinderx_dev
    vs Phoenix-JIT ratio still holds; if not, reframe.
 2. **Bisect Phoenix history with cinderx_dev as speed-oracle.** The
-   Tier-1 falsifier (above) confirms Phoenix-introduced. Bisect
-   between Phase-3D-start and HEAD with `bench_gen_simple` against
-   the cinderx_dev 504ms target finds the introducing commit.
-   Alternatively, if Phase-3D-start is already 670ms-class, bisect
-   pre-Phase-3D Phoenix history. Estimated 10-20 build+test cycles;
-   testkeeper-only per build-lock.
+   Tier-1 falsifier (above) confirms Phoenix-introduced. Bisect bound
+   per Status-section revision (theologian 2026-04-27T19:30Z): NOT
+   42d0a0b227..HEAD; the regression was already present at
+   2026-03-31 (pre-Phase-3D-Step-1). Bound is pre-2026-03-31 Phoenix
+   history through the earliest in-tree benchmark commit. Estimated
+   10-20 build+test cycles; testkeeper-only per build-lock.
+
+   **Shortcut candidate (pre-bisect):** the contemporaneous arm64
+   annotation (`docs/benchmarks/arm64_abba_2026-04-01.md`)
+   hypothesized "Generator resume path has JIT infrastructure
+   overhead (deopt trampoline)". Direct deopt-trampoline-removal
+   investigation may identify root cause faster than bisect; if
+   confirmed, bisect becomes a confirmation step rather than the
+   primary search.
 3. Profile JIT-compiled `bench_gen_simple` under `perf record` or
    `cProfile` (note cProfile distorts vanilla baseline by ~3.8x; use
    `perf` for clean comparison).
