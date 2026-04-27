@@ -156,41 +156,95 @@ printer, hir_instr_c_verify, hir) have ZERO HirBuilder class-state
 dependency, so they validate the algorithm-port + bridge-dissolution
 pattern but NOT the harder Class A/B migration that Phase 4.C requires.
 
-**Scope (1 commit, ~30-50 LOC):**
+**Scope (1 commit, ≤5 site-count Class A only):**
 - Pick the SIMPLEST Class A field for migration: recommend `kwnames_`
   (`Register*`, mirrored to `state_.kwnames`, low call-site count).
   Rationale: it's a Pilot 5 dry-run on the cheapest field; failure
   surfaces structural problems (silent-drift, mutator-site enumeration
   gap, JIT_DCHECK equality drift) before the 1500 LOC sunk in 4.A is
   fully committed.
-- Steps:
-  1. grep all `kwnames_` C++ direct-access sites in builder.cpp.
-  2. Migrate each access to read/write `state_.kwnames` instead of the
+- Steps (single-commit-class fields, ≤5 direct member access sites):
+  1. grep all `<field>_` C++ direct-access sites in builder.cpp.
+  2. Verify site count ≤5; otherwise this is a multi-commit-class field
+     (see §4.A.5b), do NOT proceed under single-commit pattern.
+  3. Migrate each access to read/write `state_.<field>` instead of the
      C++ duplicate field.
-  3. JIT_DCHECK on equality of `state_.kwnames == kwnames_` at every
-     mutator site (until the C++ field is deleted).
-  4. Delete the C++ `kwnames_` field. Re-grep returns zero references.
-  5. Run full Phase JIT test suite + ABBA + ARM64.
+  4. Delete the C++ `<field>_` field IN THE SAME COMMIT. No
+     parallel-state interval = no equality DCHECK needed (deletion in
+     same commit guarantees no drift surface).
+  5. Re-grep returns zero references to bare `<field>_`.
+  6. Run full Phase JIT test suite + ABBA + ARM64.
 
 **Acceptance:** the 1-commit probe must pass the per-trajectory metric
 (§5.0) AND introduce zero functional regressions. If any of:
 - Mutator-site enumeration miss (a write site uses C++ field without
   state_ update — silent drift)
-- JIT_DCHECK equality failure during migration
 - ABBA regression
 - ARM64 build failure or test divergence
 ...then PAUSE Phase 4.B + 4.C. Theologian re-spec the Class B-kept
 migration approach before more pilots commit.
 
-**Why kwnames_ specifically:** least call-site count among Class A
-mirrored fields (sub-10 estimated; vs code_ at 46, current_func_ at
-~30, preloader_ at 28); pure setter/getter semantics (no
+**Why kwnames_ specifically (per-2026-04-27 measured site counts):**
+sub-5 site count among Class A mirrored fields (kwnames_: 1 direct
+read + 2 bridge sites = 3 sites total; vs code_ at 46, current_func_
+at ~30, preloader_ at 28); pure setter/getter semantics (no
 container/lifecycle complexity). Failure modes are concentrated.
 
 **Why before 4.B:** §5.A close gate is LOC-trajectory only and won't
 catch class-state failure modes. inliner.cpp (4.B medium-state) gates
 on Pilot 3 (temps_) anyway, so the probe surface naturally precedes
 4.B without re-sequencing.
+
+### 4.A.5b — DO NOT EXTRAPOLATE: kwnames_-class vs code_-class (per pythia #189 2026-04-27)
+
+**Acknowledgment** (per pythia #189 + supervisor 2026-04-27T10:13:10Z
+(a)): kwnames_ probe at c2f255e5c9 is the EASIEST-CASE migration; net
++1 LOC, 1 read site, 2 bridge sites. Single-commit migration WORKS for
+this site-count class. **Results DO NOT extrapolate** to high-site-
+count Class A fields where dependency density is qualitatively
+different. "The first thread pulled proves only that thread can be
+pulled." — pythia #189.
+
+**Per-field complexity bracket (decision rule per supervisor (b))**:
+
+| Site count | Migration mode | Equality DCHECK |
+|---|---|---|
+| **≤5 sites** (kwnames_-class) | Single-commit (delete C++ field in same commit) | Not needed (no parallel-state interval) |
+| **6-15 sites** (medium-class) | 2-3 commits (migrate accesses → verify → delete field) | REQUIRED on each commit until field is deleted |
+| **>15 sites** (code_-class: 46; current_func_: 30; preloader_: 28) | Multi-commit per-mutator-batch + JIT_DCHECK equality REQUIRED on every intermediate commit | REQUIRED + verified pre-deletion (zero failures across full test suite) |
+
+**JIT_DCHECK equality infra (per supervisor (c))**: for medium-class
+and code_-class fields, the spec REQUIRES — not "moot" as in
+single-commit-class — `JIT_DCHECK(state_.<field> == <field>_, "drift
+detected at <site>")` at every mutator site during the migration
+window. The DCHECK is removed only when the C++ field is deleted (in
+the final commit of the per-field migration sequence).
+
+**Pre-Pilot-5 per-field site-count audit (per supervisor (d))**:
+BEFORE choosing migration mode for any Class A field, run:
+```
+grep -cE '\b<field>_\b' Python/jit/hir/builder.cpp \
+  | grep -vE '(state_\.|hir_builder_state_[a-z_]+_c?p?p?\(|^[[:space:]]*//)'
+```
+Filter to direct-access sites only. Report site count + classify per
+the bracket above. Theologian patch-shape review verifies the chosen
+migration mode matches the site-count bracket.
+
+**Failure-mode predictions per bracket:**
+- ≤5 sites: silent-drift risk LOW (3-4 site enumeration is verifiable
+  by inspection + grep). kwnames_ probe c2f255e5c9 demonstrates this.
+- 6-15 sites: silent-drift risk MEDIUM. JIT_DCHECK equality required.
+- >15 sites: silent-drift risk HIGH. JIT_DCHECK equality + per-mutator
+  batch migration + per-batch ABBA + per-batch ARM64 STRICT. code_ at
+  46 sites likely needs 4-6 batches; preloader_ at 28 likely needs
+  3-4 batches; current_func_ at 30 likely needs 3-4 batches. Each
+  batch carries its own gate.
+
+**Spec authority**: this section (§4.A.5b) supersedes any inferred
+"single-commit migration is the new pattern" reading from the
+kwnames_ probe outcome. The pattern applies ONLY to ≤5-site-class
+fields. Pilot 5 in §4.C MUST classify per this bracket BEFORE
+authoring any migration commit.
 
 ### 4.B — Medium-state HIR files
 - `inliner.cpp` 704 LOC — uses HIRBuilder for inlineHIR; depends on
@@ -224,14 +278,32 @@ on Pilot 3 (temps_) anyway, so the probe surface naturally precedes
   - **Bridge delete: 2** (push_cpp + pop_cpp)
   - **Estimated cost:** 3-5 commits, 0.5 session
 
-- **Pilot 5 (lockstep with 3+4):** delete the 5 Class A C++ duplicates
-  (`code_`, `preloader_`, `current_func_`, `func_`, `kwnames_`). All
-  access goes through `state_` exclusively. Removes the silent-drift
-  latent bug class.
-  - **Estimated cost:** 5-8 commits per field × 5 = 25-40 commits, 3-4
-    sessions; each commit migrates 1 field across all C++ access sites
-    and verifies via grep + JIT_DCHECK + benchmark gate
-- **Subtotal Phase 4.C:** 33-53 commits, 4.5-5.5 sessions
+- **Pilot 5 (lockstep with 3+4):** delete the 4 remaining Class A C++
+  duplicates (`code_`, `preloader_`, `current_func_`, `func_`;
+  `kwnames_` already migrated by §4.A.5 probe c2f255e5c9). All access
+  goes through `state_` exclusively. Removes the silent-drift latent
+  bug class.
+  - **Per-field complexity bracket (per §4.A.5b 2026-04-27):**
+
+    | Field | Site count (measured) | Migration mode | Estimated commits |
+    |---|---|---|---|
+    | `func_` | TBD pre-Pilot-5 audit | per bracket | 1-3 |
+    | `current_func_` | ~30 (estimate) | code_-class >15 multi-commit + JIT_DCHECK equality | 3-4 batches |
+    | `preloader_` | 28 (measured 2026-04-27) | code_-class >15 multi-commit + JIT_DCHECK equality | 3-4 batches |
+    | `code_` | 46 (measured 2026-04-27) | code_-class >15 multi-commit + JIT_DCHECK equality | 4-6 batches |
+  - **Pre-Pilot-5 mandatory step:** run the §4.A.5b per-field
+    site-count audit grep on each remaining field. Theologian
+    patch-shape review verifies migration-mode choice matches
+    measured bracket BEFORE any per-field commits authored.
+  - **JIT_DCHECK equality infra REQUIRED** for all 4 remaining fields
+    (each is >5-site-class). Removed only at final per-field deletion
+    commit.
+  - **Estimated cost (revised per bracket):** ~13-19 commits across 4
+    fields, 2-3 sessions. Lower than original 25-40 estimate because
+    the bracket is more accurate than the prior uniform "5-8 per
+    field × 5" estimate, and kwnames_ is already done.
+- **Subtotal Phase 4.C (revised):** 21-32 commits (Pilot 3: 5-8 +
+  Pilot 4: 3-5 + Pilot 5: 13-19), 3.5-4.5 sessions.
 
 ### 4.D — Dispatch loop + builder.cpp shrinkage
 - `translate()` dispatch loop conversion to C — the central method
