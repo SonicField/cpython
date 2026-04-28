@@ -1017,4 +1017,20 @@ int phx_hir_load_super_no_args_in_super_call(const void* instr) {
       ->no_args_in_super_call();
 }
 
+// B2 commit-4: bridge into the static format_immediates above.  Per
+// theologian 11:23:20Z option A, format_immediates (185 case-branches)
+// stays C++ — porting it requires hundreds of HIR-instruction-specific
+// C accessors which is months of work for tooling code.  W-PRINTER-
+// IMMEDIATES-PORT residual workstream tracks the eventual port; until
+// then commit-5 Print(Instr) C wrapper calls this bridge.
+void phx_format_immediates_cpp(
+    FILE* out,
+    const struct PhxHirPrinter* p,
+    const void* instr_ptr) {
+  const auto* instr = static_cast<const jit::hir::Instr*>(instr_ptr);
+  const auto* func = static_cast<const jit::hir::Function*>(p->func);
+  std::string s = jit::hir::format_immediates(func, *instr);
+  std::fwrite(s.data(), 1, s.size(), out);
+}
+
 } // extern "C"
