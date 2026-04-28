@@ -190,6 +190,48 @@ Total expected if all four land: ~10-20pp ratio improvement. Hits PASS
 criterion (≥20pp) only if upper-bound estimates hold; lower bound ~10pp
 would be PARTIAL pass.
 
+## W-PHASE2-CODEGEN-SLOW closure: PARTIAL at +17pp cumulative
+
+**Final disposition** (theologian 10:27:11Z bank-confirmed):
+
+| Commit | Phase | Δ gen_simple ratio | Cumulative |
+|---|---|---|---|
+| `23f8fc0166` | Phase 1: header-inline `getModuleState` | +9pp (0.72x → 0.81x) | +9pp |
+| `0ceee5f401` | Phase 2: inline `Ci_JitGenType` / `Ci_JitCoroType` / `Ci_JitModule` | +8pp (0.81x → 0.89x) | +17pp |
+| (dropped) | Phase 3 small-scope: `[[likely]]/[[unlikely]]` hints | -2pp (within noise, not positive) | +17pp |
+
+Per theologian 09:39:59Z + 10:19:30Z PASS criteria: 10-20pp = PARTIAL
+(investigated, residual documented). Phase 3 small-scope failed the
+per-phase ≥1pp positive-delta criterion (-2pp within noise) — patch
+discarded uncommitted. Phase 4 not pursued (Phase 3 outcome triggered
+bank decision).
+
+Re-perf at post-Phase-2 0ceee5f401 (testkeeper 10:16:32Z) confirms
+Phase 1+2 eliminated `cinderx::getModuleState` (-5.11pp) and `Ci_JitGenType`
+(-2.05pp) attribution. `jit_gen_data_footer_ptr` reduced 2.83% → 1.56%
+(-1.27pp side-effect benefit). `jit::jitgen_am_send` 11.25% → 14.98%
+(relative grew because peers shrank; absolute self-time per testkeeper
+10:18:04Z decomposition: 6.55% direct + 2.76% inlined `send_core` +
+5.67% other inlined sub-ops).
+
+## W-PHASE2-CODEGEN-SLOW-DEEP follow-up workstream candidates
+
+Documented for future pickup; structural/restructuring class, not
+small-scope gains:
+
+1. `jitgen_am_send` exc_info batching — currently 3 stores per yield to
+   swap exception state; potentially batchable across yields if generator
+   doesn't raise. Requires correctness audit (cinderx_dev oracle would help
+   here; oracle remains parked per supervisor 01:50:38Z).
+2. `send_core` `throwflag` parameter specialization — third arg always 0
+   in 3.12+ (per source comment line 154). Removing requires HIR/codegen
+   change to `resumeEntry` signature.
+3. `send_core` restructure — exc_info save/restore + frame setup +
+   gi_frame_state writes. Restructuring requires careful invariant audit.
+4. `[[likely]]/[[unlikely]]` attributes on `jitgen_am_send` deopt
+   branches showed no measurable benefit (Phase 3 small-scope dropped) —
+   compiler likely already infers branch frequencies. NOT a residual.
+
 **Force-compile-path InPlaceOp fix (testkeeper 08:44Z structural finding):**
 PERMANENTLY DEFERRED — production auto-compile correctly emits
 `LongInPlaceOp` per testkeeper 09:20:36Z; force_compile-path InPlaceOp
