@@ -180,8 +180,17 @@ static int encode_modrm_mem(uint8_t *out, uint8_t reg_field, PhxMem mem) {
     /* Absolute address → SIB disp32 encoding: [disp32] with no base/index.
        ModR/M: mod=00, r/m=100 (SIB follows)
        SIB: scale=00, index=100 (none), base=101 (disp32 only)
-       This works for addresses that fit in signed 32-bit. */
+       This encoding sign-extends disp32 to a 64-bit address, so it is only
+       valid for addresses that fit in signed 32-bit. Heap allocations above
+       2GB (typical under ASAN, intermittent under non-ASAN heap layout)
+       violate this. The caller is responsible for materializing such
+       addresses via mov-imm64-to-reg + base+disp deref before reaching the
+       encoder. Fail loud here to catch any future emitter site that
+       misses the materialize step. */
     if (mem.is_abs_addr) {
+        JIT_CHECK_C(fits_i32((int64_t)mem.abs_addr),
+                    "encode_modrm_mem: abs_addr does not fit signed int32; "
+                    "caller must materialize to register before encoding");
         int32_t addr32 = (int32_t)(mem.abs_addr & 0xFFFFFFFF);
         out[0] = 0x00 | (reg_field << 3) | 0x04; /* ModR/M: mod=00, r/m=100 */
         out[1] = 0x25; /* SIB: scale=00, index=100(none), base=101(disp32) */
@@ -721,8 +730,27 @@ void phx_x86_mov_rr(PhxBuilder *b, PhxGp dst, PhxGp src) {
     phx_builder_append_node(b, n);
 }
 
-/* MOV reg, mem:  8B /r (32/64-bit) or 8A /r (8-bit) */
+/* MOV reg, mem:  8B /r (32/64-bit) or 8A /r (8-bit)
+ *
+ * If src is an absolute address that does not fit in signed int32, the
+ * SIB+disp32 encoding (used by encode_modrm_mem) would silently truncate
+ * + sign-extend the address. Materialize the address into the destination
+ * register first (via mov-imm64), then dereference [dst+0]. This trashes
+ * dst before the load, which is safe because dst is the destination.
+ *
+ * Manifested as W-LIRORIGIN-MULTIBENCH bug #2: LoadGlobalCached's heap
+ * cache slot at >2GB triggered the truncation. Reliable under ASAN
+ * (heap shifted high), intermittent under non-ASAN (heap layout
+ * non-deterministic). */
 void phx_x86_mov_rm(PhxBuilder *b, PhxGp dst, PhxMem src) {
+    if (src.is_abs_addr && !fits_i32((int64_t)src.abs_addr)) {
+        phx_x86_mov_ri(b, dst, (int64_t)src.abs_addr);
+        PhxMem deref = phx_ptr(dst, 0);
+        deref.size = src.size;
+        phx_x86_mov_rm(b, dst, deref);
+        return;
+    }
+
     PhxNode *n = phx_builder_alloc_node(b);
     if (!n) return;
     n->node_type = PHX_NODE_INST;

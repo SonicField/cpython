@@ -110,6 +110,19 @@ void
 frame_asm_c_init_tstate_offset(void) {
     if (tstate_offset_inited) return;
 
+    /* AddressSanitizer (and other instrumentations that prepend shadow-memory
+     * checks) inject a 'mov %fs:0x0,%rax' before the real TLS load, which the
+     * 9-byte pattern parser below matches with disp32=0. The JIT then emits
+     * loads against fs:0 (TCB self-pointer) instead of the tstate slot,
+     * NULL-derefing on the next field access. Force the slow call-based
+     * path under ASAN. */
+#if defined(__SANITIZE_ADDRESS__) || \
+    (defined(__has_feature) && __has_feature(address_sanitizer))
+    tstate_offset = -1;
+    tstate_offset_inited = 1;
+    return;
+#endif
+
 #if defined(CINDER_X86_64)
     uint8_t *ts_func = (uint8_t *)&_PyThreadState_GetCurrent;
     if (ts_func[0] == 0x55 &&
@@ -140,6 +153,24 @@ frame_asm_c_init_tstate_offset(void) {
             }
         }
         tstate_offset = current_offset;
+    }
+#endif
+
+    /* Validate the parsed offset against ground truth before trusting it.
+     * The byte-pattern parser is fragile: any compiler / instrumentation
+     * change that injects a fs:* (or TPIDR_EL0) load with a different disp
+     * before the real TLS load can pattern-match-by-coincidence with the
+     * wrong immediate. If validation fails, fall back to the call-based
+     * path. */
+#if defined(__has_builtin) && __has_builtin(__builtin_thread_pointer)
+    if (tstate_offset != -1) {
+        char *tp = (char *)__builtin_thread_pointer();
+        PyThreadState *fs_loaded =
+            *(PyThreadState **)(tp + tstate_offset);
+        PyThreadState *expected = _PyThreadState_GetCurrent();
+        if (fs_loaded != expected) {
+            tstate_offset = -1;
+        }
     }
 #endif
 
