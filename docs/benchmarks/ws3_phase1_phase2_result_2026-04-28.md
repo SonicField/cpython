@@ -5,25 +5,43 @@
 07:21:46Z (Phase 1 bisect), 07:58:35Z (Phase 2A harness sub-bisect),
 07:59:52Z (Phase 2 ABBA at 314d0f2310), 08:08:16Z (method-B v2 calibration),
 08:10:53Z (33bbbe6c36 probe), 08:36:18Z (Step 0 force_compile falsifier at
-e557787b1f), theologian 07:46:45Z + 08:02:51Z + 08:11:47Z + 08:34:37Z
+e557787b1f), 09:20:36Z (auto-compile re-dump, X1 refutation),
+theologian 07:46:45Z + 08:02:51Z + 08:11:47Z + 08:34:37Z + 09:18:34Z
 methodology dispositions.
 
 ## Summary
 
-The gen_simple JIT regression (~25-33% slowdown vs vanilla CPython) pre-exists
-in the extraction-era cluster `e11fc09f6e..e557787b1f` (~11 commits, all
-pre-`33bbbe6c36`). Commit `33bbbe6c36` ("Enable auto-compilation via func
-watcher + counting trampoline", 2026-03-30) is the first **auto-compile-
-observable** commit — it enables the path that exposes the regression to
-ABBA/auto-compile measurement, but does NOT introduce or activate the slow
-JIT codegen itself. Direct `force_compile` measurement at `e557787b1f`
-(W-PHASE2-CODEGEN-SLOW Step 0, testkeeper 08:36:18Z) yields ratio 0.683x —
-same band as post-`33bbbe6c36` (0.71-0.78x). Magnitude is stable through HEAD.
+The gen_simple JIT regression (~25-33% slowdown vs vanilla CPython) is
+present in both `force_compile` and `auto-compile` paths at HEAD, with
+ratios consistently in the ~0.68-0.78x band across all measured points
+in the dd70e1cf89..HEAD span.
+
+Commit `33bbbe6c36` ("Enable auto-compilation via func watcher + counting
+trampoline", 2026-03-30) is the first **auto-compile-observable** commit —
+it enables the path that exposes the regression to ABBA/auto-compile
+measurement, but does NOT introduce or activate the slow JIT codegen
+itself. Direct `force_compile` measurement at `e557787b1f` (testkeeper
+08:36:18Z) yields ratio 0.683x — same band as post-`33bbbe6c36`.
 
 This corrects the initial framing of `33bbbe6c36` as "activation commit",
 which rested on a structural inference that pre-activation ratio must be
-~1.0x because auto-compile vectorcall hooks were off. Step 0 falsified that
-inference with direct measurement.
+~1.0x because auto-compile vectorcall hooks were off. Step 0 falsified
+that inference with direct measurement.
+
+**Force-compile vs auto-compile path divergence (testkeeper 09:20:36Z):**
+the `force_compile`-path HIR shows generic `InPlaceOp<Add>` (no
+specialization) for `bench_gen_simple`'s `total += v`. The `auto-compile`
+path correctly emits `GuardType<PyLong>` + `LongInPlaceOp<Add>` because
+adaptive interpreter specialization runs first and provides the
+specialized opcode. The two paths produce structurally different HIR for
+the same source — `force_compile`-path evidence cannot be generalized to
+auto-compile production codegen. The "slow codegen pre-exists in
+extraction-era cluster" claim, while still true for the `force_compile`
+path at `e557787b1f`, does not directly indict auto-compile production
+codegen. W-PHASE2-CODEGEN-SLOW continues investigation in the production
+hot path (inner `gen()` generator, JIT-compiled per-CodeObject counter
+with 696k inner calls per ABBA measurement; `bench_gen_simple` itself
+stays in the interpreter at 8 outer calls < threshold 1000).
 
 ## Bisect range
 
