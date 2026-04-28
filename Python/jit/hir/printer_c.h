@@ -19,6 +19,7 @@
  */
 #pragma once
 
+#include <stdint.h>  /* intptr_t for P-2 bridges */
 #include <stdio.h>
 
 #ifdef __cplusplus
@@ -85,6 +86,19 @@ void phx_format_immediates_cpp(FILE *out, const PhxHirPrinter *p, const void *in
  * above. As cases migrate from default → explicit, the bridge becomes
  * progressively unreachable; commit P-N (cleanup) deletes it. */
 void phx_format_immediates(FILE *out, const PhxHirPrinter *p, const void *instr);
+
+/* W-PRINTER-IMMEDIATES-PORT P-2: thin C-callable bridges over C++
+ * helpers used by the simple-case ports.  All thread_local-buffered;
+ * caller must consume before the next call. */
+const char *phx_hir_binary_op_name(int op);
+const char *phx_hir_unary_op_name(int op);
+const char *phx_hir_in_place_op_name(int op);
+const char *phx_hir_compare_op_name(int op);
+const char *phx_hir_begin_inlined_function_fullname(const void *instr);
+intptr_t phx_hir_load_array_item_offset(const void *instr);
+int phx_hir_load_split_dict_item_idx(const void *instr);
+const char *phx_hir_return_type_or_empty(const void *instr);
+int phx_hir_branch_target_id(const void *instr);
 
 /* B2 commit-3: thin C-callable bridges for non-trivial Function /
  * LoadSuperBase methods used by the format_name family ports below.

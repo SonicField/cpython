@@ -992,6 +992,70 @@ const void* phx_hir_instr_get_frame_state(const void* instr) {
       *reinterpret_cast<const jit::hir::Instr*>(instr));
 }
 
+// W-PRINTER-IMMEDIATES-PORT P-2: opname accessors for the
+// BinaryOp/UnaryOp/InPlaceOp/Compare instr classes.  Wraps the
+// existing C++ GetXxxOpName(enum_class) helpers (hir.h:654/705/755/1772);
+// returns a thread_local-buffered C string for the duration of the
+// printer call.  Each ported case in phx_format_immediates calls
+// these directly via the int op field on the C-side instr struct.
+const char* phx_hir_binary_op_name(int op) {
+  thread_local std::string s_buf;
+  s_buf = jit::hir::GetBinaryOpName(static_cast<jit::hir::BinaryOpKind>(op));
+  return s_buf.c_str();
+}
+
+const char* phx_hir_unary_op_name(int op) {
+  thread_local std::string s_buf;
+  s_buf = jit::hir::GetUnaryOpName(static_cast<jit::hir::UnaryOpKind>(op));
+  return s_buf.c_str();
+}
+
+const char* phx_hir_in_place_op_name(int op) {
+  thread_local std::string s_buf;
+  s_buf = jit::hir::GetInPlaceOpName(static_cast<jit::hir::InPlaceOpKind>(op));
+  return s_buf.c_str();
+}
+
+const char* phx_hir_compare_op_name(int op) {
+  thread_local std::string s_buf;
+  s_buf = jit::hir::GetCompareOpName(static_cast<jit::hir::CompareOp>(op));
+  return s_buf.c_str();
+}
+
+// BeginInlinedFunction::fullname() returns const char* directly; this
+// is a thin wrapper to keep the C-side switch case body uniform.
+const char* phx_hir_begin_inlined_function_fullname(const void* instr) {
+  return reinterpret_cast<const jit::hir::BeginInlinedFunction*>(instr)->fullname();
+}
+
+// LoadArrayItem::offset() — int field accessor.
+intptr_t phx_hir_load_array_item_offset(const void* instr) {
+  return reinterpret_cast<const jit::hir::LoadArrayItem*>(instr)->offset();
+}
+
+// LoadSplitDictItem::itemIdx() — int field accessor.
+int phx_hir_load_split_dict_item_idx(const void* instr) {
+  return reinterpret_cast<const jit::hir::LoadSplitDictItem*>(instr)->itemIdx();
+}
+
+// Return::type() — Type stringification; "" if TObject (C++ side
+// suppresses default type per printer.cpp:308).
+const char* phx_hir_return_type_or_empty(const void* instr) {
+  thread_local std::string s_buf;
+  const auto* ret = reinterpret_cast<const jit::hir::Return*>(instr);
+  if (ret->type() == jit::hir::TObject) {
+    s_buf.clear();
+  } else {
+    s_buf = ret->type().toString();
+  }
+  return s_buf.c_str();
+}
+
+// Branch::target()->id — destination block id for unconditional branches.
+int phx_hir_branch_target_id(const void* instr) {
+  return reinterpret_cast<const jit::hir::Branch*>(instr)->target()->id;
+}
+
 // B2 commit-4: bridge into the static format_immediates above.  Per
 // theologian 11:23:20Z option A, format_immediates (185 case-branches)
 // stays C++ — porting it requires hundreds of HIR-instruction-specific

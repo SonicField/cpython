@@ -556,6 +556,89 @@ void phx_format_immediates(FILE *out, const PhxHirPrinter *p, const void *instr)
         case HIR_OP_YieldValue:
             return;
 
+        /* P-2: simple 1-line cases that read a single field via the
+         * C-side instr struct or a thin bridge.  Each writes "<...>"
+         * with the formatted value. */
+        case HIR_OP_BinaryOp: {
+            const HirBinaryOp *bop = (const HirBinaryOp *)instr;
+            fprintf(out, "<%s>", phx_hir_binary_op_name(bop->op));
+            return;
+        }
+        case HIR_OP_UnaryOp: {
+            const HirUnaryOp *uop = (const HirUnaryOp *)instr;
+            fprintf(out, "<%s>", phx_hir_unary_op_name(uop->op));
+            return;
+        }
+        case HIR_OP_LongBinaryOp: {
+            const HirLongBinaryOp *bop = (const HirLongBinaryOp *)instr;
+            fprintf(out, "<%s>", phx_hir_binary_op_name(bop->op));
+            return;
+        }
+        case HIR_OP_LongInPlaceOp: {
+            const HirLongInPlaceOp *ip = (const HirLongInPlaceOp *)instr;
+            fprintf(out, "<%s>", phx_hir_in_place_op_name(ip->op));
+            return;
+        }
+        case HIR_OP_FloatBinaryOp: {
+            const HirFloatBinaryOp *bop = (const HirFloatBinaryOp *)instr;
+            fprintf(out, "<%s>", phx_hir_binary_op_name(bop->op));
+            return;
+        }
+        case HIR_OP_Compare: {
+            const HirCompare *cmp = (const HirCompare *)instr;
+            fprintf(out, "<%s>", phx_hir_compare_op_name(cmp->op));
+            return;
+        }
+        case HIR_OP_FloatCompare: {
+            /* Different layout from HirCompare: HIR_INSTR_FIELDS (no
+             * deopt prefix) so op field sits at a different offset.
+             * testkeeper 13:16:01Z caught this via 4-bench golden-diff. */
+            const HirFloatCompare *cmp = (const HirFloatCompare *)instr;
+            fprintf(out, "<%s>", phx_hir_compare_op_name(cmp->op));
+            return;
+        }
+        case HIR_OP_LongCompare: {
+            const HirLongCompare *cmp = (const HirLongCompare *)instr;
+            fprintf(out, "<%s>", phx_hir_compare_op_name(cmp->op));
+            return;
+        }
+        case HIR_OP_UnicodeCompare: {
+            const HirUnicodeCompare *cmp = (const HirUnicodeCompare *)instr;
+            fprintf(out, "<%s>", phx_hir_compare_op_name(cmp->op));
+            return;
+        }
+        case HIR_OP_BeginInlinedFunction: {
+            const char *name = phx_hir_begin_inlined_function_fullname(instr);
+            if (name != NULL && name[0] != '\0') {
+                fprintf(out, "<%s>", name);
+            }
+            return;
+        }
+        case HIR_OP_LoadArrayItem: {
+            intptr_t off = phx_hir_load_array_item_offset(instr);
+            if (off != 0) {
+                fprintf(out, "<Offset[%ld]>", (long)off);
+            }
+            return;
+        }
+        case HIR_OP_LoadSplitDictItem: {
+            int idx = phx_hir_load_split_dict_item_idx(instr);
+            fprintf(out, "<%d>", idx);
+            return;
+        }
+        case HIR_OP_Return: {
+            const char *type_str = phx_hir_return_type_or_empty(instr);
+            if (type_str != NULL && type_str[0] != '\0') {
+                fprintf(out, "<%s>", type_str);
+            }
+            return;
+        }
+        case HIR_OP_Branch: {
+            int target = phx_hir_branch_target_id(instr);
+            fprintf(out, "<%d>", target);
+            return;
+        }
+
         /* All other opcodes: bridge fallback to C++ format_immediates
          * (commit-4 phx_format_immediates_cpp). Subsequent P-N commits
          * migrate cases out of this default. */
