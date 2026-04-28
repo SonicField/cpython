@@ -209,19 +209,23 @@ void phx_format_name(FILE *out, const PhxHirPrinter *p, const void *instr, int i
     phx_format_name_impl(out, idx, code->co_names);
 }
 
-/* B2 commit-3 port of format_load_super (printer.cpp:215-226). */
+/* B2 commit-3 port of format_load_super (printer.cpp:215-226).
+ * no_args_in_super_call() is bool; C++ fmt::format renders bool as
+ * "true"/"false" by default — port must match (testkeeper 16:01:18Z
+ * 5-bench re-verify caught LoadMethodSuper "1" vs "true" divergence). */
 void phx_format_load_super(FILE *out, const PhxHirPrinter *p, const void *load_instr) {
     int name_idx = phx_hir_load_super_name_idx(load_instr);
     int no_args = phx_hir_load_super_no_args_in_super_call(load_instr);
+    const char *no_args_str = no_args ? "true" : "false";
     const PyCodeObject *code = (p->func != NULL)
         ? (const PyCodeObject *)phx_hir_func_code_for(p->func, load_instr)
         : NULL;
     if (code == NULL) {
-        fprintf(out, "%d %d", name_idx, no_args);
+        fprintf(out, "%d %s", name_idx, no_args_str);
         return;
     }
     phx_format_name_impl(out, name_idx, code->co_names);
-    fprintf(out, ", %d", no_args);
+    fprintf(out, ", %s", no_args_str);
 }
 
 /* B2 commit-3 port of format_varname (printer.cpp:228-237). */
