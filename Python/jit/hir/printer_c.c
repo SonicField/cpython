@@ -31,6 +31,7 @@ extern PyObject *phx_getVarnameTuple(PyCodeObject *code, int *idx);
 #include "cinderx/Jit/hir/hir_c_api.h"          /* hir_func_fullname, hir_func_cfg, hir_cfg_get_rpo */
 #include "cinderx/Jit/hir/hir_instr_c.h"        /* hir_c_opcode + HirInstr layout */
 #include "cinderx/Jit/hir/hir_opcode_c.h"       /* HIR_OP_* enum */
+#include "cinderx/Jit/hir/hir_type_c.h"         /* hir_type_to_string_c (P-4 LoadField) */
 
 #include <stdlib.h>  /* qsort */
 
@@ -688,6 +689,81 @@ void phx_format_immediates(FILE *out, const PhxHirPrinter *p, const void *instr)
             fputc('<', out);
             phx_hir_escape_unicode_pyobject(out, check->name);
             fputc('>', out);
+            return;
+        }
+
+        /* P-4 simple subset: cache + field + simple call cases.
+         * All read direct C struct fields; HIR_CALL_FLAG_* constants
+         * (hir_instr_c.h:802-806) for flag checks. */
+        case HIR_OP_LoadTypeAttrCacheEntryType:
+        case HIR_OP_LoadTypeAttrCacheEntryValue:
+        case HIR_OP_LoadTypeMethodCacheEntryType:
+        case HIR_OP_LoadTypeMethodCacheEntryValue: {
+            const HirLoadTypeAttrCacheEntryType *cc =
+                (const HirLoadTypeAttrCacheEntryType *)instr;
+            fprintf(out, "<%d>", cc->cache_id);
+            return;
+        }
+        case HIR_OP_FillTypeAttrCache:
+        case HIR_OP_FillTypeMethodCache: {
+            /* Layout: HIR_DEOPT_NAMEIDX_FIELDS + int32_t cache_id. */
+            const HirFillTypeAttrCache *ftac = (const HirFillTypeAttrCache *)instr;
+            fprintf(out, "<%d, %d>", (int)ftac->cache_id, (int)ftac->name_idx);
+            return;
+        }
+        case HIR_OP_VectorCall: {
+            const HirVectorCall *call = (const HirVectorCall *)instr;
+            size_t num_args = hir_c_num_operands(instr) - 1;  /* numArgs() = NumOperands-1 */
+            fprintf(out, "<%zu", num_args);
+            if (call->flags & HIR_CALL_FLAG_AWAITED) fputs(", awaited", out);
+            if (call->flags & HIR_CALL_FLAG_KWARGS)  fputs(", kwnames", out);
+            if (call->flags & HIR_CALL_FLAG_STATIC)  fputs(", static", out);
+            fputc('>', out);
+            return;
+        }
+        case HIR_OP_CallEx: {
+            const HirCallEx *call = (const HirCallEx *)instr;
+            /* CallEx uses no leading numArgs; format is just the flag list. */
+            fputc('<', out);
+            int first = 1;
+            (void)first;
+            if (call->flags & HIR_CALL_FLAG_AWAITED) { fputs(", awaited", out); }
+            if (call->flags & HIR_CALL_FLAG_KWARGS)  { fputs(", kwargs", out); }
+            fputc('>', out);
+            return;
+        }
+        case HIR_OP_CallInd: {
+            const HirCallInd *call = (const HirCallInd *)instr;
+            fprintf(out, "<%s>", call->name != NULL ? call->name : "");
+            return;
+        }
+        case HIR_OP_CallMethod: {
+            const HirCallMethod *call = (const HirCallMethod *)instr;
+            fprintf(out, "<%zu", hir_c_num_operands(instr));
+            if (call->flags & HIR_CALL_FLAG_AWAITED) fputs(", awaited", out);
+            fputc('>', out);
+            return;
+        }
+        case HIR_OP_LoadField: {
+            const HirLoadField *lf = (const HirLoadField *)instr;
+            size_t offset = lf->offset;
+#ifdef Py_TRACE_REFS
+            offset -= (sizeof(void *) * 2);  /* Py_TRACE_REFS adjustment per printer.cpp:413 */
+#endif
+            char type_buf[256];
+            hir_type_to_string_c(&lf->type, type_buf, sizeof(type_buf), 0);
+            fprintf(out, "<%s@%zu, %s, %s>",
+                    lf->name != NULL ? lf->name : "",
+                    offset,
+                    type_buf,
+                    lf->borrowed ? "borrowed" : "owned");
+            return;
+        }
+        case HIR_OP_StoreField: {
+            const HirStoreField *sf = (const HirStoreField *)instr;
+            fprintf(out, "<%s@%zu>",
+                    sf->name != NULL ? sf->name : "",
+                    sf->offset);
             return;
         }
 
