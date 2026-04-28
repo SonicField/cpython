@@ -3,6 +3,7 @@
 #include "cinderx/Jit/hir/printer.h"
 
 #include "cinderx/Common/util.h"
+#include "cinderx/Jit/hir/printer_c.h"  /* PhxHirPrinter (B2 commit-2 bridges) */
 #include "cinderx/Jit/symbolizer.h"
 
 #if PY_VERSION_HEX >= 0x030E0000
@@ -955,3 +956,45 @@ std::ostream& operator<<(std::ostream& os, const FrameState& state) {
 }
 
 } // namespace jit::hir
+
+// B2 commit-2: C++ -> FILE* bridges so the C-side phx_hir_print_*
+// helpers (printer_c.c) can recurse into the not-yet-ported C++ HIR
+// printer.  The bridge re-serialises through a stringstream + fputs
+// (single allocation per instruction is acceptable for HIR-dump tooling
+// usage; commit-5 sole-path swap eliminates the stringstream by porting
+// Print(Instr) and Print(FrameState) to pure C output).
+extern "C" {
+
+void phx_hir_print_instr_cpp(
+    FILE* out,
+    const struct PhxHirPrinter* p,
+    const void* instr_ptr) {
+  jit::hir::HIRPrinter printer;
+  if (p->line_prefix != nullptr) {
+    printer.setLinePrefix(p->line_prefix);
+  }
+  printer.setFullSnapshots(p->full_snapshots != 0);
+  printer.setIndentLevel(p->indent_level);
+  std::ostringstream ss;
+  printer.Print(ss, *static_cast<const jit::hir::Instr*>(instr_ptr));
+  std::string s = ss.str();
+  std::fwrite(s.data(), 1, s.size(), out);
+}
+
+void phx_hir_print_frame_state_cpp(
+    FILE* out,
+    const struct PhxHirPrinter* p,
+    const void* state_ptr) {
+  jit::hir::HIRPrinter printer;
+  if (p->line_prefix != nullptr) {
+    printer.setLinePrefix(p->line_prefix);
+  }
+  printer.setFullSnapshots(p->full_snapshots != 0);
+  printer.setIndentLevel(p->indent_level);
+  std::ostringstream ss;
+  printer.Print(ss, *static_cast<const jit::hir::FrameState*>(state_ptr));
+  std::string s = ss.str();
+  std::fwrite(s.data(), 1, s.size(), out);
+}
+
+} // extern "C"

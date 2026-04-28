@@ -41,6 +41,12 @@ class HIRPrinter {
 
   HIRPrinter& setFullSnapshots(bool full);
   HIRPrinter& setLinePrefix(std::string_view prefix);
+  // B2 commit-2: lets the C-side phx_hir_print_instr_cpp bridge thread
+  // its caller's indent context into HIRPrinter, so Print(Instr)'s
+  // Indented() output matches the surrounding C-side indent (e.g. when
+  // called from inside a phx_hir_print_basic_block body that already
+  // wrote the block header at lower indent).
+  HIRPrinter& setIndentLevel(int level) { indent_level_ = level; return *this; }
 
  private:
   void Indent();

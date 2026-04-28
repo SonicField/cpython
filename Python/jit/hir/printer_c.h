@@ -67,6 +67,13 @@ static inline void phx_hir_printer_write_indent(FILE *out, const PhxHirPrinter *
     }
 }
 
+/* B2 commit-2: C++ → FILE* bridges (defined in printer.cpp).  Forwards
+ * Print(Instr) / Print(FrameState) calls into the not-yet-ported C++
+ * HIRPrinter so phx_hir_print_basic_block can recurse correctly during
+ * the staged port.  Removed in commit-5 once the C-side bodies land. */
+void phx_hir_print_instr_cpp(FILE *out, const PhxHirPrinter *p, const void *instr);
+void phx_hir_print_frame_state_cpp(FILE *out, const PhxHirPrinter *p, const void *state);
+
 /* B2 commit-1: helper port of escape_unicode (printer.cpp:162-187).
  * Writes a JSON-style escaped representation of the input bytes to
  * `out`: ASCII printable preserved, '"' and '\\' backslash-escaped,
