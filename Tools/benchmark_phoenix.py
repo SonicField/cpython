@@ -1361,6 +1361,7 @@ JIT_BENCHMARKS = [
     ("decorator_chain",   bench_decorator_chain),
     ("deep_class_super",  bench_deep_class_super),
     ("pytorch_cm",        bench_pytorch_cm),
+    ("printer_coverage",  bench_printer_coverage),
 ]
 
 # Functions to force-compile for JIT benchmarks
@@ -1373,6 +1374,13 @@ _JIT_COMPILABLE = [
     _run_richards_once, _idle_fn, _work_fn, _handler_fn, _device_fn,
     _nbody_advance, _nbody_energy, _nbody_make_bodies,
     _make_adder, _training_mode,
+    _pc_callee, _pc_indirect_dispatch, _pc_kwargs_callee,
+    _pc_with_stmt_fixture, _pc_polymorphic_alloc_fixture,
+    _pc_uncached_attr_fixture, _pc_kwargs_call_fixture,
+    _pc_indirect_call_fixture, _pc_compare_bool_fixture,
+    _pc_unary_neg_fixture, _pc_import_from_fixture,
+    _pc_dyn_attr_get_fixture, _pc_dyn_attr_set_fixture,
+    _pc_super_attr_fixture, _pc_raise_static_fixture,
 ]
 # --- Specialisation benchmark targets ---
 # Selected to exercise LOAD_ATTR_INSTANCE_VALUE, STORE_ATTR, LOAD_ATTR_MODULE
@@ -1397,6 +1405,166 @@ def bench_module_attr(n_iter):
     for _ in range(n_iter):
         total += math.pi + math.e
     return total
+
+# W-PRINTER-COVERAGE-EXTEND probe (supervisor 15:14:24Z, theologian 15:23:24Z).
+# Not a perf benchmark — exercises the HIR opcode classes that arithmetic +
+# iteration paths leave untriggered (attr-access cluster, super, builders,
+# f-string converters, try/except, isinstance, closure, decorator, primitive
+# box/unbox).  Closure trigger ≥80% on extended per-opcode trigger map.
+_printer_coverage_global = 0
+
+class _PCBase:
+    def __init__(self, x):
+        self.x = x
+    def m(self, v):
+        return v + self.x
+
+class _PCDerived(_PCBase):
+    def __init__(self, x, y):
+        super().__init__(x)
+        self.y = y
+    def m(self, v):
+        return super().m(v) * 2 + self.y
+
+def _pc_decorate(fn):
+    fn.__doc__ = "decorated"
+    return fn
+
+@_pc_decorate
+def _pc_callee(a, b):
+    return a + b
+
+class _PCContext:
+    def __enter__(self):
+        return self
+    def __exit__(self, *args):
+        return False
+
+# Per-pattern fixtures (theologian 15:31:15Z B+C: each iter-2 pattern in own
+# fixture so a JIT-cannot-compile opcode only loses ITS coverage, not its
+# siblings).  Each fixture is in _JIT_COMPILABLE so force-compile fires
+# regardless of auto-compile threshold; testkeeper can grep PROBE_INFO
+# per-fixture for compile-class failures.
+
+def _pc_with_stmt_fixture(i):
+    """LoadAttrSpecial via __enter__/__exit__."""
+    with _PCContext() as ctx:
+        return id(ctx) & 0xFF
+
+def _pc_polymorphic_alloc_fixture(i):
+    """TpAlloc via polymorphic class."""
+    cls = _PCBase if (i & 1) else _PCDerived
+    obj = cls(i) if cls is _PCBase else cls(i, i + 1)
+    return obj.x
+
+def _pc_uncached_attr_fixture(obj, name, value):
+    """Uncached LoadAttr / StoreAttr via getattr/setattr."""
+    setattr(obj, name, value)
+    return getattr(obj, name)
+
+def _pc_kwargs_callee(*args, **kwargs):
+    return sum(args) + sum(kwargs.values())
+
+def _pc_kwargs_call_fixture(i):
+    """CallEx via **kwargs."""
+    return _pc_kwargs_callee(i, i + 1, k=i)
+
+def _pc_indirect_dispatch(op_table, key, x, y):
+    return op_table[key](x, y)
+
+_PC_OP_TABLE = {0: lambda a, b: a + b, 1: lambda a, b: a * b}
+
+def _pc_indirect_call_fixture(i):
+    """CallInd via dict-keyed function pointer."""
+    return _pc_indirect_dispatch(_PC_OP_TABLE, i & 1, i, i + 1)
+
+def _pc_compare_bool_fixture(i):
+    """CompareBool — bool(==)."""
+    return 1 if bool(i == (i // 2) * 2) else 0
+
+def _pc_unary_neg_fixture(i):
+    """PrimitiveUnaryOp via bitwise neg."""
+    return ~i & 0xFF
+
+def _pc_import_from_fixture(i):
+    """ImportFrom inside JIT-compiled fn — CONFIRMED intrinsic-uncoverable
+    (testkeeper iter-3 15:35:10Z: PROBE_INFO compiled=False; Phoenix 3.12
+    skips ImportFrom-containing fns).  Retained for documentation /
+    future-Phoenix-fix detection; classified exempt from coverage target."""
+    from math import pi as _pi
+    return int(_pi) + i
+
+# Iter-4 additions (per testkeeper 15:35:10Z C+B): defeat HIR optimizer's
+# inline-cache transforms by using runtime-dynamic attribute names + super
+# attribute access + explicit RaiseStatic.  Each in own fixture so a
+# JIT-transform-eaten opcode only loses its own row.
+
+def _pc_dyn_attr_get_fixture(obj, name):
+    """LoadAttr (uncached) — dynamic-name attribute get defeats inline cache."""
+    return getattr(obj, name)
+
+def _pc_dyn_attr_set_fixture(obj, name, value):
+    """StoreAttr (uncached) — dynamic-name attribute set defeats inline cache."""
+    setattr(obj, name, value)
+    return value
+
+def _pc_super_attr_fixture(d):
+    """LoadAttrSuper — super().attribute (not method) access."""
+    return super(_PCDerived, d).x
+
+def _pc_raise_static_fixture(i):
+    """RaiseStatic — explicit raise + handle inside JIT fn."""
+    try:
+        raise ValueError(f"e{i}")
+    except ValueError as e:
+        return len(str(e))
+
+def bench_printer_coverage(n_iter):
+    global _printer_coverage_global
+    total = 0
+    obj = _PCDerived(0, 0)
+    for i in range(n_iter):
+        # Iter-1 patterns (compile-stable per testkeeper 15:26:59Z).
+        d = _PCDerived(i, i + 1)
+        d.x = i
+        total += d.x + d.m(i)
+        del d.y
+        L = [i, i + 1, i + 2]
+        T = (i, i + 1, i + 2)
+        D = {i: i * 2, i + 1: i * 3}
+        a, *rest = L
+        total += L[0] + T[1] + D[i] + L[1:][0] + a + sum(rest)
+        total += len(f"{i}, {i!r}, {i!s}, {i!a}")
+        try:
+            if i & 0x3FF == 0x3FF:
+                raise ValueError(f"v{i}")
+        except ValueError as e:
+            total += len(str(e))
+        if isinstance(d, _PCBase):
+            total += 1
+        f = float(i)
+        total += int(f) + int(f * 1.5)
+        total += _pc_callee(i, i + 1)
+        # Iter-3 per-pattern fixture calls (each fixture compiles
+        # independently; PROBE_INFO compiled=False on a fixture flags its
+        # opcode as Phoenix-3.12-uncoverable, not a printer-port bug).
+        total += _pc_with_stmt_fixture(i)
+        total += _pc_polymorphic_alloc_fixture(i)
+        total += _pc_uncached_attr_fixture(obj, "z", i)
+        total += _pc_kwargs_call_fixture(i)
+        total += _pc_indirect_call_fixture(i)
+        total += _pc_compare_bool_fixture(i)
+        total += _pc_unary_neg_fixture(i)
+        total += _pc_import_from_fixture(i)
+        # Iter-4: dynamic-name attr / super-attr / explicit raise.
+        name = "x" if (i & 1) else "z"
+        total += _pc_dyn_attr_get_fixture(obj, name)
+        total += _pc_dyn_attr_set_fixture(obj, name, i)
+        total += _pc_super_attr_fixture(d)
+        total += _pc_raise_static_fixture(i)
+        _printer_coverage_global = total
+    return total
+
 SPEC_BENCHMARKS = [
     ("deep_class",     bench_deep_class),
     ("attr_access",    bench_attr_access),
