@@ -137,16 +137,23 @@ void DeoptBase::setGuiltyReg(Register* reg) {
   guilty_reg_ = reg;
 }
 
+// CallCFunc::Func enum count — pinned to the C-side name table in
+// hir_c_call_cfunc_func_name (hir_instr_c.h). Update both together
+// when CallCFunc_FUNCS gains/loses an entry.
+namespace {
+constexpr std::size_t kCallCFuncCount = []() {
+  std::size_t count = 0;
+#define COUNT_FUNC(...) ++count;
+  CallCFunc_FUNCS(COUNT_FUNC)
+#undef COUNT_FUNC
+  return count;
+}();
+static_assert(kCallCFuncCount == 4,
+    "CallCFunc_FUNCS count diverged from hir_c_call_cfunc_func_name table");
+}
+
 std::string_view CallCFunc::funcName() const {
-  switch (func_) {
-#define FUNC_NAME(V, ...) \
-  case Func::k##V:        \
-    return #V;
-    CallCFunc_FUNCS(FUNC_NAME)
-#undef FUNC_NAME
-        default : break;
-  }
-  return "<unknown CallCFunc>";
+  return hir_c_call_cfunc_func_name(static_cast<int32_t>(func_));
 }
 
 void Phi::setArgs(const std::unordered_map<BasicBlock*, Register*>& args) {
@@ -243,7 +250,7 @@ Instr::Instr(const Instr& other)
       output_{other.output()} {}
 
 std::string_view Instr::opname() const {
-  return hirOpcodeName(opcode());
+  return hir_opcode_name(static_cast<HirOpcode>(opcode_));
 }
 
 std::size_t Instr::NumOperands() const {
@@ -367,25 +374,11 @@ void Instr::setOutput(Register* dst) {
 }
 
 bool Instr::IsTerminator() const {
-  switch (opcode()) {
-    case Opcode::kBranch:
-    case Opcode::kDeopt:
-    case Opcode::kCondBranch:
-    case Opcode::kCondBranchIterNotDone:
-    case Opcode::kCondBranchCheckType:
-    case Opcode::kRaise:
-    case Opcode::kRaiseAwaitableError:
-    case Opcode::kRaiseStatic:
-    case Opcode::kReturn:
-    case Opcode::kUnreachable:
-      return true;
-    default:
-      return false;
-  }
+  return hir_c_is_terminator(this) != 0;
 }
 
 std::size_t Instr::numEdges() const {
-  return edges().size();
+  return hir_c_num_edges(this);
 }
 
 Edge* Instr::edge(std::size_t i) {

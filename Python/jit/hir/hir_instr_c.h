@@ -1537,6 +1537,24 @@ static inline int hir_c_is_load_method_base(const void *instr) {
            op == HIR_OP_LoadModuleMethodCached;
 }
 
+/* CallCFunc::funcName() port — name lookup for the CallCFunc::Func enum
+ * defined by CallCFunc_FUNCS in hir.h. Names + order MUST stay in sync
+ * with hir.h's CallCFunc_FUNCS X-macro; hir.cpp pins this with a
+ * static_assert on the table count. */
+static inline const char *hir_c_call_cfunc_func_name(int32_t func) {
+    static const char *const kNames[] = {
+        "Cix_PyAsyncGenValueWrapperNew",
+        "JitCoro_GetAwaitableIter",
+        "JitGen_yf",
+        "JITRT_MatchAndClearException",
+    };
+    if (func >= 0 &&
+        (size_t)func < sizeof(kNames) / sizeof(kNames[0])) {
+        return kNames[func];
+    }
+    return "<unknown CallCFunc>";
+}
+
 /* ==== Phi query functions (no BasicBlock dependency) ==== */
 
 static inline size_t hir_phi_num_blocks(const void *phi) {

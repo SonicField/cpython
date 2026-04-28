@@ -13,6 +13,7 @@
 #include "cinderx/Jit/hir/function.h"
 
 #include <cassert>
+#include <cstring>
 
 using namespace jit::hir;
 
@@ -378,9 +379,68 @@ static void verify_bytecode_offset_invariant() {
     free((char *)deopt - 2 * sizeof(void *) - sizeof(size_t));
 }
 
+/* Phase 4.A Batch 1 exhaustive iteration: pin per-opcode behavior of
+ * the C functions backing the new C++ shims (Instr::IsTerminator,
+ * Instr::numEdges, Instr::opname). One assertion per opcode catches
+ * silent drift from the reference C++ switch this batch replaces.
+ * Per supervisor 21:40:45Z gate amendment: case-specific evidence
+ * for sole-path delegation equivalence, not blanket exemption. */
+static int reference_is_terminator(Opcode op) {
+    switch (op) {
+        case Opcode::kBranch:
+        case Opcode::kDeopt:
+        case Opcode::kCondBranch:
+        case Opcode::kCondBranchIterNotDone:
+        case Opcode::kCondBranchCheckType:
+        case Opcode::kRaise:
+        case Opcode::kRaiseAwaitableError:
+        case Opcode::kRaiseStatic:
+        case Opcode::kReturn:
+        case Opcode::kUnreachable:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+static size_t reference_num_edges(Opcode op) {
+    switch (op) {
+        case Opcode::kBranch:
+            return 1;
+        case Opcode::kCondBranch:
+        case Opcode::kCondBranchIterNotDone:
+        case Opcode::kCondBranchCheckType:
+            return 2;
+        default:
+            return 0;
+    }
+}
+
+static void verify_phase4a_batch1_exhaustive() {
+#define VERIFY_OPCODE(name) {                                                \
+    int op_int = static_cast<int>(Opcode::k##name);                          \
+    Opcode op_enum = Opcode::k##name;                                        \
+    /* Stub instance: only the opcode field is read by hir_c_num_edges. */   \
+    HirInstrLayout stub;                                                     \
+    std::memset(&stub, 0, sizeof(stub));                                     \
+    stub.opcode = op_int;                                                    \
+    assert(hir_instr_info_is_terminator(op_int) ==                           \
+           reference_is_terminator(op_enum) &&                               \
+           "Phase 4.A IsTerminator drift for " #name);                       \
+    assert(hir_c_num_edges(&stub) == reference_num_edges(op_enum) &&         \
+           "Phase 4.A numEdges drift for " #name);                           \
+    assert(std::strcmp(hir_opcode_name(static_cast<HirOpcode>(op_int)),      \
+                       hir_instr_info_name(op_int)) == 0 &&                  \
+           "Phase 4.A opname drift for " #name);                             \
+}
+    FOREACH_OPCODE(VERIFY_OPCODE)
+#undef VERIFY_OPCODE
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
     verify_is_replayable_table();
     verify_bytecode_offset_invariant();
+    verify_phase4a_batch1_exhaustive();
 }
