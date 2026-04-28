@@ -1,0 +1,131 @@
+# WS3 gen_simple regression bisect — Phase 1 + Phase 2 result
+
+**Date:** 2026-04-28
+**Anchor evidence:** testkeeper 03:41:37Z (in-tree bd00b75500 measurement),
+07:21:46Z (Phase 1 bisect), 07:58:35Z (Phase 2A harness sub-bisect),
+07:59:52Z (Phase 2 ABBA at 314d0f2310), 08:08:16Z (method-B v2 calibration),
+08:10:53Z (33bbbe6c36 probe), theologian 07:46:45Z + 08:02:51Z + 08:11:47Z
+methodology dispositions.
+
+## Summary
+
+The gen_simple JIT regression (~25-33% slowdown vs vanilla CPython) is a STEP
+function activated at commit `33bbbe6c36` ("Enable auto-compilation via func
+watcher + counting trampoline", 2026-03-30). The slow JIT codegen pre-exists
+in the extraction-era cluster `e11fc09f6e..33bbbe6c36` (~12 commits) but does
+not execute until 33bbbe6c36 wires the auto-compile path. Magnitude is stable
+through HEAD (~0.71-0.78x ratio across all measured points).
+
+## Bisect range
+
+- **Original framing:** `dd70e1cf89..first-ABBA-commit`
+  (testkeeper 03:41:37Z; theologian 05:59:02Z TWO-PHASE BISECT spec)
+- **Refined first-ABBA upper bound:** `cf49ad6da5` (where 0.75x was
+  measured per `docs/benchmarks/x86_64_abba_2026-03-31.md`), NOT
+  `2e15d1e70d` (which only added the doc, +6 commits later)
+
+## Phase 1: stability bisect
+
+- **Range:** `dd70e1cf89..2e15d1e70d` (45 commits)
+- **Predicate:** `PYTHONJITAUTO=1 timeout 30 ./python -c 'import _cinderx; print("OK")'`
+  exits 0 (theologian 06:58:47Z corrected from `cinderjit.auto()` after generalist
+  06:58:03Z surfaced not-yet-landed-API conflation)
+- **Driver:** `scripts/bisect_phase1_stability.sh`
+- **Result:** `e11fc09f6e8c4a5a1de562efec3f0c79ba87e3ac` (2026-03-30 07:48:05,
+  +37min after dd70e1cf89). Commit body: 'Phase 2B: JIT initializes
+  successfully on import _cinderx'. Three fixes inside: PyModule_Create
+  in place of `_Ci_CreateBuiltinModule`; skip auto-compile scheduling;
+  drop `_cinderx-lib.cpp` + `async_lazy_value.cpp` from build.
+- **Wallclock:** 5 iterations, 22 revisions, ~10min.
+- **Side-finding:** intermediate commits `33bbbe6c`, `82501bcc`, `b972354e`
+  exhibited shutdown-time SIGSEGV (init OK then crash); fixed before
+  Phase 1 GOOD endpoint. Logged as W-SHUTDOWN-CRASH-INTERMEDIATE candidate
+  (low-priority/historical, no current impact). Supervisor 07:23:17Z ACK'd
+  but did not open as active workstream.
+
+## W-DD70E1CF-INIT-SEGV closure
+
+Resolved-via-Phase-1-discovery (supervisor 07:23:17Z disposition). The three
+fixes inside `e11fc09f6e` are the standalone resolution of the dd70e1cf89
+`jit::initialize()` segfault — root cause identified at Phase-2B authoring
+time, fix landed sub-1-hour gap. Not pre-existing parked debt.
+
+## Phase 2A: harness sub-bisect
+
+- **Range:** `e11fc09f6e..cf49ad6da5` (38 commits)
+- **Driver:** `scripts/bisect_phase2a_harness.sh`
+- **Predicate:** `./python_bench Tools/benchmark_phoenix.py --help` exit 0
+  within 30s (necessary AND sufficient for ABBA setup phase per theologian
+  07:46:45Z)
+- **Result:** `314d0f23109d14b85a6283d0f526c3b4245edf22` (2026-03-30 10:51:39,
+  +3h03min after `e11fc09f6e`). Commit body: 'Guard dict watcher dealloc and
+  restore uncompiled vectorcalls on shutdown'.
+- **Wallclock:** 6 iterations, 38 revisions, ~10min.
+- **Why needed:** `import _cinderx` succeeds at `e11fc09f6e` (Phase 1 GOOD)
+  but the `Tools/benchmark_phoenix.py` harness segfaults during its setup
+  phase on commits `e11fc09f6e..b972354eaa` — JIT-init-stable does not
+  imply harness-compatible. Mechanism attribution by testkeeper at
+  07:45:55Z + 07:53:45Z was retracted as forensic-log-first violation
+  (medic 07:53:05Z + 07:55:31Z catches; testkeeper 07:57:04Z full
+  concession). Path A predicate is empirical, mechanism-independent.
+
+## Phase 2 ABBA at `314d0f2310`
+
+- **Result:** ratio 0.738x (already-regressed). Phase 2 perf-bisect range
+  `314d0f2310..cf49ad6da5` is structurally empty — every commit measures bad.
+- **Implication:** regression entered in the harness-broken cluster
+  `e11fc09f6e..314d0f2310` (22 commits), where ABBA cannot run.
+
+## Phase 2 method-B probe (in-process timing)
+
+Theologian 08:02:51Z authorized C-then-B path: hypothesis-driven probe of
+`33bbbe6c36` ('Enable auto-compilation') with minimal in-process timing
+(no harness).
+
+- **Probe:** `scripts/probe_gen_simple_minimal.py`. Replicates
+  `Tools/benchmark_phoenix.py:777` `bench_gen_simple` verbatim. v1 used
+  1100 outer warmup calls of `bench_gen_simple(100)` which crossed
+  `compile_after_n_calls=1000` and JIT-compiled the outer function
+  (calibration divergence 21% vs ABBA, 542ms vs 641ms). v2 matches harness
+  warmup pattern exactly: 3 warmup + 5 measure × `bench_gen_simple(8.7M)`.
+- **v2 calibration at `314d0f2310`:** ratio 0.776x vs ABBA 0.738x (5.2%
+  delta, within ±10% window).
+- **`33bbbe6c36` probe:** ratio 0.713x. BAD by 0.85x threshold.
+
+## Result
+
+`33bbbe6c36` is the activation commit. The slow JIT codegen for `gen_simple`
+exists in `e11fc09f6e..33bbbe6c36` (~12 commits, all pre-activation per
+Phase 1 fix #2 disabling auto-compile) but only executes once `33bbbe6c36`
+wires the func watcher + counting trampoline.
+
+| Commit | Description | Ratio (vanilla / jit) | Source |
+|---|---|---|---|
+| `33bbbe6c36` | Enable auto-compilation (activation) | 0.713x | method-B v2 |
+| `314d0f2310` | First harness-stable post-activation | 0.776x / 0.738x | method-B v2 / ABBA |
+| `cf49ad6da5` | First-ABBA upper bound | 0.75x | ABBA 2026-03-31 |
+
+Magnitude STEP, ~0.71-0.78x ratio (~25-33% slowdown), stable through HEAD.
+Falsifies any 'gradual progression' or 'late-introduction' hypothesis.
+
+## Out-of-scope for bisect
+
+The 'what slow-code-shape' question requires Debug-First profiling
+(perf record + cinderx-disassemble on current-tree gen_simple JIT compile).
+Theologian 08:11:47Z RECOMMEND: profile HEAD over bisecting the
+pre-activation cluster — fix-relevant info comes from characterizing the
+slow code-shape, not identifying which extraction-era infrastructure commit
+introduced it.
+
+W-PHASE2-CODEGEN-SLOW workstream candidate (supervisor disposition).
+First-step anchor: `/tmp/phx-bisect-staging/probe_33bbbe6c.log` +
+`33bbbe6c36` commit + this result-doc.
+
+## Artifacts
+
+- Phase 1 driver: `scripts/bisect_phase1_stability.sh`
+- Phase 2A harness driver: `scripts/bisect_phase2a_harness.sh`
+- Phase 2 method-B v2 probe: `scripts/probe_gen_simple_minimal.py`
+- Bisect logs: `/tmp/phx-bisect-staging/{bisect_full.log,bisect_phase2a.log,
+  abba_validate_314d0f.log,calibrate_v2_314d0f.log,probe_33bbbe6c.log}`
+- Worktree: `/tmp/phx-bisect-phase1` (preserved at `33bbbe6c36`)
