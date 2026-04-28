@@ -767,6 +767,60 @@ void phx_format_immediates(FILE *out, const PhxHirPrinter *p, const void *instr)
             return;
         }
 
+        /* P-4b: complex calls (CallStatic/CallStaticRetVoid via
+         * phx_format_call_addr; CallCFunc via funcName-bridge;
+         * CallIntrinsic with PY_VERSION_HEX-gated intrinsic-table;
+         * InvokeStaticFunction via PyUnicode bridges).
+         *
+         * STRUCT-LAYOUT HAND-REVIEW (per theologian 14:00:35Z):
+         * - HirCallStatic: HIR_INSTR_FIELDS + void *addr + HirType ret_type
+         * - HirCallStaticRetVoid: HIR_INSTR_FIELDS + void *addr (no ret_type)
+         * - HirCallCFunc: HIR_INSTR_FIELDS + int32_t func
+         * - HirCallIntrinsic: HIR_INSTR_FIELDS + size_t index
+         * - HirInvokeStaticFunction: HIR_DEOPT_FIELDS + void *func + HirType ret_type
+         * Verified against printer.cpp:368-401 + hir_instr_c.h:407-587. */
+        case HIR_OP_CallStatic: {
+            const HirCallStatic *call = (const HirCallStatic *)instr;
+            fputc('<', out);
+            phx_format_call_addr(out, call->addr, hir_c_num_operands(instr));
+            fputc('>', out);
+            return;
+        }
+        case HIR_OP_CallStaticRetVoid: {
+            const HirCallStaticRetVoid *call = (const HirCallStaticRetVoid *)instr;
+            fputc('<', out);
+            phx_format_call_addr(out, call->addr, hir_c_num_operands(instr));
+            fputc('>', out);
+            return;
+        }
+        case HIR_OP_CallCFunc:
+            fprintf(out, "<%s>", phx_hir_call_cfunc_name(instr));
+            return;
+        case HIR_OP_CallIntrinsic: {
+            const HirCallIntrinsic *call = (const HirCallIntrinsic *)instr;
+            const char *name = phx_hir_call_intrinsic_name(
+                call->index, hir_c_num_operands(instr));
+            if (name != NULL) {
+                fprintf(out, "<%s>", name);
+            } else {
+                /* Pre-3.14: emit raw index */
+                fprintf(out, "<%zu>", call->index);
+            }
+            return;
+        }
+        case HIR_OP_InvokeStaticFunction: {
+            const HirInvokeStaticFunction *call =
+                (const HirInvokeStaticFunction *)instr;
+            char type_buf[256];
+            hir_type_to_string_c(&call->ret_type, type_buf, sizeof(type_buf), 0);
+            fprintf(out, "<%s.%s, %zu, %s>",
+                    phx_hir_pyfunc_module_name(call->func),
+                    phx_hir_pyfunc_qualname(call->func),
+                    hir_c_num_operands(instr),
+                    type_buf);
+            return;
+        }
+
         /* All other opcodes: bridge fallback to C++ format_immediates
          * (commit-4 phx_format_immediates_cpp). Subsequent P-N commits
          * migrate cases out of this default. */

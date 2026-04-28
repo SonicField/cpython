@@ -100,6 +100,13 @@ int phx_hir_load_split_dict_item_idx(const void *instr);
 const char *phx_hir_return_type_or_empty(const void *instr);
 int phx_hir_branch_target_id(const void *instr);
 
+/* W-PRINTER-IMMEDIATES-PORT P-4b: complex-call bridges. */
+void phx_format_call_addr(FILE *out, const void *addr, size_t num_ops);
+const char *phx_hir_call_cfunc_name(const void *instr);
+const char *phx_hir_call_intrinsic_name(size_t index, size_t num_operands);
+const char *phx_hir_pyfunc_module_name(const void *func_obj);
+const char *phx_hir_pyfunc_qualname(const void *func_obj);
+
 /* B2 commit-3: thin C-callable bridges for non-trivial Function /
  * LoadSuperBase methods used by the format_name family ports below.
  * Pointers are opaque (void*) — implementation in printer.cpp casts

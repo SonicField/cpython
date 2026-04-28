@@ -1056,6 +1056,72 @@ int phx_hir_branch_target_id(const void* instr) {
   return reinterpret_cast<const jit::hir::Branch*>(instr)->target()->id;
 }
 
+// W-PRINTER-IMMEDIATES-PORT P-4b: complex-call bridges.
+// CallStatic / CallStaticRetVoid emit "<name@stable_ptr, num_ops>"
+// when symbolize succeeds, "<stable_ptr, num_ops>" otherwise.  Single
+// bridge that writes the formatted text directly to FILE* — caller
+// adds the "<...>" wrapping.
+void phx_format_call_addr(FILE* out, const void* addr, size_t num_ops) {
+  auto sym = jit::symbolize(addr);
+  const void* sp = jit::getStablePointer(addr);
+  if (sym.has_value()) {
+    fprintf(out, "%s@%p, %zu", sym->c_str(), sp, num_ops);
+  } else {
+    fprintf(out, "%p, %zu", sp, num_ops);
+  }
+}
+
+// CallCFunc::funcName() returns std::string_view — enum-to-string
+// lookup over CallCFunc_FUNCS X-macro (hir.cpp:CallCFunc::funcName).
+// Take instr pointer and dispatch via the existing member function.
+const char* phx_hir_call_cfunc_name(const void* instr) {
+  thread_local std::string s_buf;
+  const auto* call = reinterpret_cast<const jit::hir::CallCFunc*>(instr);
+  s_buf = std::string{call->funcName()};
+  return s_buf.c_str();
+}
+
+// CallIntrinsic name lookup.  3.14+ uses _PyIntrinsics_*Functions
+// tables indexed by the intrinsic's index field; older versions
+// just emit the index as a number.  Returns NULL when caller should
+// fall back to printing the index integer directly.
+#if PY_VERSION_HEX >= 0x030E0000
+const char* phx_hir_call_intrinsic_name(size_t index, size_t num_operands) {
+  switch (num_operands) {
+    case 1:
+      return _PyIntrinsics_UnaryFunctions[index].name;
+    case 2:
+      return _PyIntrinsics_BinaryFunctions[index].name;
+    default:
+      return nullptr;
+  }
+}
+#else
+const char* phx_hir_call_intrinsic_name(size_t /*index*/, size_t /*num_operands*/) {
+  return nullptr;  // caller emits index integer
+}
+#endif
+
+// InvokeStaticFunction.func() returns PyFunctionObject*.  Two
+// PyUnicode_AsUTF8 lookups for module + qualname; returned strings are
+// thread_local-buffered.  ret_type is read directly from the
+// HirInvokeStaticFunction struct's HirType field by the caller.
+const char* phx_hir_pyfunc_module_name(const void* func_obj) {
+  thread_local std::string s_buf;
+  const auto* func = static_cast<const PyFunctionObject*>(func_obj);
+  const char* m = PyUnicode_AsUTF8(func->func_module);
+  s_buf = m != nullptr ? std::string{m} : std::string{};
+  return s_buf.c_str();
+}
+
+const char* phx_hir_pyfunc_qualname(const void* func_obj) {
+  thread_local std::string s_buf;
+  const auto* func = static_cast<const PyFunctionObject*>(func_obj);
+  const char* m = PyUnicode_AsUTF8(func->func_qualname);
+  s_buf = m != nullptr ? std::string{m} : std::string{};
+  return s_buf.c_str();
+}
+
 // B2 commit-4: bridge into the static format_immediates above.  Per
 // theologian 11:23:20Z option A, format_immediates (185 case-branches)
 // stays C++ — porting it requires hundreds of HIR-instruction-specific
