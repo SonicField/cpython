@@ -639,6 +639,58 @@ void phx_format_immediates(FILE *out, const PhxHirPrinter *p, const void *instr)
             return;
         }
 
+        /* P-3: format_name / phx_format_load_super / escape_unicode
+         * consumers.  All HIR_DEOPT_NAMEIDX_FIELDS-class structs share
+         * the int32_t name_idx field at the same offset; cast to any
+         * one (HirImportFrom is the simplest no-extra-fields variant)
+         * to read it.  printer.cpp wraps each result in "<...>" via
+         * format_immediates' caller; we replicate inline. */
+        case HIR_OP_DeleteAttr:
+        case HIR_OP_LoadAttr:
+        case HIR_OP_LoadAttrCached:
+        case HIR_OP_LoadModuleAttrCached:
+        case HIR_OP_StoreAttr:
+        case HIR_OP_StoreAttrCached:
+        case HIR_OP_LoadGlobal:
+        case HIR_OP_LoadMethod:
+        case HIR_OP_LoadMethodCached:
+        case HIR_OP_LoadModuleMethodCached:
+        case HIR_OP_ImportFrom:
+        case HIR_OP_ImportName:
+        case HIR_OP_EagerImportName: {
+            const HirImportFrom *named = (const HirImportFrom *)instr;
+            fputc('<', out);
+            phx_format_name(out, p, instr, named->name_idx);
+            fputc('>', out);
+            return;
+        }
+        case HIR_OP_LoadGlobalCached: {
+            /* HirLoadGlobalCached has a different layout (HIR_INSTR_FIELDS
+             * + extra fields), name_idx at the end. Distinct cast. */
+            const HirLoadGlobalCached *load = (const HirLoadGlobalCached *)instr;
+            fputc('<', out);
+            phx_format_name(out, p, instr, load->name_idx);
+            fputc('>', out);
+            return;
+        }
+        case HIR_OP_LoadMethodSuper:
+        case HIR_OP_LoadAttrSuper: {
+            fputc('<', out);
+            phx_format_load_super(out, p, instr);
+            fputc('>', out);
+            return;
+        }
+        case HIR_OP_CheckField:
+        case HIR_OP_CheckFreevar:
+        case HIR_OP_CheckVar: {
+            /* HIR_CHECK_WITH_NAME_FIELDS: void *name (PyObject*). */
+            const HirCheckField *check = (const HirCheckField *)instr;
+            fputc('<', out);
+            phx_hir_escape_unicode_pyobject(out, check->name);
+            fputc('>', out);
+            return;
+        }
+
         /* All other opcodes: bridge fallback to C++ format_immediates
          * (commit-4 phx_format_immediates_cpp). Subsequent P-N commits
          * migrate cases out of this default. */
