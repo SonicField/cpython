@@ -1017,6 +1017,88 @@ int phx_hir_load_super_no_args_in_super_call(const void* instr) {
       ->no_args_in_super_call();
 }
 
+// B2 commit-5a: structural HIR accessors for print_reg_states +
+// Print(FrameState) C-side bodies.  Per theologian 11:35:47Z these
+// are reusable C-API surface, not the single-use bridge pattern.
+size_t phx_hir_reg_state_array_size(const void* array) {
+  return reinterpret_cast<const jit::hir::PhxRegStateArray*>(array)->size();
+}
+
+const void* phx_hir_reg_state_array_at(const void* array, size_t i) {
+  return &(*reinterpret_cast<const jit::hir::PhxRegStateArray*>(array))[i];
+}
+
+const void* phx_hir_reg_state_reg(const void* rs) {
+  return reinterpret_cast<const jit::hir::RegState*>(rs)->reg;
+}
+
+int phx_hir_reg_state_ref_kind(const void* rs) {
+  return static_cast<int>(reinterpret_cast<const jit::hir::RegState*>(rs)->ref_kind);
+}
+
+int phx_hir_reg_state_value_kind(const void* rs) {
+  return static_cast<int>(reinterpret_cast<const jit::hir::RegState*>(rs)->value_kind);
+}
+
+int phx_hir_register_id(const void* reg) {
+  return reinterpret_cast<const jit::hir::Register*>(reg)->id();
+}
+
+const char* phx_hir_register_name(const void* reg) {
+  // Register::name() returns std::string by value; cache via thread_local
+  // to keep the returned const char* live for the duration of the print
+  // (printer.cpp doesn't outlive a single Print() call).  Acceptable for
+  // tooling; a later cleanup could plumb name() through std::string_view.
+  thread_local std::string s_name_buf;
+  s_name_buf = reinterpret_cast<const jit::hir::Register*>(reg)->name();
+  return s_name_buf.c_str();
+}
+
+int phx_hir_frame_state_cur_instr_offs(const void* state) {
+  return reinterpret_cast<const jit::hir::FrameState*>(state)
+      ->cur_instr_offs.value();
+}
+
+int phx_hir_frame_state_nlocals(const void* state) {
+  return reinterpret_cast<const jit::hir::FrameState*>(state)->nlocals;
+}
+
+size_t phx_hir_frame_state_localsplus_count(const void* state) {
+  return reinterpret_cast<const jit::hir::FrameState*>(state)->localsplus.count;
+}
+
+const void* phx_hir_frame_state_localsplus_at(const void* state, size_t i) {
+  return reinterpret_cast<const jit::hir::FrameState*>(state)
+      ->localsplus.data[i];
+}
+
+size_t phx_hir_frame_state_stack_count(const void* state) {
+  return reinterpret_cast<const jit::hir::FrameState*>(state)->stack.count;
+}
+
+const void* phx_hir_frame_state_stack_at(const void* state, size_t i) {
+  return reinterpret_cast<const jit::hir::FrameState*>(state)->stack.data[i];
+}
+
+size_t phx_hir_frame_state_block_stack_size(const void* state) {
+  return reinterpret_cast<const jit::hir::FrameState*>(state)->block_stack.size();
+}
+
+int phx_hir_frame_state_block_stack_opcode(const void* state, size_t i) {
+  return reinterpret_cast<const jit::hir::FrameState*>(state)
+      ->block_stack.at(i).opcode;
+}
+
+int phx_hir_frame_state_block_stack_handler_off(const void* state, size_t i) {
+  return reinterpret_cast<const jit::hir::FrameState*>(state)
+      ->block_stack.at(i).handler_off.value();
+}
+
+int phx_hir_frame_state_block_stack_stack_level(const void* state, size_t i) {
+  return reinterpret_cast<const jit::hir::FrameState*>(state)
+      ->block_stack.at(i).stack_level;
+}
+
 // B2 commit-4: bridge into the static format_immediates above.  Per
 // theologian 11:23:20Z option A, format_immediates (185 case-branches)
 // stays C++ — porting it requires hundreds of HIR-instruction-specific

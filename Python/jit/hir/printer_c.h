@@ -90,6 +90,50 @@ const void *phx_hir_func_code_for(const void *func, const void *instr);
 int phx_hir_load_super_name_idx(const void *instr);
 int phx_hir_load_super_no_args_in_super_call(const void *instr);
 
+/* B2 commit-5a: structural HIR accessors for print_reg_states +
+ * Print(FrameState) C-side bodies.  Implementations in printer.cpp
+ * (1-line wrappers).  Per theologian 11:35:47Z principled distinction:
+ * these are structural-and-reusable accessors (RegState / Register /
+ * FrameState / BlockStack), not the instruction-specific surface that
+ * format_immediates would require — proper C-API additions, not the
+ * single-use bridge pattern that justifies W-PRINTER-IMMEDIATES-PORT. */
+
+/* PhxRegStateArray (printer.cpp:107 print_reg_states consumer). */
+size_t phx_hir_reg_state_array_size(const void *array);
+const void *phx_hir_reg_state_array_at(const void *array, size_t i);
+
+/* RegState fields (register.h struct). */
+const void *phx_hir_reg_state_reg(const void *rs);
+int phx_hir_reg_state_ref_kind(const void *rs);    /* 0=Uncounted 1=Borrowed 2=Owned */
+int phx_hir_reg_state_value_kind(const void *rs);  /* 0=Object 1=Signed 2=Unsigned 3=Bool 4=Double */
+
+/* Register accessors. */
+int phx_hir_register_id(const void *reg);
+const char *phx_hir_register_name(const void *reg);
+
+/* FrameState accessors (frame_state.h struct). */
+int phx_hir_frame_state_cur_instr_offs(const void *state);
+int phx_hir_frame_state_nlocals(const void *state);
+size_t phx_hir_frame_state_localsplus_count(const void *state);
+const void *phx_hir_frame_state_localsplus_at(const void *state, size_t i);
+size_t phx_hir_frame_state_stack_count(const void *state);
+const void *phx_hir_frame_state_stack_at(const void *state, size_t i);
+
+/* BlockStack accessors (frame_state.h ExecutionBlock). */
+size_t phx_hir_frame_state_block_stack_size(const void *state);
+int phx_hir_frame_state_block_stack_opcode(const void *state, size_t i);
+int phx_hir_frame_state_block_stack_handler_off(const void *state, size_t i);
+int phx_hir_frame_state_block_stack_stack_level(const void *state, size_t i);
+
+/* B2 commit-5a: escape_unicode PyObject overload — declared in the
+ * Python-aware caller printer_c.c (Python.h required for PyObject).
+ * Forward decl here uses opaque void* per
+ * feedback_no_pythonh_headers.md keep-Python.h-out-of-headers rule. */
+void phx_hir_escape_unicode_pyobject(FILE *out, const void *str);
+
+/* B2 commit-5a: print_reg_states port (printer.cpp:107-158). */
+void phx_hir_print_reg_states(FILE *out, const void *reg_states_array);
+
 /* B2 commit-3: format_name family C ports — printer.cpp:200-237.
  * Each writes its formatted text directly to FILE* `out` (no
  * intermediate std::string).  PhxHirPrinter `p` carries the Function*

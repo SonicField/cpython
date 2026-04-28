@@ -223,9 +223,150 @@ void phx_hir_print_instr(FILE *out, PhxHirPrinter *p, const void *instr) {
     /* B1 stub: see printer.cpp:HIRPrinter::Print(Instr&) */
 }
 
+/* B2 commit-5a: escape_unicode PyObject overload (printer.cpp:189-197).
+ * Fetches UTF-8 bytes from the PyObject and delegates to the chars
+ * version (commit-1). Errors during decode are silently swallowed
+ * matching the C++ side's PyErr_Clear(). */
+void phx_hir_escape_unicode_pyobject(FILE *out, const void *str) {
+    Py_ssize_t size;
+    const char *data = PyUnicode_AsUTF8AndSize((PyObject *)str, &size);
+    if (data == NULL) {
+        PyErr_Clear();
+        fputs("\"\"", out);
+        return;
+    }
+    phx_hir_escape_unicode_chars(out, data, (ptrdiff_t)size);
+}
+
+/* B2 commit-5a: qsort comparator for sorting RegState array by reg id
+ * (matches std::sort lambda at printer.cpp:111-113). */
+static int phx_hir_reg_state_cmp(const void *a, const void *b) {
+    const void *ra = phx_hir_reg_state_reg(*(const void *const *)a);
+    const void *rb = phx_hir_reg_state_reg(*(const void *const *)b);
+    int ida = phx_hir_register_id(ra);
+    int idb = phx_hir_register_id(rb);
+    return (ida > idb) - (ida < idb);
+}
+
+/* B2 commit-5a: ref_kind/value_kind ordinals → prefix string.  Mirrors
+ * the switch at printer.cpp:121-154.  Returns "?" for unrecognised
+ * combinations (defensive; should not happen with valid HIR). */
+static const char *phx_hir_reg_state_prefix(int value_kind, int ref_kind) {
+    /* ValueKind ordinals: 0=Object 1=Signed 2=Unsigned 3=Bool 4=Double */
+    /* RefKind ordinals: 0=Uncounted 1=Borrowed 2=Owned */
+    switch (value_kind) {
+        case 1: return "s";
+        case 2: return "uns";
+        case 3: return "bool";
+        case 4: return "double";
+        case 0:
+            switch (ref_kind) {
+                case 0: return "unc";
+                case 1: return "b";
+                case 2: return "o";
+                default: return "?";
+            }
+        default: return "?";
+    }
+}
+
+/* B2 commit-5a: print_reg_states port (printer.cpp:107-158). Sorts by
+ * reg id, writes "<count>" header followed by space-separated
+ * "{prefix}:{name}" entries. */
+void phx_hir_print_reg_states(FILE *out, const void *reg_states_array) {
+    size_t n = phx_hir_reg_state_array_size(reg_states_array);
+    fprintf(out, "<%zu>", n);
+    if (n == 0) {
+        return;
+    }
+    fputc(' ', out);
+    /* Sort a pointer array by reg id (avoids touching the source array). */
+    const void **sorted = (const void **)malloc(n * sizeof(*sorted));
+    if (sorted == NULL) {
+        return;
+    }
+    for (size_t i = 0; i < n; i++) {
+        sorted[i] = phx_hir_reg_state_array_at(reg_states_array, i);
+    }
+    qsort(sorted, n, sizeof(*sorted), phx_hir_reg_state_cmp);
+    const char *sep = "";
+    for (size_t i = 0; i < n; i++) {
+        const void *rs = sorted[i];
+        const char *prefix = phx_hir_reg_state_prefix(
+            phx_hir_reg_state_value_kind(rs),
+            phx_hir_reg_state_ref_kind(rs));
+        fprintf(out, "%s%s:%s",
+                sep,
+                prefix,
+                phx_hir_register_name(phx_hir_reg_state_reg(rs)));
+        sep = " ";
+    }
+    free(sorted);
+}
+
+/* B2 commit-5a: Print(FrameState) port (printer.cpp:864-920).
+ * Writes "CurInstrOffset N\n" header, then optional Locals/Cells/Stack/
+ * BlockStack sections, each indented + newline-terminated. */
 void phx_hir_print_frame_state(FILE *out, PhxHirPrinter *p, const void *state) {
-    (void)out;
-    (void)p;
-    (void)state;
-    /* B1 stub: see printer.cpp:HIRPrinter::Print(FrameState&) */
+    phx_hir_printer_write_indent(out, p);
+    fprintf(out, "CurInstrOffset %d\n", phx_hir_frame_state_cur_instr_offs(state));
+
+    int nlocals = phx_hir_frame_state_nlocals(state);
+    if (nlocals > 0) {
+        phx_hir_printer_write_indent(out, p);
+        fprintf(out, "Locals<%d>", nlocals);
+        for (int i = 0; i < nlocals; i++) {
+            const void *reg = phx_hir_frame_state_localsplus_at(state, (size_t)i);
+            if (reg == NULL) {
+                fputs(" <null>", out);
+            } else {
+                fprintf(out, " %s", phx_hir_register_name(reg));
+            }
+        }
+        fputc('\n', out);
+    }
+
+    size_t nlocalsplus = phx_hir_frame_state_localsplus_count(state);
+    size_t ncells = (nlocalsplus > (size_t)nlocals) ? nlocalsplus - (size_t)nlocals : 0;
+    if (ncells > 0) {
+        phx_hir_printer_write_indent(out, p);
+        fprintf(out, "Cells<%zu>", ncells);
+        for (size_t i = (size_t)nlocals; i < nlocalsplus; i++) {
+            const void *reg = phx_hir_frame_state_localsplus_at(state, i);
+            if (reg == NULL) {
+                fputs(" <null>", out);
+            } else {
+                fprintf(out, " %s", phx_hir_register_name(reg));
+            }
+        }
+        fputc('\n', out);
+    }
+
+    size_t opstack_size = phx_hir_frame_state_stack_count(state);
+    if (opstack_size > 0) {
+        phx_hir_printer_write_indent(out, p);
+        fprintf(out, "Stack<%zu>", opstack_size);
+        for (size_t i = 0; i < opstack_size; i++) {
+            const void *reg = phx_hir_frame_state_stack_at(state, i);
+            fprintf(out, " %s", phx_hir_register_name(reg));
+        }
+        fputc('\n', out);
+    }
+
+    size_t bs_size = phx_hir_frame_state_block_stack_size(state);
+    if (bs_size > 0) {
+        phx_hir_printer_write_indent(out, p);
+        fputs("BlockStack {\n", out);
+        phx_hir_printer_indent(p);
+        for (size_t i = 0; i < bs_size; i++) {
+            phx_hir_printer_write_indent(out, p);
+            fprintf(out, "Opcode %d HandlerOff %d StackLevel %d\n",
+                    phx_hir_frame_state_block_stack_opcode(state, i),
+                    phx_hir_frame_state_block_stack_handler_off(state, i),
+                    phx_hir_frame_state_block_stack_stack_level(state, i));
+        }
+        phx_hir_printer_dedent(p);
+        phx_hir_printer_write_indent(out, p);
+        fputs("}\n", out);
+    }
 }
