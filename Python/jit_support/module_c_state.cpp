@@ -11,6 +11,16 @@ extern "C" {
 vectorcallfunc Ci_PyFunction_Vectorcall;
 #endif
 
+// W-PHASE2-CODEGEN-SLOW Phase 2: cached pointers backing the inline
+// Ci_JitGenType/Ci_JitCoroType/Ci_JitModule accessors in module_c_state.h.
+// Updated at setter sites (setGenType/setCoroType/setModuleState) so the
+// hot-path consumers (gen_data_footer.c, generators_core.c) read a single
+// cached pointer instead of going through the cross-TU function call into
+// cinderx::getModuleState()->genType() etc.
+PyTypeObject* phx_jit_gen_type = nullptr;
+PyTypeObject* phx_jit_coro_type = nullptr;
+PyObject* phx_jit_module_obj = nullptr;
+
 int Ci_Watchers_WatchDict(PyObject* dict) {
   return ci_watcher_state_watch_dict(&cinderx::getModuleState()->watcherState(), dict);
 }
@@ -55,16 +65,8 @@ void Ci_free_jit_list_gen(PyGenObject* obj) {
       reinterpret_cast<PyObject*>(obj));
 }
 
-PyTypeObject* Ci_JitGenType(void) {
-  return cinderx::getModuleState()->genType();
-}
-
-PyTypeObject* Ci_JitCoroType(void) {
-  return cinderx::getModuleState()->coroType();
-}
-
-PyObject* Ci_JitModule(void) {
-  return cinderx::getModuleState()->module();
-}
+// Ci_JitGenType / Ci_JitCoroType / Ci_JitModule moved to static inline in
+// module_c_state.h (W-PHASE2-CODEGEN-SLOW Phase 2; backed by phx_jit_*
+// extern globals defined above).
 
 } // extern "C"

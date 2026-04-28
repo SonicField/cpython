@@ -76,16 +76,15 @@ class ModuleState {
     async_lazy_value_ = std::unique_ptr<IAsyncLazyValueState>(state);
   }
 
-  void setCoroType(PyTypeObject* coro_type) {
-    coro_type_ = Ref<PyTypeObject>::create(coro_type);
-  }
+  // setCoroType / setGenType: defined out-of-line in module_state.cpp so
+  // they can also update the C-side cached pointers (phx_jit_coro_type /
+  // phx_jit_gen_type) declared in module_c_state.h. Single setter site
+  // keeps the cache atomically in sync (W-PHASE2-CODEGEN-SLOW Phase 2).
+  void setCoroType(PyTypeObject* coro_type);
+  void setGenType(PyTypeObject* gen_type);
 
   PyTypeObject* coroType() const {
     return coro_type_;
-  }
-
-  void setGenType(PyTypeObject* gen_type) {
-    gen_type_ = Ref<PyTypeObject>::create(gen_type);
   }
 
   PyTypeObject* genType() const {

@@ -37,12 +37,27 @@ PyObject** Ci_GetDictCache(PyObject* dict, PyObject* key);
 
 void Ci_free_jit_list_gen(PyGenObject* obj);
 
-// JIT generator/coroutine type pointers.
-PyTypeObject* Ci_JitGenType(void);
-PyTypeObject* Ci_JitCoroType(void);
+// JIT generator/coroutine type pointers — W-PHASE2-CODEGEN-SLOW Phase 2.
+//
+// Backing storage is set by setGenType/setCoroType/setModuleState (and
+// nullified by removeModuleState).  Inline accessors below avoid the
+// cross-TU function-call overhead at hot-path call sites
+// (gen_data_footer.c per-yield, generators_core.c per-yield).
+extern PyTypeObject* phx_jit_gen_type;
+extern PyTypeObject* phx_jit_coro_type;
+extern PyObject* phx_jit_module_obj;
 
-// Module object (for reference counting).
-PyObject* Ci_JitModule(void);
+static inline PyTypeObject* Ci_JitGenType(void) {
+  return phx_jit_gen_type;
+}
+
+static inline PyTypeObject* Ci_JitCoroType(void) {
+  return phx_jit_coro_type;
+}
+
+static inline PyObject* Ci_JitModule(void) {
+  return phx_jit_module_obj;
+}
 
 #ifdef __cplusplus
 } // extern "C"

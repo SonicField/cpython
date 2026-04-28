@@ -3,6 +3,7 @@
 #include "cinderx/module_state.h"
 
 #include "cinderx/Common/log.h"
+#include "cinderx/module_c_state.h"
 
 namespace cinderx {
 
@@ -52,6 +53,10 @@ void setModuleState(PyObject* mod) {
   auto state = reinterpret_cast<cinderx::ModuleState*>(PyModule_GetState(mod));
   detail::s_cinderx_state = state;
   state->setModule(mod);
+  // W-PHASE2-CODEGEN-SLOW Phase 2: keep the C-side module-object cache in
+  // sync with the singleton.  The gen/coro type caches are populated by
+  // setGenType/setCoroType below.
+  phx_jit_module_obj = mod;
 }
 
 ModuleState* getModuleState(PyObject* mod) {
@@ -60,6 +65,26 @@ ModuleState* getModuleState(PyObject* mod) {
 
 void removeModuleState() {
   detail::s_cinderx_state = nullptr;
+  // W-PHASE2-CODEGEN-SLOW Phase 2: nullify the inline-accessor caches so
+  // post-shutdown reads return NULL (matching the pre-Phase-2 behavior of
+  // getModuleState()->genType() once the singleton was cleared).
+  phx_jit_gen_type = nullptr;
+  phx_jit_coro_type = nullptr;
+  phx_jit_module_obj = nullptr;
+}
+
+// W-PHASE2-CODEGEN-SLOW Phase 2 setter hooks.  Update both the C++
+// member (consumed by ModuleState::genType()/coroType() getters) and
+// the C-side cached pointer (consumed by Ci_JitGenType/Ci_JitCoroType
+// inline accessors in module_c_state.h).
+void ModuleState::setGenType(PyTypeObject* gen_type) {
+  gen_type_ = Ref<PyTypeObject>::create(gen_type);
+  phx_jit_gen_type = gen_type;
+}
+
+void ModuleState::setCoroType(PyTypeObject* coro_type) {
+  coro_type_ = Ref<PyTypeObject>::create(coro_type);
+  phx_jit_coro_type = coro_type;
 }
 
 bool ModuleState::initBuiltinMembers() {
