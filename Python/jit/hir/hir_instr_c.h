@@ -17,6 +17,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 /* PhxPtrArray must be available before frame_state.h (circular include). */
 #include "cinderx/Jit/hir/phx_ptr_array.h"
 
@@ -737,6 +738,13 @@ static inline void hir_c_deopt_set_guilty_reg(void *db, void *reg) {
 static inline const char *hir_c_deopt_get_descr(const void *db) {
     const char *d = ((const HirDeoptLayout *)db)->descr;
     return d ? d : "";
+}
+/* Replaces descr_ with a strdup of r (NULL if r is NULL or empty);
+ * frees prior descr_ first. Matches C++ DeoptBase::setDescr lifetime. */
+static inline void hir_c_deopt_set_descr(void *db, const char *r) {
+    HirDeoptLayout *d = (HirDeoptLayout *)db;
+    free(d->descr);
+    d->descr = (r && r[0]) ? strdup(r) : NULL;
 }
 
 /* ==== Per-opcode data accessors via C struct casts ====

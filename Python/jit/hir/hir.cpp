@@ -125,8 +125,7 @@ const char* DeoptBase::descr() const {
 }
 
 void DeoptBase::setDescr(const char* r) {
-  free(descr_);
-  descr_ = (r && r[0]) ? strdup(r) : nullptr;
+  hir_c_deopt_set_descr(this, r);
 }
 
 Register* DeoptBase::guiltyReg() const {
