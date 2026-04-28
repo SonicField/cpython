@@ -14,6 +14,34 @@
 
 #include "cinderx/Jit/hir/printer_c.h"
 
+/* B2 commit-1 port of escape_unicode (printer.cpp:162-187).  Writes
+ * directly to `out` instead of building a std::string; semantically
+ * identical otherwise.  kMaxASCII (printer.cpp:160) inlined as 127. */
+void phx_hir_escape_unicode_chars(FILE *out, const char *data, ptrdiff_t size) {
+    fputc('"', out);
+    for (ptrdiff_t i = 0; i < size; i++) {
+        char c = data[i];
+        switch (c) {
+            case '"':
+            case '\\':
+                fputc('\\', out);
+                fputc(c, out);
+                break;
+            case '\n':
+                fputs("\\n", out);
+                break;
+            default:
+                if ((unsigned char)c > 127) {
+                    fprintf(out, "\\%u", (unsigned)(unsigned char)c);
+                } else {
+                    fputc(c, out);
+                }
+                break;
+        }
+    }
+    fputc('"', out);
+}
+
 void phx_hir_print_function(FILE *out, PhxHirPrinter *p, const void *func) {
     (void)out;
     (void)p;
