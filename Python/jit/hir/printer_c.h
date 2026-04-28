@@ -74,6 +74,25 @@ static inline void phx_hir_printer_write_indent(FILE *out, const PhxHirPrinter *
 void phx_hir_print_instr_cpp(FILE *out, const PhxHirPrinter *p, const void *instr);
 void phx_hir_print_frame_state_cpp(FILE *out, const PhxHirPrinter *p, const void *state);
 
+/* B2 commit-3: thin C-callable bridges for non-trivial Function /
+ * LoadSuperBase methods used by the format_name family ports below.
+ * Pointers are opaque (void*) — implementation in printer.cpp casts
+ * to jit::hir::* directly.  Removed in commit-5 if the underlying
+ * classes get full C-side coverage; until then 1-line bridges keep
+ * hir_c_api free of printer-specific surface. */
+const void *phx_hir_func_code_for(const void *func, const void *instr);
+int phx_hir_load_super_name_idx(const void *instr);
+int phx_hir_load_super_no_args_in_super_call(const void *instr);
+
+/* B2 commit-3: format_name family C ports — printer.cpp:200-237.
+ * Each writes its formatted text directly to FILE* `out` (no
+ * intermediate std::string).  PhxHirPrinter `p` carries the Function*
+ * via p->func; bodies handle the func==NULL fallback (writes just the
+ * raw idx).  format_name_impl is internal-only. */
+void phx_format_name(FILE *out, const PhxHirPrinter *p, const void *instr, int idx);
+void phx_format_load_super(FILE *out, const PhxHirPrinter *p, const void *load_instr);
+void phx_format_varname(FILE *out, const PhxHirPrinter *p, const void *instr, int idx);
+
 /* B2 commit-1: helper port of escape_unicode (printer.cpp:162-187).
  * Writes a JSON-style escaped representation of the input bytes to
  * `out`: ASCII printable preserved, '"' and '\\' backslash-escaped,

@@ -997,4 +997,24 @@ void phx_hir_print_frame_state_cpp(
   std::fwrite(s.data(), 1, s.size(), out);
 }
 
+// B2 commit-3: C-callable accessors needed by the C-side format_name
+// family (printer.cpp:200-237 originals).  Each wraps a non-trivial
+// C++ method whose port to pure C would require many sub-accessors;
+// keeping them as 1-line bridges here avoids cluttering hir_c_api with
+// printer-specific surface.  Removed in commit-5 if/when the
+// underlying classes get full C-side coverage.
+const void* phx_hir_func_code_for(const void* func, const void* instr) {
+  return reinterpret_cast<const jit::hir::Function*>(func)->codeFor(
+      *reinterpret_cast<const jit::hir::Instr*>(instr));
+}
+
+int phx_hir_load_super_name_idx(const void* instr) {
+  return reinterpret_cast<const jit::hir::LoadSuperBase*>(instr)->name_idx();
+}
+
+int phx_hir_load_super_no_args_in_super_call(const void* instr) {
+  return reinterpret_cast<const jit::hir::LoadSuperBase*>(instr)
+      ->no_args_in_super_call();
+}
+
 } // extern "C"

@@ -14,6 +14,18 @@
 
 #include "cinderx/Jit/hir/printer_c.h"
 
+/* B2 commit-3: format_name family needs Python.h (PyTuple_GET_ITEM,
+ * PyUnicode_AsUTF8AndSize) and getVarnameTuple.  Per
+ * feedback_no_pythonh_headers.md the include lives only in the .c
+ * body, never in printer_c.h. */
+#include "cinderx/python.h"
+
+/* getVarnameTuple is declared in cinderx/Common/code.h, but that header
+ * transitively includes code_extra.h which uses C++ 'bool' without
+ * <stdbool.h> guard.  Forward-declare locally per JIT C-header pattern
+ * (feedback_no_pythonh_headers.md) until the upstream cleanup lands. */
+extern PyObject *getVarnameTuple(PyCodeObject *code, int *idx);
+
 #include "cinderx/Jit/hir/hir_basic_block_c.h"  /* HirBasicBlock, HirCFG, HirEdge, hir_bb_* */
 #include "cinderx/Jit/hir/hir_c_api.h"          /* hir_func_fullname, hir_func_cfg, hir_cfg_get_rpo */
 
@@ -144,6 +156,64 @@ void phx_hir_print_basic_block(FILE *out, PhxHirPrinter *p, const void *block) {
 
     phx_hir_printer_write_indent(out, p);
     fputs("}\n", out);
+}
+
+/* B2 commit-3 internal: write "{idx}; \"{escaped name}\"" — port of
+ * format_name_impl (printer.cpp:200-202) but with FILE* output. */
+static void phx_format_name_impl(FILE *out, int idx, PyObject *names) {
+    fprintf(out, "%d; ", idx);
+    PyObject *name = PyTuple_GET_ITEM(names, idx);
+    Py_ssize_t size;
+    const char *data = PyUnicode_AsUTF8AndSize(name, &size);
+    if (data == NULL) {
+        PyErr_Clear();
+        fputs("\"\"", out);
+        return;
+    }
+    phx_hir_escape_unicode_chars(out, data, (ptrdiff_t)size);
+}
+
+/* B2 commit-3 port of format_name (printer.cpp:204-213).  Writes either
+ * "{idx}; \"name\"" (when a code object is available) or just "{idx}"
+ * (when func is NULL or codeFor returns NULL). */
+void phx_format_name(FILE *out, const PhxHirPrinter *p, const void *instr, int idx) {
+    const PyCodeObject *code = (p->func != NULL)
+        ? (const PyCodeObject *)phx_hir_func_code_for(p->func, instr)
+        : NULL;
+    if (idx < 0 || code == NULL) {
+        fprintf(out, "%d", idx);
+        return;
+    }
+    phx_format_name_impl(out, idx, code->co_names);
+}
+
+/* B2 commit-3 port of format_load_super (printer.cpp:215-226). */
+void phx_format_load_super(FILE *out, const PhxHirPrinter *p, const void *load_instr) {
+    int name_idx = phx_hir_load_super_name_idx(load_instr);
+    int no_args = phx_hir_load_super_no_args_in_super_call(load_instr);
+    const PyCodeObject *code = (p->func != NULL)
+        ? (const PyCodeObject *)phx_hir_func_code_for(p->func, load_instr)
+        : NULL;
+    if (code == NULL) {
+        fprintf(out, "%d %d", name_idx, no_args);
+        return;
+    }
+    phx_format_name_impl(out, name_idx, code->co_names);
+    fprintf(out, ", %d", no_args);
+}
+
+/* B2 commit-3 port of format_varname (printer.cpp:228-237). */
+void phx_format_varname(FILE *out, const PhxHirPrinter *p, const void *instr, int idx) {
+    PyCodeObject *code = (p->func != NULL)
+        ? (PyCodeObject *)phx_hir_func_code_for(p->func, instr)
+        : NULL;
+    if (idx < 0 || code == NULL) {
+        fprintf(out, "%d", idx);
+        return;
+    }
+    int adjusted = idx;
+    PyObject *names = getVarnameTuple(code, &adjusted);
+    phx_format_name_impl(out, adjusted, names);
 }
 
 void phx_hir_print_instr(FILE *out, PhxHirPrinter *p, const void *instr) {
