@@ -73,12 +73,10 @@ static inline void phx_hir_printer_write_indent(FILE *out, const PhxHirPrinter *
  * now calls C-side phx_hir_print_instr (commit-5b) which uses
  * phx_hir_print_frame_state (commit-5a). */
 
-/* B2 commit-4: bridge into the static C++ format_immediates (185
- * case-branches; full port deferred to W-PRINTER-IMMEDIATES-PORT
- * residual workstream per theologian 11:23:20Z option A).  Used as
- * the FALLBACK for opcodes not yet ported to the C-side switch in
- * phx_format_immediates below. */
-void phx_format_immediates_cpp(FILE *out, const PhxHirPrinter *p, const void *instr);
+/* W-PRINTER-IMMEDIATES-PORT P-5c: phx_format_immediates_cpp bridge
+ * deleted (theologian 15:00:30Z G1.5 pre-analysis #10).  All callers
+ * were the C-side dispatcher's default branch; with 162/168 cases
+ * ported the default branch aborts loudly instead. */
 
 /* W-PRINTER-IMMEDIATES-PORT P-1 (Alex 2026-04-28 default-port): C-side
  * dispatcher for format_immediates. Each ported opcode handles its own

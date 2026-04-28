@@ -244,8 +244,9 @@ void phx_format_varname(FILE *out, const PhxHirPrinter *p, const void *instr, in
 
 /* B2 commit-5b: Print(Instr) port — printer.cpp:803-863.  Writes
  * "  {dst}:{type} = {opname}<{immediates}> {operands}" and an optional
- * DeoptBase / FrameState block.  format_immediates stays C++ (called
- * via commit-4 phx_format_immediates_cpp bridge); print_reg_states +
+ * DeoptBase / FrameState block.  format_immediates is now fully on
+ * the C side (P-5c finalized: 162/168 explicit cases + abort default
+ * for the 6 LoadSpecial-class 3.14+ residuals); print_reg_states +
  * Print(FrameState) are commit-5a C ports. */
 void phx_hir_print_instr(FILE *out, PhxHirPrinter *p, const void *instr) {
     phx_hir_printer_write_indent(out, p);
@@ -261,10 +262,10 @@ void phx_hir_print_instr(FILE *out, PhxHirPrinter *p, const void *instr) {
     }
     fputs(phx_hir_instr_opname(instr), out);
 
-    /* Immediate text. The C-side dispatcher handles ported cases
-     * directly and falls through to phx_format_immediates_cpp (the
-     * commit-4 bridge) for opcodes not yet migrated. Each ported case
-     * does its own <...> wrapping if it has anything to write. */
+    /* Immediate text. After P-5c the C-side dispatcher handles every
+     * reachable opcode directly; the default branch aborts on the
+     * unreachable LoadSpecial-class 3.14+ residuals.  Each case does
+     * its own <...> wrapping if it has anything to write. */
     phx_format_immediates(out, p, instr);
 
     /* Operand list. */
@@ -483,10 +484,10 @@ void phx_hir_print_frame_state(FILE *out, PhxHirPrinter *p, const void *state) {
 /* W-PRINTER-IMMEDIATES-PORT P-1 (Alex 2026-04-28 default-port directive):
  * Begins migrating format_immediates (printer.cpp:218-803, 168 cases) from
  * the C++ static into a C-side switch. Each ported case writes its own
- * "<...>" wrapping (matches printer.cpp:815-818
+ * "<...>" wrapping (matches the printer.cpp pre-deletion 815-818
  * `if (!immed.empty()) os << "<" << immed << ">"` semantics — empty cases
- * write nothing). Unported opcodes fall through to phx_format_immediates_cpp,
- * the commit-4 bridge into the C++ static.
+ * write nothing).  P-5c finalized the migration: the default branch now
+ * aborts on the 6 unreachable LoadSpecial-class 3.14+ residuals.
  *
  * P-1 scope: the 75-opcode "no immediates" cluster (printer.cpp:220-295)
  * — these all return "" in the C++ side, i.e. the format_immediates
@@ -1183,11 +1184,19 @@ void phx_format_immediates(FILE *out, const PhxHirPrinter *p, const void *instr)
             return;
         }
 
-        /* All other opcodes: bridge fallback to C++ format_immediates
-         * (commit-4 phx_format_immediates_cpp). Subsequent P-N commits
-         * migrate cases out of this default. */
+        /* P-5c: bridge fallback removed.  All 162/168 reachable opcodes
+         * have explicit dispatcher cases.  The 6 unreachable-on-3.12
+         * residuals (LoadSpecial-class, gated PY_VERSION_HEX >= 0x030E0000
+         * in printer.cpp pre-deletion) cannot fire on the Phoenix 3.12.13
+         * target.  Any default-branch hit indicates a new opcode added
+         * post-P-5c without a dispatcher case — abort loudly so it
+         * surfaces immediately rather than silently producing empty
+         * output. */
         default:
-            phx_format_immediates_cpp(out, p, instr);
-            return;
+            (void)p;
+            fprintf(stderr,
+                "phx_format_immediates: unhandled opcode %d (no dispatcher "
+                "case after P-5c cleanup; add one to printer_c.c)\n", op);
+            abort();
     }
 }
