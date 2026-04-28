@@ -121,7 +121,7 @@ void DeoptBase::set_nonce(int nonce) {
 }
 
 const char* DeoptBase::descr() const {
-  return descr_ ? descr_ : "";
+  return hir_c_deopt_get_descr(this);
 }
 
 void DeoptBase::setDescr(const char* r) {
@@ -258,7 +258,7 @@ std::size_t Instr::NumOperands() const {
 }
 
 Register* Instr::GetOperand(std::size_t i) const {
-  return const_cast<Instr*>(this)->operandAt(i);
+  return static_cast<Register*>(hir_c_get_operand(this, i));
 }
 
 std::span<Register* const> Instr::GetOperands() const {
@@ -308,7 +308,7 @@ OperandType Instr::GetOperandType(std::size_t i) const {
 }
 
 void Instr::SetOperand(std::size_t i, Register* reg) {
-  operandAt(i) = reg;
+  hir_c_set_operand(this, i, reg);
 }
 
 bool Instr::visitUses(const std::function<bool(Register*&)>& func) {

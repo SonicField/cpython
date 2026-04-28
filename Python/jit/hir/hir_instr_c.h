@@ -733,6 +733,11 @@ static inline void *hir_c_deopt_get_guilty_reg(const void *db) {
 static inline void hir_c_deopt_set_guilty_reg(void *db, void *reg) {
     ((HirDeoptLayout *)db)->guilty_reg = reg;
 }
+/* Returns descr_ string or "" if NULL (matches C++ DeoptBase::descr()). */
+static inline const char *hir_c_deopt_get_descr(const void *db) {
+    const char *d = ((const HirDeoptLayout *)db)->descr;
+    return d ? d : "";
+}
 
 /* ==== Per-opcode data accessors via C struct casts ====
  * Pattern: cast void* to the per-opcode struct and read the field.
