@@ -113,6 +113,14 @@ const char *phx_hir_primitive_unary_op_name(int op);
 const char *phx_hir_function_field_name(int field);
 const void *phx_hir_get_stable_pointer(const void *ptr);
 
+/* W-PRINTER-IMMEDIATES-PORT P-5b: bridges for HintType / RaiseStatic /
+ * DeoptPatchpoint / LoadAttrSpecial residual cases. */
+int phx_hir_patcher_is_linked(const void *patcher);
+const void *phx_hir_patcher_patchpoint(const void *patcher);
+const void *phx_hir_patcher_jump_target(const void *patcher);
+const char *phx_hir_pyobject_repr(const void *obj);
+void phx_format_hint_type(FILE *out, const void *instr);
+
 /* B2 commit-3: thin C-callable bridges for non-trivial Function /
  * LoadSuperBase methods used by the format_name family ports below.
  * Pointers are opaque (void*) — implementation in printer.cpp casts

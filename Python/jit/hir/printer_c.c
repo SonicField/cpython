@@ -1080,6 +1080,105 @@ void phx_format_immediates(FILE *out, const PhxHirPrinter *p, const void *instr)
             return;
         }
 
+        /* P-5b: complex residual cases. */
+
+        /* LoadArg — printer.cpp:498-505.  format_varname + optional ", type"
+         * suffix when the argument type isn't the default TObject. */
+        case HIR_OP_LoadArg: {
+            const HirLoadArg *load = (const HirLoadArg *)instr;
+            const HirType obj_type = HIR_TYPE_OBJECT;
+            fputc('<', out);
+            phx_format_varname(out, p, instr, (int)load->arg_idx);
+            if (!hir_type_equal(&load->type, &obj_type)) {
+                char type_buf[256];
+                hir_type_to_string_c(&load->type, type_buf, sizeof(type_buf), 0);
+                fprintf(out, ", %s", type_buf);
+            }
+            fputc('>', out);
+            return;
+        }
+
+        /* LoadAttrSpecial — printer.cpp:506-513.  Phoenix is on Python
+         * 3.12.13, so the PY_VERSION_HEX >= 0x030C0000 branch is the
+         * live path: id is a PyObject*; use repr() helper bridge. */
+        case HIR_OP_LoadAttrSpecial: {
+            const HirLoadAttrSpecial *las = (const HirLoadAttrSpecial *)instr;
+            fprintf(out, "<\"%s\">", phx_hir_pyobject_repr(las->id));
+            return;
+        }
+
+        /* LoadFunctionIndirect — printer.cpp:531-541.  funcptr stores a
+         * PyObject** (pointer to a PyFunctionObject* or generic PyObject*).
+         * Pure-C with Python.h — no bridge needed. */
+        case HIR_OP_LoadFunctionIndirect: {
+            const HirLoadFunctionIndirect *lfi =
+                (const HirLoadFunctionIndirect *)instr;
+            PyObject *py_func = *(PyObject **)lfi->funcptr;
+            const char *name;
+            if (PyFunction_Check(py_func)) {
+                name = PyUnicode_AsUTF8(((PyFunctionObject *)py_func)->func_name);
+            } else {
+                name = Py_TYPE(py_func)->tp_name;
+            }
+            fprintf(out, "<%s>", name != NULL ? name : "");
+            return;
+        }
+
+        /* RaiseStatic — printer.cpp:698-707.  excType is an exception
+         * class (PyTypeObject*); fmt is C string; live_regs comes from
+         * the DeoptBase prefix.  Output: <ExcName, "fmt", <reg-states>>.
+         * The inner <...> around reg-states is emitted by
+         * phx_hir_print_reg_states (size header), so the outer format is
+         * just "<excName, "fmt", " + reg-states + ">". */
+        case HIR_OP_RaiseStatic: {
+            const HirRaiseStatic *rs = (const HirRaiseStatic *)instr;
+            fprintf(out, "<%s, \"%s\", ",
+                    ((PyTypeObject *)rs->exc_type)->tp_name,
+                    rs->fmt);
+            phx_hir_print_reg_states(out, phx_hir_deopt_live_regs(rs));
+            fputc('>', out);
+            return;
+        }
+
+        /* UpdatePrevInstr — printer.cpp:744-751.  bytecodeOffset.asIndex()
+         * == bytecode_offset / sizeof(_Py_CODEUNIT); line_no + parent
+         * read directly from the C struct. */
+        case HIR_OP_UpdatePrevInstr: {
+            const HirUpdatePrevInstr *upi = (const HirUpdatePrevInstr *)instr;
+            fprintf(out, "<idx:%d line_no:%d: %s>",
+                    upi->bytecode_offset / (int)sizeof(_Py_CODEUNIT),
+                    (int)upi->line_no,
+                    upi->parent != NULL ? "has parent" : "no parent");
+            return;
+        }
+
+        /* HintType — printer.cpp:673-689.  Inner-loop iteration over
+         * std::vector<std::vector<Type>> is opaque from C; single bridge
+         * writes the formatted body, we add the outer "<...>". */
+        case HIR_OP_HintType:
+            fputc('<', out);
+            phx_format_hint_type(out, instr);
+            fputc('>', out);
+            return;
+
+        /* DeoptPatchpoint — printer.cpp:733-743.  isLinked() check
+         * decides between "<patchpoint -> jumpTarget>" and
+         * "<Patcher {ptr}>"; pointers stabilized via getStablePointer. */
+        case HIR_OP_DeoptPatchpoint: {
+            const HirDeoptPatchpoint *dp = (const HirDeoptPatchpoint *)instr;
+            if (phx_hir_patcher_is_linked(dp->patcher)) {
+                fprintf(out, "<%p -> %p>",
+                        phx_hir_get_stable_pointer(
+                            phx_hir_patcher_patchpoint(dp->patcher)),
+                        phx_hir_get_stable_pointer(
+                            phx_hir_patcher_jump_target(dp->patcher)));
+            } else {
+                fprintf(out, "<Patcher %p>",
+                        phx_hir_get_stable_pointer(dp->patcher));
+            }
+            return;
+        }
+
         /* All other opcodes: bridge fallback to C++ format_immediates
          * (commit-4 phx_format_immediates_cpp). Subsequent P-N commits
          * migrate cases out of this default. */

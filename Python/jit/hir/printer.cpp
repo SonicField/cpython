@@ -2,7 +2,9 @@
 
 #include "cinderx/Jit/hir/printer.h"
 
+#include "cinderx/Common/log.h"          /* jit::repr (P-5b LoadAttrSpecial) */
 #include "cinderx/Common/util.h"
+#include "cinderx/Jit/code_patcher.h"     /* JumpPatcher (P-5b DeoptPatchpoint) */
 #include "cinderx/Jit/hir/printer_c.h"  /* PhxHirPrinter (B2 commit-2 bridges) */
 #include "cinderx/Jit/symbolizer.h"
 
@@ -1147,6 +1149,53 @@ const char* phx_hir_function_field_name(int field) {
 
 const void* phx_hir_get_stable_pointer(const void* ptr) {
   return jit::getStablePointer(ptr);
+}
+
+// W-PRINTER-IMMEDIATES-PORT P-5b: bridges for the complex residual cases
+// (HintType, RaiseStatic, DeoptPatchpoint, LoadAttrSpecial).
+
+// JumpPatcher state — used by DeoptPatchpoint case to format
+// "{patchpoint} -> {jumpTarget}" or fallback "Patcher {ptr}".
+int phx_hir_patcher_is_linked(const void* patcher) {
+  return reinterpret_cast<const jit::JumpPatcher*>(patcher)->isLinked() ? 1 : 0;
+}
+
+const void* phx_hir_patcher_patchpoint(const void* patcher) {
+  return reinterpret_cast<const jit::JumpPatcher*>(patcher)->patchpoint();
+}
+
+const void* phx_hir_patcher_jump_target(const void* patcher) {
+  return reinterpret_cast<const jit::JumpPatcher*>(patcher)->jumpTarget();
+}
+
+// PyObject_Repr-with-error-protection — wraps the repr() helper from
+// jit_common/log.cpp (PyErr_Fetch/Restore around PyObject_Repr,
+// PyUnicode_AsUTF8AndSize). thread_local-buffered.
+const char* phx_hir_pyobject_repr(const void* obj) {
+  thread_local std::string s_buf;
+  s_buf = jit::repr(static_cast<PyObject*>(const_cast<void*>(obj)));
+  return s_buf.c_str();
+}
+
+// HintType iteration — types_ is std::vector<std::vector<Type>>.  Two
+// nested-vector layers are not worth bridging individually (would need
+// 4-5 accessors); single bridge writes the whole "<N, <T,T>, <T>>"
+// formatted text directly to FILE*.  Caller adds the outer "<...>"
+// wrapping (matches printer.cpp:673-689 NumOperands+for-loop pattern).
+void phx_format_hint_type(FILE* out, const void* instr) {
+  const auto* hint = reinterpret_cast<const jit::hir::HintType*>(instr);
+  fmt::print(out, "{}, ", hint->NumOperands());
+  const char* profile_sep = "";
+  for (auto& types_seen : hint->seenTypes()) {
+    fmt::print(out, "{}<", profile_sep);
+    const char* type_sep = "";
+    for (auto& type : types_seen) {
+      fmt::print(out, "{}{}", type_sep, type.toString());
+      type_sep = ", ";
+    }
+    fputc('>', out);
+    profile_sep = ", ";
+  }
 }
 
 // B2 commit-4: bridge into the static format_immediates above.  Per
