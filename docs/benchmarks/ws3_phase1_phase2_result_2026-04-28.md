@@ -4,17 +4,26 @@
 **Anchor evidence:** testkeeper 03:41:37Z (in-tree bd00b75500 measurement),
 07:21:46Z (Phase 1 bisect), 07:58:35Z (Phase 2A harness sub-bisect),
 07:59:52Z (Phase 2 ABBA at 314d0f2310), 08:08:16Z (method-B v2 calibration),
-08:10:53Z (33bbbe6c36 probe), theologian 07:46:45Z + 08:02:51Z + 08:11:47Z
+08:10:53Z (33bbbe6c36 probe), 08:36:18Z (Step 0 force_compile falsifier at
+e557787b1f), theologian 07:46:45Z + 08:02:51Z + 08:11:47Z + 08:34:37Z
 methodology dispositions.
 
 ## Summary
 
-The gen_simple JIT regression (~25-33% slowdown vs vanilla CPython) is a STEP
-function activated at commit `33bbbe6c36` ("Enable auto-compilation via func
-watcher + counting trampoline", 2026-03-30). The slow JIT codegen pre-exists
-in the extraction-era cluster `e11fc09f6e..33bbbe6c36` (~12 commits) but does
-not execute until 33bbbe6c36 wires the auto-compile path. Magnitude is stable
-through HEAD (~0.71-0.78x ratio across all measured points).
+The gen_simple JIT regression (~25-33% slowdown vs vanilla CPython) pre-exists
+in the extraction-era cluster `e11fc09f6e..e557787b1f` (~11 commits, all
+pre-`33bbbe6c36`). Commit `33bbbe6c36` ("Enable auto-compilation via func
+watcher + counting trampoline", 2026-03-30) is the first **auto-compile-
+observable** commit — it enables the path that exposes the regression to
+ABBA/auto-compile measurement, but does NOT introduce or activate the slow
+JIT codegen itself. Direct `force_compile` measurement at `e557787b1f`
+(W-PHASE2-CODEGEN-SLOW Step 0, testkeeper 08:36:18Z) yields ratio 0.683x —
+same band as post-`33bbbe6c36` (0.71-0.78x). Magnitude is stable through HEAD.
+
+This corrects the initial framing of `33bbbe6c36` as "activation commit",
+which rested on a structural inference that pre-activation ratio must be
+~1.0x because auto-compile vectorcall hooks were off. Step 0 falsified that
+inference with direct measurement.
 
 ## Bisect range
 
@@ -94,32 +103,38 @@ Theologian 08:02:51Z authorized C-then-B path: hypothesis-driven probe of
 
 ## Result
 
-`33bbbe6c36` is the activation commit. The slow JIT codegen for `gen_simple`
-exists in `e11fc09f6e..33bbbe6c36` (~12 commits, all pre-activation per
-Phase 1 fix #2 disabling auto-compile) but only executes once `33bbbe6c36`
-wires the func watcher + counting trampoline.
+`33bbbe6c36` is the first **auto-compile-observable** commit, NOT the
+introducing/activating commit. The slow JIT codegen for `gen_simple`
+pre-exists in `e11fc09f6e..e557787b1f` (~11 commits, all pre-`33bbbe6c36`)
+and is directly measurable via `force_compile` per testkeeper 08:36:18Z
+(W-PHASE2-CODEGEN-SLOW Step 0).
 
 | Commit | Description | Ratio (vanilla / jit) | Source |
 |---|---|---|---|
-| `33bbbe6c36` | Enable auto-compilation (activation) | 0.713x | method-B v2 |
-| `314d0f2310` | First harness-stable post-activation | 0.776x / 0.738x | method-B v2 / ABBA |
+| `e557787b1f` | Pre-`33bbbe6c36`, auto-compile off | 0.683x | force_compile probe |
+| `33bbbe6c36` | Enable auto-compilation (first auto-observable) | 0.713x | method-B v2 |
+| `314d0f2310` | First harness-stable post-`33bbbe6c36` | 0.776x / 0.738x | method-B v2 / ABBA |
 | `cf49ad6da5` | First-ABBA upper bound | 0.75x | ABBA 2026-03-31 |
 
-Magnitude STEP, ~0.71-0.78x ratio (~25-33% slowdown), stable through HEAD.
-Falsifies any 'gradual progression' or 'late-introduction' hypothesis.
+Magnitude is stable across the 11-commit pre-`33bbbe6c36` cluster + the
+22-commit post-`33bbbe6c36` span, ~0.68-0.78x range. Falsifies any
+'gradual progression' or 'late-introduction' hypothesis. The slow codegen
+substrate is present at extraction time and does not vary across the
+measured 33-commit span.
 
 ## Out-of-scope for bisect
 
 The 'what slow-code-shape' question requires Debug-First profiling
 (perf record + cinderx-disassemble on current-tree gen_simple JIT compile).
 Theologian 08:11:47Z RECOMMEND: profile HEAD over bisecting the
-pre-activation cluster — fix-relevant info comes from characterizing the
+pre-`33bbbe6c36` cluster — fix-relevant info comes from characterizing the
 slow code-shape, not identifying which extraction-era infrastructure commit
 introduced it.
 
-W-PHASE2-CODEGEN-SLOW workstream candidate (supervisor disposition).
-First-step anchor: `/tmp/phx-bisect-staging/probe_33bbbe6c.log` +
-`33bbbe6c36` commit + this result-doc.
+W-PHASE2-CODEGEN-SLOW opened (supervisor 08:13:49Z). Step 0 falsifier
+landed (testkeeper 08:36:18Z) — slow codegen confirmed pre-existing in
+extraction-era cluster. Step 1+ profiling work in flight per theologian
+08:34:37Z spec.
 
 ## Artifacts
 
