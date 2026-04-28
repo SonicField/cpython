@@ -1336,81 +1336,10 @@ def bench_pytorch_cm(n_iter):
             with _ProfileScope(f'layer_{j}'):
                 total = (total + float(j)) % 10000
     return total
-JIT_BENCHMARKS = [
-    ("fibonacci",       bench_fibonacci),
-    ("richards_full",   bench_richards_full),
-    ("richards_slots",  bench_richards_slots),
-    ("nqueens",         bench_nqueens),
-    ("spectral_norm",   bench_spectral_norm),
-    ("float_arith",     bench_float_arith),
-    ("gen_simple",      bench_gen_simple),
-    ("gen_nested",      bench_gen_nested),
-    ("list_comp",       bench_list_comp),
-    ("dict_ops",        bench_dict_ops),
-    ("func_calls",      bench_func_calls),
-    ("import_callee",      bench_import_callee),
-    ("try_except_callee",  bench_try_except_callee),
-    ("store_subscr",       bench_store_subscr),
-    ("int_arith",          bench_int_arith),
-    ("context_manager",    bench_context_manager),
-    ("kwargs_dispatch",    bench_kwargs_dispatch),
-    ("positional_dispatch", bench_positional_dispatch),
-    ("dunder_protocol",   bench_dunder_protocol),
-    ("nn_module_forward", bench_deep_class),
-    ("nbody",             bench_nbody),
-    ("decorator_chain",   bench_decorator_chain),
-    ("deep_class_super",  bench_deep_class_super),
-    ("pytorch_cm",        bench_pytorch_cm),
-    ("printer_coverage",  bench_printer_coverage),
-]
 
-# Functions to force-compile for JIT benchmarks
-_JIT_COMPILABLE = [
-    _fib, _nqueens_solve, _spectral_A, _spectral_mul_Av,
-    _spectral_mul_Atv, _spectral_mul_AtAv,
-    _callee_with_import, _callee_with_try,
-    _kwargs_callee,
-    _positional_callee,
-    _run_richards_once, _idle_fn, _work_fn, _handler_fn, _device_fn,
-    _nbody_advance, _nbody_energy, _nbody_make_bodies,
-    _make_adder, _training_mode,
-    _pc_callee, _pc_indirect_dispatch, _pc_kwargs_callee,
-    _pc_with_stmt_fixture, _pc_polymorphic_alloc_fixture,
-    _pc_uncached_attr_fixture, _pc_kwargs_call_fixture,
-    _pc_indirect_call_fixture, _pc_compare_bool_fixture,
-    _pc_unary_neg_fixture, _pc_import_from_fixture,
-    _pc_dyn_attr_get_fixture, _pc_dyn_attr_set_fixture,
-    _pc_super_attr_fixture, _pc_raise_static_fixture,
-]
-# --- Specialisation benchmark targets ---
-# Selected to exercise LOAD_ATTR_INSTANCE_VALUE, STORE_ATTR, LOAD_ATTR_MODULE
-
-class _Point:
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
-
-def bench_attr_access(n_iter):
-    """Pure attribute access — LOAD_ATTR_INSTANCE_VALUE / STORE_ATTR."""
-    p = _Point(42, 99)
-    total = 0
-    for _ in range(n_iter):
-        total += p.x + p.y
-        p.x = total % 1000
-    return total
-
-def bench_module_attr(n_iter):
-    """Module attribute access — LOAD_ATTR_MODULE."""
-    total = 0.0
-    for _ in range(n_iter):
-        total += math.pi + math.e
-    return total
-
-# W-PRINTER-COVERAGE-EXTEND probe (supervisor 15:14:24Z, theologian 15:23:24Z).
-# Not a perf benchmark — exercises the HIR opcode classes that arithmetic +
-# iteration paths leave untriggered (attr-access cluster, super, builders,
-# f-string converters, try/except, isinstance, closure, decorator, primitive
-# box/unbox).  Closure trigger ≥80% on extended per-opcode trigger map.
+# W-PRINTER-COVERAGE-EXTEND probe + per-pattern fixtures placed BEFORE
+# JIT_BENCHMARKS list to avoid forward-reference NameError at module load
+# (testkeeper c2d0f7f25a regression catch 15:45:58Z).
 _printer_coverage_global = 0
 
 class _PCBase:
@@ -1563,6 +1492,76 @@ def bench_printer_coverage(n_iter):
         total += _pc_super_attr_fixture(d)
         total += _pc_raise_static_fixture(i)
         _printer_coverage_global = total
+    return total
+
+JIT_BENCHMARKS = [
+    ("fibonacci",       bench_fibonacci),
+    ("richards_full",   bench_richards_full),
+    ("richards_slots",  bench_richards_slots),
+    ("nqueens",         bench_nqueens),
+    ("spectral_norm",   bench_spectral_norm),
+    ("float_arith",     bench_float_arith),
+    ("gen_simple",      bench_gen_simple),
+    ("gen_nested",      bench_gen_nested),
+    ("list_comp",       bench_list_comp),
+    ("dict_ops",        bench_dict_ops),
+    ("func_calls",      bench_func_calls),
+    ("import_callee",      bench_import_callee),
+    ("try_except_callee",  bench_try_except_callee),
+    ("store_subscr",       bench_store_subscr),
+    ("int_arith",          bench_int_arith),
+    ("context_manager",    bench_context_manager),
+    ("kwargs_dispatch",    bench_kwargs_dispatch),
+    ("positional_dispatch", bench_positional_dispatch),
+    ("dunder_protocol",   bench_dunder_protocol),
+    ("nn_module_forward", bench_deep_class),
+    ("nbody",             bench_nbody),
+    ("decorator_chain",   bench_decorator_chain),
+    ("deep_class_super",  bench_deep_class_super),
+    ("pytorch_cm",        bench_pytorch_cm),
+    ("printer_coverage",  bench_printer_coverage),
+]
+
+# Functions to force-compile for JIT benchmarks
+_JIT_COMPILABLE = [
+    _fib, _nqueens_solve, _spectral_A, _spectral_mul_Av,
+    _spectral_mul_Atv, _spectral_mul_AtAv,
+    _callee_with_import, _callee_with_try,
+    _kwargs_callee,
+    _positional_callee,
+    _run_richards_once, _idle_fn, _work_fn, _handler_fn, _device_fn,
+    _nbody_advance, _nbody_energy, _nbody_make_bodies,
+    _make_adder, _training_mode,
+    _pc_callee, _pc_indirect_dispatch, _pc_kwargs_callee,
+    _pc_with_stmt_fixture, _pc_polymorphic_alloc_fixture,
+    _pc_uncached_attr_fixture, _pc_kwargs_call_fixture,
+    _pc_indirect_call_fixture, _pc_compare_bool_fixture,
+    _pc_unary_neg_fixture, _pc_import_from_fixture,
+    _pc_dyn_attr_get_fixture, _pc_dyn_attr_set_fixture,
+    _pc_super_attr_fixture, _pc_raise_static_fixture,
+]
+# --- Specialisation benchmark targets ---
+# Selected to exercise LOAD_ATTR_INSTANCE_VALUE, STORE_ATTR, LOAD_ATTR_MODULE
+
+class _Point:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+def bench_attr_access(n_iter):
+    """Pure attribute access — LOAD_ATTR_INSTANCE_VALUE / STORE_ATTR."""
+    p = _Point(42, 99)
+    total = 0
+    for _ in range(n_iter):
+        total += p.x + p.y
+        p.x = total % 1000
+    return total
+
+def bench_module_attr(n_iter):
+    """Module attribute access — LOAD_ATTR_MODULE."""
+    total = 0.0
+    for _ in range(n_iter):
+        total += math.pi + math.e
     return total
 
 SPEC_BENCHMARKS = [
