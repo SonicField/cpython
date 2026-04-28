@@ -29,6 +29,8 @@ extern PyObject *phx_getVarnameTuple(PyCodeObject *code, int *idx);
 
 #include "cinderx/Jit/hir/hir_basic_block_c.h"  /* HirBasicBlock, HirCFG, HirEdge, hir_bb_* */
 #include "cinderx/Jit/hir/hir_c_api.h"          /* hir_func_fullname, hir_func_cfg, hir_cfg_get_rpo */
+#include "cinderx/Jit/hir/hir_instr_c.h"        /* hir_c_opcode + HirInstr layout */
+#include "cinderx/Jit/hir/hir_opcode_c.h"       /* HIR_OP_* enum */
 
 #include <stdlib.h>  /* qsort */
 
@@ -240,11 +242,11 @@ void phx_hir_print_instr(FILE *out, PhxHirPrinter *p, const void *instr) {
     }
     fputs(phx_hir_instr_opname(instr), out);
 
-    /* Immediate text (from C++ format_immediates via commit-4 bridge).
-     * Bridge handles the conditional <...> wrap so the empty-immediates
-     * case writes nothing — matches the C++ side's
-     * `if (!immed.empty()) os << "<" << immed << ">"`. */
-    phx_format_immediates_cpp(out, p, instr);
+    /* Immediate text. The C-side dispatcher handles ported cases
+     * directly and falls through to phx_format_immediates_cpp (the
+     * commit-4 bridge) for opcodes not yet migrated. Each ported case
+     * does its own <...> wrapping if it has anything to write. */
+    phx_format_immediates(out, p, instr);
 
     /* Operand list. */
     size_t n = hir_c_num_operands(instr);
@@ -456,5 +458,109 @@ void phx_hir_print_frame_state(FILE *out, PhxHirPrinter *p, const void *state) {
         phx_hir_printer_dedent(p);
         phx_hir_printer_write_indent(out, p);
         fputs("}\n", out);
+    }
+}
+
+/* W-PRINTER-IMMEDIATES-PORT P-1 (Alex 2026-04-28 default-port directive):
+ * Begins migrating format_immediates (printer.cpp:218-803, 168 cases) from
+ * the C++ static into a C-side switch. Each ported case writes its own
+ * "<...>" wrapping (matches printer.cpp:815-818
+ * `if (!immed.empty()) os << "<" << immed << ">"` semantics — empty cases
+ * write nothing). Unported opcodes fall through to phx_format_immediates_cpp,
+ * the commit-4 bridge into the C++ static.
+ *
+ * P-1 scope: the 75-opcode "no immediates" cluster (printer.cpp:220-295)
+ * — these all return "" in the C++ side, i.e. the format_immediates
+ * function emits nothing. Porting them is purely deletion-of-fallback:
+ * the C-side switch case body is empty (`return;`), no formatting work.
+ * Subsequent commits port the per-class formatting cases.
+ */
+void phx_format_immediates(FILE *out, const PhxHirPrinter *p, const void *instr) {
+    int op = hir_c_opcode(instr);
+    switch (op) {
+        /* P-1: empty-immediates cluster (no <...> emitted).  Mirror of
+         * printer.cpp:220-294 case-fallthrough returning "". */
+        case HIR_OP_Assign:
+        case HIR_OP_BatchDecref:
+        case HIR_OP_BitCast:
+        case HIR_OP_BuildString:
+        case HIR_OP_BuildTemplate:
+        case HIR_OP_CheckErrOccurred:
+        case HIR_OP_CheckExc:
+        case HIR_OP_CheckNeg:
+        case HIR_OP_CheckSequenceBounds:
+        case HIR_OP_CIntToCBool:
+        case HIR_OP_CopyDictWithoutKeys:
+        case HIR_OP_Decref:
+        case HIR_OP_DeleteSubscr:
+        case HIR_OP_Deopt:
+        case HIR_OP_DictMerge:
+        case HIR_OP_DictSubscr:
+        case HIR_OP_DictUpdate:
+        case HIR_OP_EndInlinedFunction:
+        case HIR_OP_FormatWithSpec:
+        case HIR_OP_GetAIter:
+        case HIR_OP_GetANext:
+        case HIR_OP_GetIter:
+        case HIR_OP_GetLength:
+        case HIR_OP_GetTuple:
+        case HIR_OP_Guard:
+        case HIR_OP_Incref:
+        case HIR_OP_InitialYield:
+        case HIR_OP_InvokeIterNext:
+        case HIR_OP_IsInstance:
+        case HIR_OP_IsNegativeAndErrOccurred:
+        case HIR_OP_IsTruthy:
+        case HIR_OP_ListAppend:
+        case HIR_OP_ListExtend:
+        case HIR_OP_LoadCellItem:
+        case HIR_OP_LoadCurrentFunc:
+        case HIR_OP_LoadFrame:
+        case HIR_OP_LoadEvalBreaker:
+        case HIR_OP_AtQuiescentState:
+        case HIR_OP_LoadFieldAddress:
+        case HIR_OP_LoadVarObjectSize:
+        case HIR_OP_MakeCell:
+        case HIR_OP_MakeFunction:
+        case HIR_OP_MakeSet:
+        case HIR_OP_MakeTupleFromList:
+        case HIR_OP_MatchClass:
+        case HIR_OP_MatchKeys:
+        case HIR_OP_MergeSetUnpack:
+        case HIR_OP_PrimitiveBoxBool:
+        case HIR_OP_Raise:
+        case HIR_OP_RunPeriodicTasks:
+        case HIR_OP_Send:
+        case HIR_OP_SetCurrentAwaiter:
+        case HIR_OP_SetCellItem:
+        case HIR_OP_SetDictItem:
+        case HIR_OP_SetSetItem:
+        case HIR_OP_SetUpdate:
+        case HIR_OP_Snapshot:
+        case HIR_OP_StealCellItem:
+        case HIR_OP_SwapCellItem:
+        case HIR_OP_StoreArrayItem:
+        case HIR_OP_StoreSubscr:
+        case HIR_OP_WaitHandleLoadCoroOrResult:
+        case HIR_OP_WaitHandleLoadWaiter:
+        case HIR_OP_WaitHandleRelease:
+        case HIR_OP_XDecref:
+        case HIR_OP_XIncref:
+        case HIR_OP_YieldAndYieldFrom:
+        case HIR_OP_YieldFrom:
+        case HIR_OP_YieldFromHandleStopAsyncIteration:
+        case HIR_OP_UnicodeConcat:
+        case HIR_OP_UnicodeRepeat:
+        case HIR_OP_UnicodeSubscr:
+        case HIR_OP_Unreachable:
+        case HIR_OP_YieldValue:
+            return;
+
+        /* All other opcodes: bridge fallback to C++ format_immediates
+         * (commit-4 phx_format_immediates_cpp). Subsequent P-N commits
+         * migrate cases out of this default. */
+        default:
+            phx_format_immediates_cpp(out, p, instr);
+            return;
     }
 }

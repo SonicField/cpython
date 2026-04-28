@@ -74,9 +74,17 @@ static inline void phx_hir_printer_write_indent(FILE *out, const PhxHirPrinter *
 
 /* B2 commit-4: bridge into the static C++ format_immediates (185
  * case-branches; full port deferred to W-PRINTER-IMMEDIATES-PORT
- * residual workstream per theologian 11:23:20Z option A).  Used by
- * commit-5 Print(Instr) C wrapper. */
+ * residual workstream per theologian 11:23:20Z option A).  Used as
+ * the FALLBACK for opcodes not yet ported to the C-side switch in
+ * phx_format_immediates below. */
 void phx_format_immediates_cpp(FILE *out, const PhxHirPrinter *p, const void *instr);
+
+/* W-PRINTER-IMMEDIATES-PORT P-1 (Alex 2026-04-28 default-port): C-side
+ * dispatcher for format_immediates. Each ported opcode handles its own
+ * "<...>" wrapping; unported opcodes fall through to the C++ bridge
+ * above. As cases migrate from default → explicit, the bridge becomes
+ * progressively unreachable; commit P-N (cleanup) deletes it. */
+void phx_format_immediates(FILE *out, const PhxHirPrinter *p, const void *instr);
 
 /* B2 commit-3: thin C-callable bridges for non-trivial Function /
  * LoadSuperBase methods used by the format_name family ports below.
