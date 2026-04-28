@@ -717,6 +717,23 @@ static inline const HirCondBranchInstr *hir_c_as_condbranch(const void *instr) {
     return (const HirCondBranchInstr *)instr;
 }
 
+/* DeoptBase field accessors — direct struct reads/writes against
+ * HirDeoptLayout. Field offsets pinned to C++ DeoptBase via
+ * HirInstrLayoutVerifier static_asserts in hir_instr_c_verify.cpp
+ * (lines 119-120 cover guilty_reg + nonce). */
+static inline int hir_c_deopt_get_nonce(const void *db) {
+    return ((const HirDeoptLayout *)db)->nonce;
+}
+static inline void hir_c_deopt_set_nonce(void *db, int nonce) {
+    ((HirDeoptLayout *)db)->nonce = nonce;
+}
+static inline void *hir_c_deopt_get_guilty_reg(const void *db) {
+    return ((const HirDeoptLayout *)db)->guilty_reg;
+}
+static inline void hir_c_deopt_set_guilty_reg(void *db, void *reg) {
+    ((HirDeoptLayout *)db)->guilty_reg = reg;
+}
+
 /* ==== Per-opcode data accessors via C struct casts ====
  * Pattern: cast void* to the per-opcode struct and read the field.
  * Step 6 validated this approach: C struct layout matches C++ at runtime. */

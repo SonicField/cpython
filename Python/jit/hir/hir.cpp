@@ -113,11 +113,11 @@ void DeoptBase::setFrameState(const FrameState& state) {
 }
 
 int DeoptBase::nonce() const {
-  return nonce_;
+  return hir_c_deopt_get_nonce(this);
 }
 
 void DeoptBase::set_nonce(int nonce) {
-  nonce_ = nonce;
+  hir_c_deopt_set_nonce(this, nonce);
 }
 
 const char* DeoptBase::descr() const {
@@ -130,11 +130,11 @@ void DeoptBase::setDescr(const char* r) {
 }
 
 Register* DeoptBase::guiltyReg() const {
-  return guilty_reg_;
+  return static_cast<Register*>(hir_c_deopt_get_guilty_reg(this));
 }
 
 void DeoptBase::setGuiltyReg(Register* reg) {
-  guilty_reg_ = reg;
+  hir_c_deopt_set_guilty_reg(this, reg);
 }
 
 // CallCFunc::Func enum count — pinned to the C-side name table in
