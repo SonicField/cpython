@@ -35,6 +35,20 @@ extern PyObject *phx_getVarnameTuple(PyCodeObject *code, int *idx);
 
 #include <stdlib.h>  /* qsort */
 
+/* W-PRINTER-IMMEDIATES-PORT P-5a: pure-C port of fvc_to_string
+ * (printer.cpp:26-38).  Used by FormatValue/BuildInterpolation/
+ * ConvertValue dispatcher cases.  Static so it stays internal to this
+ * TU. */
+static const char *phx_fvc_to_string(int conversion) {
+    switch (conversion) {
+        case 0: return "None";
+        case 1: return "Str";
+        case 2: return "Repr";
+        case 3: return "ASCII";
+        default: return "Unknown";
+    }
+}
+
 /* B2 commit-1 port of escape_unicode (printer.cpp:162-187).  Writes
  * directly to `out` instead of building a std::string; semantically
  * identical otherwise.  kMaxASCII (printer.cpp:160) inlined as 127. */
@@ -818,6 +832,251 @@ void phx_format_immediates(FILE *out, const PhxHirPrinter *p, const void *instr)
                     phx_hir_pyfunc_qualname(call->func),
                     hir_c_num_operands(instr),
                     type_buf);
+            return;
+        }
+
+        /* P-5a: type-stringification group — single HirType field via
+         * hir_type_to_string_c.  All wrap as "<type-string>". */
+        case HIR_OP_LoadConst: {
+            const HirLoadConst *lc = (const HirLoadConst *)instr;
+            char type_buf[256];
+            hir_type_to_string_c(&lc->type, type_buf, sizeof(type_buf), 0);
+            fprintf(out, "<%s>", type_buf);
+            return;
+        }
+        case HIR_OP_RefineType: {
+            const HirRefineType *rt = (const HirRefineType *)instr;
+            char type_buf[256];
+            hir_type_to_string_c(&rt->type, type_buf, sizeof(type_buf), 0);
+            fprintf(out, "<%s>", type_buf);
+            return;
+        }
+        case HIR_OP_UseType: {
+            const HirUseType *ut = (const HirUseType *)instr;
+            char type_buf[256];
+            hir_type_to_string_c(&ut->type, type_buf, sizeof(type_buf), 0);
+            fprintf(out, "<%s>", type_buf);
+            return;
+        }
+        case HIR_OP_GuardType: {
+            const HirGuardType *gt = (const HirGuardType *)instr;
+            char type_buf[256];
+            hir_type_to_string_c(&gt->target, type_buf, sizeof(type_buf), 0);
+            fprintf(out, "<%s>", type_buf);
+            return;
+        }
+        case HIR_OP_IntConvert: {
+            const HirIntConvert *ic = (const HirIntConvert *)instr;
+            char type_buf[256];
+            hir_type_to_string_c(&ic->type, type_buf, sizeof(type_buf), 0);
+            fprintf(out, "<%s>", type_buf);
+            return;
+        }
+        case HIR_OP_PrimitiveBox: {
+            const HirPrimitiveBox *pb = (const HirPrimitiveBox *)instr;
+            char type_buf[256];
+            hir_type_to_string_c(&pb->type, type_buf, sizeof(type_buf), 0);
+            fprintf(out, "<%s>", type_buf);
+            return;
+        }
+        case HIR_OP_PrimitiveUnbox: {
+            const HirPrimitiveUnbox *pu = (const HirPrimitiveUnbox *)instr;
+            char type_buf[256];
+            hir_type_to_string_c(&pu->type, type_buf, sizeof(type_buf), 0);
+            fprintf(out, "<%s>", type_buf);
+            return;
+        }
+        case HIR_OP_GetSecondOutput: {
+            const HirGetSecondOutput *gso = (const HirGetSecondOutput *)instr;
+            char type_buf[256];
+            hir_type_to_string_c(&gso->type, type_buf, sizeof(type_buf), 0);
+            fprintf(out, "<%s>", type_buf);
+            return;
+        }
+
+        /* P-5a: single-int-field group. */
+        case HIR_OP_LoadTupleItem: {
+            const HirLoadTupleItem *lti = (const HirLoadTupleItem *)instr;
+            fprintf(out, "<%zu>", lti->idx);
+            return;
+        }
+        case HIR_OP_MakeDict: {
+            const HirMakeDict *md = (const HirMakeDict *)instr;
+            fprintf(out, "<%zu>", md->capacity);
+            return;
+        }
+        case HIR_OP_MakeList:
+        case HIR_OP_MakeTuple: {
+            /* nvalues() == NumOperands() for both opcodes (hir.h:2828, 2854). */
+            fprintf(out, "<%zu>", hir_c_num_operands(instr));
+            return;
+        }
+        case HIR_OP_BuildSlice:
+            fprintf(out, "<%zu>", hir_c_num_operands(instr));
+            return;
+        case HIR_OP_InitFrameCellVars: {
+            const HirInitFrameCellVars *init =
+                (const HirInitFrameCellVars *)instr;
+            fprintf(out, "<%d>", (int)init->cells);
+            return;
+        }
+        case HIR_OP_UnpackExToTuple: {
+            const HirUnpackExToTuple *uet = (const HirUnpackExToTuple *)instr;
+            fprintf(out, "<%d, %d>", (int)uet->before, (int)uet->after);
+            return;
+        }
+        case HIR_OP_RaiseAwaitableError: {
+            const HirRaiseAwaitableError *rae =
+                (const HirRaiseAwaitableError *)instr;
+            fprintf(out, "<%s>",
+                    rae->is_aenter ? "__aenter__" : "__aexit__");
+            return;
+        }
+
+        /* P-5a: type + capacity/nvalues group. */
+        case HIR_OP_MakeCheckedDict: {
+            const HirMakeCheckedDict *mcd = (const HirMakeCheckedDict *)instr;
+            char type_buf[256];
+            hir_type_to_string_c(&mcd->type, type_buf, sizeof(type_buf), 0);
+            fprintf(out, "<%s %zu>", type_buf, mcd->capacity);
+            return;
+        }
+        case HIR_OP_MakeCheckedList: {
+            const HirMakeCheckedList *mcl = (const HirMakeCheckedList *)instr;
+            char type_buf[256];
+            hir_type_to_string_c(&mcl->type, type_buf, sizeof(type_buf), 0);
+            fprintf(out, "<%s %zu>", type_buf, hir_c_num_operands(instr));
+            return;
+        }
+
+        /* P-5a: PyTypeObject->tp_name group.  Direct field access via
+         * Python.h types — no bridge needed. */
+        case HIR_OP_TpAlloc: {
+            const HirTpAlloc *tp = (const HirTpAlloc *)instr;
+            fprintf(out, "<%s>", ((PyTypeObject *)tp->pytype)->tp_name);
+            return;
+        }
+        case HIR_OP_IndexUnbox: {
+            const HirIndexUnbox *iu = (const HirIndexUnbox *)instr;
+            fprintf(out, "<%s>", ((PyTypeObject *)iu->exc)->tp_name);
+            return;
+        }
+        case HIR_OP_Cast: {
+            const HirCast *cast = (const HirCast *)instr;
+            const char *tn = ((PyTypeObject *)cast->pytype)->tp_name;
+            /* Mirror printer.cpp:427-437: optional wraps exact wraps name. */
+            fputc('<', out);
+            if (cast->optional) fputs("Optional[", out);
+            if (cast->exact) fputs("Exact[", out);
+            fputs(tn, out);
+            if (cast->exact) fputc(']', out);
+            if (cast->optional) fputc(']', out);
+            fputc('>', out);
+            return;
+        }
+
+        /* P-5a: op-enum group via existing + new bridges. */
+        case HIR_OP_CompareBool: {
+            const HirCompareBool *cmp = (const HirCompareBool *)instr;
+            fprintf(out, "<%s>", phx_hir_compare_op_name(cmp->op));
+            return;
+        }
+        case HIR_OP_IntBinaryOp: {
+            const HirIntBinaryOp *bop = (const HirIntBinaryOp *)instr;
+            fprintf(out, "<%s>", phx_hir_binary_op_name(bop->op));
+            return;
+        }
+        case HIR_OP_DoubleBinaryOp: {
+            const HirDoubleBinaryOp *bop = (const HirDoubleBinaryOp *)instr;
+            fprintf(out, "<%s>", phx_hir_binary_op_name(bop->op));
+            return;
+        }
+        case HIR_OP_InPlaceOp: {
+            const HirInPlaceOp *ip = (const HirInPlaceOp *)instr;
+            fprintf(out, "<%s>", phx_hir_in_place_op_name(ip->op));
+            return;
+        }
+        case HIR_OP_PrimitiveCompare: {
+            const HirPrimitiveCompare *cmp = (const HirPrimitiveCompare *)instr;
+            fprintf(out, "<%s>", phx_hir_primitive_compare_op_name(cmp->op));
+            return;
+        }
+        case HIR_OP_PrimitiveUnaryOp: {
+            const HirPrimitiveUnaryOp *u = (const HirPrimitiveUnaryOp *)instr;
+            fprintf(out, "<%s>", phx_hir_primitive_unary_op_name(u->op));
+            return;
+        }
+
+        /* P-5a: CondBranch family.  CondBranch + CondBranchIterNotDone
+         * share the HirCondBranchInstr layout (true_edge / false_edge);
+         * CondBranchCheckType has the same prefix + an extra HirType.
+         * Block ids come from HirEdge.to->id (HirBasicBlock public field). */
+        case HIR_OP_CondBranch:
+        case HIR_OP_CondBranchIterNotDone: {
+            const HirCondBranchInstr *cb = (const HirCondBranchInstr *)instr;
+            fprintf(out, "<%d, %d>",
+                    ((const HirBasicBlock *)cb->true_edge.to)->id,
+                    ((const HirBasicBlock *)cb->false_edge.to)->id);
+            return;
+        }
+        case HIR_OP_CondBranchCheckType: {
+            const HirCondBranchCheckType *cb =
+                (const HirCondBranchCheckType *)instr;
+            char type_buf[256];
+            hir_type_to_string_c(&cb->type, type_buf, sizeof(type_buf), 0);
+            fprintf(out, "<%d, %d, %s>",
+                    ((const HirBasicBlock *)cb->true_edge.to)->id,
+                    ((const HirBasicBlock *)cb->false_edge.to)->id,
+                    type_buf);
+            return;
+        }
+
+        /* P-5a: SetFunctionAttr — FunctionAttr enum -> name via bridge. */
+        case HIR_OP_SetFunctionAttr: {
+            const HirSetFunctionAttr *sfa = (const HirSetFunctionAttr *)instr;
+            fprintf(out, "<%s>", phx_hir_function_field_name(sfa->field));
+            return;
+        }
+
+        /* P-5a: GuardIs — stable pointer to target Python object. */
+        case HIR_OP_GuardIs: {
+            const HirGuardIs *gi = (const HirGuardIs *)instr;
+            fprintf(out, "<%p>", phx_hir_get_stable_pointer(gi->target));
+            return;
+        }
+
+        /* P-5a: f-string conversion code group.  All three opcodes share
+         * the format_value union field (hir_instr_c.h:626) — read via the
+         * struct of the matching layout for type-safety. */
+        case HIR_OP_FormatValue: {
+            const HirBuildInterpolation *bi =
+                (const HirBuildInterpolation *)instr;
+            fprintf(out, "<%s>", phx_fvc_to_string(bi->conversion));
+            return;
+        }
+        case HIR_OP_BuildInterpolation: {
+            const HirBuildInterpolation *bi =
+                (const HirBuildInterpolation *)instr;
+            fprintf(out, "<%s>", phx_fvc_to_string(bi->conversion));
+            return;
+        }
+        case HIR_OP_ConvertValue: {
+            const HirConvertValue *cv = (const HirConvertValue *)instr;
+            fprintf(out, "<%s>", phx_fvc_to_string(cv->converter_idx));
+            return;
+        }
+
+        /* P-5a: Phi — iterate basic_blocks, emit comma-separated ids.
+         * Layout: HIR_INSTR_FIELDS + void **bb_data + size_t bb_count. */
+        case HIR_OP_Phi: {
+            const HirPhi *phi = (const HirPhi *)instr;
+            fputc('<', out);
+            for (size_t i = 0; i < phi->bb_count; i++) {
+                if (i > 0) fputs(", ", out);
+                fprintf(out, "%d",
+                        ((const HirBasicBlock *)phi->bb_data[i])->id);
+            }
+            fputc('>', out);
             return;
         }
 

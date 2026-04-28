@@ -107,6 +107,12 @@ const char *phx_hir_call_intrinsic_name(size_t index, size_t num_operands);
 const char *phx_hir_pyfunc_module_name(const void *func_obj);
 const char *phx_hir_pyfunc_qualname(const void *func_obj);
 
+/* W-PRINTER-IMMEDIATES-PORT P-5a: simple op-name + helper bridges. */
+const char *phx_hir_primitive_compare_op_name(int op);
+const char *phx_hir_primitive_unary_op_name(int op);
+const char *phx_hir_function_field_name(int field);
+const void *phx_hir_get_stable_pointer(const void *ptr);
+
 /* B2 commit-3: thin C-callable bridges for non-trivial Function /
  * LoadSuperBase methods used by the format_name family ports below.
  * Pointers are opaque (void*) — implementation in printer.cpp casts

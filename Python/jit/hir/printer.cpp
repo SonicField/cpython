@@ -1122,6 +1122,33 @@ const char* phx_hir_pyfunc_qualname(const void* func_obj) {
   return s_buf.c_str();
 }
 
+// W-PRINTER-IMMEDIATES-PORT P-5a: simple-bridge accessors for the next
+// batch of dispatcher cases — primitive op-name lookups, FunctionAttr
+// stringification, and getStablePointer.  Same thread_local-buffer
+// pattern as the P-2 op-name bridges (above).
+const char* phx_hir_primitive_compare_op_name(int op) {
+  thread_local std::string s_buf;
+  s_buf = jit::hir::GetPrimitiveCompareOpName(
+      static_cast<jit::hir::PrimitiveCompareOp>(op));
+  return s_buf.c_str();
+}
+
+const char* phx_hir_primitive_unary_op_name(int op) {
+  thread_local std::string s_buf;
+  s_buf = jit::hir::GetPrimitiveUnaryOpName(
+      static_cast<jit::hir::PrimitiveUnaryOpKind>(op));
+  return s_buf.c_str();
+}
+
+const char* phx_hir_function_field_name(int field) {
+  return jit::hir::functionFieldName(
+      static_cast<jit::hir::FunctionAttr>(field));
+}
+
+const void* phx_hir_get_stable_pointer(const void* ptr) {
+  return jit::getStablePointer(ptr);
+}
+
 // B2 commit-4: bridge into the static format_immediates above.  Per
 // theologian 11:23:20Z option A, format_immediates (185 case-branches)
 // stays C++ — porting it requires hundreds of HIR-instruction-specific
