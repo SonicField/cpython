@@ -416,6 +416,82 @@ static size_t reference_num_edges(Opcode op) {
     }
 }
 
+/* Phase 4.A Batch 2: replicates the pre-port C++ Instr::isReplayable
+ * switch (hir.cpp lines 420-595, 175 LOC pre-port) for the exhaustive
+ * iteration falsifier. The hand-maintained replayable column in
+ * hir_instr_info_table (hir_instr_info_c.c) is the C-side source; this
+ * reference function pins it to the original C++ enumeration. Drift in
+ * either direction (new opcode added without table row, or table row
+ * with wrong value) fires the assert at JIT module load. */
+static int reference_is_replayable(Opcode op) {
+    switch (op) {
+        case Opcode::kAssign:
+        case Opcode::kAtQuiescentState:
+        case Opcode::kBitCast:
+        case Opcode::kBuildString:
+        case Opcode::kCast:
+        case Opcode::kCheckErrOccurred:
+        case Opcode::kCheckExc:
+        case Opcode::kCheckField:
+        case Opcode::kCheckFreevar:
+        case Opcode::kCheckNeg:
+        case Opcode::kCheckSequenceBounds:
+        case Opcode::kCheckVar:
+        case Opcode::kCIntToCBool:
+        case Opcode::kDoubleBinaryOp:
+        case Opcode::kFloatCompare:
+        case Opcode::kFormatValue:
+        case Opcode::kFormatWithSpec:
+        case Opcode::kGetSecondOutput:
+        case Opcode::kGuard:
+        case Opcode::kGuardIs:
+        case Opcode::kGuardType:
+        case Opcode::kHintType:
+        case Opcode::kIndexUnbox:
+        case Opcode::kIntBinaryOp:
+        case Opcode::kIntConvert:
+        case Opcode::kIsNegativeAndErrOccurred:
+        case Opcode::kLoadArg:
+        case Opcode::kLoadArrayItem:
+        case Opcode::kLoadCellItem:
+        case Opcode::kLoadConst:
+        case Opcode::kLoadCurrentFunc:
+        case Opcode::kLoadFrame:
+        case Opcode::kLoadEvalBreaker:
+        case Opcode::kLoadField:
+        case Opcode::kLoadFieldAddress:
+        case Opcode::kLoadFunctionIndirect:
+        case Opcode::kLoadGlobalCached:
+        case Opcode::kLoadSplitDictItem:
+        case Opcode::kLoadTupleItem:
+        case Opcode::kLoadTypeAttrCacheEntryType:
+        case Opcode::kLoadTypeAttrCacheEntryValue:
+        case Opcode::kLoadTypeMethodCacheEntryType:
+        case Opcode::kLoadTypeMethodCacheEntryValue:
+        case Opcode::kLoadVarObjectSize:
+        case Opcode::kLongCompare:
+        case Opcode::kPrimitiveBox:
+        case Opcode::kPrimitiveBoxBool:
+        case Opcode::kPrimitiveCompare:
+        case Opcode::kPrimitiveUnaryOp:
+        case Opcode::kPrimitiveUnbox:
+        case Opcode::kRaise:
+        case Opcode::kRaiseStatic:
+        case Opcode::kRefineType:
+        case Opcode::kStealCellItem:
+        case Opcode::kUpdatePrevInstr:
+        case Opcode::kUnicodeCompare:
+        case Opcode::kUnicodeConcat:
+        case Opcode::kUnicodeSubscr:
+        case Opcode::kUseType:
+        case Opcode::kWaitHandleLoadCoroOrResult:
+        case Opcode::kWaitHandleLoadWaiter:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
 static void verify_phase4a_batch1_exhaustive() {
 #define VERIFY_OPCODE(name) {                                                \
     int op_int = static_cast<int>(Opcode::k##name);                          \
@@ -432,6 +508,10 @@ static void verify_phase4a_batch1_exhaustive() {
     assert(std::strcmp(hir_opcode_name(static_cast<HirOpcode>(op_int)),      \
                        hir_instr_info_name(op_int)) == 0 &&                  \
            "Phase 4.A opname drift for " #name);                             \
+    /* Batch 2: isReplayable pin */                                          \
+    assert(hir_c_is_replayable(&stub) ==                                     \
+           reference_is_replayable(op_enum) &&                               \
+           "Phase 4.A isReplayable drift for " #name);                       \
 }
     FOREACH_OPCODE(VERIFY_OPCODE)
 #undef VERIFY_OPCODE
