@@ -1343,6 +1343,7 @@ def bench_pytorch_cm(n_iter):
 _printer_coverage_global = 0
 
 class _PCBase:
+    x = 0  # class attr for LoadAttrSuper lookup via super(_PCDerived, d).x
     def __init__(self, x):
         self.x = x
     def m(self, v):
