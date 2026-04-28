@@ -6,11 +6,13 @@
 
 namespace cinderx {
 
-namespace {
-
+// W-PHASE2-CODEGEN-SLOW Phase 1: definition of the global ModuleState
+// pointer declared extern in module_state.h.  getModuleState() is inlined
+// in the header (one load per call) instead of called across the TU
+// boundary.  setModuleState/removeModuleState below mutate this storage.
+namespace detail {
 ModuleState* s_cinderx_state;
-
-} // namespace
+} // namespace detail
 
 int ModuleState::traverse(visitproc visit, void* arg) {
   Py_VISIT(coro_type_);
@@ -48,12 +50,8 @@ int ModuleState::clear() {
 
 void setModuleState(PyObject* mod) {
   auto state = reinterpret_cast<cinderx::ModuleState*>(PyModule_GetState(mod));
-  s_cinderx_state = state;
+  detail::s_cinderx_state = state;
   state->setModule(mod);
-}
-
-ModuleState* getModuleState() {
-  return s_cinderx_state;
 }
 
 ModuleState* getModuleState(PyObject* mod) {
@@ -61,7 +59,7 @@ ModuleState* getModuleState(PyObject* mod) {
 }
 
 void removeModuleState() {
-  s_cinderx_state = nullptr;
+  detail::s_cinderx_state = nullptr;
 }
 
 bool ModuleState::initBuiltinMembers() {

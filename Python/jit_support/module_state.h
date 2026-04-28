@@ -218,8 +218,20 @@ class ModuleState {
   PyObject* cinderx_module_;
 };
 
-// Get the global ModuleState singleton.
-ModuleState* getModuleState();
+namespace detail {
+// Backing storage for the global ModuleState singleton.  Defined in
+// module_state.cpp; declared here so getModuleState() can be inlined and
+// each call site lowers to a single load (eliminates ~17.4M PLT-mediated
+// function calls per gen_simple measurement, W-PHASE2-CODEGEN-SLOW Phase 1).
+extern ModuleState* s_cinderx_state;
+} // namespace detail
+
+// Get the global ModuleState singleton.  Inline so callers in hot paths
+// (JitGen_CheckAny per-yield, JITRT_InvokeIterNext per-iter) avoid the
+// cross-TU function-call overhead.
+inline ModuleState* getModuleState() {
+  return detail::s_cinderx_state;
+}
 
 // Get the ModuleState from the CinderX module object.
 //
