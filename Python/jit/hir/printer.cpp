@@ -38,73 +38,72 @@ const char* fvc_to_string(int conversion) {
 }
 } // namespace
 
-void HIRPrinter::Indent() {
-  indent_level_ += 1;
-}
-
-std::ostream& HIRPrinter::Indented(std::ostream& os) {
-  os << line_prefix_;
-  for (int i = 0; i < indent_level_; i++) {
-    os << "  ";
+// B2 commit-5b sole-path swap: HIRPrinter::Print(*) bodies route
+// through the C-side phx_hir_print_* ports via open_memstream.
+// Indent/Dedent/Indented are no longer used (C-side has its own
+// inline equivalents in printer_c.h); their bodies and the
+// indent_level_ mutators are deleted post-swap.
+namespace {
+// Build a C-side PhxHirPrinter from this C++ HIRPrinter state, run
+// `body` on it, and pipe the open_memstream output to the C++ stream.
+template <typename Body>
+void run_via_c_side(
+    std::ostream& os,
+    const std::string& line_prefix,
+    int indent_level,
+    bool full_snapshots,
+    const Function* func,
+    Body&& body) {
+  char* buf = nullptr;
+  size_t size = 0;
+  FILE* f = open_memstream(&buf, &size);
+  if (f == nullptr) {
+    return;
   }
-  return os;
+  PhxHirPrinter p = phx_hir_printer_default();
+  if (!line_prefix.empty()) {
+    p.line_prefix = line_prefix.c_str();
+  }
+  p.indent_level = indent_level;
+  p.full_snapshots = full_snapshots ? 1 : 0;
+  p.func = static_cast<const void*>(func);
+  body(f, &p);
+  fclose(f);
+  if (buf != nullptr) {
+    os.write(buf, static_cast<std::streamsize>(size));
+    free(buf);
+  }
 }
-
-void HIRPrinter::Dedent() {
-  indent_level_ -= 1;
-}
+} // namespace
 
 void HIRPrinter::Print(std::ostream& os, const Function& func) {
-  func_ = &func;
-  SCOPE_EXIT(func_ = nullptr);
-
-  fmt::print(
-      os, "fun {} {{\n", (func.fullname && func.fullname[0]) ? func.fullname : "<unknown>");
-  Indent();
-  Print(os, func.cfg);
-  Dedent();
-  os << "}\n";
+  run_via_c_side(os, line_prefix_, indent_level_, full_snapshots_, &func,
+      [&](FILE* f, PhxHirPrinter* p) {
+        phx_hir_print_function(f, p, &func);
+      });
 }
 
 void HIRPrinter::Print(std::ostream& os, const CFG& cfg) {
-  auto start = cfg.entry_block;
-  std::vector<BasicBlock*> blocks = cfg.GetRPOTraversal(start);
-  auto last_block = blocks.back();
-  for (auto block : blocks) {
-    Print(os, *block);
-    if (block != last_block) {
-      os << '\n';
-    }
-  }
+  run_via_c_side(os, line_prefix_, indent_level_, full_snapshots_, func_,
+      [&](FILE* f, PhxHirPrinter* p) {
+        phx_hir_print_cfg(f, p, &cfg);
+      });
 }
 
 void HIRPrinter::Print(std::ostream& os, const BasicBlock& block) {
-  Indented(os);
-  fmt::print(os, "bb {}", block.id);
-  auto in_edges = block.in_edges();
-  if (!in_edges.empty()) {
-    std::vector<const Edge*> edges(in_edges.begin(), in_edges.end());
-    std::sort(edges.begin(), edges.end(), [](auto& e1, auto& e2) {
-      return e1->from()->id < e2->from()->id;
-    });
-    os << " (preds ";
-    auto sep = "";
-    for (auto edge : edges) {
-      fmt::print(os, "{}{}", sep, edge->from()->id);
-      sep = ", ";
-    }
-    os << ")";
-  }
-  os << " {\n";
-  Indent();
-  for (auto& instr : block) {
-    Print(os, instr);
-    os << '\n';
-  }
-  Dedent();
-  Indented(os) << "}\n";
+  run_via_c_side(os, line_prefix_, indent_level_, full_snapshots_, func_,
+      [&](FILE* f, PhxHirPrinter* p) {
+        phx_hir_print_basic_block(f, p, &block);
+      });
 }
 
+// B2 commit-5b: print_reg_states C++ static RETAINED — it remains a
+// dependency of the still-C++ format_immediates RaiseStatic case
+// (printer.cpp ~line 665), part of the bridged cluster covered by the
+// W-PRINTER-IMMEDIATES-PORT residual workstream.  HIRPrinter::Print(Instr)
+// no longer calls it (delegates to C-side phx_hir_print_instr →
+// phx_hir_print_reg_states from commit-5a); kept for the in-bridge
+// consumer until the full format_immediates port lands.
 static void print_reg_states(
     std::ostream& os,
     const PhxRegStateArray& reg_states) {
@@ -120,35 +119,15 @@ static void print_reg_states(
   for (auto& reg_state : rss) {
     const char* prefix = "?";
     switch (reg_state.value_kind) {
-      case ValueKind::kSigned: {
-        prefix = "s";
-        break;
-      }
-      case ValueKind::kUnsigned: {
-        prefix = "uns";
-        break;
-      }
-      case ValueKind::kBool: {
-        prefix = "bool";
-        break;
-      }
-      case ValueKind::kDouble:
-        prefix = "double";
-        break;
+      case ValueKind::kSigned: prefix = "s"; break;
+      case ValueKind::kUnsigned: prefix = "uns"; break;
+      case ValueKind::kBool: prefix = "bool"; break;
+      case ValueKind::kDouble: prefix = "double"; break;
       case ValueKind::kObject: {
         switch (reg_state.ref_kind) {
-          case RefKind::kUncounted: {
-            prefix = "unc";
-            break;
-          }
-          case RefKind::kBorrowed: {
-            prefix = "b";
-            break;
-          }
-          case RefKind::kOwned: {
-            prefix = "o";
-            break;
-          }
+          case RefKind::kUncounted: prefix = "unc"; break;
+          case RefKind::kBorrowed: prefix = "b"; break;
+          case RefKind::kOwned: prefix = "o"; break;
         }
         break;
       }
@@ -802,122 +781,17 @@ static std::string format_immediates(const Function* func, const Instr& instr) {
 }
 
 void HIRPrinter::Print(std::ostream& os, const Instr& instr) {
-  Indented(os);
-  if (Register* dst = instr.output()) {
-    os << dst->name();
-    if (dst->type() != TTop) {
-      os << ":" << dst->type();
-    }
-    os << " = ";
-  }
-  os << instr.opname();
-
-  auto immed = format_immediates(func_, instr);
-  if (!immed.empty()) {
-    os << "<" << immed << ">";
-  }
-  for (size_t i = 0, n = instr.NumOperands(); i < n; ++i) {
-    auto op = instr.GetOperand(i);
-    if (op != nullptr) {
-      os << " " << op->name();
-    } else {
-      os << " nullptr";
-    }
-  }
-
-  if (instr.IsSnapshot() && !full_snapshots_) {
-    return;
-  }
-  auto fs = get_frame_state(instr);
-  auto db = instr.asDeoptBase();
-  if (db != nullptr) {
-    os << " {\n";
-    Indent();
-    if (db->descr()[0] != '\0') {
-      Indented(os) << fmt::format("Descr '{}'\n", db->descr());
-    }
-    if (Register* guilty_reg = db->guiltyReg()) {
-      Indented(os) << fmt::format("GuiltyReg {}\n", *guilty_reg);
-    }
-    if (db->live_regs().size() > 0) {
-      Indented(os) << "LiveValues";
-      print_reg_states(os, db->live_regs());
-      os << '\n';
-    }
-    if (fs != nullptr) {
-      Indented(os) << "FrameState {\n";
-      Indent();
-      Print(os, *fs);
-      Dedent();
-      Indented(os) << "}\n";
-    }
-    Dedent();
-    Indented(os) << "}";
-  } else if (fs != nullptr) {
-    os << " {\n";
-    Indent();
-    Print(os, *fs);
-    Dedent();
-    Indented(os) << "}";
-  }
+  run_via_c_side(os, line_prefix_, indent_level_, full_snapshots_, func_,
+      [&](FILE* f, PhxHirPrinter* p) {
+        phx_hir_print_instr(f, p, &instr);
+      });
 }
 
 void HIRPrinter::Print(std::ostream& os, const FrameState& state) {
-  Indented(os) << "CurInstrOffset " << state.cur_instr_offs << '\n';
-
-  auto nlocals = state.nlocals;
-  if (nlocals > 0) {
-    Indented(os) << "Locals<" << nlocals << ">";
-    for (int i = 0; i < nlocals; ++i) {
-      auto reg = static_cast<Register*>(state.localsplus.data[i]);
-      if (reg == nullptr) {
-        os << " <null>";
-      } else {
-        os << " " << reg->name();
-      }
-    }
-    os << '\n';
-  }
-
-  auto nlocalsplus = state.localsplus.count;
-  auto ncells = nlocalsplus - state.nlocals;
-  if (ncells > 0) {
-    Indented(os) << "Cells<" << ncells << ">";
-    for (size_t i = nlocals; i < nlocalsplus; ++i) {
-      auto reg = static_cast<Register*>(state.localsplus.data[i]);
-      if (reg == nullptr) {
-        os << " <null>";
-      } else {
-        os << " " << reg->name();
-      }
-    }
-    os << '\n';
-  }
-
-  auto opstack_size = state.stack.count;
-  if (opstack_size > 0) {
-    Indented(os) << "Stack<" << opstack_size << ">";
-    for (std::size_t i = 0; i < opstack_size; i++) {
-      os << " " << static_cast<Register*>(state.stack.data[i])->name();
-    }
-    os << '\n';
-  }
-
-  auto& bs = state.block_stack;
-  if (!bs.isEmpty()) {
-    Indented(os) << "BlockStack {\n";
-    Indent();
-    for (size_t i = 0; i < bs.size(); i++) {
-      const auto& entry = bs.at(i);
-      Indented(os) << fmt::format(
-          "Opcode {} HandlerOff {} StackLevel {}\n",
-          entry.opcode,
-          entry.handler_off,
-          entry.stack_level);
-    }
-    Dedent();
-    Indented(os) << "}" << '\n';
-  }
+  run_via_c_side(os, line_prefix_, indent_level_, full_snapshots_, func_,
+      [&](FILE* f, PhxHirPrinter* p) {
+        phx_hir_print_frame_state(f, p, &state);
+      });
 }
 
 HIRPrinter& HIRPrinter::setFullSnapshots(bool full) {
@@ -957,45 +831,13 @@ std::ostream& operator<<(std::ostream& os, const FrameState& state) {
 
 } // namespace jit::hir
 
-// B2 commit-2: C++ -> FILE* bridges so the C-side phx_hir_print_*
-// helpers (printer_c.c) can recurse into the not-yet-ported C++ HIR
-// printer.  The bridge re-serialises through a stringstream + fputs
-// (single allocation per instruction is acceptable for HIR-dump tooling
-// usage; commit-5 sole-path swap eliminates the stringstream by porting
-// Print(Instr) and Print(FrameState) to pure C output).
+// B2 commit-2 bridges phx_hir_print_instr_cpp + phx_hir_print_frame_state_cpp
+// were a transitional shim used by the C-side phx_hir_print_basic_block
+// to recurse into the not-yet-ported C++ HIRPrinter.  Removed in commit-5b
+// sole-path swap: phx_hir_print_basic_block now calls the C-side
+// phx_hir_print_instr port (printer_c.c), which in turn uses the
+// C-side phx_hir_print_frame_state port (commit-5a).
 extern "C" {
-
-void phx_hir_print_instr_cpp(
-    FILE* out,
-    const struct PhxHirPrinter* p,
-    const void* instr_ptr) {
-  jit::hir::HIRPrinter printer;
-  if (p->line_prefix != nullptr) {
-    printer.setLinePrefix(p->line_prefix);
-  }
-  printer.setFullSnapshots(p->full_snapshots != 0);
-  printer.setIndentLevel(p->indent_level);
-  std::ostringstream ss;
-  printer.Print(ss, *static_cast<const jit::hir::Instr*>(instr_ptr));
-  std::string s = ss.str();
-  std::fwrite(s.data(), 1, s.size(), out);
-}
-
-void phx_hir_print_frame_state_cpp(
-    FILE* out,
-    const struct PhxHirPrinter* p,
-    const void* state_ptr) {
-  jit::hir::HIRPrinter printer;
-  if (p->line_prefix != nullptr) {
-    printer.setLinePrefix(p->line_prefix);
-  }
-  printer.setFullSnapshots(p->full_snapshots != 0);
-  printer.setIndentLevel(p->indent_level);
-  std::ostringstream ss;
-  printer.Print(ss, *static_cast<const jit::hir::FrameState*>(state_ptr));
-  std::string s = ss.str();
-  std::fwrite(s.data(), 1, s.size(), out);
-}
 
 // B2 commit-3: C-callable accessors needed by the C-side format_name
 // family (printer.cpp:200-237 originals).  Each wraps a non-trivial
@@ -1099,12 +941,67 @@ int phx_hir_frame_state_block_stack_stack_level(const void* state, size_t i) {
       ->block_stack.at(i).stack_level;
 }
 
+// B2 commit-5b: Print(Instr) port accessors.  Per theologian 11:51:45Z
+// PORT confirmation — Type stringification, Instr opname, DeoptBase
+// fields are structural HIR-level surface (reusable for future C-side
+// debug tooling), distinct from format_immediates' instruction-
+// specific case-explosion.
+const char* phx_hir_instr_opname(const void* instr) {
+  // Instr::opname() returns std::string_view by value; cache via
+  // thread_local std::string to keep returned const char* live for the
+  // print-call duration (same pattern as phx_hir_register_name).
+  thread_local std::string s_opname_buf;
+  s_opname_buf = reinterpret_cast<const jit::hir::Instr*>(instr)->opname();
+  return s_opname_buf.c_str();
+}
+
+int phx_hir_register_type_is_top(const void* reg) {
+  return reinterpret_cast<const jit::hir::Register*>(reg)->type() ==
+                 jit::hir::TTop
+             ? 1
+             : 0;
+}
+
+const char* phx_hir_register_type_to_string(const void* reg) {
+  thread_local std::string s_type_buf;
+  std::ostringstream ss;
+  ss << reinterpret_cast<const jit::hir::Register*>(reg)->type();
+  s_type_buf = ss.str();
+  return s_type_buf.c_str();
+}
+
+const char* phx_hir_deopt_descr(const void* deopt) {
+  return reinterpret_cast<const jit::hir::DeoptBase*>(deopt)->descr();
+}
+
+const void* phx_hir_deopt_guilty_reg(const void* deopt) {
+  return reinterpret_cast<const jit::hir::DeoptBase*>(deopt)->guiltyReg();
+}
+
+const void* phx_hir_deopt_live_regs(const void* deopt) {
+  return &reinterpret_cast<const jit::hir::DeoptBase*>(deopt)->live_regs();
+}
+
+// Type-aware FrameState dispatch — mirror of jit::hir::get_frame_state
+// (hir.cpp:1250-1261).  hir_c_get_frame_state in hir_instr_c.h is the
+// raw deopt-layout field accessor used by simplify pass on instrs
+// already known to be deopt-class; the printer needs the type-aware
+// variant since Print(Instr) runs on every opcode.
+const void* phx_hir_instr_get_frame_state(const void* instr) {
+  return jit::hir::get_frame_state(
+      *reinterpret_cast<const jit::hir::Instr*>(instr));
+}
+
 // B2 commit-4: bridge into the static format_immediates above.  Per
 // theologian 11:23:20Z option A, format_immediates (185 case-branches)
 // stays C++ — porting it requires hundreds of HIR-instruction-specific
 // C accessors which is months of work for tooling code.  W-PRINTER-
 // IMMEDIATES-PORT residual workstream tracks the eventual port; until
 // then commit-5 Print(Instr) C wrapper calls this bridge.
+//
+// Wrapping `<` ... `>` happens HERE (not in the C caller) so the
+// no-immediates case writes nothing — matches printer.cpp:815-818
+// `if (!immed.empty()) os << "<" << immed << ">"` semantics.
 void phx_format_immediates_cpp(
     FILE* out,
     const struct PhxHirPrinter* p,
@@ -1112,7 +1009,11 @@ void phx_format_immediates_cpp(
   const auto* instr = static_cast<const jit::hir::Instr*>(instr_ptr);
   const auto* func = static_cast<const jit::hir::Function*>(p->func);
   std::string s = jit::hir::format_immediates(func, *instr);
-  std::fwrite(s.data(), 1, s.size(), out);
+  if (!s.empty()) {
+    std::fputc('<', out);
+    std::fwrite(s.data(), 1, s.size(), out);
+    std::fputc('>', out);
+  }
 }
 
 } // extern "C"

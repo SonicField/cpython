@@ -41,17 +41,13 @@ class HIRPrinter {
 
   HIRPrinter& setFullSnapshots(bool full);
   HIRPrinter& setLinePrefix(std::string_view prefix);
-  // B2 commit-2: lets the C-side phx_hir_print_instr_cpp bridge thread
-  // its caller's indent context into HIRPrinter, so Print(Instr)'s
-  // Indented() output matches the surrounding C-side indent (e.g. when
-  // called from inside a phx_hir_print_basic_block body that already
-  // wrote the block header at lower indent).
-  HIRPrinter& setIndentLevel(int level) { indent_level_ = level; return *this; }
 
  private:
-  void Indent();
-  void Dedent();
-  std::ostream& Indented(std::ostream& os);
+  // B2 commit-5b: Indent/Dedent/Indented + setIndentLevel removed.
+  // Print(*) bodies now delegate to the C-side phx_hir_print_*
+  // (printer_c.c) which has its own inline indent helpers in
+  // printer_c.h.  The phx_hir_print_instr_cpp bridge that was the
+  // setIndentLevel consumer (commit-2) was also removed in this swap.
 
   const Function* func_{nullptr};
   std::string line_prefix_;

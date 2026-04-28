@@ -100,6 +100,14 @@ std::string codeQualname(PyCodeObject* code) {
 
 extern "C" {
 
+/* B2 commit-5b: C-callable wrapper for jit::getVarnameTuple — used by
+ * phx_format_varname in Python/jit/hir/printer_c.c (became a live
+ * caller post-sole-path-swap; pre-swap LTO dead-code-elimination was
+ * hiding the missing-symbol). Per testkeeper 12:07:56Z option A. */
+PyObject* phx_getVarnameTuple(PyCodeObject* code, int* idx) {
+  return jit::getVarnameTuple(code, idx);
+}
+
 const char* codeName(PyCodeObject* code) {
   if (code->co_qualname == nullptr) {
     return "<null>";

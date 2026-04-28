@@ -67,12 +67,10 @@ static inline void phx_hir_printer_write_indent(FILE *out, const PhxHirPrinter *
     }
 }
 
-/* B2 commit-2: C++ → FILE* bridges (defined in printer.cpp).  Forwards
- * Print(Instr) / Print(FrameState) calls into the not-yet-ported C++
- * HIRPrinter so phx_hir_print_basic_block can recurse correctly during
- * the staged port.  Removed in commit-5 once the C-side bodies land. */
-void phx_hir_print_instr_cpp(FILE *out, const PhxHirPrinter *p, const void *instr);
-void phx_hir_print_frame_state_cpp(FILE *out, const PhxHirPrinter *p, const void *state);
+/* B2 commit-2 phx_hir_print_instr_cpp + phx_hir_print_frame_state_cpp
+ * bridges removed in commit-5b sole-path swap; phx_hir_print_basic_block
+ * now calls C-side phx_hir_print_instr (commit-5b) which uses
+ * phx_hir_print_frame_state (commit-5a). */
 
 /* B2 commit-4: bridge into the static C++ format_immediates (185
  * case-branches; full port deferred to W-PRINTER-IMMEDIATES-PORT
@@ -133,6 +131,15 @@ void phx_hir_escape_unicode_pyobject(FILE *out, const void *str);
 
 /* B2 commit-5a: print_reg_states port (printer.cpp:107-158). */
 void phx_hir_print_reg_states(FILE *out, const void *reg_states_array);
+
+/* B2 commit-5b: Print(Instr) port accessors (structural HIR surface). */
+const char *phx_hir_instr_opname(const void *instr);
+int phx_hir_register_type_is_top(const void *reg);
+const char *phx_hir_register_type_to_string(const void *reg);
+const char *phx_hir_deopt_descr(const void *deopt);
+const void *phx_hir_deopt_guilty_reg(const void *deopt);
+const void *phx_hir_deopt_live_regs(const void *deopt);
+const void *phx_hir_instr_get_frame_state(const void *instr);
 
 /* B2 commit-3: format_name family C ports — printer.cpp:200-237.
  * Each writes its formatted text directly to FILE* `out` (no

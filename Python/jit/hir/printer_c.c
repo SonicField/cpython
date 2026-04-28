@@ -20,11 +20,12 @@
  * body, never in printer_c.h. */
 #include "cinderx/python.h"
 
-/* getVarnameTuple is declared in cinderx/Common/code.h, but that header
- * transitively includes code_extra.h which uses C++ 'bool' without
- * <stdbool.h> guard.  Forward-declare locally per JIT C-header pattern
- * (feedback_no_pythonh_headers.md) until the upstream cleanup lands. */
-extern PyObject *getVarnameTuple(PyCodeObject *code, int *idx);
+/* getVarnameTuple is C++-mangled (declared in jit/getVarnameTuple inside
+ * `namespace jit`); use the C-shim phx_getVarnameTuple wrapper added in
+ * jit_common/code.cpp per testkeeper 12:07:56Z option A.  Pre-swap LTO
+ * dead-code-elimination was hiding the missing-symbol because
+ * phx_format_varname had no live caller. */
+extern PyObject *phx_getVarnameTuple(PyCodeObject *code, int *idx);
 
 #include "cinderx/Jit/hir/hir_basic_block_c.h"  /* HirBasicBlock, HirCFG, HirEdge, hir_bb_* */
 #include "cinderx/Jit/hir/hir_c_api.h"          /* hir_func_fullname, hir_func_cfg, hir_cfg_get_rpo */
@@ -150,7 +151,11 @@ void phx_hir_print_basic_block(FILE *out, PhxHirPrinter *p, const void *block) {
     HirBasicBlock *bb_mut = (HirBasicBlock *)(void *)bb;
     for (void *instr = hir_bb_first_instr(bb_mut); instr != NULL;
          instr = hir_bb_next_instr(bb_mut, instr)) {
-        phx_hir_print_instr_cpp(out, p, instr);
+        /* B2 commit-5b sole-path: route through the C-side
+         * phx_hir_print_instr port; commit-2's
+         * phx_hir_print_instr_cpp bridge is now unused and removed. */
+        phx_hir_print_instr(out, p, instr);
+        fputc('\n', out);
     }
     phx_hir_printer_dedent(p);
 
@@ -212,15 +217,98 @@ void phx_format_varname(FILE *out, const PhxHirPrinter *p, const void *instr, in
         return;
     }
     int adjusted = idx;
-    PyObject *names = getVarnameTuple(code, &adjusted);
+    PyObject *names = phx_getVarnameTuple(code, &adjusted);
     phx_format_name_impl(out, adjusted, names);
 }
 
+/* B2 commit-5b: Print(Instr) port — printer.cpp:803-863.  Writes
+ * "  {dst}:{type} = {opname}<{immediates}> {operands}" and an optional
+ * DeoptBase / FrameState block.  format_immediates stays C++ (called
+ * via commit-4 phx_format_immediates_cpp bridge); print_reg_states +
+ * Print(FrameState) are commit-5a C ports. */
 void phx_hir_print_instr(FILE *out, PhxHirPrinter *p, const void *instr) {
-    (void)out;
-    (void)p;
-    (void)instr;
-    /* B1 stub: see printer.cpp:HIRPrinter::Print(Instr&) */
+    phx_hir_printer_write_indent(out, p);
+
+    const void *dst = hir_c_output(instr);
+    if (dst != NULL) {
+        fputs(phx_hir_register_name(dst), out);
+        if (!phx_hir_register_type_is_top(dst)) {
+            fputc(':', out);
+            fputs(phx_hir_register_type_to_string(dst), out);
+        }
+        fputs(" = ", out);
+    }
+    fputs(phx_hir_instr_opname(instr), out);
+
+    /* Immediate text (from C++ format_immediates via commit-4 bridge).
+     * Bridge handles the conditional <...> wrap so the empty-immediates
+     * case writes nothing — matches the C++ side's
+     * `if (!immed.empty()) os << "<" << immed << ">"`. */
+    phx_format_immediates_cpp(out, p, instr);
+
+    /* Operand list. */
+    size_t n = hir_c_num_operands(instr);
+    for (size_t i = 0; i < n; i++) {
+        const void *op = hir_c_get_operand(instr, i);
+        if (op != NULL) {
+            fputc(' ', out);
+            fputs(phx_hir_register_name(op), out);
+        } else {
+            fputs(" nullptr", out);
+        }
+    }
+
+    if (hir_c_is_snapshot(instr) && !p->full_snapshots) {
+        return;
+    }
+
+    /* Type-aware FrameState dispatch (matches C++ get_frame_state at
+     * hir.cpp:1250-1261).  hir_c_get_frame_state blindly casts to
+     * HirDeoptLayout and reads the frame_state field — wrong for
+     * non-deopt non-snapshot non-BIF instrs (would return garbage and
+     * crash here).  testkeeper 12:13:37Z SIGSEGV evidence. */
+    const void *fs = phx_hir_instr_get_frame_state(instr);
+    const void *db = hir_c_as_deopt(instr);
+    if (db != NULL) {
+        fputs(" {\n", out);
+        phx_hir_printer_indent(p);
+        const char *descr = phx_hir_deopt_descr(db);
+        if (descr != NULL && descr[0] != '\0') {
+            phx_hir_printer_write_indent(out, p);
+            fprintf(out, "Descr '%s'\n", descr);
+        }
+        const void *guilty = phx_hir_deopt_guilty_reg(db);
+        if (guilty != NULL) {
+            phx_hir_printer_write_indent(out, p);
+            fprintf(out, "GuiltyReg %s\n", phx_hir_register_name(guilty));
+        }
+        const void *live_regs = phx_hir_deopt_live_regs(db);
+        if (phx_hir_reg_state_array_size(live_regs) > 0) {
+            phx_hir_printer_write_indent(out, p);
+            fputs("LiveValues", out);
+            phx_hir_print_reg_states(out, live_regs);
+            fputc('\n', out);
+        }
+        if (fs != NULL) {
+            phx_hir_printer_write_indent(out, p);
+            fputs("FrameState {\n", out);
+            phx_hir_printer_indent(p);
+            phx_hir_print_frame_state(out, p, fs);
+            phx_hir_printer_dedent(p);
+            phx_hir_printer_write_indent(out, p);
+            fputs("}\n", out);
+        }
+        phx_hir_printer_dedent(p);
+        phx_hir_printer_write_indent(out, p);
+        fputc('}', out);
+    } else if (fs != NULL) {
+        fputs(" {\n", out);
+        phx_hir_printer_indent(p);
+        phx_hir_print_frame_state(out, p, fs);
+        phx_hir_printer_dedent(p);
+        phx_hir_printer_write_indent(out, p);
+        fputc('}', out);
+    }
 }
 
 /* B2 commit-5a: escape_unicode PyObject overload (printer.cpp:189-197).
