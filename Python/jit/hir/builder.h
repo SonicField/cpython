@@ -89,7 +89,8 @@ int hir_builder_is_static_rand_and_try_emit_c(
     void *builder, void *tc, PyObject *descr, long nargs);
 
 /* W27d #1 (theologian L2544): bridge for emitCopyFreeVars C body —
- * grants access to private Register* func_ field. */
+ * returns the func() Register* (post-§4.A.5c Pilot 5: reads state_.func
+ * via the public getter; previously friend access to private func_). */
 void *hir_builder_func_register_c(void *builder);
 
 /* (D) emitLoadMethodStatic full PURE conversion bridges. Forward decls
@@ -213,8 +214,6 @@ class HIRBuilder {
   // findExceptionHandler, getSimpleExceptInfo, emitCallExceptionHandler).
   friend void ::hir_builder_emit_call_method_exception_handler_inline_c(
       void*, void*, void*, int, void*, void*);
-  // W27d #1 (theologian L2544): grants C body access to private Register* func_.
-  friend void* ::hir_builder_func_register_c(void*);
   // Tier 8 pilot Phase A (theologian 01:17:48Z + supervisor 01:18:35Z +
   // 03:44:19Z patch-apply): exception_table_ migrated to PhxExceptionTable
   // (pure-C container in PhxHirBuilderState); 3 _cpp bridges
@@ -240,13 +239,27 @@ class HIRBuilder {
   Function* current_func() const {
     return static_cast<Function*>(state_.current_func);
   }
-  explicit HIRBuilder(const Preloader& preloader)
-      : code_(preloader.code()) {
+  // §4.A.5c Pilot 5 2026-04-28: code_ + func_ migrated to state_.code +
+  // state_.func. code() reads (immutable post-ctor); func()/set_func()
+  // wrap the mutable Register* (write at builder.cpp:~1518, reads at
+  // :~1519 + bridge :~3562). Bundle commit per theologian 08:39:09Z.
+  PyCodeObject* code() const {
+    return static_cast<PyCodeObject*>(state_.code);
+  }
+  Register* func() const {
+    return static_cast<Register*>(state_.func);
+  }
+  void set_func(Register* f) {
+    state_.func = static_cast<void*>(f);
+  }
+  explicit HIRBuilder(const Preloader& preloader) {
     hir_builder_state_init(
-        &state_, static_cast<void*>(code_), static_cast<const void*>(&preloader));
+        &state_,
+        static_cast<void*>(preloader.code()),
+        static_cast<const void*>(&preloader));
   }
 
-  // Translate the bytecode for code_ into HIR, in the context of the preloaded
+  // Translate the bytecode for code() into HIR, in the context of the preloaded
   // globals and classloader lookups from preloader_.
   //
   // The resulting HIR is un-optimized, not in SSA form, and does not yet have
@@ -634,7 +647,8 @@ class HIRBuilder {
 
   void advancePastYieldInstr(TranslationContext& tc);
 
-  PyCodeObject* code_;
+  // §4.A.5c Pilot 5 2026-04-28: code_ field migrated to state_.code;
+  // 46 reads in builder.cpp converted to code() getter.
 
   // Tier 8 pilot Phase A + Phase B: ExceptionTableEntry struct +
   // std::vector<...> exception_table_ field migrated to
@@ -690,15 +704,14 @@ class HIRBuilder {
 
   TempAllocator temps_{nullptr};
 
-  // Tracks the function for compilations that require it.
-  Register* func_{nullptr};
+  // §4.A.5c Pilot 5 2026-04-28: func_ field migrated to state_.func;
+  // 1 write (~1518) + 1 read (~1519) + 1 bridge read (~3562) converted
+  // to func()/set_func().
 
   OperandStack static_method_stack_;
 
-  // Phase 3 Batch 1: Class A state mirror (code_, func_).
-  // Initialized in ctor; subsequent batches migrate mutator sites to update
-  // state_ in lockstep + remove duplicate C++ members. C-body bridges
-  // (hir_builder_state_*_c) read state via this.
+  // Phase 3 Batch 1: Class A state mirror; all Class A fields now live
+  // exclusively in state_ (no parallel C++ duplicates).
   // §4.A.5 PROBE 2026-04-27: kwnames_ migrated to state_.kwnames; bridges
   // hir_builder_get/set_kwnames read/write state_.kwnames directly.
   // §4.A.5c PROBE-1 2026-04-27: preloader_ migrated to state_.preloader;
@@ -710,6 +723,10 @@ class HIRBuilder {
   // (translate(): builder.cpp:~1636) writes state_.current_func directly.
   // 96 reads + 1 write (single-direct-write shape) — validates >15 bracket
   // for the structurally distinct shape vs PROBE-1's const-after-ctor.
+  // §4.A.5c Pilot 5 2026-04-28: code_ + func_ migrated to state_.code +
+  // state_.func. code() (46 reads, immutable post-ctor) + func()/set_func()
+  // (1w + 2r). Bundle commit per theologian 08:39:09Z; closes Class A
+  // state-mirror migration.
   PhxHirBuilderState state_{};
 };
 

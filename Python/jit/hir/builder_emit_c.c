@@ -4639,7 +4639,8 @@ void hir_builder_emit_sequence_set_c(
  *   localsplus[offset+i] = LoadTupleItem(func_closure, i)
  * Then 3.12+ emits InitFrameCellVars(func, nfreevars).
  *
- * 1 NEW bridge (hir_builder_func_register_c) — accesses private Register* func_. */
+ * 1 NEW bridge (hir_builder_func_register_c) — returns the func() Register*
+ * (post-§4.A.5c Pilot 5: state_.func via public getter). */
 extern int numFreevars(PyCodeObject *code);
 extern int numLocalsplus(PyCodeObject *code);
 extern void *hir_builder_func_register_c(void *builder);

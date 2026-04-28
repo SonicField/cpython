@@ -332,14 +332,14 @@ Register* TempAllocator::AllocateNonStack() {
 }
 
 void HIRBuilder::allocateLocalsplus(Environment* env, FrameState& state) {
-  int nlocalsplus = numLocalsplus(code_);
+  int nlocalsplus = numLocalsplus(code());
   phx_ptr_arr_clear(&state.localsplus);
   phx_ptr_arr_reserve(&state.localsplus, nlocalsplus);
   for (int i = 0; i < nlocalsplus; ++i) {
     phx_ptr_arr_push(&state.localsplus, env->AllocateRegister());
   }
 
-  state.nlocals = numLocals(code_);
+  state.nlocals = numLocals(code());
 }
 
 static inline HirType to_hir(Type t) {
@@ -1055,8 +1055,8 @@ void HIRBuilder::addLoadArgs(TranslationContext& tc, int num_args) {
 void HIRBuilder::addInitializeCells([[maybe_unused]] TranslationContext& tc) {
 #if PY_VERSION_HEX < 0x030C0000
   int nlocals = tc.frame.nlocals;
-  int ncellvars = numCellvars(code_);
-  int nfreevars = numFreevars(code_);
+  int ncellvars = numCellvars(code());
+  int nfreevars = numFreevars(code());
 
   Register* null_reg = ncellvars > 0 ? temps_.AllocateNonStack() : nullptr;
   for (int i = 0; i < ncellvars; ++i) {
@@ -1064,8 +1064,8 @@ void HIRBuilder::addInitializeCells([[maybe_unused]] TranslationContext& tc) {
     Register* dst = static_cast<Register*>(tc.frame.localsplus.data[i + nlocals]);
     JIT_CHECK(dst != nullptr, "No register for cell {}", i);
     Register* cell_contents = null_reg;
-    if (code_->co_cell2arg != nullptr &&
-        (arg = code_->co_cell2arg[i]) != CO_CELL_NOT_AN_ARG) {
+    if (code()->co_cell2arg != nullptr &&
+        (arg = code()->co_cell2arg[i]) != CO_CELL_NOT_AN_ARG) {
       // cell is for argument local number `arg`
       JIT_CHECK(
           static_cast<unsigned>(arg) < tc.frame.nlocals,
@@ -1083,7 +1083,7 @@ void HIRBuilder::addInitializeCells([[maybe_unused]] TranslationContext& tc) {
   }
 
   if (nfreevars != 0) {
-    hir_builder_emit_copy_free_vars_c(&tc, current_func(), this, code_, nfreevars);
+    hir_builder_emit_copy_free_vars_c(&tc, current_func(), this, code(), nfreevars);
   }
 #endif
 }
@@ -1284,7 +1284,7 @@ bool HIRBuilder::getSimpleExceptInfo(
   //   POP_JUMP_IF_FALSE, POP_TOP
   // Tier 8 pilot Phase A: handler.target is now plain int (C struct);
   // wrap in BCOffset for the C++ BytecodeInstruction ctor.
-  BytecodeInstruction bc{code_, BCOffset{handler.target}};
+  BytecodeInstruction bc{code(), BCOffset{handler.target}};
 
   if (bc.opcode() != PUSH_EXC_INFO) {
     return false;
@@ -1475,7 +1475,7 @@ BasicBlock* HIRBuilder::buildHIRImpl(
     FrameState* frame_state) {
   temps_ = TempAllocator(&irfunc->env);
 
-  BytecodeInstructionBlock bc_instrs{code_};
+  BytecodeInstructionBlock bc_instrs{code()};
   createBlocks(*irfunc, bc_instrs);
   if (frame_state != nullptr) {
     // Suppress exception table for inlined callees to prevent B2
@@ -1503,7 +1503,7 @@ BasicBlock* HIRBuilder::buildHIRImpl(
   TranslationContext entry_tc{
       entry_block,
       FrameState{
-          code_,
+          code(),
           preloader().globals(),
           preloader().builtins(),
           /*parent=*/frame_state}};
@@ -1515,8 +1515,8 @@ BasicBlock* HIRBuilder::buildHIRImpl(
   // drop the frame_state == nullptr check.  Inlined functions should load a
   // const instead of using LoadCurrentFunc.
   if (frame_state == nullptr && irfunc->uses_runtime_func) {
-    func_ = temps_.AllocateNonStack();
-    entry_tc.emitLoadCurrentFunc(func_);
+    set_func(temps_.AllocateNonStack());
+    entry_tc.emitLoadCurrentFunc(func());
   }
 
 #if PY_VERSION_HEX >= 0x030C0000
@@ -1531,7 +1531,7 @@ BasicBlock* HIRBuilder::buildHIRImpl(
 
   // In 3.12+ "Initial Yield" has an explicit bytecode instruction in
   // "RETURN_GENERATOR" and so is emitted at the appropriate time.
-  if (PY_VERSION_HEX < 0x030C0000 && code_->co_flags & kCoFlagsAnyGenerator) {
+  if (PY_VERSION_HEX < 0x030C0000 && code()->co_flags & kCoFlagsAnyGenerator) {
     // InitialYield must be after args are loaded so they can be spilled to
     // the suspendable state. It must also come before anything which can
     // deopt as generator deopt assumes we're running from state stored
@@ -1622,10 +1622,10 @@ void HIRBuilder::advancePastYieldInstr(TranslationContext& tc) {
   // bytecode pointer to the following instruction which is where the
   // interpreter should pick-up execution.
   BCOffset next_bc_offs{
-      BytecodeInstruction{code_, tc.frame.cur_instr_offs}.nextInstrOffset()};
+      BytecodeInstruction{code(), tc.frame.cur_instr_offs}.nextInstrOffset()};
   tc.frame.cur_instr_offs = next_bc_offs;
   JIT_DCHECK(
-      next_bc_offs.asIndex().value() < countIndices(code_),
+      next_bc_offs.asIndex().value() < countIndices(code()),
       "Yield should not be end of instruction stream");
 }
 
@@ -1659,7 +1659,7 @@ void HIRBuilder::translate(
     PhxBcBlockEntry _bc_e =
         phx_bc_block_array_at(&state_.bc_block_array_phx, tc.block->id);
     BytecodeInstructionBlock bc_block{
-        code_, BCIndex{_bc_e.start}, BCIndex{_bc_e.end}};
+        code(), BCIndex{_bc_e.start}, BCIndex{_bc_e.end}};
 
     // Safety: skip unreachable END_FOR blocks. With _PyOpcode_Deopt in
     // opcode(), getJumpTarget() correctly skips past END_FOR after
@@ -1682,7 +1682,7 @@ void HIRBuilder::translate(
       return block_top.isAsyncForHeaderBlock(bc_instrs);
     };
 
-    BytecodeInstruction prev_bc_instr{code_, BCOffset{-2}};
+    BytecodeInstruction prev_bc_instr{code(), BCOffset{-2}};
     for (auto bc_it = bc_block.begin(); bc_it != bc_block.end(); ++bc_it) {
       BytecodeInstruction bc_instr = *bc_it;
 
@@ -1826,7 +1826,7 @@ void HIRBuilder::translate(
           break;
         }
         case COPY_FREE_VARS: {
-          hir_builder_emit_copy_free_vars_c(&tc, current_func(), this, code_, bc_instr.oparg());
+          hir_builder_emit_copy_free_vars_c(&tc, current_func(), this, code(), bc_instr.oparg());
           break;
         }
         case SWAP: {
@@ -1945,7 +1945,7 @@ void HIRBuilder::translate(
           break;
         }
         case PRIMITIVE_LOAD_CONST: {
-          hir_builder_emit_primitive_load_const_c(&tc, current_func(), this, code_, bc_instr.oparg());
+          hir_builder_emit_primitive_load_const_c(&tc, current_func(), this, code(), bc_instr.oparg());
           break;
         }
         case PRIMITIVE_BOX: {
@@ -2053,10 +2053,10 @@ void HIRBuilder::translate(
         case RETURN_CONST: {
           Register* reg = temps_.AllocateStack();
           JIT_CHECK(
-              bc_instr.oparg() < PyTuple_Size(code_->co_consts),
+              bc_instr.oparg() < PyTuple_Size(code()->co_consts),
               "RETURN_CONST index out of bounds");
           Type type = Type::fromObject(
-              PyTuple_GET_ITEM(code_->co_consts, bc_instr.oparg()));
+              PyTuple_GET_ITEM(code()->co_consts, bc_instr.oparg()));
           tc.emitLoadConst(reg, type);
           if (jit_get_config()->refine_static_python && type < TObject) {
             tc.emitRefineType(reg, type, reg);
@@ -2168,7 +2168,7 @@ void HIRBuilder::translate(
         }
         case GET_YIELD_FROM_ITER: {
           hir_builder_emit_get_yield_from_iter_c(&tc, current_func(), this,
-              static_cast<int>(code_->co_flags),
+              static_cast<int>(code()->co_flags),
               static_cast<void*>(&PyCoro_Type));
           break;
         }
@@ -2820,7 +2820,7 @@ extern "C" void hir_builder_emit_call_method_exception_handler_inline_c(
     return;
   }
   // Reconstruct BytecodeInstruction from base_offset for the C++ method.
-  BytecodeInstruction bc_instr{self->code_, cur_off};
+  BytecodeInstruction bc_instr{self->code(), cur_off};
   self->emitCallExceptionHandler(
       *static_cast<CFG*>(cfg),
       *static_cast<HIRBuilder::TranslationContext*>(tc),
@@ -2872,7 +2872,7 @@ void HIRBuilder::emitAnyCall(
       &bc_it,
       bc_instr.opcode(), bc_instr.oparg(),
       bc_byte_offset_from_int(bc_instr.baseOffset().value()),
-      code_, static_cast<int>(code_->co_flags));
+      code(), static_cast<int>(code()->co_flags));
 }
 
 extern "C" void hir_builder_emit_call_intrinsic_c(void *tc, void *func, int opcode, int oparg);
@@ -2921,7 +2921,7 @@ void HIRBuilder::emitKwNames(
       static_cast<void*>(&tc),
       static_cast<void*>(current_func()),
       static_cast<void*>(this),
-      code_,
+      code(),
       bc_instr.oparg());
 }
 
@@ -3306,7 +3306,7 @@ void HIRBuilder::emitLoadMethodStatic(
       static_cast<void*>(current_func()),
       static_cast<void*>(this),
       bc_instr.oparg(),
-      static_cast<void*>(code_));
+      static_cast<void*>(code()));
 }
 
 // (D) Bridges for C body of emitLoadMethodStatic.
@@ -3512,7 +3512,7 @@ void HIRBuilder::emitLoadAttr(
     const jit::BytecodeInstruction& bc_instr) {
   hir_builder_emit_load_attr_c(
       static_cast<void*>(&tc), static_cast<void*>(current_func()),
-      static_cast<void*>(this), code_,
+      static_cast<void*>(this), code(),
       bc_instr.oparg(), bc_instr.specializedOpcode(),
       bc_instr.opcodeIndex().value());
 }
@@ -3559,7 +3559,7 @@ void HIRBuilder::emitCopy(TranslationContext& tc, int item_idx) {
 
 extern "C" void *hir_builder_func_register_c(void *builder) {
   auto *self = static_cast<HIRBuilder*>(builder);
-  return self->func_;
+  return self->func();
 }
 
 extern "C" void hir_builder_emit_swap_c(void *tc, int item_idx);
@@ -3580,7 +3580,7 @@ void HIRBuilder::emitLoadDeref(
     idx += tc.frame.nlocals;
   }
   hir_builder_emit_load_deref_c(
-      static_cast<void*>(&tc), static_cast<void*>(current_func()), code_, idx);
+      static_cast<void*>(&tc), static_cast<void*>(current_func()), code(), idx);
 }
 
 extern "C" void hir_builder_emit_store_deref_c(void *tc, void *func, int oparg);
@@ -3607,7 +3607,7 @@ void HIRBuilder::emitLoadClass(
     const jit::BytecodeInstruction& bc_instr) {
   hir_builder_emit_load_class_c(
       static_cast<void*>(&tc), static_cast<void*>(current_func()),
-      static_cast<void*>(this), code_, bc_instr.oparg());
+      static_cast<void*>(this), code(), bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_load_const_c(void *tc_ptr, void *func, PyCodeObject *code, int oparg);
@@ -3615,7 +3615,7 @@ extern "C" void hir_builder_emit_load_const_c(void *tc_ptr, void *func, PyCodeOb
 void HIRBuilder::emitLoadConst(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  hir_builder_emit_load_const_c(static_cast<void*>(&tc), static_cast<void*>(current_func()), code_, bc_instr.oparg());
+  hir_builder_emit_load_const_c(static_cast<void*>(&tc), static_cast<void*>(current_func()), code(), bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_load_fast_c(void *tc, void *func, PyCodeObject *code, int opcode, int oparg);
@@ -3625,7 +3625,7 @@ void HIRBuilder::emitLoadFast(
     const jit::BytecodeInstruction& bc_instr) {
   hir_builder_emit_load_fast_c(
       static_cast<void*>(&tc), static_cast<void*>(current_func()),
-      code_, bc_instr.opcode(), bc_instr.oparg());
+      code(), bc_instr.opcode(), bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_load_fast_load_fast_c(void *tc, int oparg);
@@ -3643,7 +3643,7 @@ void HIRBuilder::emitLoadLocal(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   hir_builder_emit_load_local_c(
-      static_cast<void*>(&tc), code_, bc_instr.oparg());
+      static_cast<void*>(&tc), code(), bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_load_small_int_c(void *tc, void *func, int oparg);
@@ -3660,7 +3660,7 @@ extern "C" void hir_builder_emit_store_local_c(void *tc, void *func, PyCodeObjec
 void HIRBuilder::emitStoreLocal(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
-  hir_builder_emit_store_local_c(static_cast<void*>(&tc), static_cast<void*>(current_func()), code_, bc_instr.oparg());
+  hir_builder_emit_store_local_c(static_cast<void*>(&tc), static_cast<void*>(current_func()), code(), bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_load_type_c(void *tc, void *func);
@@ -3830,7 +3830,7 @@ void HIRBuilder::emitRefineType(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   hir_builder_emit_refine_type_c(
-      static_cast<void*>(&tc), static_cast<void*>(this), code_, bc_instr.oparg());
+      static_cast<void*>(&tc), static_cast<void*>(this), code(), bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_load_global_c(void *tc, void *func, void *builder, PyCodeObject *code, int opcode, int oparg);
@@ -3840,7 +3840,7 @@ void HIRBuilder::emitLoadGlobal(
     const jit::BytecodeInstruction& bc_instr) {
   hir_builder_emit_load_global_c(
       static_cast<void*>(&tc), static_cast<void*>(current_func()),
-      static_cast<void*>(this), code_,
+      static_cast<void*>(this), code(),
       bc_instr.opcode(), bc_instr.oparg());
 }
 
@@ -4072,7 +4072,7 @@ void HIRBuilder::emitAsyncForHeaderYieldFrom(
     const jit::BytecodeInstruction& bc_instr) {
   hir_builder_emit_async_for_header_yield_from_c(
       static_cast<void*>(&tc), static_cast<void*>(current_func()),
-      static_cast<void*>(this), code_,
+      static_cast<void*>(this), code(),
       bc_instr.nextInstrOffset().value());
 }
 
@@ -4114,7 +4114,7 @@ void HIRBuilder::emitLoadField(
     const jit::BytecodeInstruction& bc_instr) {
   hir_builder_emit_load_field_c(
       static_cast<void*>(&tc), static_cast<void*>(current_func()),
-      static_cast<void*>(this), code_, bc_instr.oparg());
+      static_cast<void*>(this), code(), bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_store_field_c(void *tc, void *func, void *builder, PyCodeObject *code, int oparg);
@@ -4124,7 +4124,7 @@ void HIRBuilder::emitStoreField(
     const jit::BytecodeInstruction& bc_instr) {
   hir_builder_emit_store_field_c(
       static_cast<void*>(&tc), static_cast<void*>(current_func()),
-      static_cast<void*>(this), code_, bc_instr.oparg());
+      static_cast<void*>(this), code(), bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_cast_c(void *tc, void *func, void *builder, PyCodeObject *code, int oparg);
@@ -4134,7 +4134,7 @@ void HIRBuilder::emitCast(
     const jit::BytecodeInstruction& bc_instr) {
   hir_builder_emit_cast_c(
       static_cast<void*>(&tc), static_cast<void*>(current_func()),
-      static_cast<void*>(this), code_, bc_instr.oparg());
+      static_cast<void*>(this), code(), bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_tp_alloc_c(void *tc, void *func, void *builder, PyCodeObject *code, int oparg);
@@ -4144,7 +4144,7 @@ void HIRBuilder::emitTpAlloc(
     const jit::BytecodeInstruction& bc_instr) {
   hir_builder_emit_tp_alloc_c(
       static_cast<void*>(&tc), static_cast<void*>(current_func()),
-      static_cast<void*>(this), code_, bc_instr.oparg());
+      static_cast<void*>(this), code(), bc_instr.oparg());
 }
 
 extern "C" void hir_builder_emit_import_from_c(void *tc, void *func, int oparg);
@@ -4188,7 +4188,7 @@ void HIRBuilder::emitYieldFrom(TranslationContext& tc, Register* out) {
   hir_builder_emit_yield_from_method_c(
       static_cast<void*>(&tc),
       static_cast<void*>(out),
-      code_->co_flags);
+      code()->co_flags);
 }
 
 extern "C" void hir_builder_emit_yield_value_c(
@@ -4199,11 +4199,11 @@ void HIRBuilder::emitYieldValue(
     TranslationContext& tc,
     const jit::BytecodeInstruction& bc_instr) {
   auto next_bc =
-      BytecodeInstruction{code_, tc.frame.cur_instr_offs}.nextInstr();
+      BytecodeInstruction{code(), tc.frame.cur_instr_offs}.nextInstr();
   hir_builder_emit_yield_value_c(
       static_cast<void*>(&tc),
       static_cast<void*>(this),
-      code_->co_flags,
+      code()->co_flags,
       next_bc.opcode(),
       next_bc.oparg());
 }
@@ -4334,7 +4334,7 @@ void HIRBuilder::emitDispatchEagerCoroResult(
       static_cast<void*>(out),
       static_cast<void*>(await_block),
       static_cast<void*>(post_await_block),
-      code_->co_flags);
+      code()->co_flags);
 }
 
 extern "C" void hir_builder_emit_match_keys_c(void *tc, void *func);
@@ -4422,7 +4422,7 @@ void HIRBuilder::emitStoreGlobal(
     const BytecodeInstruction& bc_instr) {
   hir_builder_emit_store_global_c(
       static_cast<void*>(&tc), static_cast<void*>(current_func()),
-      code_, bc_instr.oparg());
+      code(), bc_instr.oparg());
 }
 
 void HIRBuilder::insertRunPeriodicActivites(
@@ -4477,11 +4477,11 @@ ExecutionBlock HIRBuilder::popBlock(CFG& cfg, TranslationContext& tc) {
 }
 
 PyObject* HIRBuilder::constArg(const BytecodeInstruction& bc_instr) {
-  return PyTuple_GET_ITEM(code_->co_consts, bc_instr.oparg());
+  return PyTuple_GET_ITEM(code()->co_consts, bc_instr.oparg());
 }
 
 void HIRBuilder::checkTranslate() {
-  PyObject* names = code_->co_names;
+  PyObject* names = code()->co_names;
   std::unordered_set<Py_ssize_t> banned_name_ids;
   auto name_at = [&](Py_ssize_t i) {
     return std::string_view(PyUnicode_AsUTF8(PyTuple_GET_ITEM(names, i)));
@@ -4491,7 +4491,7 @@ void HIRBuilder::checkTranslate() {
       banned_name_ids.insert(i);
     }
   }
-  for (auto& bci : BytecodeInstructionBlock{code_}) {
+  for (auto& bci : BytecodeInstructionBlock{code()}) {
     auto opcode = bci.opcode();
     int oparg = bci.oparg();
     if (!isSupportedOpcode(opcode)) {
