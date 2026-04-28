@@ -149,10 +149,51 @@ pre-`33bbbe6c36` cluster — fix-relevant info comes from characterizing the
 slow code-shape, not identifying which extraction-era infrastructure commit
 introduced it.
 
-W-PHASE2-CODEGEN-SLOW opened (supervisor 08:13:49Z). Step 0 falsifier
-landed (testkeeper 08:36:18Z) — slow codegen confirmed pre-existing in
-extraction-era cluster. Step 1+ profiling work in flight per theologian
-08:34:37Z spec.
+## W-PHASE2-CODEGEN-SLOW investigation outcome
+
+Opened supervisor 08:13:49Z. Step 0 falsifier landed (testkeeper 08:36:18Z)
+— slow codegen confirmed in `force_compile` path at `e557787b1f`.
+
+Steps 1+3 (HIR/LIR analysis) reached HIR ceiling without identifying a
+slow-shape. Step 2 (perf record on production gen_simple inner loop)
+became the dispositive disambiguator (theologian 09:29:10Z disposition):
+
+**Fix-class CONFIRMED: GENERATOR RUNTIME (not codegen).**
+
+Perf evidence top symbols:
+- `cinderx::getModuleState` 5.11%
+- `jit_gen_data_footer_ptr` 2.83%
+- `jit::jitgen_am_send` 11.25%
+- `JITRT_InvokeIterNext` 4.91%
+- (`_PyEval` 25% is `bench_gen_simple` running in interpreter — intrinsic to
+  workload per Step 0b per-CodeObject counter analysis: 8 outer calls <
+  threshold 1000)
+- (`Py_INCREF` 2.39% — refcount-on-cached-int hypothesis SCRATCHED)
+
+**SCRATCHED candidates:**
+- Candidate 1 (Generic InvokeIterNext): testkeeper 09:21:21Z confirmed
+  `CallStatic` direct to `range_iter_next`
+- Candidate 2 (Excess refcount on yielded int): generalist 09:25:33Z audit
+  of `refcount_pass_c.c:738-756` confirmed Incref-before-YieldValue is
+  refcount-correctness-required (frame_state semantics); Phoenix
+  `LIRGenerator::MakeIncref` already has immortal fast-path
+- Candidate 4 (Range-loop fusion): not a regression vs vanilla
+- Candidate 5 (Redundant Snapshot): not surfaced in HIR audit
+
+**Live remaining candidates → 4-phase fix sequence (theologian 09:29:10Z):**
+1. Phase 1: `cinderx::getModuleState` cache (5.11% → ~3-5pp ratio gain)
+2. Phase 2: `jit_gen_data_footer_ptr` cache (2.83% → ~1-2pp)
+3. Phase 3: `jitgen_am_send` audit + hot-path inline (11.25% → ~5-8pp)
+4. Phase 4: `JITRT_InvokeIterNext` specialization (4.91% → ~2-4pp)
+
+Total expected if all four land: ~10-20pp ratio improvement. Hits PASS
+criterion (≥20pp) only if upper-bound estimates hold; lower bound ~10pp
+would be PARTIAL pass.
+
+**Force-compile-path InPlaceOp fix (testkeeper 08:44Z structural finding):**
+PERMANENTLY DEFERRED — production auto-compile correctly emits
+`LongInPlaceOp` per testkeeper 09:20:36Z; force_compile-path InPlaceOp
+specialization gap is a side-finding, not a production-path defect.
 
 ## Artifacts
 
