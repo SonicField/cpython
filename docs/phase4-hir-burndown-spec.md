@@ -135,6 +135,19 @@ land):
   bodies
 - `printer.cpp` 957 LOC — text serializer; pure-formatting, no
   HirBuilder dep
+  **(B2 BUNDLE SUBSTANTIVE COMPLETION 2026-04-28 a9fa3a1ff7:
+  ~357 LOC of helpers / top-level Print(Function/CFG/BasicBlock) /
+  format_name family / Print(Instr) / Print(FrameState) /
+  print_reg_states ported across 5 commits 32ff37c68e..a9fa3a1ff7.
+  printer.cpp 957L → ~600L. Residual ~600L = format_immediates
+  body (185 instruction-specific case-branches × ~600-900 single-
+  use accessors); deferred under W-PRINTER-IMMEDIATES-PORT
+  workstream per theologian 11:23:20Z option A — port-vs-bridge
+  distinction at structural-vs-instruction-specific surface. Closure
+  triggers per supervisor 12:31:19Z + theologian 11:30:15Z: ZERO
+  C++ directive enforcement deadline OR another C-side consumer
+  needs format_immediates output OR scoping audit reveals <100
+  actual accessors needed.)**
 - `hir_instr_c_verify.cpp` 377 LOC — verifier; thin friend-struct
   pattern (per `feedback_verifier_pattern.md`)
 - `builtin_load_method_elimination.cpp` 184 LOC — pass; no class state
@@ -285,6 +298,51 @@ the proposed migration mode.
 kwnames_ probe outcome. The pattern applies ONLY to ≤5-site
 single-setter fields. Pilot 5 in §4.C MUST classify per this bracket
 × shape BEFORE authoring any migration commit.
+
+#### 4.A.5b — EMPIRICAL CORRECTION (2026-04-28)
+
+The Pilot 5 audit (generalist 2026-04-27 14:36:09Z + supervisor
+14:36:42Z + librarian 14:39:24Z) measured the actual remaining
+Class A field landscape post-§4.A.5 kwnames_ probe and refuted the
+bracket × shape predictions above:
+
+| Predicted bracket × shape | Predicted candidates | Actual count |
+|---|---|---|
+| 6-15 sites × single-setter | ≥1 per probe-1 spec | 0 (EMPTY) |
+| 6-15 sites × multi-direct-assignment | ≥1 per probe-2 spec | 0 (EMPTY) |
+| ≤5 sites × single-direct | kwnames_ class | 1 (`func_`) |
+| >15 sites × single-setter | preloader_/code_/current_func_ | 3 (preloader_ 26, code_ 46, current_func_ 96) |
+| >15 sites × multi-direct-assignment | per probe-3 spec | 0 (EMPTY) |
+
+What this means:
+- §4.A.5c probe gates 1, 2, and 3 are inapplicable as written —
+  there are no candidate fields in the 6-15 brackets nor any
+  multi-direct-assignment shape.
+- The "multi-commit per-batch + per-batch ABBA + per-batch ARM64
+  STRICT" prediction for >15 sites overstated risk for the actual
+  shape. All three measured >15-site fields are single-setter
+  (const-after-ctor for preloader_/code_; single-direct-write at one
+  site for current_func_/func_), and single-commit migration was
+  empirically safe for each:
+  - PROBE-1 preloader_ (>15 single-setter, 26 reads, const-after-ctor):
+    single commit, ABBA + ARM64 PASS.
+  - PROBE-2 current_func_ (>15 single-setter, 96 reads, single-write):
+    single commit, ABBA + ARM64 PASS.
+  - Pilot 5 cluster (78e2c0c730 2026-04-28): code_ (46 reads) +
+    func_ (1w + 2r) bundled in one commit, +18 LOC net, ABBA + ARM64
+    PASS.
+
+Total Pilot 5 cost (PROBE-1 + PROBE-2 + cluster): 3 commits, ~1
+session aggregate. Original §4.A.5c estimate was "3-9 prep + 13-19
+cluster commits" = 16-28 commits. **Actual ~5x lower** than the upper
+bound and ~3x lower than the lower bound.
+
+Spec amendment carried by: theologian 09:08:01Z root-cause class
+audit recommendation + supervisor 12:31:19Z WS4 spec-refresh
+authorization. The §4.A.5b shape × bracket framework remains useful
+as a discipline for FUTURE fields with as-yet-unmeasured shapes; for
+HirBuilder Class A specifically, the residual risk it predicted did
+not materialize.
 
 ### 4.A.5c — Bracket-validation probe gate (NEW per pythia #190 2026-04-27)
 
@@ -576,6 +634,22 @@ Expected: zero hits for `hir::buildHIR`, ≥1 hit for `phx_hir_build`
 the rewire lands. Do NOT evaluate the pass criteria below until
 prerequisite passes — the §6 #5 "builder.cpp ≤ 200 LOC" criterion is
 unreachable while the C++ shell is still consumed.
+
+**Prerequisite owner / scope / date (per supervisor 12:31:19Z WS4
+spec-refresh authorization):**
+- Owner: Phase 4.D dispatch-loop author (default), OR Phase 4.E
+  first-commit if 4.D doesn't touch compiler.cpp.
+- Scope: 1-line edit at compiler.cpp:236 from
+  `hir::buildHIR(preloader)` to `phx_hir_build(state)`. May require
+  small changes to `phx_hir_build` signature (state struct vs
+  Preloader&) depending on Phase 4.D dispatch-loop port outcome.
+- Date: pre-Phase-4-E close-gate evaluation. NOT before Phase 4.A-C
+  land (Phase 4.A's BLME + remaining low-state files + Phase 4.C's
+  Pilot 3/4/5 completion are independent prerequisites).
+- Estimated effort: ≤1 session — the rewire itself is mechanical;
+  bulk of the session may go to verifying the C entry's signature
+  correctness against compiler.cpp's call-site context (Preloader&
+  vs PhxHirBuilderState* shape, error propagation, etc.).
 **Pass criteria — net-LOC IS the metric here:**
 - Net LOC delta strongly negative: ≥10,000 LOC C++ removed (algorithm
   + shell + bridge dissolution) − C added (cumulative across 4.A-D).
