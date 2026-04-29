@@ -88,6 +88,28 @@ static inline const char *hir_c_get_inplace_op_name(int op) {
 int hir_c_parse_primitive_unary_op_name(const char *name, size_t len);
 int hir_c_parse_inplace_op_name(const char *name, size_t len);
 
+/* ---- FunctionAttr + InlineFailureType lookups (Batch 37) ----
+ * Pure direct-index lookups (no parse pair). Same extern-const +
+ * static-inline accessor pattern. */
+
+extern const char *const kFunctionFieldNames_c[];
+extern const size_t kNumFunctionAttrs_c;
+extern const char *const kInlineFailureMsgs_c[];
+extern const char *const kInlineFailureNames_c[];
+extern const size_t kNumInlineFailureTypes_c;
+
+static inline const char *hir_c_get_function_field_name(int attr) {
+    return kFunctionFieldNames_c[attr];
+}
+
+static inline const char *hir_c_get_inline_failure_message(int type) {
+    return kInlineFailureMsgs_c[type];
+}
+
+static inline const char *hir_c_get_inline_failure_name(int type) {
+    return kInlineFailureNames_c[type];
+}
+
 /* Convenience accessors */
 static inline int hir_instr_info_is_deopt_base(int opcode) {
     return hir_instr_get_info(opcode)->is_deopt_base;

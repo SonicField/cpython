@@ -722,18 +722,8 @@ InPlaceOpKind ParseInPlaceOpName(std::string_view name) {
       hir_c_parse_inplace_op_name(name.data(), name.size()));
 }
 
-// NB: This needs to be in the order that the values appear in the FunctionAttr
-// enum
-static const char* gFunctionFields[] = {
-    "func_closure",
-    "func_annotations",
-    "func_kwdefaults",
-    "func_defaults",
-    "func_annotate",
-};
-
 const char* functionFieldName(FunctionAttr field) {
-  return gFunctionFields[static_cast<int>(field)];
+  return hir_c_get_function_field_name(static_cast<int>(field));
 }
 
 TypedArgument::TypedArgument(
@@ -842,24 +832,12 @@ bool usesRuntimeFunc([[maybe_unused]] PyCodeObject* code) {
 #endif
 }
 
-const char* const kFailureTypeMsgs[] = {
-#define FAILURE_TYPE_MSG(failure, msg) msg,
-    FOREACH_FAILURE_TYPE(FAILURE_TYPE_MSG)
-#undef NAME_FAILURE_TYPE
-};
-
-const char* const kFailureTypeNames[] = {
-#define NAME_TYPE(failure, msg) #failure,
-    FOREACH_FAILURE_TYPE(NAME_TYPE)
-#undef NAME_TYPE
-};
-
 const char* getInlineFailureMessage(InlineFailureType failure_type) {
-  return kFailureTypeMsgs[static_cast<size_t>(failure_type)];
+  return hir_c_get_inline_failure_message(static_cast<int>(failure_type));
 }
 
 const char* getInlineFailureName(InlineFailureType failure_type) {
-  return kFailureTypeNames[static_cast<size_t>(failure_type)];
+  return hir_c_get_inline_failure_name(static_cast<int>(failure_type));
 }
 
 std::ostream& operator<<(std::ostream& os, OperandType op) {

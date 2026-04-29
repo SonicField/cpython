@@ -2152,6 +2152,43 @@ static void verify_phase4a_batch36_bb_insert_substantive() {
     hir_c_test_chain_destroy(&bb);
 }
 
+/* Phase 4.A Batch 37 V5 falsifier for FunctionAttr + InlineFailureType
+ * lookups. Table-size runtime pin + smoke-check non-empty name on
+ * every enum index. No parse pair to round-trip. */
+static void verify_phase4a_batch37_function_inline_lookups() {
+    /* Function field table: fixed 5 entries (kClosure..kAnnotate). */
+    assert(kNumFunctionAttrs_c == 5 &&
+           "Phase 4.A Batch 37: FunctionAttr table size = 5");
+    for (int i = 0; i < (int)kNumFunctionAttrs_c; i++) {
+        const char *name = hir_c_get_function_field_name(i);
+        assert(name != NULL && name[0] != '\0' &&
+               "Phase 4.A Batch 37: functionFieldName entry non-empty");
+    }
+    /* Stable canonical entries: index 0 is "func_closure", index 4 is
+     * "func_annotate" (anchors the order against unintended reordering). */
+    assert(strcmp(hir_c_get_function_field_name(0), "func_closure") == 0 &&
+           "Phase 4.A Batch 37: functionFieldName[0] = func_closure");
+    assert(strcmp(hir_c_get_function_field_name(4), "func_annotate") == 0 &&
+           "Phase 4.A Batch 37: functionFieldName[4] = func_annotate");
+
+    /* Inline failure table: 16 entries per FOREACH_FAILURE_TYPE. */
+    assert(kNumInlineFailureTypes_c == 16 &&
+           "Phase 4.A Batch 37: InlineFailureType table size = 16");
+    for (int i = 0; i < (int)kNumInlineFailureTypes_c; i++) {
+        const char *msg = hir_c_get_inline_failure_message(i);
+        const char *name = hir_c_get_inline_failure_name(i);
+        assert(msg != NULL && msg[0] != '\0' &&
+               "Phase 4.A Batch 37: failure msg non-empty");
+        assert(name != NULL && name[0] != '\0' &&
+               "Phase 4.A Batch 37: failure name non-empty");
+    }
+    /* Anchors: index 0 = HasDefaults / "it has defaults". */
+    assert(strcmp(hir_c_get_inline_failure_name(0), "HasDefaults") == 0 &&
+           "Phase 4.A Batch 37: failure name[0] = HasDefaults");
+    assert(strcmp(hir_c_get_inline_failure_message(0), "it has defaults") == 0 &&
+           "Phase 4.A Batch 37: failure msg[0] = 'it has defaults'");
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -2185,4 +2222,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch34_primitive_unary_inplace_ops();
     verify_phase4a_batch35_env_get_register();
     verify_phase4a_batch36_bb_insert_substantive();
+    verify_phase4a_batch37_function_inline_lookups();
 }

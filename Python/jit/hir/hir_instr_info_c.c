@@ -387,3 +387,56 @@ int hir_c_parse_inplace_op_name(const char *name, size_t len) {
     }
     JIT_ABORT_C("Invalid InPlaceOpKind name (length %zu)", len);
 }
+
+/* ==== FunctionAttr + InlineFailureType lookup tables (Batch 37) ====
+ * Mirrors hir.h:829 enum FunctionAttr + hir.h:3759 FOREACH_FAILURE_TYPE.
+ * Order MUST match the enum values declared there. */
+
+const char *const kFunctionFieldNames_c[] = {
+    "func_closure",      /* kClosure */
+    "func_annotations",  /* kAnnotations */
+    "func_kwdefaults",   /* kKwDefaults */
+    "func_defaults",     /* kDefaults */
+    "func_annotate",     /* kAnnotate */
+};
+const size_t kNumFunctionAttrs_c =
+    sizeof(kFunctionFieldNames_c) / sizeof(kFunctionFieldNames_c[0]);
+
+const char *const kInlineFailureMsgs_c[] = {
+    "it has defaults",
+    "it has kwdefaults",
+    "it has keyword-only args",
+    "it has varargs",
+    "it has varkwargs",
+    "it is called with mismatched arguments",
+    "it is a generator",
+    "it has cellvars",
+    "it has freevars",
+    "it needs runtime access to its PyFunctionObject",
+    "the function is not preloaded",
+    "it is a vectorcalled static function with pimitive args",
+    "globals is not a dict",
+    "builtins is not a dict",
+    "has an eager import name instruction",
+    "it has exception handlers (try/except)",
+};
+const char *const kInlineFailureNames_c[] = {
+    "HasDefaults",
+    "HasKwdefaults",
+    "HasKwOnlyArgs",
+    "HasVarargs",
+    "HasVarkwargs",
+    "CalledWithMismatchedArgs",
+    "IsGenerator",
+    "HasCellvars",
+    "HasFreevars",
+    "NeedsRuntimeAccess",
+    "NeedsPreload",
+    "IsVectorCallWithPrimitives",
+    "GlobalsNotDict",
+    "BuiltinsNotDict",
+    "HasEagerImportName",
+    "HasExceptionHandlers",
+};
+const size_t kNumInlineFailureTypes_c =
+    sizeof(kInlineFailureMsgs_c) / sizeof(kInlineFailureMsgs_c[0]);
