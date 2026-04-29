@@ -800,6 +800,27 @@ static void verify_phase4a_batch15_edge_in_edges() {
     phx_edge_arr_destroy(&to_bb.in_edges_);
 }
 
+/* Phase 4.A Batch 16 V3+behavioral falsifier: verifies the pure-C
+ * Instr allocator produces the same memory layout as the original C++
+ * Instr::allocate. Allocates an instr with fixed=32 + n=3 operands;
+ * checks the num_operands prefix byte sits at instr - sizeof(size_t),
+ * checks base() returns the calloc origin (instr - 3*sizeof(void*) -
+ * sizeof(size_t)), then frees clean. */
+static_assert(sizeof(void *) == 8,
+    "Phase 4.A Batch 16 assumes 8-byte pointer-size for layout math");
+
+static void verify_phase4a_batch16_allocator() {
+    void *p = hir_c_instr_allocate(32, 3);
+    assert(p != NULL && "Phase 4.A Batch 16: allocate returns non-NULL");
+    assert(*((size_t *)p - 1) == 3 &&
+           "Phase 4.A Batch 16: num_operands prefix == 3");
+    void *base = hir_c_instr_base(p);
+    void *expected_base = (char *)p - 3 * sizeof(void *) - sizeof(size_t);
+    assert(base == expected_base &&
+           "Phase 4.A Batch 16: base() == p - n*ptrsz - sizeof(size_t)");
+    hir_c_instr_free(p);  /* must not crash */
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -811,4 +832,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch12_uses_replace();
     verify_phase4a_batch13_sort_live_regs();
     verify_phase4a_batch15_edge_in_edges();
+    verify_phase4a_batch16_allocator();
 }

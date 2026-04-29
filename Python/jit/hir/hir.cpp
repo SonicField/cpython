@@ -210,13 +210,7 @@ void Edge::set_to(BasicBlock* new_to) {
 }
 
 void* Instr::allocate(std::size_t fixed_size, std::size_t num_operands) {
-  auto variable_size = num_operands * kPointerSize;
-  char* ptr = static_cast<char*>(
-      calloc(variable_size + fixed_size + sizeof(std::size_t), 1));
-  ptr += variable_size;
-  *reinterpret_cast<size_t*>(ptr) = num_operands;
-  ptr += sizeof(std::size_t);
-  return ptr;
+  return hir_c_instr_allocate(fixed_size, num_operands);
 }
 
 void* Instr::operator new(std::size_t count, void* ptr) {
@@ -224,8 +218,7 @@ void* Instr::operator new(std::size_t count, void* ptr) {
 }
 
 void Instr::operator delete(void* ptr) {
-  auto instr = static_cast<Instr*>(ptr);
-  free(instr->base());
+  hir_c_instr_free(ptr);
 }
 
 void Instr::Destroy(Instr* instr) {
@@ -519,8 +512,7 @@ const DeoptBase* Instr::asDeoptBase() const {
 }
 
 void* Instr::base() {
-  return reinterpret_cast<char*>(this) - (NumOperands() * kPointerSize) -
-      sizeof(size_t);
+  return hir_c_instr_base(this);
 }
 
 Register** Instr::operands() {
