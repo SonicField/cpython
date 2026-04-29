@@ -1865,6 +1865,95 @@ static void verify_phase4a_batch31_expand_into_substantive() {
     hir_c_test_chain_destroy(&bb);
 }
 
+/* Phase 4.A Batch 32: SUBSTANTIVE V5 back-fill for B25
+ * (BasicBlock::addPhiPredecessor + removePhiPredecessor c5f4396997)
+ * via Batch I infra. Falsifier-only; no production code change.
+ *
+ * Tests the full replace+destroy flow end-to-end (V1-prod-use covers
+ * cfg simplify but never empirically anchored): build a 3-pred Phi,
+ * add a new predecessor (allocate new 4-op Phi, replace, destroy old),
+ * then remove that predecessor (allocate new 3-op Phi, replace,
+ * destroy). Verifies basic_blocks_ count + sorted order + operand
+ * pairing across both transitions. */
+static void verify_phase4a_batch32_add_remove_phi_substantive() {
+    HirBasicBlock bb;
+    hir_c_test_chain_init(&bb);
+
+    /* 4 BB sentinels — only .id is read. */
+    HirBasicBlock pred1{}, pred2{}, pred3{}, pred_new{};
+    pred1.id = 1;
+    pred2.id = 2;
+    pred3.id = 3;
+    pred_new.id = 4;
+
+    /* 3 register sentinels for the initial Phi. */
+    void *r1 = (void *)(uintptr_t)0xACE10001ULL;
+    void *r2 = (void *)(uintptr_t)0xACE10002ULL;
+    void *r3 = (void *)(uintptr_t)0xACE10003ULL;
+    /* Output register — Phi::createWithCount needs one. */
+    void *out_reg = hir_make_register_c(99);
+
+    /* Allocate initial Phi (3 operands) directly via bridge so we can
+     * set output, then populate basic_blocks_ + operands via Batch 20
+     * apply path. Append to bb so add_predecessor's
+     * hir_c_instr_replace_with has a host block to wire into. */
+    void *phi = hir_make_phi_with_count_c(out_reg, 3);
+    void *initial_keys[3]   = { &pred1, &pred2, &pred3 };
+    void *initial_values[3] = { r1,     r2,     r3     };
+    hir_c_phi_apply_args(phi, initial_keys, initial_values, 3);
+    hir_bb_append_instr(&bb, phi);
+
+    assert(((HirPhi *)phi)->bb_count == 3 &&
+           "Phase 4.A Batch 32: initial Phi has 3 predecessors");
+
+    /* (a) addPhiPredecessor: replace pred1 with pred_new appended.
+     * The C++ original maps both pred1 + pred_new to the same Register
+     * (r1) → 4-op Phi. Sort by id: [pred1, pred2, pred3, pred_new]. */
+    hir_c_phi_add_predecessor(phi, &pred1, &pred_new);
+
+    /* The original phi was destroyed + replaced; the new Phi is the
+     * sole instr in bb. Recover via list-head. */
+    void *phi_after_add = hir_bb_first_instr(&bb);
+    assert(phi_after_add != NULL &&
+           "Phase 4.A Batch 32(a): post-add Phi present in bb");
+    assert(phi_after_add != phi &&
+           "Phase 4.A Batch 32(a): post-add Phi is a fresh allocation");
+    HirPhi *p_add = (HirPhi *)phi_after_add;
+    assert(p_add->bb_count == 4 &&
+           "Phase 4.A Batch 32(a): bb_count grew to 4 after add");
+    assert(p_add->bb_data[0] == &pred1 && p_add->bb_data[1] == &pred2 &&
+           p_add->bb_data[2] == &pred3 && p_add->bb_data[3] == &pred_new &&
+           "Phase 4.A Batch 32(a): basic_blocks_ sorted [pred1..pred3, pred_new]");
+    /* Operand for pred1 (id=1) is r1; pred_new (id=4) gets r1 too
+     * (per the addPhiPredecessor map-fold semantic). */
+    assert(hir_c_get_operand(phi_after_add, 0) == r1 &&
+           "Phase 4.A Batch 32(a): operand[pred1] = r1");
+    assert(hir_c_get_operand(phi_after_add, 3) == r1 &&
+           "Phase 4.A Batch 32(a): operand[pred_new] = r1 (same as pred1's)");
+
+    /* (b) removePhiPredecessor: drop pred_new, back to 3 ops. */
+    hir_c_phi_remove_predecessor(phi_after_add, &pred_new);
+
+    void *phi_after_remove = hir_bb_first_instr(&bb);
+    assert(phi_after_remove != NULL &&
+           "Phase 4.A Batch 32(b): post-remove Phi present");
+    assert(phi_after_remove != phi_after_add &&
+           "Phase 4.A Batch 32(b): post-remove Phi is a fresh allocation");
+    HirPhi *p_rm = (HirPhi *)phi_after_remove;
+    assert(p_rm->bb_count == 3 &&
+           "Phase 4.A Batch 32(b): bb_count back to 3 after remove");
+    assert(p_rm->bb_data[0] == &pred1 && p_rm->bb_data[1] == &pred2 &&
+           p_rm->bb_data[2] == &pred3 &&
+           "Phase 4.A Batch 32(b): basic_blocks_ back to [pred1, pred2, pred3]");
+    assert(hir_c_get_operand(phi_after_remove, 0) == r1 &&
+           hir_c_get_operand(phi_after_remove, 1) == r2 &&
+           hir_c_get_operand(phi_after_remove, 2) == r3 &&
+           "Phase 4.A Batch 32(b): operands back to [r1, r2, r3]");
+
+    hir_c_test_chain_destroy(&bb);
+    delete static_cast<jit::hir::Register *>(out_reg);
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -1893,4 +1982,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch29_binary_unary_ops();
     verify_phase4a_batch30_dominating_frame_state_substantive();
     verify_phase4a_batch31_expand_into_substantive();
+    verify_phase4a_batch32_add_remove_phi_substantive();
 }
