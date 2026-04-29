@@ -370,9 +370,10 @@ struct HIRBuilder::TranslationContext {
 
   // Insert a pre-created instruction from a C factory.
   // Sets bytecode offset and appends to current block.
+  // Phase 4.D step 1 (Batch 53): delegates to hir_c_tc_emit_c via the
+  // PhxTranslationContext POD-cast (layout pinned at builder.cpp:1011-1014).
   Instr* emitC(Instr* instr) {
-    instr->setBytecodeOffset(frame.instrOffset());
-    block->Append(instr);
+    hir_c_tc_emit_c(this, instr);
     return instr;
   }
 

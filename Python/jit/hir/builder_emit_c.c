@@ -39,12 +39,10 @@
 #define PHX_CALL_KIND_INVOKE_NATIVE   4
 #define PHX_CALL_KIND_INVOKE_METHOD   5
 
-/* ---- PhxTranslationContext ---- */
-
-typedef struct {
-    void *block;               /* BasicBlock* — current block */
-    HirFrameStateLayout frame; /* FrameState (owned value) */
-} PhxTranslationContext;
+/* ---- PhxTranslationContext ----
+ * Struct definition moved to builder_state_c.h (Batch 53) so the C++
+ * TranslationContext shim can cast `this` to PhxTranslationContext*.
+ * Layout pinned in hir_instr_c_verify.cpp via static_assert. */
 
 static void phx_tc_init(PhxTranslationContext *tc, void *block,
                          const HirFrameStateLayout *frame) {

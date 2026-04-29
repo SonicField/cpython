@@ -2563,6 +2563,15 @@ static void verify_phase4d_batch51_allocate_localsplus() {
     phx_ptr_arr_destroy(&fs.localsplus);
 }
 
+/* Phase 4.D pilot step 1 (Batch 53): PhxTranslationContext layout pin
+ * complementing the C++-side static_asserts at builder.cpp:1011-1014.
+ * The C-side PhxTranslationContext struct uses HirFrameStateLayout for
+ * the embedded frame; ensure the field offsets and total size match. */
+static_assert(offsetof(PhxTranslationContext, block) == 0,
+    "PhxTranslationContext.block must be at offset 0");
+static_assert(offsetof(PhxTranslationContext, frame) == sizeof(void *),
+    "PhxTranslationContext.frame must follow block at offset sizeof(void*)");
+
 /* Phase 4.D Batch 52 V5 sentinel falsifier for hir_c_advance_past_yield. */
 static void verify_phase4d_batch52_advance_past_yield() {
     HirFrameStateLayout fs = {};

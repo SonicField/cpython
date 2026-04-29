@@ -341,6 +341,16 @@ typedef struct PhxHirBuilderState {
     HirOperandStack op_stack_phx;          /* Phase 4.C Pilot 4 step 1 */
 } PhxHirBuilderState;
 
+/* Phase 4.D pilot step 1 (Batch 53): PhxTranslationContext C struct.
+ * POD layout matches the C++ TranslationContext (builder.cpp:344+).
+ * Field order pinned by static_asserts in builder.cpp:1011-1014.
+ * Used by hir_c_tc_* primitives so emit-class methods become 1-line
+ * shims around C-side dispatch. */
+typedef struct PhxTranslationContext {
+    void *block;                  /* BasicBlock* — first field, offset 0 */
+    HirFrameStateLayout frame;    /* sizeof(FrameState) opaque body */
+} PhxTranslationContext;
+
 /* Initialize state_ Class A fields from HIRBuilder ctor args. Mutable
  * fields (current_func, func, kwnames) are NULL-initialized matching
  * the existing C++ default-member-initialization. Tier 8 pilot Phase A

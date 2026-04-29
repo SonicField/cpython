@@ -439,6 +439,33 @@ static inline void hir_c_advance_past_yield(void *fs_void,
                  "Yield should not be end of instruction stream");
 }
 
+/* Forward decl: hir_c_bb_append is defined in hir_basic_block_c.h
+ * (which includes this header). The Batch 53 hir_c_tc_emit_c primitive
+ * needs it; in TUs that include only hir_instr_c.h, callers must
+ * separately include hir_basic_block_c.h to get the definition. */
+static inline void *hir_c_bb_append(void *bb, void *instr);
+static inline void hir_c_set_bytecode_offset(void *instr, int32_t off);
+
+/* Phase 4.D pilot step 1 (Batch 53): PhxTranslationContext primitives.
+ * tc_void points to a PhxTranslationContext (= C++ TranslationContext
+ * via POD layout match, pinned at builder.cpp:1011-1014). Layout:
+ *   void *block;                 // offset 0
+ *   HirFrameStateLayout frame;   // offset sizeof(void*)
+ * The C primitives operate directly on this layout; the C++ emit-class
+ * methods become 1-line shims that pass the cast pointer through. */
+
+/* hir_c_tc_emit_c: insert a pre-built instr — set bytecode_offset from
+ * tc.frame.cur_instr_offs, then append to tc.block. Mirrors C++
+ * TranslationContext::emitC(Instr*). */
+static inline void hir_c_tc_emit_c(void *tc_void, void *instr) {
+    void **slots = (void **)tc_void;
+    void *block = slots[0];
+    HirFrameStateLayout *frame = (HirFrameStateLayout *)(slots + 1);
+    hir_c_set_bytecode_offset(instr, (int32_t)frame->cur_instr_offs);
+    /* Append: hir_c_bb_append asserts block_==NULL pre-link. */
+    hir_c_bb_append(block, instr);
+}
+
 static inline void *hir_fs_code(const void *fs) {
     return ((const HirFrameStateLayout *)fs)->code;
 }
