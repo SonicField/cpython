@@ -2480,6 +2480,43 @@ static void verify_phase4c_batch44_temp_allocator_mirror_collapse() {
     hir_builder_state_destroy(&state);
 }
 
+/* Phase 4.C Pilot 4 Batch 48 V5 sentinel falsifier for HirOperandStack
+ * (OperandStack port introduce step). LIFO push/pop semantics + state
+ * field init/destroy. B49 will add the mirror-collapse falsifier with
+ * the C++ wrapper alongside. */
+static void verify_phase4c_batch48_op_stack() {
+    PhxHirBuilderState state;
+    hir_builder_state_init(&state, NULL, NULL);
+    assert(state.op_stack_phx.stack.count == 0 &&
+           state.op_stack_phx.stack.data == NULL &&
+           "Phase 4.C Batch 48: post-init op_stack_phx empty");
+
+    void *r0 = (void *)(uintptr_t)0xCAFE0001ULL;
+    void *r1 = (void *)(uintptr_t)0xCAFE0002ULL;
+    void *r2 = (void *)(uintptr_t)0xCAFE0003ULL;
+
+    /* Push 3 → count grows. */
+    hir_c_op_stack_push(&state.op_stack_phx, r0);
+    hir_c_op_stack_push(&state.op_stack_phx, r1);
+    hir_c_op_stack_push(&state.op_stack_phx, r2);
+    assert(state.op_stack_phx.stack.count == 3 &&
+           "Phase 4.C Batch 48: 3 pushes grow count to 3");
+
+    /* Pop in LIFO order → r2, r1, r0. */
+    assert(hir_c_op_stack_pop(&state.op_stack_phx) == r2 &&
+           "Phase 4.C Batch 48: LIFO pop[0] = r2");
+    assert(hir_c_op_stack_pop(&state.op_stack_phx) == r1 &&
+           "Phase 4.C Batch 48: LIFO pop[1] = r1");
+    assert(hir_c_op_stack_pop(&state.op_stack_phx) == r0 &&
+           "Phase 4.C Batch 48: LIFO pop[2] = r0");
+    assert(state.op_stack_phx.stack.count == 0 &&
+           "Phase 4.C Batch 48: post-pop count = 0");
+
+    hir_builder_state_destroy(&state);
+    assert(state.op_stack_phx.stack.data == NULL &&
+           "Phase 4.C Batch 48: post-destroy stack cleared (no leak)");
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -2520,4 +2557,5 @@ static void hir_instr_runtime_check() {
     verify_phase4c_batch42_temp_allocator();
     verify_phase4c_batch43_state_temps_phx();
     verify_phase4c_batch44_temp_allocator_mirror_collapse();
+    verify_phase4c_batch48_op_stack();
 }

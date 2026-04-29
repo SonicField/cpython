@@ -36,6 +36,9 @@ void hir_builder_state_init(
      * leave NULL — TempAllocator wrapper still owns the live state. */
     state->temps_phx.env = NULL;
     phx_ptr_arr_init(&state->temps_phx.cache);
+    /* Phase 4.C Pilot 4 step 1: op_stack_phx zero-state; B49 collapses
+     * the C++ static_method_stack_ wrapper onto this storage. */
+    phx_ptr_arr_init(&state->op_stack_phx.stack);
 }
 
 void hir_builder_state_destroy(PhxHirBuilderState *state) {
@@ -43,6 +46,7 @@ void hir_builder_state_destroy(PhxHirBuilderState *state) {
     phx_block_map_destroy(&state->block_map_phx);
     phx_bc_block_array_destroy(&state->bc_block_array_phx);
     phx_ptr_arr_destroy(&state->temps_phx.cache);
+    phx_ptr_arr_destroy(&state->op_stack_phx.stack);
 }
 
 void hir_builder_state_parse_exception_table_c(

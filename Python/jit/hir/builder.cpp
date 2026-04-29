@@ -3310,7 +3310,7 @@ extern "C" int hir_builder_preloader_invoke_method_slot_c(
 extern "C" void hir_builder_state_static_method_stack_push_cpp(
     void *builder, void *reg) {
   auto *self = static_cast<HIRBuilder*>(builder);
-  self->static_method_stack_.push(static_cast<Register*>(reg));
+  hir_c_op_stack_push(&self->state_.op_stack_phx, reg);
 }
 
 /* C bridges for emitInvokeMethod (INVOKE_* Phase 2 #2 per theologian L2430).
@@ -3359,7 +3359,7 @@ extern "C" void hir_builder_setup_static_args_c(
 
 extern "C" void *hir_builder_state_static_method_stack_pop_cpp(void *builder) {
   auto *self = static_cast<HIRBuilder*>(builder);
-  return self->static_method_stack_.pop();
+  return hir_c_op_stack_pop(&self->state_.op_stack_phx);
 }
 
 extern "C" bool hir_builder_emit_invoke_method_c(

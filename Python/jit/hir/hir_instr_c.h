@@ -308,6 +308,28 @@ static inline void *hir_c_temps_alloc_non_stack(HirTempAllocator *t) {
     return hir_c_env_allocate_register(t->env);
 }
 
+/* ---- Phase 4.C Pilot 4 step 1 (Batch 48): OperandStack port ----
+ *
+ * HirOperandStack wraps a PhxRegisterStack (typedef-alias of PhxPtrArray)
+ * — same LIFO push/pop semantics as the C++ OperandStack
+ * (= jit::Stack<Register*>) used for HIRBuilder.static_method_stack_.
+ * B48 introduces; B49 mirror-collapses; B50 retires _cpp bridges. */
+typedef PhxPtrArray PhxRegisterStack;
+
+typedef struct HirOperandStack {
+    PhxRegisterStack stack;     /* malloc'd; lifetime owned by allocator */
+} HirOperandStack;
+
+/* Push: append reg to top of stack. */
+static inline void hir_c_op_stack_push(HirOperandStack *s, void *reg) {
+    phx_ptr_arr_push(&s->stack, reg);
+}
+
+/* Pop: remove + return top reg. Caller responsibility: count > 0. */
+static inline void *hir_c_op_stack_pop(HirOperandStack *s) {
+    return phx_ptr_arr_pop(&s->stack);
+}
+
 /* ---- Function C struct (opaque blob with offsetof-verified field access) ---- */
 typedef struct HirFunctionLayout {
     char opaque[328]; /* sizeof(Function) == 41 * kPointerSize */

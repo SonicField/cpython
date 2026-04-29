@@ -712,7 +712,12 @@ class HIRBuilder {
   // 1 write (~1518) + 1 read (~1519) + 1 bridge read (~3562) converted
   // to func()/set_func().
 
-  OperandStack static_method_stack_;
+  // Phase 4.C Pilot 4 step 1 (Batch 48): static_method_stack_ field
+  // deleted; storage migrated to PhxHirBuilderState.op_stack_phx
+  // (single source of truth, mirror collapsed from start). The 2 C++
+  // bridge bodies + the builder_emit_c.c _cpp call sites use direct
+  // hir_c_op_stack_* on state_.op_stack_phx; the bridge functions
+  // themselves stay until B49-B50 migrates callers + retires them.
 
   // Phase 3 Batch 1: Class A state mirror; all Class A fields now live
   // exclusively in state_ (no parallel C++ duplicates).

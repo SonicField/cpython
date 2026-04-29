@@ -338,6 +338,7 @@ typedef struct PhxHirBuilderState {
     PhxBlockMap block_map_phx;             /* Tier 8 pilot 2 (Phase A) */
     PhxBcBlockArray bc_block_array_phx;    /* Tier 8 pilot 2 (Phase B) */
     HirTempAllocator temps_phx;            /* Phase 4.C Pilot 3 step 2 */
+    HirOperandStack op_stack_phx;          /* Phase 4.C Pilot 4 step 1 */
 } PhxHirBuilderState;
 
 /* Initialize state_ Class A fields from HIRBuilder ctor args. Mutable
