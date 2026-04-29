@@ -1357,6 +1357,89 @@ static inline void hir_c_tc_emit_load_attr2(void *tc, HirRegister dst,
         hir_c_create_load_attr_reg2(dst, receiver, name_idx, fs));
 }
 
+/* ---- Phase 4.D pilot step 10 (Batch 62): emit cluster 8 (10 mixed) ---- */
+
+static inline void hir_c_tc_emit_init_frame_cell_vars(void *tc,
+                                                        HirRegister func,
+                                                        int32_t nfree) {
+    hir_c_tc_emit_c(tc, hir_c_create_init_frame_cell_vars_reg(func, nfree));
+}
+
+static inline void hir_c_tc_emit_store_field(void *tc, HirRegister receiver,
+                                               const char *name, intptr_t offset,
+                                               HirRegister value, HirType type,
+                                               HirRegister previous) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_store_field_reg(receiver, name, offset, value, type, previous));
+}
+
+static inline void hir_c_tc_emit_yield_and_yield_from(void *tc, HirRegister dst,
+                                                        HirRegister waiter,
+                                                        HirRegister coro,
+                                                        void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_yield_and_yield_from_reg(dst, waiter, coro, fs));
+}
+
+static inline void hir_c_tc_emit_yield_from_handle_stop_async(void *tc,
+                                                                HirRegister dst,
+                                                                HirRegister send,
+                                                                HirRegister awaitable,
+                                                                void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_yield_from_handle_stop_async_reg(dst, send, awaitable, fs));
+}
+
+static inline void hir_c_tc_emit_call_ex(void *tc, HirRegister dst,
+                                           HirRegister func, HirRegister pargs,
+                                           HirRegister kwargs, uint32_t flags,
+                                           void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_call_ex_reg(dst, func, pargs, kwargs, flags, fs));
+}
+
+static inline void hir_c_tc_emit_import_name(void *tc, HirRegister dst,
+                                               int32_t name_idx,
+                                               HirRegister fromlist,
+                                               HirRegister level, void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_import_name_reg(dst, name_idx, fromlist, level, fs));
+}
+
+static inline HirInstr hir_c_tc_emit_call_static_ret_void(void *tc, size_t n,
+                                                            void *addr) {
+    HirInstr i = hir_c_create_call_static_ret_void_reg(n, addr);
+    hir_c_tc_emit_c(tc, i);
+    return i;
+}
+
+static inline void hir_c_tc_emit_load_global_cached(void *tc, HirRegister dst,
+                                                      void *code, void *builtins,
+                                                      void *globals,
+                                                      int32_t name_idx) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_load_global_cached_reg(dst, code, builtins, globals,
+                                             name_idx));
+}
+
+static inline void hir_c_tc_emit_load_function_indirect(void *tc,
+                                                          void *indirect_ptr,
+                                                          void *descr,
+                                                          HirRegister dst,
+                                                          void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_load_function_indirect_reg(indirect_ptr, descr, dst, fs));
+}
+
+static inline void hir_c_tc_emit_store_array_item(void *tc, HirRegister arr,
+                                                    HirRegister idx,
+                                                    HirRegister value,
+                                                    HirRegister container,
+                                                    HirType elem_type) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_store_array_item_reg(arr, idx, value, container, elem_type));
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

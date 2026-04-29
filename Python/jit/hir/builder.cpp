@@ -746,30 +746,35 @@ struct HIRBuilder::TranslationContext {
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitInitFrameCellVars(Register* func, int nfree) {
-    emitC(static_cast<Instr*>(hir_c_create_init_frame_cell_vars_reg(func, nfree)));
+    hir_c_tc_emit_init_frame_cell_vars(this, func, nfree);
   }
 
   // Batch 6 wrappers
   void emitStoreField(Register* receiver, const char* name, intptr_t offset, Register* value, Type type, Register* previous) {
-    emitC(static_cast<Instr*>(hir_c_create_store_field_reg(receiver, name, offset, value, to_hir(type), previous)));
+    hir_c_tc_emit_store_field(this, receiver, name, offset, value, to_hir(type), previous);
   }
   void emitYieldAndYieldFrom(Register* dst, Register* waiter, Register* coro, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_yield_and_yield_from_reg(dst, waiter, coro, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_yield_and_yield_from(this, dst, waiter, coro,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitYieldFromHandleStopAsyncIteration(Register* dst, Register* send, Register* awaitable, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_yield_from_handle_stop_async_reg(dst, send, awaitable, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_yield_from_handle_stop_async(this, dst, send, awaitable,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitCallEx(Register* dst, Register* func, Register* pargs, Register* kwargs, CallFlags flags, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_call_ex_reg(dst, func, pargs, kwargs, static_cast<uint32_t>(flags), const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_call_ex(this, dst, func, pargs, kwargs,
+        static_cast<uint32_t>(flags),
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitImportName(Register* dst, int name_idx, Register* fromlist, Register* level, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_import_name_reg(dst, name_idx, fromlist, level, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_import_name(this, dst, name_idx, fromlist, level,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
   // emitCallMethod removed (see top-of-class comment).
 
   Instr* emitCallStaticRetVoid(size_t n, void* addr) {
-    return emitC(static_cast<Instr*>(hir_c_create_call_static_ret_void_reg(n, addr)));
+    return static_cast<Instr*>(hir_c_tc_emit_call_static_ret_void(this, n, addr));
   }
   DeoptBase* emitInvokeStaticFunction(size_t n, Register* dst, PyFunctionObject* func, Type ret_type) {
     return static_cast<DeoptBase*>(emitC(static_cast<Instr*>(
@@ -778,13 +783,14 @@ struct HIRBuilder::TranslationContext {
 
   // Batch 8 wrappers
   void emitLoadGlobalCached(Register* dst, PyCodeObject* code, PyDictObject* builtins, PyDictObject* globals, int name_idx) {
-    emitC(static_cast<Instr*>(hir_c_create_load_global_cached_reg(dst, code, builtins, globals, name_idx)));
+    hir_c_tc_emit_load_global_cached(this, dst, code, builtins, globals, name_idx);
   }
   void emitLoadFunctionIndirect(PyObject** ptr, PyObject* descr, Register* dst, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_load_function_indirect_reg(ptr, descr, dst, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_load_function_indirect(this, ptr, descr, dst,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitStoreArrayItem(Register* arr, Register* idx, Register* value, Register* container, Type elem_type) {
-    emitC(static_cast<Instr*>(hir_c_create_store_array_item_reg(arr, idx, value, container, to_hir(elem_type))));
+    hir_c_tc_emit_store_array_item(this, arr, idx, value, container, to_hir(elem_type));
   }
 
   // Batch: 1-op HasOutput DeoptBase (dst, src, frame)

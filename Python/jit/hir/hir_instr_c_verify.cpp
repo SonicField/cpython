@@ -2944,6 +2944,58 @@ static void verify_phase4d_batch61_emit_cluster_7() {
     hir_c_test_chain_destroy(&bb);
 }
 
+/* Phase 4.D Batch 62 V5 sentinel: emit cluster 8 representative cases.
+ *
+ *   - emit_load_global_cached (no-FS, 3 Python.h-pointer pass-through,
+ *     cur_instr_offs=181, name_idx=5).
+ *   - emit_call_static_ret_void (no-FS, size_t + void* + Instr* return,
+ *     cur_instr_offs=187, n=2, addr=0xDEADBEEF).
+ *
+ * Remaining 8 primitives covered by V1 production path. */
+static void verify_phase4d_batch62_emit_cluster_8() {
+    HirBasicBlock bb;
+    hir_c_test_chain_init(&bb);
+
+    PhxTranslationContext tc{};
+    tc.block = &bb;
+
+    /* Case 1: emit_load_global_cached — 3 pointer pass-through. */
+    tc.frame.cur_instr_offs = 181;
+    HirRegLayout lgc_dst{};
+    lgc_dst.id = 91;
+    void *fake_code = (void *)0xCAFE0001ULL;
+    void *fake_builtins = (void *)0xCAFE0002ULL;
+    void *fake_globals = (void *)0xCAFE0003ULL;
+    hir_c_tc_emit_load_global_cached(&tc, &lgc_dst, fake_code, fake_builtins,
+                                      fake_globals, /*name_idx=*/5);
+
+    void *first = hir_bb_first_instr(&bb);
+    assert(first != NULL && "Phase 4.D Batch 62: load_global_cached appended");
+    HirInstrLayout *lgc = (HirInstrLayout *)first;
+    assert(lgc->opcode == HIR_OP_LoadGlobalCached &&
+           "Phase 4.D Batch 62: appended instr is LoadGlobalCached");
+    assert(lgc->bytecode_offset == 181 &&
+           "Phase 4.D Batch 62: load_global_cached bytecode_offset stamped");
+
+    /* Case 2: emit_call_static_ret_void — Instr* return + size_t + void*. */
+    tc.frame.cur_instr_offs = 187;
+    void *fake_addr = (void *)0xDEADBEEFULL;
+    HirInstr ret = hir_c_tc_emit_call_static_ret_void(&tc, /*n=*/2, fake_addr);
+    assert(ret != NULL &&
+           "Phase 4.D Batch 62: call_static_ret_void returns non-NULL");
+
+    void *second = hir_bb_next_instr(&bb, first);
+    assert(second != NULL &&
+           "Phase 4.D Batch 62: call_static_ret_void appended");
+    HirInstrLayout *csv = (HirInstrLayout *)second;
+    assert(csv->opcode == HIR_OP_CallStaticRetVoid &&
+           "Phase 4.D Batch 62: appended instr is CallStaticRetVoid");
+    assert(csv->bytecode_offset == 187 &&
+           "Phase 4.D Batch 62: call_static_ret_void bytecode_offset stamped");
+
+    hir_c_test_chain_destroy(&bb);
+}
+
 /* Phase 4.D Batch 52 V5 sentinel falsifier for hir_c_advance_past_yield. */
 static void verify_phase4d_batch52_advance_past_yield() {
     HirFrameStateLayout fs = {};
@@ -3010,4 +3062,5 @@ static void hir_instr_runtime_check() {
     verify_phase4d_batch59_emit_cluster_5();
     verify_phase4d_batch60_emit_cluster_6();
     verify_phase4d_batch61_emit_cluster_7();
+    verify_phase4d_batch62_emit_cluster_8();
 }
