@@ -330,6 +330,7 @@ static inline void *hir_c_op_stack_pop(HirOperandStack *s) {
     return phx_ptr_arr_pop(&s->stack);
 }
 
+
 /* ---- Function C struct (opaque blob with offsetof-verified field access) ---- */
 typedef struct HirFunctionLayout {
     char opaque[328]; /* sizeof(Function) == 41 * kPointerSize */
@@ -399,6 +400,29 @@ static inline ssize_t hir_fs_cur_instr_offs(const void *fs) {
 
 static inline int hir_fs_nlocals(const void *fs) {
     return ((const HirFrameStateLayout *)fs)->nlocals;
+}
+
+/* ---- Phase 4.D start (Batch 51): allocateLocalsplus port ----
+ *
+ * Pure-C body for HIRBuilder::allocateLocalsplus. Caller (C++ shim)
+ * pre-computes nlocalsplus + nlocals from PyCodeObject* via the
+ * Python.h-coupled numLocalsplus/numLocals helpers; the body itself
+ * stays Python.h-clean (works on the FrameState value directly).
+ *
+ * Effect: clears + reserves localsplus, fills with nlocalsplus fresh
+ * Registers from env, sets state.nlocals. */
+static inline void hir_c_allocate_localsplus_n(void *env,
+                                               void *state_void,
+                                               int nlocalsplus,
+                                               int nlocals) {
+    HirFrameStateLayout *fs = (HirFrameStateLayout *)state_void;
+    phx_ptr_arr_clear(&fs->localsplus);
+    phx_ptr_arr_reserve(&fs->localsplus, (size_t)nlocalsplus);
+    for (int i = 0; i < nlocalsplus; i++) {
+        phx_ptr_arr_push(&fs->localsplus,
+                         hir_c_env_allocate_register(env));
+    }
+    fs->nlocals = nlocals;
 }
 
 static inline void *hir_fs_code(const void *fs) {

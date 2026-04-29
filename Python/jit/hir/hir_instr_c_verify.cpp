@@ -2517,6 +2517,52 @@ static void verify_phase4c_batch48_op_stack() {
            "Phase 4.C Batch 48: post-destroy stack cleared (no leak)");
 }
 
+/* Phase 4.D Batch 51 V5 sentinel falsifier for hir_c_allocate_localsplus_n
+ * (allocateLocalsplus port). Uses HirEnvironment + HirFrameStateLayout
+ * sentinels directly (no PyCodeObject mock — caller pre-computes
+ * nlocalsplus + nlocals, body works on already-resolved ints). */
+static void verify_phase4d_batch51_allocate_localsplus() {
+    HirEnvironment env = {};
+    HirFrameStateLayout fs = {};
+    phx_ptr_arr_init(&fs.localsplus);
+
+    hir_c_allocate_localsplus_n(&env, &fs, 3, 2);
+
+    assert(fs.localsplus.count == 3 &&
+           "Phase 4.D Batch 51: localsplus.count == nlocalsplus");
+    assert(fs.nlocals == 2 &&
+           "Phase 4.D Batch 51: nlocals set");
+    /* Each slot is a fresh Register from env (ids 0/1/2 sequential). */
+    for (size_t i = 0; i < 3; i++) {
+        void *r = fs.localsplus.data[i];
+        assert(r != NULL &&
+               "Phase 4.D Batch 51: localsplus[i] non-NULL");
+        assert(hir_reg_id(r) == (int)i &&
+               "Phase 4.D Batch 51: env allocator id sequence preserved");
+    }
+
+    /* Re-call clears + refills (idempotent for tail callers re-issuing). */
+    hir_c_allocate_localsplus_n(&env, &fs, 1, 1);
+    assert(fs.localsplus.count == 1 &&
+           "Phase 4.D Batch 51: re-call clears + refills with nlocalsplus");
+    assert(fs.nlocals == 1 &&
+           "Phase 4.D Batch 51: re-call updates nlocals");
+
+    /* Cleanup: env owns its 4 Registers (3 from first call + 1 from
+     * second). The first 3 leak from env's view because the second
+     * call clears localsplus without freeing them; that matches the
+     * C++ behavior — Environment is the sole owner across builder
+     * lifetime. Register pointers themselves are heap-allocated by
+     * hir_make_register_c via the C++ bridge. */
+    for (size_t i = 0; i < env.reg_count; i++) {
+        if (env.reg_data[i]) {
+            delete static_cast<jit::hir::Register *>(env.reg_data[i]);
+        }
+    }
+    free(env.reg_data);
+    phx_ptr_arr_destroy(&fs.localsplus);
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -2558,4 +2604,5 @@ static void hir_instr_runtime_check() {
     verify_phase4c_batch43_state_temps_phx();
     verify_phase4c_batch44_temp_allocator_mirror_collapse();
     verify_phase4c_batch48_op_stack();
+    verify_phase4d_batch51_allocate_localsplus();
 }

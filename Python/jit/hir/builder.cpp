@@ -327,14 +327,9 @@ Register* TempAllocator::AllocateNonStack() {
 }
 
 void HIRBuilder::allocateLocalsplus(Environment* env, FrameState& state) {
-  int nlocalsplus = numLocalsplus(code());
-  phx_ptr_arr_clear(&state.localsplus);
-  phx_ptr_arr_reserve(&state.localsplus, nlocalsplus);
-  for (int i = 0; i < nlocalsplus; ++i) {
-    phx_ptr_arr_push(&state.localsplus, env->AllocateRegister());
-  }
-
-  state.nlocals = numLocals(code());
+  hir_c_allocate_localsplus_n(env, &state,
+                              numLocalsplus(code()),
+                              numLocals(code()));
 }
 
 static inline HirType to_hir(Type t) {
