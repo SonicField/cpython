@@ -1454,6 +1454,82 @@ static void verify_phase4a_batch26_env_register() {
     free(env.reg_data);
 }
 
+/* Phase 4.A Batch 27 V5 BOUNDARY falsifier for BasicBlock list mutation
+ * wrappers. Stack HirBasicBlock with empty intrusive-list sentinel +
+ * fresh Instr; assert post-Append the instr is linked (block_ set) and
+ * the list head points to it. push_front + pop_front round-trip on a
+ * single-instr block confirms the head/tail wiring stays consistent
+ * across the wrappers. SUBSTANTIVE V5 (multi-instr ordering) stays
+ * V1-prod-use covered per the V5-deferred-fall-back framework — same
+ * intrusive-list cited blocker as Batches 21, 23, 25. */
+static void verify_phase4a_batch27_bb_list_wrappers() {
+    /* (a) Append into empty block: instr becomes the only entry,
+     * block_ is set to &bb, head = instr. */
+    {
+        HirBasicBlock bb = {};
+        bb.instrs_.root_.prev_ = &bb.instrs_.root_;
+        bb.instrs_.root_.next_ = &bb.instrs_.root_;
+        bb.instrs_.node_member_offset_ = 0;
+
+        void *instr = hir_c_alloc_instr(sizeof(HirInstrLayout), 0);
+        assert(instr != NULL);
+        hir_c_init_instr(instr, HIR_OP_BinaryOp);
+
+        void *appended = hir_c_bb_append(&bb, instr);
+        assert(appended == instr &&
+               "Phase 4.A Batch 27(a): Append returns the inserted instr");
+        assert(((HirInstrLayout *)instr)->block == &bb &&
+               "Phase 4.A Batch 27(a): Append sets block_ to bb");
+        assert(bb.instrs_.root_.next_ == (HirIntrusiveListNode *)instr &&
+               bb.instrs_.root_.prev_ == (HirIntrusiveListNode *)instr &&
+               "Phase 4.A Batch 27(a): list head/tail point to instr");
+
+        hir_c_instr_free(instr);
+    }
+
+    /* (b) push_front into empty block, then pop_front retrieves it
+     * with block_ reset to NULL. */
+    {
+        HirBasicBlock bb = {};
+        bb.instrs_.root_.prev_ = &bb.instrs_.root_;
+        bb.instrs_.root_.next_ = &bb.instrs_.root_;
+        bb.instrs_.node_member_offset_ = 0;
+
+        void *instr = hir_c_alloc_instr(sizeof(HirInstrLayout), 0);
+        assert(instr != NULL);
+        hir_c_init_instr(instr, HIR_OP_BinaryOp);
+
+        hir_c_bb_push_front(&bb, instr);
+        assert(((HirInstrLayout *)instr)->block == &bb &&
+               "Phase 4.A Batch 27(b): push_front sets block_ to bb");
+        assert(bb.instrs_.root_.next_ == (HirIntrusiveListNode *)instr &&
+               "Phase 4.A Batch 27(b): list head points to instr");
+
+        void *popped = hir_c_bb_pop_front(&bb);
+        assert(popped == instr &&
+               "Phase 4.A Batch 27(b): pop_front returns the head instr");
+        assert(((HirInstrLayout *)instr)->block == NULL &&
+               "Phase 4.A Batch 27(b): pop_front clears block_ to NULL");
+        assert(bb.instrs_.root_.next_ == &bb.instrs_.root_ &&
+               bb.instrs_.root_.prev_ == &bb.instrs_.root_ &&
+               "Phase 4.A Batch 27(b): empty block sentinel restored");
+
+        hir_c_instr_free(instr);
+    }
+
+    /* (c) pop_front on empty block returns NULL. */
+    {
+        HirBasicBlock bb = {};
+        bb.instrs_.root_.prev_ = &bb.instrs_.root_;
+        bb.instrs_.root_.next_ = &bb.instrs_.root_;
+        bb.instrs_.node_member_offset_ = 0;
+
+        void *popped = hir_c_bb_pop_front(&bb);
+        assert(popped == NULL &&
+               "Phase 4.A Batch 27(c): pop_front on empty block returns NULL");
+    }
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -1476,4 +1552,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch24_fixup_phis();
     verify_phase4a_batch25_add_remove_collect();
     verify_phase4a_batch26_env_register();
+    verify_phase4a_batch27_bb_list_wrappers();
 }

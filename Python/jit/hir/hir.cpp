@@ -582,9 +582,8 @@ Register* modelReg(Register* reg) {
 }
 
 Instr* BasicBlock::Append(Instr* instr) {
-  instrs_.PushBack(*instr);
-  instr->link(this);
-  return instr;
+  return static_cast<Instr*>(
+      hir_c_bb_append(reinterpret_cast<HirBasicBlock*>(this), instr));
 }
 
 void BasicBlock::retargetPreds(BasicBlock* target) {
@@ -595,14 +594,12 @@ void BasicBlock::retargetPreds(BasicBlock* target) {
 }
 
 void BasicBlock::push_front(Instr* instr) {
-  instrs_.PushFront(*instr);
-  instr->link(this);
+  hir_c_bb_push_front(reinterpret_cast<HirBasicBlock*>(this), instr);
 }
 
 Instr* BasicBlock::pop_front() {
-  Instr* result = &(instrs_.ExtractFront());
-  result->set_block(nullptr);
-  return result;
+  return static_cast<Instr*>(
+      hir_c_bb_pop_front(reinterpret_cast<HirBasicBlock*>(this)));
 }
 
 void BasicBlock::insert(Instr* instr, Instr::List::iterator it) {

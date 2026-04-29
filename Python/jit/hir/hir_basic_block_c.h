@@ -453,6 +453,29 @@ static inline void hir_c_phi_fixup_predecessor(void *phi,
     free(values);
 }
 
+/* ---- BasicBlock list mutation wrappers (Batch 27) ----
+ * The hir_bb_*_instr helpers below already fold the IntrusiveList
+ * insert/extract step + the block_ set; these wrappers add the C++
+ * link()/set_block(NULL) preconditions (release-fatal) and conform
+ * to the hir_c_* naming family for the C++ shims that delegate from
+ * BasicBlock::Append/push_front/pop_front. */
+
+static inline void *hir_c_bb_append(void *bb, void *instr) {
+    JIT_CHECK_C(((HirInstrLayout *)instr)->block == NULL,
+                "Instr is already linked");
+    return hir_bb_append_instr((HirBasicBlock *)bb, instr);
+}
+
+static inline void hir_c_bb_push_front(void *bb, void *instr) {
+    JIT_CHECK_C(((HirInstrLayout *)instr)->block == NULL,
+                "Instr is already linked");
+    hir_bb_push_front_instr((HirBasicBlock *)bb, instr);
+}
+
+static inline void *hir_c_bb_pop_front(void *bb) {
+    return hir_bb_pop_front_instr((HirBasicBlock *)bb);
+}
+
 /* ---- Instr lifecycle (Batch 23) ---- */
 
 /* Instr::link port. Sets self.block_ to block; asserts self was
