@@ -1530,6 +1530,74 @@ static inline HirInstr hir_c_tc_emit_make_tuple(void *tc, size_t n,
     return i;
 }
 
+/* ---- Phase 4.D pilot step 12 (Batch 64): emit cluster 10 (10 FS-arg) ---- */
+
+static inline HirInstr hir_c_tc_emit_make_list(void *tc, size_t n,
+                                                 HirRegister dst, void *fs) {
+    HirInstr i = hir_c_create_make_list_reg(n, dst, fs);
+    hir_c_tc_emit_c(tc, i);
+    return i;
+}
+
+static inline void hir_c_tc_emit_tp_alloc(void *tc, HirRegister dst,
+                                            void *pytype, void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_tp_alloc_reg(dst, pytype, fs));
+}
+
+static inline void hir_c_tc_emit_unpack_ex_to_tuple(void *tc, HirRegister dst,
+                                                      HirRegister seq,
+                                                      int32_t before,
+                                                      int32_t after, void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_unpack_ex_to_tuple_reg(dst, seq, before, after, fs));
+}
+
+static inline void hir_c_tc_emit_load_method(void *tc, HirRegister dst,
+                                               HirRegister receiver,
+                                               int32_t name_idx, void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_load_method_reg(dst, receiver, name_idx, fs));
+}
+
+static inline void hir_c_tc_emit_load_special(void *tc, HirRegister dst,
+                                                HirRegister self,
+                                                int32_t oparg, void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_load_special_reg(dst, self, oparg, fs));
+}
+
+static inline void hir_c_tc_emit_match_keys(void *tc, HirRegister dst,
+                                              HirRegister subj, HirRegister keys,
+                                              void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_match_keys_reg(dst, subj, keys, fs));
+}
+
+static inline void hir_c_tc_emit_raise_awaitable_error(void *tc,
+                                                         HirRegister type,
+                                                         int32_t is_aenter,
+                                                         void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_raise_awaitable_error_reg(type, is_aenter, fs));
+}
+
+static inline void hir_c_tc_emit_format_value(void *tc, HirRegister dst,
+                                                HirRegister fmt, HirRegister val,
+                                                int32_t conv, void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_format_value_reg(dst, fmt, val, conv, fs));
+}
+
+static inline void hir_c_tc_emit_get_a_next(void *tc, HirRegister dst,
+                                              HirRegister src, void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_get_a_next_reg(dst, src, fs));
+}
+
+static inline void hir_c_tc_emit_get_tuple(void *tc, HirRegister dst,
+                                             HirRegister src, void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_get_tuple_reg(dst, src, fs));
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

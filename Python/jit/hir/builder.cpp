@@ -854,37 +854,45 @@ struct HIRBuilder::TranslationContext {
         const_cast<void*>(static_cast<const void*>(&fs))));
   }
   Instr* emitMakeList(size_t n, Register* dst, const FrameState& fs) {
-    return emitC(static_cast<Instr*>(hir_c_create_make_list_reg(n, dst, const_cast<void*>(static_cast<const void*>(&fs)))));
+    return static_cast<Instr*>(hir_c_tc_emit_make_list(this, n, dst,
+        const_cast<void*>(static_cast<const void*>(&fs))));
   }
   void emitTpAlloc(Register* dst, PyTypeObject* pytype, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_tp_alloc_reg(dst, pytype, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_tp_alloc(this, dst, pytype,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitUnpackExToTuple(Register* dst, Register* seq, int before, int after, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_unpack_ex_to_tuple_reg(dst, seq, before, after, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_unpack_ex_to_tuple(this, dst, seq, before, after,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitLoadMethod(Register* dst, Register* receiver, int name_idx, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_load_method_reg(dst, receiver, name_idx, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_load_method(this, dst, receiver, name_idx,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitLoadSpecial(Register* dst, Register* self, int oparg, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_load_special_reg(dst, self, oparg, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_load_special(this, dst, self, oparg,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitMatchKeys(Register* dst, Register* subj, Register* keys, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_match_keys_reg(dst, subj, keys, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_match_keys(this, dst, subj, keys,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitRaiseAwaitableError(Register* type, int is_aenter, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_raise_awaitable_error_reg(type, is_aenter, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_raise_awaitable_error(this, type, is_aenter,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitFormatValue(Register* dst, Register* fmt, Register* val, int conv, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_format_value_reg(dst, fmt, val, conv, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_format_value(this, dst, fmt, val, conv,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
   void emitGetANext(Register* dst, Register* src, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_get_a_next_reg(
-        dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_get_a_next(this, dst, src,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitGetTuple(Register* dst, Register* src, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_get_tuple_reg(
-        dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_get_tuple(this, dst, src,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitIsNegativeAndErrOccurred(Register* dst, Register* src, const FrameState& fs) {
     emitC(static_cast<Instr*>(hir_c_create_is_neg_and_err_reg(

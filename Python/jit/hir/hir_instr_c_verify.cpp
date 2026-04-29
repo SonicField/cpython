@@ -3056,6 +3056,52 @@ static void verify_phase4d_batch63_emit_cluster_9() {
     hir_c_test_chain_destroy(&bb);
 }
 
+/* Phase 4.D Batch 64 V5 sentinel: emit cluster 10 representative cases.
+ *
+ *   - emit_make_list (FS, Instr* return, cur_instr_offs=211, n=4).
+ *   - emit_tp_alloc (FS, PyTypeObject* opaque, cur_instr_offs=217). */
+static void verify_phase4d_batch64_emit_cluster_10() {
+    HirBasicBlock bb;
+    hir_c_test_chain_init(&bb);
+
+    PhxTranslationContext tc{};
+    tc.block = &bb;
+
+    /* Case 1: emit_make_list — Instr* return. */
+    tc.frame.cur_instr_offs = 211;
+    FrameState fs{};
+    fs.cur_instr_offs = jit::BCOffset{211};
+    HirRegLayout ml_dst{};
+    ml_dst.id = 111;
+    HirInstr ret = hir_c_tc_emit_make_list(&tc, /*n=*/4, &ml_dst, &fs);
+    assert(ret != NULL && "Phase 4.D Batch 64: make_list returns non-NULL");
+
+    void *first = hir_bb_first_instr(&bb);
+    assert(first != NULL && "Phase 4.D Batch 64: make_list appended");
+    HirInstrLayout *ml = (HirInstrLayout *)first;
+    assert(ml->opcode == HIR_OP_MakeList &&
+           "Phase 4.D Batch 64: appended instr is MakeList");
+    assert(ml->bytecode_offset == 211 &&
+           "Phase 4.D Batch 64: make_list bytecode_offset stamped");
+
+    /* Case 2: emit_tp_alloc — PyTypeObject* opaque pass-through. */
+    tc.frame.cur_instr_offs = 217;
+    HirRegLayout tpa_dst{};
+    tpa_dst.id = 112;
+    void *fake_pytype = (void *)0xCAFE0020ULL;
+    hir_c_tc_emit_tp_alloc(&tc, &tpa_dst, fake_pytype, &fs);
+
+    void *second = hir_bb_next_instr(&bb, first);
+    assert(second != NULL && "Phase 4.D Batch 64: tp_alloc appended");
+    HirInstrLayout *tpa = (HirInstrLayout *)second;
+    assert(tpa->opcode == HIR_OP_TpAlloc &&
+           "Phase 4.D Batch 64: appended instr is TpAlloc");
+    assert(tpa->bytecode_offset == 217 &&
+           "Phase 4.D Batch 64: tp_alloc bytecode_offset stamped");
+
+    hir_c_test_chain_destroy(&bb);
+}
+
 /* Phase 4.D Batch 52 V5 sentinel falsifier for hir_c_advance_past_yield. */
 static void verify_phase4d_batch52_advance_past_yield() {
     HirFrameStateLayout fs = {};
@@ -3124,4 +3170,5 @@ static void hir_instr_runtime_check() {
     verify_phase4d_batch61_emit_cluster_7();
     verify_phase4d_batch62_emit_cluster_8();
     verify_phase4d_batch63_emit_cluster_9();
+    verify_phase4d_batch64_emit_cluster_10();
 }
