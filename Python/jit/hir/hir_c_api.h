@@ -1218,6 +1218,72 @@ static inline void hir_c_tc_emit_store_subscr(void *tc, HirRegister container,
     hir_c_tc_emit_c(tc, hir_c_create_store_subscr_reg(container, sub, value, fs));
 }
 
+/* ---- Phase 4.D pilot step 8 (Batch 60): emit cluster 6 (10 FS-coupled) ---- */
+
+static inline void hir_c_tc_emit_set_set_item(void *tc, HirRegister dst,
+                                                HirRegister set, HirRegister item,
+                                                void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_set_set_item_reg(dst, set, item, fs));
+}
+
+static inline void hir_c_tc_emit_in_place_op(void *tc, HirRegister dst,
+                                               int32_t op_kind, HirRegister left,
+                                               HirRegister right, void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_in_place_op_reg(dst, op_kind, left, right, fs));
+}
+
+static inline void hir_c_tc_emit_compare(void *tc, HirRegister dst, int32_t op,
+                                           HirRegister left, HirRegister right,
+                                           void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_compare_reg(dst, op, left, right, fs));
+}
+
+static inline void hir_c_tc_emit_format_with_spec(void *tc, HirRegister dst,
+                                                    HirRegister value,
+                                                    HirRegister fmt_spec,
+                                                    void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_format_with_spec_reg(dst, value, fmt_spec, fs));
+}
+
+static inline void hir_c_tc_emit_make_dict(void *tc, HirRegister dst,
+                                             int32_t dict_size, void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_make_dict_reg(dst, dict_size, fs));
+}
+
+static inline void hir_c_tc_emit_dict_merge(void *tc, HirRegister dst,
+                                              HirRegister dict, HirRegister update,
+                                              HirRegister func, void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_dict_merge_reg(dst, dict, update, func, fs));
+}
+
+static inline void hir_c_tc_emit_dict_subscr(void *tc, HirRegister dst,
+                                               HirRegister dict, HirRegister key,
+                                               void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_dict_subscr_reg(dst, dict, key, fs));
+}
+
+static inline void hir_c_tc_emit_send(void *tc, HirRegister iter,
+                                        HirRegister vout, HirRegister vin,
+                                        void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_send_reg(iter, vout, vin, fs));
+}
+
+static inline void hir_c_tc_emit_convert_value(void *tc, HirRegister dst,
+                                                 HirRegister value,
+                                                 int32_t conversion, void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_convert_value_reg(dst, value, conversion, fs));
+}
+
+static inline void hir_c_tc_emit_unary_op(void *tc, HirRegister dst,
+                                            int32_t op_kind, HirRegister operand,
+                                            void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_unary_op_reg(dst, op_kind, operand, fs));
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

@@ -2832,6 +2832,61 @@ static void verify_phase4d_batch59_emit_cluster_5() {
     hir_c_test_chain_destroy(&bb);
 }
 
+/* Phase 4.D Batch 60 V5 sentinel: emit cluster 6 representative cases.
+ *
+ *   - emit_compare (FS-coupled, enum-arg, cur_instr_offs=143, op=Eq=2):
+ *     Compare instr appended with bytecode_offset stamped + op carried.
+ *   - emit_send (FS-coupled, plain, cur_instr_offs=149).
+ *
+ * Remaining 8 primitives covered by V1 production path. */
+static void verify_phase4d_batch60_emit_cluster_6() {
+    HirBasicBlock bb;
+    hir_c_test_chain_init(&bb);
+
+    PhxTranslationContext tc{};
+    tc.block = &bb;
+
+    /* Case 1: emit_compare — FS-coupled enum-arg. */
+    tc.frame.cur_instr_offs = 143;
+    FrameState fs{};
+    fs.cur_instr_offs = jit::BCOffset{143};
+    HirRegLayout cmp_dst{};
+    cmp_dst.id = 71;
+    HirRegLayout cmp_left{};
+    cmp_left.id = 72;
+    HirRegLayout cmp_right{};
+    cmp_right.id = 73;
+    hir_c_tc_emit_compare(&tc, &cmp_dst, /*op=*/2, &cmp_left, &cmp_right, &fs);
+
+    void *first = hir_bb_first_instr(&bb);
+    assert(first != NULL && "Phase 4.D Batch 60: compare appended");
+    HirInstrLayout *cmp = (HirInstrLayout *)first;
+    assert(cmp->opcode == HIR_OP_Compare &&
+           "Phase 4.D Batch 60: appended instr is Compare");
+    assert(cmp->bytecode_offset == 143 &&
+           "Phase 4.D Batch 60: compare bytecode_offset stamped");
+
+    /* Case 2: emit_send — FS-coupled plain. */
+    tc.frame.cur_instr_offs = 149;
+    HirRegLayout send_iter{};
+    send_iter.id = 74;
+    HirRegLayout send_vout{};
+    send_vout.id = 75;
+    HirRegLayout send_vin{};
+    send_vin.id = 76;
+    hir_c_tc_emit_send(&tc, &send_iter, &send_vout, &send_vin, &fs);
+
+    void *second = hir_bb_next_instr(&bb, first);
+    assert(second != NULL && "Phase 4.D Batch 60: send appended");
+    HirInstrLayout *snd = (HirInstrLayout *)second;
+    assert(snd->opcode == HIR_OP_Send &&
+           "Phase 4.D Batch 60: appended instr is Send");
+    assert(snd->bytecode_offset == 149 &&
+           "Phase 4.D Batch 60: send bytecode_offset stamped");
+
+    hir_c_test_chain_destroy(&bb);
+}
+
 /* Phase 4.D Batch 52 V5 sentinel falsifier for hir_c_advance_past_yield. */
 static void verify_phase4d_batch52_advance_past_yield() {
     HirFrameStateLayout fs = {};
@@ -2896,4 +2951,5 @@ static void hir_instr_runtime_check() {
     verify_phase4d_batch57_emit_cluster_3();
     verify_phase4d_batch58_emit_cluster_4();
     verify_phase4d_batch59_emit_cluster_5();
+    verify_phase4d_batch60_emit_cluster_6();
 }

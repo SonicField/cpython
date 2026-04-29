@@ -656,52 +656,53 @@ struct HIRBuilder::TranslationContext {
   // SetSetItem via C++ bridge (DeoptBase, HasOutput).
   void emitSetSetItem(Register* dst, Register* set, Register* item,
                        const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_set_set_item_reg(
-        dst, set, item, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_set_set_item(this, dst, set, item,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   // InPlaceOp via C++ bridge.
   void emitInPlaceOp(Register* dst, InPlaceOpKind op, Register* left,
                       Register* right, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_in_place_op_reg(
-        dst, static_cast<int32_t>(op), left, right,
-        const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_in_place_op(this, dst, static_cast<int32_t>(op), left, right,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   // Compare via C++ bridge.
   void emitCompare(Register* dst, CompareOp op, Register* left,
                     Register* right, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_compare_reg(
-        dst, static_cast<int32_t>(op), left, right,
-        const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_compare(this, dst, static_cast<int32_t>(op), left, right,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   // FormatWithSpec via C++ bridge.
   void emitFormatWithSpec(Register* dst, Register* value, Register* fmt_spec,
                            const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_format_with_spec_reg(
-        dst, value, fmt_spec,
-        const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_format_with_spec(this, dst, value, fmt_spec,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   // MakeDict via C++ bridge.
   void emitMakeDict(Register* dst, Py_ssize_t dict_size, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_make_dict_reg(
-        dst, static_cast<int32_t>(dict_size),
-        const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_make_dict(this, dst, static_cast<int32_t>(dict_size),
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
   // Batch 3 wrappers
   void emitDictMerge(Register* dst, Register* dict, Register* update, Register* func, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_dict_merge_reg(dst, dict, update, func, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_dict_merge(this, dst, dict, update, func,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitDictSubscr(Register* dst, Register* dict, Register* key, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_dict_subscr_reg(dst, dict, key, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_dict_subscr(this, dst, dict, key,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitSend(Register* iter, Register* vout, Register* vin, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_send_reg(iter, vout, vin, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_send(this, iter, vout, vin,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitConvertValue(Register* dst, Register* value, int conversion, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_convert_value_reg(dst, value, conversion, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_convert_value(this, dst, value, conversion,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitUnaryOp(Register* dst, UnaryOpKind op, Register* operand, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_unary_op_reg(dst, static_cast<int32_t>(op), operand, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_unary_op(this, dst, static_cast<int32_t>(op), operand,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitImportFrom(Register* dst, Register* name, int name_idx, const FrameState& fs) {
     emitC(static_cast<Instr*>(hir_c_create_import_from_reg(dst, name, name_idx, const_cast<void*>(static_cast<const void*>(&fs)))));
