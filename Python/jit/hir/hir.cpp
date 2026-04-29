@@ -229,12 +229,13 @@ void Instr::Destroy(Instr* instr) {
   hir_c_destroy_instr_impl(instr);
 }
 
-Instr::Instr(Opcode opcode) : opcode_{opcode} {}
+Instr::Instr(Opcode opcode) {
+  hir_c_instr_init(this, static_cast<int32_t>(opcode));
+}
 
-Instr::Instr(const Instr& other)
-    : opcode_(other.opcode()),
-      bytecode_offset_{other.bytecodeOffset()},
-      output_{other.output()} {}
+Instr::Instr(const Instr& other) {
+  hir_c_instr_init_copy(this, &other);
+}
 
 std::string_view Instr::opname() const {
   return hir_opcode_name(static_cast<HirOpcode>(opcode_));

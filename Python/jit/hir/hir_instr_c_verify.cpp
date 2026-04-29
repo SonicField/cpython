@@ -821,6 +821,54 @@ static void verify_phase4a_batch16_allocator() {
     hir_c_instr_free(p);  /* must not crash */
 }
 
+/* Phase 4.A Batch 17 V3+behavioral falsifier: pin block_node_ at
+ * offset 0 + verify Instr ctor field-init helpers do not touch the
+ * intrusive list head (which would corrupt the linked list).
+ * Confirms hir_c_instr_init writes ONLY opcode and
+ * hir_c_instr_init_copy writes ONLY {opcode, bytecode_offset, output}. */
+static_assert(offsetof(HirInstrLayout, block_node) == 0,
+    "Phase 4.A Batch 17: block_node_ MUST be HirInstrLayout offset 0");
+
+static void verify_phase4a_batch17_instr_ctor_init() {
+    HirInstrLayout sentinel;
+    std::memset(&sentinel, 0, sizeof(sentinel));
+    /* Mark block_node_ with sentinel pointers to detect overwrite. */
+    void *bn0 = reinterpret_cast<void*>(0xB0DE0001);
+    void *bn1 = reinterpret_cast<void*>(0xB0DE0002);
+    sentinel.block_node.prev = bn0;
+    sentinel.block_node.next = bn1;
+
+    hir_c_instr_init(&sentinel, HIR_OP_BinaryOp);
+    assert(sentinel.opcode == HIR_OP_BinaryOp &&
+           "Phase 4.A Batch 17: hir_c_instr_init sets opcode");
+    assert(sentinel.block_node.prev == bn0 &&
+           sentinel.block_node.next == bn1 &&
+           "Phase 4.A Batch 17: hir_c_instr_init must NOT touch block_node");
+
+    /* Copy-init test */
+    HirInstrLayout src;
+    std::memset(&src, 0, sizeof(src));
+    src.opcode = HIR_OP_Decref;
+    src.bytecode_offset = 42;
+    src.output = reinterpret_cast<void*>(0xCAFEFOOD);
+
+    HirInstrLayout dst;
+    std::memset(&dst, 0, sizeof(dst));
+    dst.block_node.prev = bn0;
+    dst.block_node.next = bn1;
+
+    hir_c_instr_init_copy(&dst, &src);
+    assert(dst.opcode == HIR_OP_Decref &&
+           "Phase 4.A Batch 17: copy-init opcode");
+    assert(dst.bytecode_offset == 42 &&
+           "Phase 4.A Batch 17: copy-init bytecode_offset");
+    assert(dst.output == reinterpret_cast<void*>(0xCAFEFOOD) &&
+           "Phase 4.A Batch 17: copy-init output");
+    assert(dst.block_node.prev == bn0 &&
+           dst.block_node.next == bn1 &&
+           "Phase 4.A Batch 17: copy-init must NOT touch block_node");
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -833,4 +881,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch13_sort_live_regs();
     verify_phase4a_batch15_edge_in_edges();
     verify_phase4a_batch16_allocator();
+    verify_phase4a_batch17_instr_ctor_init();
 }

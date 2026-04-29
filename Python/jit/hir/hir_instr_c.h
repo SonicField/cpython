@@ -1326,6 +1326,23 @@ static inline void hir_c_instr_free(void *instr) {
     free(hir_c_instr_base(instr));
 }
 
+/* Phase 4.A Batch 17: Instr ctor field-init helpers. Pure field
+ * assignment — block_node_ (HirInstrLayout offset 0) is intentionally
+ * NOT touched (preserved by zero-init from calloc / by caller's
+ * IntrusiveListNode handling). */
+static inline void hir_c_instr_init(void *instr, int32_t opcode) {
+    HirInstrLayout *i = (HirInstrLayout *)instr;
+    i->opcode = opcode;
+}
+
+static inline void hir_c_instr_init_copy(void *dst, const void *src) {
+    HirInstrLayout *d = (HirInstrLayout *)dst;
+    const HirInstrLayout *s = (const HirInstrLayout *)src;
+    d->opcode = s->opcode;
+    d->bytecode_offset = s->bytecode_offset;
+    d->output = s->output;
+}
+
 /* ==== C++ destruction helpers ====
  * These thin wrappers are implemented in hir_c_api.cpp. They handle
  * C++ members that can't be cleaned up from pure C. */
