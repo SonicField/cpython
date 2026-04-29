@@ -752,6 +752,54 @@ static void verify_phase4a_batch13_sort_live_regs() {
     free((char *)db - 2 * sizeof(void *) - sizeof(size_t));
 }
 
+/* Phase 4.A Batch 15 V5 falsifier: sentinel-pattern in_edges_ stability
+ * test for Edge copy ctor + dtor (theologian 04:17:06Z challenge —
+ * sentinel HirBasicBlock pattern is feasible since the struct is
+ * calloc-safe). Verifies the V1-claim that Edge::Edge(const Edge&)
+ * adds the new edge to both endpoints' in/out_edges_ arrays AND
+ * Edge::~Edge() removes it cleanly without disturbing siblings. */
+static void verify_phase4a_batch15_edge_in_edges() {
+    HirBasicBlock from_bb = {};
+    HirBasicBlock to_bb = {};
+
+    /* Build A with from_bb→to_bb endpoints; arrays gain count==1. */
+    Edge A;
+    A.set_to(reinterpret_cast<BasicBlock*>(&to_bb));
+    A.set_from(reinterpret_cast<BasicBlock*>(&from_bb));
+    assert(from_bb.out_edges_.count == 1 &&
+           "Phase 4.A Batch 15: A populates from_bb.out_edges_");
+    assert(to_bb.in_edges_.count == 1 &&
+           "Phase 4.A Batch 15: A populates to_bb.in_edges_");
+
+    {
+        /* Copy ctor: B added to both lists, count→2. */
+        Edge B(A);
+        assert(B.from() == A.from() &&
+               "Phase 4.A Batch 15: copy ctor preserves from()");
+        assert(B.to() == A.to() &&
+               "Phase 4.A Batch 15: copy ctor preserves to()");
+        assert(from_bb.out_edges_.count == 2 &&
+               "Phase 4.A Batch 15: copy ctor inserts into out_edges_");
+        assert(to_bb.in_edges_.count == 2 &&
+               "Phase 4.A Batch 15: copy ctor inserts into in_edges_");
+    }
+    /* ~B: removes B from both lists; A still present, count→1. */
+    assert(from_bb.out_edges_.count == 1 &&
+           "Phase 4.A Batch 15: dtor removes B from out_edges_");
+    assert(to_bb.in_edges_.count == 1 &&
+           "Phase 4.A Batch 15: dtor removes B from in_edges_");
+    assert(A.from() == reinterpret_cast<BasicBlock*>(&from_bb) &&
+           "Phase 4.A Batch 15: A.from() unchanged after ~B");
+    assert(A.to() == reinterpret_cast<BasicBlock*>(&to_bb) &&
+           "Phase 4.A Batch 15: A.to() unchanged after ~B");
+
+    /* Cleanup A's references and the dynamic edge-array storage. */
+    A.set_from(nullptr);
+    A.set_to(nullptr);
+    phx_edge_arr_destroy(&from_bb.out_edges_);
+    phx_edge_arr_destroy(&to_bb.in_edges_);
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -762,4 +810,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch11_live_regs_iteration();
     verify_phase4a_batch12_uses_replace();
     verify_phase4a_batch13_sort_live_regs();
+    verify_phase4a_batch15_edge_in_edges();
 }
