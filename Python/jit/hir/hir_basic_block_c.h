@@ -13,6 +13,7 @@
 #define JIT_HIR_BASIC_BLOCK_C_H
 
 #include "cinderx/Jit/hir/hir_instr_c.h"  /* PhxEdgePtrArray, HirEdge */
+#include "cinderx/Common/jit_log_c.h"      /* JIT_DCHECK_C (Batch 23) */
 
 #include <stddef.h>
 #include <stdint.h>
@@ -266,6 +267,57 @@ static inline void hir_c_insert_after_pure(void *instr, void *after, const HirBa
     node->next_ = next;
     next->prev_ = node;
     hir_c_link(instr, (void *)bb);
+}
+
+/* ---- Instr lifecycle (Batch 23) ---- */
+
+/* Instr::link port. Sets self.block_ to block; asserts self was
+ * unlinked. JIT_CHECK_C (release-fatal) preserves the C++ JIT_CHECK
+ * semantics — double-linking would silently overwrite block_ and
+ * leave the IntrusiveList wiring pointing at the prior block. */
+static inline void hir_c_instr_link(void *self, void *block) {
+    JIT_CHECK_C(((HirInstrLayout *)self)->block == NULL,
+                "Instr is already linked");
+    hir_c_set_block(self, block);
+}
+
+/* Instr::unlink port. Asserts self is currently linked, then removes
+ * from its block's IntrusiveList and sets block_=NULL via the
+ * existing hir_c_unlink helper. */
+static inline void hir_c_instr_unlink(void *self) {
+    HirBasicBlock *bb = (HirBasicBlock *)((HirInstrLayout *)self)->block;
+    JIT_CHECK_C(bb != NULL, "Instr isn't linked");
+    hir_c_unlink(self, bb);
+}
+
+/* Instr::ReplaceWith port. Inserts replacement before self in self's
+ * block, copies self's bytecode_offset into replacement, then unlinks
+ * self. Net effect: replacement takes self's slot, self is removed. */
+static inline void hir_c_instr_replace_with(void *self, void *replacement) {
+    const HirBasicBlock *bb =
+        (const HirBasicBlock *)((const HirInstrLayout *)self)->block;
+    hir_c_insert_before_pure(replacement, self, bb);
+    hir_c_set_bytecode_offset(replacement,
+                              ((const HirInstrLayout *)self)->bytecode_offset);
+    hir_c_unlink(self, bb);
+}
+
+/* Instr::ExpandInto port. Inserts each of `expansion[0..n)` after the
+ * previous instr (starting from self), copying self's bytecode_offset
+ * into each, then unlinks self. n=0 is just an unlink. */
+static inline void hir_c_instr_expand_into(void *self,
+                                           void **expansion,
+                                           size_t n) {
+    const HirBasicBlock *bb =
+        (const HirBasicBlock *)((const HirInstrLayout *)self)->block;
+    int32_t off = ((const HirInstrLayout *)self)->bytecode_offset;
+    void *last = self;
+    for (size_t i = 0; i < n; i++) {
+        hir_c_insert_after_pure(expansion[i], last, bb);
+        hir_c_set_bytecode_offset(expansion[i], off);
+        last = expansion[i];
+    }
+    hir_c_unlink(self, bb);
 }
 
 #ifdef __cplusplus

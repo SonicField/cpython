@@ -1157,6 +1157,66 @@ static void verify_phase4a_batch22_edges_dispatch() {
     }
 }
 
+/* Phase 4.A Batch 23 V5 BOUNDARY falsifier for Instr lifecycle bundle.
+ *
+ * Per the codified V5-feasibility analysis (theologian 07:39:52Z): two
+ * BOUNDARY cases land here.
+ *
+ *   (a) link/unlink round-trip: hir_c_instr_link sets block_, then
+ *       hir_c_instr_unlink restores block_=NULL. No list wiring needed
+ *       because hir_c_unlink's prev/next manipulation is idempotent on
+ *       the self-pointer state that hir_c_alloc_instr leaves behind.
+ *
+ *   (b) ExpandInto n=0: empty expansion array — loop body never runs,
+ *       leaving just the trailing unlink. Validates the no-op-loop
+ *       degenerate case without paying the multi-instr setup cost.
+ *
+ * ReplaceWith decomposes into (insert_before + set_bytecode_offset +
+ * unlink) — each step is independently sentinel-tested by Batches 17
+ * (set_bytecode_offset implied via init_copy field), 22 (edge dispatch),
+ * and (a) above. Whole-method coverage is V1 production-use in simplify.
+ *
+ * SUBSTANTIVE V5 (multi-instr expansion / wired-list ReplaceWith) stays
+ * deferred per the same intrusive-list multi-step blocker cited at
+ * Batch 21 + the V5-deferred-fall-back framework. */
+static void verify_phase4a_batch23_instr_lifecycle() {
+    /* (a) link/unlink round-trip. */
+    {
+        HirBasicBlock bb = {};
+        void *instr = hir_c_alloc_instr(sizeof(HirInstrLayout), 0);
+        assert(instr != NULL);
+        hir_c_init_instr(instr, HIR_OP_BinaryOp);
+        assert(((HirInstrLayout *)instr)->block == NULL &&
+               "Phase 4.A Batch 23(a): pre-condition block_ == NULL");
+
+        hir_c_instr_link(instr, &bb);
+        assert(((HirInstrLayout *)instr)->block == &bb &&
+               "Phase 4.A Batch 23(a): link sets block_ to target");
+
+        hir_c_instr_unlink(instr);
+        assert(((HirInstrLayout *)instr)->block == NULL &&
+               "Phase 4.A Batch 23(a): unlink restores block_ to NULL");
+
+        hir_c_instr_free(instr);
+    }
+
+    /* (b) ExpandInto with n=0: degenerates to a bare unlink. */
+    {
+        HirBasicBlock bb = {};
+        void *self = hir_c_alloc_instr(sizeof(HirInstrLayout), 0);
+        assert(self != NULL);
+        hir_c_init_instr(self, HIR_OP_BinaryOp);
+        ((HirInstrLayout *)self)->block = &bb;
+
+        hir_c_instr_expand_into(self, NULL, 0);
+
+        assert(((HirInstrLayout *)self)->block == NULL &&
+               "Phase 4.A Batch 23(b): empty expand_into still unlinks self");
+
+        hir_c_instr_free(self);
+    }
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -1175,4 +1235,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch20_phi_apply_args();
     verify_phase4a_batch21_dominating_frame_state();
     verify_phase4a_batch22_edges_dispatch();
+    verify_phase4a_batch23_instr_lifecycle();
 }

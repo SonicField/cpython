@@ -449,29 +449,22 @@ void Instr::InsertAfter(Instr& instr) {
 }
 
 void Instr::ReplaceWith(Instr& instr) {
-  instr.InsertBefore(*this);
-  instr.setBytecodeOffset(bytecodeOffset());
-  unlink();
+  hir_c_instr_replace_with(this, &instr);
 }
 
 void Instr::ExpandInto(const std::vector<Instr*>& expansion) {
-  Instr* last = this;
-  for (Instr* instr : expansion) {
-    instr->InsertAfter(*last);
-    instr->setBytecodeOffset(bytecodeOffset());
-    last = instr;
-  }
-  unlink();
+  hir_c_instr_expand_into(
+      this,
+      reinterpret_cast<void**>(const_cast<Instr**>(expansion.data())),
+      expansion.size());
 }
 
 void Instr::link(BasicBlock* block) {
-  JIT_CHECK(block_ == nullptr, "Instr is already linked");
-  hir_c_set_block(this, block);
+  hir_c_instr_link(this, block);
 }
 
 void Instr::unlink() {
-  JIT_CHECK(block_ != nullptr, "Instr isn't linked");
-  hir_c_unlink(this, reinterpret_cast<const HirBasicBlock*>(block_));
+  hir_c_instr_unlink(this);
 }
 
 BasicBlock* Instr::block() const {
