@@ -1033,6 +1033,72 @@ static inline void hir_c_tc_emit_get_iter(void *tc, HirRegister dst,
     hir_c_tc_emit_c(tc, hir_c_create_get_iter_reg(dst, src, fs));
 }
 
+/* ---- Phase 4.D pilot step 5 (Batch 57): emit cluster 3 (10 methods) ---- */
+
+static inline void hir_c_tc_emit_binary_op(void *tc, HirRegister dst,
+                                             int32_t op_kind, HirRegister left,
+                                             HirRegister right, void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_binary_op_reg(dst, op_kind, left, right, fs));
+}
+
+static inline void hir_c_tc_emit_set_dict_item(void *tc, HirRegister dst,
+                                                 HirRegister dict, HirRegister key,
+                                                 HirRegister value, void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_set_dict_item_reg(dst, dict, key, value, fs));
+}
+
+static inline void hir_c_tc_emit_load_tuple_item(void *tc, HirRegister dst,
+                                                   HirRegister tuple,
+                                                   int32_t idx) {
+    hir_c_tc_emit_c(tc, hir_c_create_load_tuple_item_reg(dst, tuple, idx));
+}
+
+static inline void hir_c_tc_emit_load_field_address(void *tc, HirRegister dst,
+                                                      HirRegister object,
+                                                      HirRegister offset) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_load_field_address_reg(dst, object, offset));
+}
+
+static inline void hir_c_tc_emit_set_current_awaiter(void *tc, HirRegister src) {
+    hir_c_tc_emit_c(tc, hir_c_create_set_current_awaiter_reg(src));
+}
+
+/* emitDecref/emitXDecref: caller chooses based on register nullability
+ * (TObject vs TOptObject); two primitives so the type-branch stays in
+ * the C++ shim without extending the C-side surface with type queries. */
+static inline void hir_c_tc_emit_decref(void *tc, HirRegister src) {
+    hir_c_tc_emit_c(tc, hir_c_create_decref_reg(src));
+}
+
+static inline void hir_c_tc_emit_xdecref(void *tc, HirRegister src) {
+    hir_c_tc_emit_c(tc, hir_c_create_xdecref_reg(src));
+}
+
+static inline void hir_c_tc_emit_load_arg(void *tc, HirRegister dst,
+                                            int32_t idx, HirType type) {
+    hir_c_tc_emit_c(tc, hir_c_create_load_arg_reg(dst, idx, type));
+}
+
+static inline void hir_c_tc_emit_cond_branch_iter_not_done(void *tc,
+                                                             HirRegister src,
+                                                             void *body_block,
+                                                             void *done_block) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_cond_branch_iter_not_done_cpp(src, body_block, done_block));
+}
+
+static inline void hir_c_tc_emit_int_convert(void *tc, HirRegister dst,
+                                               HirRegister src, HirType type) {
+    hir_c_tc_emit_c(tc, hir_c_create_int_convert_reg(dst, src, type));
+}
+
+static inline void hir_c_tc_emit_wait_handle_release(void *tc, HirRegister src) {
+    hir_c_tc_emit_c(tc, hir_c_create_wait_handle_release_reg(src));
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

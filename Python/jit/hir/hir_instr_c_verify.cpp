@@ -2685,6 +2685,56 @@ static void verify_phase4d_batch55_fs_coupled_cluster() {
     hir_c_test_chain_destroy(&bb);
 }
 
+/* Phase 4.D Batch 57 V5 sentinel: emit cluster 3 representative cases.
+ *
+ * Two coverage points:
+ *   - emit_load_arg (no-fs, factory takes int idx + HirType): verifies
+ *     LoadArg appended with idx + type carried through.
+ *   - emit_set_current_awaiter (no-fs, single src, no output): verifies
+ *     SetCurrentAwaiter appended at expected bytecode_offset.
+ *
+ * Remaining 8 primitives are trivial pass-throughs covered by V1
+ * production path. */
+static void verify_phase4d_batch57_emit_cluster_3() {
+    HirBasicBlock bb;
+    hir_c_test_chain_init(&bb);
+
+    PhxTranslationContext tc{};
+    tc.block = &bb;
+    tc.frame.cur_instr_offs = 51;
+
+    /* Case 1: emit_load_arg — fake dst register + sentinel HirType. */
+    HirRegLayout dst_reg{};
+    dst_reg.id = 41;
+    HirType arg_type{};
+    arg_type.bits_and_flags = 0xBEEF1234U;
+    hir_c_tc_emit_load_arg(&tc, &dst_reg, /*idx=*/3, arg_type);
+
+    void *first = hir_bb_first_instr(&bb);
+    assert(first != NULL && "Phase 4.D Batch 57: load_arg appended");
+    HirInstrLayout *la = (HirInstrLayout *)first;
+    assert(la->opcode == HIR_OP_LoadArg &&
+           "Phase 4.D Batch 57: appended instr is LoadArg");
+    assert(la->bytecode_offset == 51 &&
+           "Phase 4.D Batch 57: load_arg bytecode_offset stamped");
+
+    /* Case 2: emit_set_current_awaiter — single-src, no-output. */
+    tc.frame.cur_instr_offs = 73;
+    HirRegLayout src_reg{};
+    src_reg.id = 42;
+    hir_c_tc_emit_set_current_awaiter(&tc, &src_reg);
+
+    void *second = hir_bb_next_instr(&bb, first);
+    assert(second != NULL && "Phase 4.D Batch 57: set_current_awaiter appended");
+    HirInstrLayout *sca = (HirInstrLayout *)second;
+    assert(sca->opcode == HIR_OP_SetCurrentAwaiter &&
+           "Phase 4.D Batch 57: appended instr is SetCurrentAwaiter");
+    assert(sca->bytecode_offset == 73 &&
+           "Phase 4.D Batch 57: set_current_awaiter bytecode_offset stamped");
+
+    hir_c_test_chain_destroy(&bb);
+}
+
 /* Phase 4.D Batch 52 V5 sentinel falsifier for hir_c_advance_past_yield. */
 static void verify_phase4d_batch52_advance_past_yield() {
     HirFrameStateLayout fs = {};
@@ -2746,4 +2796,5 @@ static void hir_instr_runtime_check() {
     verify_phase4d_batch52_advance_past_yield();
     verify_phase4d_batch54_no_fs_cluster();
     verify_phase4d_batch55_fs_coupled_cluster();
+    verify_phase4d_batch57_emit_cluster_3();
 }

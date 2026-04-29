@@ -471,9 +471,8 @@ struct HIRBuilder::TranslationContext {
   // BinaryOp via C++ bridge (DeoptBase + FrameState).
   void emitBinaryOp(Register* dst, BinaryOpKind op, Register* left,
                      Register* right, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_binary_op_reg(
-        dst, static_cast<int32_t>(op), left, right,
-        const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_binary_op(this, dst, static_cast<int32_t>(op), left, right,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
   // GuardIs via C++ bridge (caller-provided register). Returns DeoptBase*.
@@ -485,21 +484,18 @@ struct HIRBuilder::TranslationContext {
   // SetDictItem via C++ bridge (DeoptBase, 3 operands + FrameState).
   void emitSetDictItem(Register* dst, Register* dict, Register* key,
                         Register* value, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_set_dict_item_reg(
-        dst, dict, key, value,
-        const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_set_dict_item(this, dst, dict, key, value,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
   // LoadTupleItem via C factory (HasOutput, 1 operand + index).
   void emitLoadTupleItem(Register* dst, Register* tuple, Py_ssize_t idx) {
-    emitC(static_cast<Instr*>(
-        hir_c_create_load_tuple_item_reg(dst, tuple, static_cast<int32_t>(idx))));
+    hir_c_tc_emit_load_tuple_item(this, dst, tuple, static_cast<int32_t>(idx));
   }
 
   // LoadFieldAddress via C factory.
   void emitLoadFieldAddress(Register* dst, Register* object, Register* offset) {
-    emitC(static_cast<Instr*>(
-        hir_c_create_load_field_address_reg(dst, object, offset)));
+    hir_c_tc_emit_load_field_address(this, dst, object, offset);
   }
 
   // YieldValue via C++ bridge (DeoptBase + FrameState).
@@ -510,16 +506,16 @@ struct HIRBuilder::TranslationContext {
 
   // SetCurrentAwaiter via C factory (1 operand, no output).
   void emitSetCurrentAwaiter(Register* src) {
-    emitC(static_cast<Instr*>(hir_c_create_set_current_awaiter_reg(src)));
+    hir_c_tc_emit_set_current_awaiter(this, src);
   }
 
   // Decref or XDecref depending on nullability.
   // Uses Decref for non-nullable (TObject), XDecref for nullable (TOptObject).
   void emitDecref(Register* src) {
     if (src->type() <= TObject) {
-      emitC(static_cast<Instr*>(hir_c_create_decref_reg(src)));
+      hir_c_tc_emit_decref(this, src);
     } else {
-      emitC(static_cast<Instr*>(hir_c_create_xdecref_reg(src)));
+      hir_c_tc_emit_xdecref(this, src);
     }
   }
 
@@ -537,8 +533,7 @@ struct HIRBuilder::TranslationContext {
 
   // LoadArg via C factory (HasOutput, index + type).
   void emitLoadArg(Register* dst, int idx, Type type) {
-    emitC(static_cast<Instr*>(
-        hir_c_create_load_arg_reg(dst, static_cast<int32_t>(idx), to_hir(type))));
+    hir_c_tc_emit_load_arg(this, dst, static_cast<int32_t>(idx), to_hir(type));
   }
 
   // YieldFrom via C++ bridge (DeoptBase + FrameState).
@@ -557,14 +552,12 @@ struct HIRBuilder::TranslationContext {
 
   // CondBranchIterNotDone via C++ bridge (Edge::set_to).
   void emitCondBranchIterNotDone(Register* src, BasicBlock* body, BasicBlock* done) {
-    emitC(static_cast<Instr*>(
-        hir_c_create_cond_branch_iter_not_done_cpp(src, body, done)));
+    hir_c_tc_emit_cond_branch_iter_not_done(this, src, body, done);
   }
 
   // IntConvert via C factory (HasOutput, type field).
   void emitIntConvert(Register* dst, Register* src, Type type) {
-    emitC(static_cast<Instr*>(
-        hir_c_create_int_convert_reg(dst, src, to_hir(type))));
+    hir_c_tc_emit_int_convert(this, dst, src, to_hir(type));
   }
 
   // GetIter via C++ bridge (DeoptBase + FrameState).
@@ -579,7 +572,7 @@ struct HIRBuilder::TranslationContext {
         const_cast<void*>(static_cast<const void*>(&fs)))));
   }
   void emitWaitHandleRelease(Register* src) {
-    emitC(static_cast<Instr*>(hir_c_create_wait_handle_release_reg(src)));
+    hir_c_tc_emit_wait_handle_release(this, src);
   }
   void emitMakeSet(Register* dst, const FrameState& fs) {
     emitC(static_cast<Instr*>(hir_c_create_make_set_reg(
