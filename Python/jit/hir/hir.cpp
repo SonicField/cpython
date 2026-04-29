@@ -455,7 +455,7 @@ void Instr::unlink() {
 }
 
 BasicBlock* Instr::block() const {
-  return block_;
+  return static_cast<BasicBlock*>(hir_c_block(this));
 }
 
 BCOffset Instr::bytecodeOffset() const {
