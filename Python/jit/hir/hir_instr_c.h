@@ -1168,39 +1168,6 @@ static inline HirOperandTypeEntry hir_c_instr_get_operand_type(
     return info->types[idx];
 }
 
-/* Phase 4.A Batch 16: pure-C raw allocator + base-pointer math for
- * Instr instances. Layout (preamble before instr ptr):
- *   [Register*[num_operands]] [size_t num_operands] [HirInstrLayout...]
- * hir_c_instr_allocate is a verbatim port of C++ Instr::allocate
- * (calloc + ptr arithmetic, no IntrusiveListNode init — that comes
- * from the subsequent C++ ctor). Distinct from hir_c_alloc_instr,
- * which is the C-side variant that ALSO initializes the
- * IntrusiveListNode self-pointers. */
-static inline void *hir_c_instr_allocate(size_t fixed_size,
-                                         size_t num_operands) {
-    size_t variable_size = num_operands * sizeof(void *);
-    char *ptr = (char *)calloc(
-        variable_size + fixed_size + sizeof(size_t), 1);
-    if (!ptr) return NULL;
-    ptr += variable_size;
-    *(size_t *)ptr = num_operands;
-    ptr += sizeof(size_t);
-    return ptr;
-}
-
-/* base-pointer math: walk back num_operands operand slots + the
- * num_operands prefix word. Mirrors C++ Instr::base(). */
-static inline void *hir_c_instr_base(void *instr) {
-    size_t n = hir_c_num_operands(instr);
-    return (char *)instr - n * sizeof(void *) - sizeof(size_t);
-}
-
-/* free the entire instr allocation by walking back to the calloc
- * pointer via hir_c_instr_base. Mirrors C++ Instr::operator delete. */
-static inline void hir_c_instr_free(void *instr) {
-    free(hir_c_instr_base(instr));
-}
-
 /* qsort comparator for HirRegState by .reg id ascending. Used by
  * hir_c_deopt_sort_live_regs (Batch 13 port of DeoptBase::sortLiveRegs). */
 static inline int hir_c_reg_state_id_cmp(const void *a, const void *b) {
@@ -1335,6 +1302,28 @@ static inline void hir_c_init_end_inlined(void *instr, int32_t opcode) {
 static inline void *hir_c_instr_base(void *instr) {
     size_t n = hir_c_num_operands(instr);
     return (char *)instr - n * sizeof(void *) - sizeof(size_t);
+}
+
+/* Phase 4.A Batch 16: raw allocator + free for Instr instances.
+ * hir_c_instr_allocate is a verbatim port of C++ Instr::allocate
+ * (calloc + ptr arithmetic, no IntrusiveListNode init — that comes
+ * from the subsequent C++ ctor). Distinct from hir_c_alloc_instr,
+ * which is the C-side variant that ALSO initializes the
+ * IntrusiveListNode self-pointers. hir_c_instr_free walks back to
+ * the calloc origin via hir_c_instr_base then calls free. */
+static inline void *hir_c_instr_allocate(size_t fixed_size,
+                                         size_t num_operands) {
+    size_t variable_size = num_operands * sizeof(void *);
+    char *ptr = (char *)calloc(
+        variable_size + fixed_size + sizeof(size_t), 1);
+    if (!ptr) return NULL;
+    ptr += variable_size;
+    *(size_t *)ptr = num_operands;
+    ptr += sizeof(size_t);
+    return ptr;
+}
+static inline void hir_c_instr_free(void *instr) {
+    free(hir_c_instr_base(instr));
 }
 
 /* ==== C++ destruction helpers ====
