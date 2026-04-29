@@ -336,3 +336,54 @@ int hir_c_parse_unary_op_name(const char *name, size_t len) {
     }
     JIT_ABORT_C("Invalid UnaryOpKind name (length %zu)", len);
 }
+
+/* ==== PrimitiveUnary/InPlace op metadata (Batch 34) ====
+ * Mirrors FOREACH_PRIMITIVE_UNARY_OP_KIND / FOREACH_INPLACE_OP_KIND
+ * from hir.h. Order MUST match the enum values declared at hir.h:1721
+ * and hir.h:745. */
+
+const char *const kPrimitiveUnaryOpNames_c[] = {
+    "NegateInt",
+    "InvertInt",
+    "NotInt",
+};
+const size_t kNumPrimitiveUnaryOpKinds_c =
+    sizeof(kPrimitiveUnaryOpNames_c) / sizeof(kPrimitiveUnaryOpNames_c[0]);
+
+const char *const kInPlaceOpNames_c[] = {
+    "Add",
+    "And",
+    "FloorDivide",
+    "LShift",
+    "MatrixMultiply",
+    "Modulo",
+    "Multiply",
+    "Or",
+    "Power",
+    "RShift",
+    "Subtract",
+    "TrueDivide",
+    "Xor",
+};
+const size_t kNumInPlaceOpKinds_c =
+    sizeof(kInPlaceOpNames_c) / sizeof(kInPlaceOpNames_c[0]);
+
+int hir_c_parse_primitive_unary_op_name(const char *name, size_t len) {
+    for (size_t i = 0; i < kNumPrimitiveUnaryOpKinds_c; i++) {
+        if (strlen(kPrimitiveUnaryOpNames_c[i]) == len &&
+            strncmp(name, kPrimitiveUnaryOpNames_c[i], len) == 0) {
+            return (int)i;
+        }
+    }
+    JIT_ABORT_C("Invalid PrimitiveUnaryOpKind name (length %zu)", len);
+}
+
+int hir_c_parse_inplace_op_name(const char *name, size_t len) {
+    for (size_t i = 0; i < kNumInPlaceOpKinds_c; i++) {
+        if (strlen(kInPlaceOpNames_c[i]) == len &&
+            strncmp(name, kInPlaceOpNames_c[i], len) == 0) {
+            return (int)i;
+        }
+    }
+    JIT_ABORT_C("Invalid InPlaceOpKind name (length %zu)", len);
+}

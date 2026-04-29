@@ -71,6 +71,23 @@ static inline const char *hir_c_get_unary_op_name(int op) {
 int hir_c_parse_binary_op_name(const char *name, size_t len);
 int hir_c_parse_unary_op_name(const char *name, size_t len);
 
+/* ---- PrimitiveUnary/InPlace op metadata (Batch 34) ---- */
+extern const char *const kPrimitiveUnaryOpNames_c[];
+extern const size_t kNumPrimitiveUnaryOpKinds_c;
+extern const char *const kInPlaceOpNames_c[];
+extern const size_t kNumInPlaceOpKinds_c;
+
+static inline const char *hir_c_get_primitive_unary_op_name(int op) {
+    return kPrimitiveUnaryOpNames_c[op];
+}
+
+static inline const char *hir_c_get_inplace_op_name(int op) {
+    return kInPlaceOpNames_c[op];
+}
+
+int hir_c_parse_primitive_unary_op_name(const char *name, size_t len);
+int hir_c_parse_inplace_op_name(const char *name, size_t len);
+
 /* Convenience accessors */
 static inline int hir_instr_info_is_deopt_base(int opcode) {
     return hir_instr_get_info(opcode)->is_deopt_base;

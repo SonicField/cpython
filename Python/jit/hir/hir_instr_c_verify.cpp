@@ -1734,6 +1734,34 @@ static void verify_phase4a_batch29_binary_unary_ops() {
     }
 }
 
+/* Phase 4.A Batch 34 V5 falsifier for PrimitiveUnaryOp + InPlaceOp
+ * name helpers. Same pattern as B28 + B29: table-size pin + GetX/ParseX
+ * round-trip for every enum value. */
+static void verify_phase4a_batch34_primitive_unary_inplace_ops() {
+    assert(kNumPrimitiveUnaryOpKinds_c == kNumPrimitiveUnaryOpKinds &&
+           "Phase 4.A Batch 34: PrimitiveUnary table size matches C++");
+    assert(kNumInPlaceOpKinds_c == kNumInPlaceOpKinds &&
+           "Phase 4.A Batch 34: InPlace table size matches C++");
+
+    for (int i = 0; i < (int)kNumPrimitiveUnaryOpKinds_c; i++) {
+        const char *name = hir_c_get_primitive_unary_op_name(i);
+        assert(name != NULL && name[0] != '\0' &&
+               "Phase 4.A Batch 34: PrimitiveUnaryOpKind name non-empty");
+        int parsed = hir_c_parse_primitive_unary_op_name(name, strlen(name));
+        assert(parsed == i &&
+               "Phase 4.A Batch 34: PrimitiveUnaryOpKind name round-trip");
+    }
+
+    for (int i = 0; i < (int)kNumInPlaceOpKinds_c; i++) {
+        const char *name = hir_c_get_inplace_op_name(i);
+        assert(name != NULL && name[0] != '\0' &&
+               "Phase 4.A Batch 34: InPlaceOpKind name non-empty");
+        int parsed = hir_c_parse_inplace_op_name(name, strlen(name));
+        assert(parsed == i &&
+               "Phase 4.A Batch 34: InPlaceOpKind name round-trip");
+    }
+}
+
 /* Phase 4.A Batch 30: SUBSTANTIVE V5 back-fill for B21
  * (Instr::getDominatingFrameState ef73c50a75) using the Batch I
  * test-chain helper. Falsifier-only addition; no production code
@@ -2054,4 +2082,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch31_expand_into_substantive();
     verify_phase4a_batch32_add_remove_phi_substantive();
     verify_phase4a_batch33_bb_list_substantive();
+    verify_phase4a_batch34_primitive_unary_inplace_ops();
 }

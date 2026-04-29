@@ -721,45 +721,22 @@ UnaryOpKind ParseUnaryOpName(std::string_view name) {
       hir_c_parse_unary_op_name(name.data(), name.size()));
 }
 
-constexpr std::array<std::string_view, kNumPrimitiveUnaryOpKinds>
-    kPrimitiveUnaryOpNames = {
-#define OP_STR(NAME) #NAME,
-        FOREACH_PRIMITIVE_UNARY_OP_KIND(OP_STR)
-#undef OP_STR
-};
-
 std::string_view GetPrimitiveUnaryOpName(PrimitiveUnaryOpKind op) {
-  return kPrimitiveUnaryOpNames[static_cast<int>(op)];
+  return hir_c_get_primitive_unary_op_name(static_cast<int>(op));
 }
 
 PrimitiveUnaryOpKind ParsePrimitiveUnaryOpName(std::string_view name) {
-  for (size_t i = 0; i < kPrimitiveUnaryOpNames.size(); ++i) {
-    if (name == kPrimitiveUnaryOpNames[i]) {
-      return static_cast<PrimitiveUnaryOpKind>(i);
-    }
-  }
-  JIT_ABORT("Invalid PrimitiveUnaryOpKind '{}'", name);
+  return static_cast<PrimitiveUnaryOpKind>(
+      hir_c_parse_primitive_unary_op_name(name.data(), name.size()));
 }
 
-// NB: This needs to be in the order that the values appear in the InPlaceOpKind
-// enum
-constexpr std::array<std::string_view, kNumInPlaceOpKinds> kInPlaceOpNames = {
-#define OP_STR(NAME) #NAME,
-    FOREACH_INPLACE_OP_KIND(OP_STR)
-#undef OP_STR
-};
-
 std::string_view GetInPlaceOpName(InPlaceOpKind op) {
-  return kInPlaceOpNames[static_cast<int>(op)];
+  return hir_c_get_inplace_op_name(static_cast<int>(op));
 }
 
 InPlaceOpKind ParseInPlaceOpName(std::string_view name) {
-  for (size_t i = 0; i < kInPlaceOpNames.size(); ++i) {
-    if (name == kInPlaceOpNames[i]) {
-      return static_cast<InPlaceOpKind>(i);
-    }
-  }
-  JIT_ABORT("Invalid InPlaceOpKind '{}'", name);
+  return static_cast<InPlaceOpKind>(
+      hir_c_parse_inplace_op_name(name.data(), name.size()));
 }
 
 // NB: This needs to be in the order that the values appear in the FunctionAttr
