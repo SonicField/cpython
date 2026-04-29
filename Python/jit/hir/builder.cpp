@@ -575,41 +575,41 @@ struct HIRBuilder::TranslationContext {
     hir_c_tc_emit_wait_handle_release(this, src);
   }
   void emitMakeSet(Register* dst, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_make_set_reg(
-        dst, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_make_set(this, dst,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitDeleteAttr(Register* receiver, int name_idx, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_delete_attr_reg(
-        receiver, name_idx, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_delete_attr(this, receiver, name_idx,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitDeleteSubscr(Register* container, Register* sub, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_delete_subscr_reg(
-        container, sub, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_delete_subscr(this, container, sub,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitStoreAttr(Register* receiver, Register* value, int name_idx, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_store_attr_reg(
-        receiver, value, name_idx, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_store_attr(this, receiver, value, name_idx,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitSwapCellItem(Register* dst, Register* cell, Register* value) {
-    emitC(static_cast<Instr*>(hir_c_create_swap_cell_item_reg(dst, cell, value)));
+    hir_c_tc_emit_swap_cell_item(this, dst, cell, value);
   }
   void emitStealCellItem(Register* dst, Register* cell) {
-    emitC(static_cast<Instr*>(hir_c_create_steal_cell_item_reg(dst, cell)));
+    hir_c_tc_emit_steal_cell_item(this, dst, cell);
   }
   void emitSetCellItem(Register* cell, Register* value, Register* old) {
-    emitC(static_cast<Instr*>(hir_c_create_set_cell_item_reg(cell, value, old)));
+    hir_c_tc_emit_set_cell_item(this, cell, value, old);
   }
   void emitAtQuiescentState() {
-    emitC(static_cast<Instr*>(hir_c_create_at_quiescent_state_reg()));
+    hir_c_tc_emit_at_quiescent_state(this);
   }
   void emitRunPeriodicTasks(Register* dst, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_run_periodic_tasks_reg(
-        dst, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_run_periodic_tasks(this, dst,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
   // Batch 2 wrappers
   void emitWaitHandleLoadWaiter(Register* dst, Register* src) {
-    emitC(static_cast<Instr*>(hir_c_create_wait_handle_load_waiter_reg(dst, src)));
+    hir_c_tc_emit_wait_handle_load_waiter(this, dst, src);
   }
   void emitWaitHandleLoadCoroOrResult(Register* dst, Register* src) {
     emitC(static_cast<Instr*>(hir_c_create_wait_handle_load_coro_reg(dst, src)));

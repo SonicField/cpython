@@ -2735,6 +2735,54 @@ static void verify_phase4d_batch57_emit_cluster_3() {
     hir_c_test_chain_destroy(&bb);
 }
 
+/* Phase 4.D Batch 58 V5 sentinel: emit cluster 4 representative cases.
+ *
+ *   - emit_store_attr (FS-coupled, 4-arg): StoreAttr instr appended at
+ *     cur_instr_offs=89 with bytecode_offset stamped.
+ *   - emit_at_quiescent_state (no-FS, no-arg, no-output): instr appended
+ *     at cur_instr_offs=101 with bytecode_offset stamped.
+ *
+ * Remaining 8 primitives covered by V1 production path. */
+static void verify_phase4d_batch58_emit_cluster_4() {
+    HirBasicBlock bb;
+    hir_c_test_chain_init(&bb);
+
+    PhxTranslationContext tc{};
+    tc.block = &bb;
+
+    /* Case 1: emit_store_attr — FS-coupled. */
+    tc.frame.cur_instr_offs = 89;
+    FrameState fs{};
+    fs.cur_instr_offs = jit::BCOffset{89};
+    HirRegLayout receiver{};
+    receiver.id = 51;
+    HirRegLayout value{};
+    value.id = 52;
+    hir_c_tc_emit_store_attr(&tc, &receiver, &value, /*name_idx=*/7, &fs);
+
+    void *first = hir_bb_first_instr(&bb);
+    assert(first != NULL && "Phase 4.D Batch 58: store_attr appended");
+    HirInstrLayout *sa = (HirInstrLayout *)first;
+    assert(sa->opcode == HIR_OP_StoreAttr &&
+           "Phase 4.D Batch 58: appended instr is StoreAttr");
+    assert(sa->bytecode_offset == 89 &&
+           "Phase 4.D Batch 58: store_attr bytecode_offset stamped");
+
+    /* Case 2: emit_at_quiescent_state — no-FS, no-arg, no-output. */
+    tc.frame.cur_instr_offs = 101;
+    hir_c_tc_emit_at_quiescent_state(&tc);
+
+    void *second = hir_bb_next_instr(&bb, first);
+    assert(second != NULL && "Phase 4.D Batch 58: at_quiescent_state appended");
+    HirInstrLayout *aqs = (HirInstrLayout *)second;
+    assert(aqs->opcode == HIR_OP_AtQuiescentState &&
+           "Phase 4.D Batch 58: appended instr is AtQuiescentState");
+    assert(aqs->bytecode_offset == 101 &&
+           "Phase 4.D Batch 58: at_quiescent_state bytecode_offset stamped");
+
+    hir_c_test_chain_destroy(&bb);
+}
+
 /* Phase 4.D Batch 52 V5 sentinel falsifier for hir_c_advance_past_yield. */
 static void verify_phase4d_batch52_advance_past_yield() {
     HirFrameStateLayout fs = {};
@@ -2797,4 +2845,5 @@ static void hir_instr_runtime_check() {
     verify_phase4d_batch54_no_fs_cluster();
     verify_phase4d_batch55_fs_coupled_cluster();
     verify_phase4d_batch57_emit_cluster_3();
+    verify_phase4d_batch58_emit_cluster_4();
 }

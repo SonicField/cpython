@@ -1099,6 +1099,62 @@ static inline void hir_c_tc_emit_wait_handle_release(void *tc, HirRegister src) 
     hir_c_tc_emit_c(tc, hir_c_create_wait_handle_release_reg(src));
 }
 
+/* ---- Phase 4.D pilot step 6 (Batch 58): emit cluster 4 (10 methods) ---- */
+
+static inline void hir_c_tc_emit_make_set(void *tc, HirRegister dst, void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_make_set_reg(dst, fs));
+}
+
+static inline void hir_c_tc_emit_delete_attr(void *tc, HirRegister receiver,
+                                               int32_t name_idx, void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_delete_attr_reg(receiver, name_idx, fs));
+}
+
+static inline void hir_c_tc_emit_delete_subscr(void *tc, HirRegister container,
+                                                 HirRegister sub, void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_delete_subscr_reg(container, sub, fs));
+}
+
+static inline void hir_c_tc_emit_store_attr(void *tc, HirRegister receiver,
+                                              HirRegister value,
+                                              int32_t name_idx, void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_store_attr_reg(receiver, value, name_idx, fs));
+}
+
+static inline void hir_c_tc_emit_swap_cell_item(void *tc, HirRegister dst,
+                                                  HirRegister cell,
+                                                  HirRegister value) {
+    hir_c_tc_emit_c(tc, hir_c_create_swap_cell_item_reg(dst, cell, value));
+}
+
+static inline void hir_c_tc_emit_steal_cell_item(void *tc, HirRegister dst,
+                                                   HirRegister cell) {
+    hir_c_tc_emit_c(tc, hir_c_create_steal_cell_item_reg(dst, cell));
+}
+
+static inline void hir_c_tc_emit_set_cell_item(void *tc, HirRegister cell,
+                                                 HirRegister value,
+                                                 HirRegister old) {
+    hir_c_tc_emit_c(tc, hir_c_create_set_cell_item_reg(cell, value, old));
+}
+
+static inline void hir_c_tc_emit_at_quiescent_state(void *tc) {
+    hir_c_tc_emit_c(tc, hir_c_create_at_quiescent_state_reg());
+}
+
+static inline void hir_c_tc_emit_run_periodic_tasks(void *tc, HirRegister dst,
+                                                      void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_run_periodic_tasks_reg(dst, fs));
+}
+
+static inline void hir_c_tc_emit_wait_handle_load_waiter(void *tc,
+                                                           HirRegister dst,
+                                                           HirRegister src) {
+    hir_c_tc_emit_c(tc, hir_c_create_wait_handle_load_waiter_reg(dst, src));
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
