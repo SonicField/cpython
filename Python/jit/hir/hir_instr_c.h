@@ -1072,6 +1072,56 @@ static inline void hir_c_set_operand(void *instr, size_t i, void *reg) {
     ops[i] = reg;
 }
 
+/* Returns pointer to operand slot for in-place mutation. Used by
+ * hir_c_instr_visit_uses callbacks that need to overwrite an operand
+ * (e.g., ReplaceUsesOf). */
+static inline void **hir_c_operand_slot(void *instr, size_t i) {
+    const size_t n = hir_c_num_operands(instr);
+    void **ops = (void **)((size_t *)instr - 1) - n;
+    return &ops[i];
+}
+
+/* Visitor callback for hir_c_instr_visit_uses. Receives the operand slot
+ * (mutable: writing through *slot replaces the operand). user is opaque
+ * data passed through from the call site. Return non-zero to continue
+ * iteration, zero to stop early. */
+typedef int (*HirRegVisitor)(void **reg_slot, void *user);
+
+/* C-callable bridges to C++ visitor extensions on Snapshot / DeoptBase
+ * subclasses. Implemented in hir.cpp; wrap the std::function-based C++
+ * methods with a callback adapter. Foundation for Phase 4.A Batch 9
+ * visitor-pattern port; subclass ports themselves remain in C++. */
+int hir_snapshot_visit_uses_c(void *snap, HirRegVisitor visitor, void *user);
+int hir_deopt_visit_uses_deopt_c(void *db, HirRegVisitor visitor, void *user);
+
+/* Visit each operand-slot of an instruction:
+ *   1. For Snapshot opcodes: delegate to hir_snapshot_visit_uses_c (visits
+ *      frame_state only, no operands).
+ *   2. Otherwise: iterate the operand array, invoking visitor on each slot.
+ *   3. For DeoptBase subclasses: delegate to hir_deopt_visit_uses_deopt_c
+ *      to also visit frame_state, live_regs, guilty_reg.
+ * Returns 1 if visitor returned non-zero for every slot, 0 if any visitor
+ * call returned zero (early stop). */
+static inline int hir_c_instr_visit_uses(void *instr,
+                                         HirRegVisitor visitor,
+                                         void *user) {
+    int op = hir_c_opcode(instr);
+    if (op == HIR_OP_Snapshot) {
+        return hir_snapshot_visit_uses_c(instr, visitor, user);
+    }
+    size_t n = hir_c_num_operands(instr);
+    for (size_t i = 0; i < n; i++) {
+        void **slot = hir_c_operand_slot(instr, i);
+        if (!visitor(slot, user)) {
+            return 0;
+        }
+    }
+    if (hir_instr_info_is_deopt_base(op)) {
+        return hir_deopt_visit_uses_deopt_c(instr, visitor, user);
+    }
+    return 1;
+}
+
 /* ==== Instruction allocation ====
  * Mirrors Instr::allocate: calloc preamble + struct, return struct ptr.
  * Layout: [Register*[num_ops]] [size_t num_ops] [HirInstrLayout...] */

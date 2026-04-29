@@ -311,26 +311,44 @@ void Instr::SetOperand(std::size_t i, Register* reg) {
   hir_c_set_operand(this, i, reg);
 }
 
+// Phase 4.A Batch 9: visitor-pattern foundation. C-callable bridges
+// expose Snapshot::visitUses + DeoptBase::visitUsesDeopt via
+// HirRegVisitor function pointer. Instr::visitUses wraps the
+// std::function as opaque user data and dispatches through C.
+}  // namespace jit::hir
+
+extern "C" int hir_snapshot_visit_uses_c(void *snap,
+                                         HirRegVisitor visitor,
+                                         void *user) {
+  auto* s = static_cast<jit::hir::Snapshot*>(snap);
+  bool ok = s->visitUses([&](jit::hir::Register*& reg) {
+    return visitor(reinterpret_cast<void**>(&reg), user) != 0;
+  });
+  return ok ? 1 : 0;
+}
+
+extern "C" int hir_deopt_visit_uses_deopt_c(void *db,
+                                            HirRegVisitor visitor,
+                                            void *user) {
+  auto* d = static_cast<jit::hir::DeoptBase*>(db);
+  bool ok = d->visitUsesDeopt([&](jit::hir::Register*& reg) {
+    return visitor(reinterpret_cast<void**>(&reg), user) != 0;
+  });
+  return ok ? 1 : 0;
+}
+
+namespace jit::hir {
+
 bool Instr::visitUses(const std::function<bool(Register*&)>& func) {
-  // Snapshot: only visits frame_state, no operands (T2-C4)
-  if (opcode_ == Opcode::kSnapshot) {
-    return static_cast<Snapshot*>(this)->visitUses(func);
-  }
-
-  // Base: iterate operand array
-  auto num_uses = NumOperands();
-  for (std::size_t i = 0; i < num_uses; i++) {
-    if (!func(operandAt(i))) {
-      return false;
-    }
-  }
-
-  // DeoptBase extension: frame_state + live_regs + guilty_reg
-  if (auto* db = asDeoptBase()) {
-    return db->visitUsesDeopt(func);
-  }
-
-  return true;
+  auto thunk = +[](void **slot, void *user) -> int {
+    auto& f = *static_cast<const std::function<bool(Register*&)>*>(user);
+    Register*& reg_ref = *reinterpret_cast<Register**>(slot);
+    return f(reg_ref) ? 1 : 0;
+  };
+  return hir_c_instr_visit_uses(
+      this,
+      thunk,
+      const_cast<std::function<bool(Register*&)>*>(&func)) != 0;
 }
 
 bool Instr::visitUses(const std::function<bool(Register*)>& func) const {
