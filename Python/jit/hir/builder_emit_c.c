@@ -1024,7 +1024,7 @@ void hir_builder_emit_load_iterable_arg_c(
         phx_tc_emit(tc, hir_c_create_snapshot(&tc->frame));
 
         /* Allocate the tuple register (with cache_ side-effect). */
-        tuple_reg = hir_builder_state_temps_alloc_stack_cpp(builder);
+        tuple_reg = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
 
         /* tuple_path: Assign(tuple_reg, iterable); Branch(merge). */
         tc->block = tuple_path_block;
@@ -1044,9 +1044,9 @@ void hir_builder_emit_load_iterable_arg_c(
     }
 
     /* Load the element at index oparg from the tuple. */
-    void *tmp = hir_builder_state_temps_alloc_stack_cpp(builder);
-    void *tup_idx = hir_builder_state_temps_alloc_stack_cpp(builder);
-    void *element = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *tmp = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
+    void *tup_idx = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
+    void *element = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
 
     HirType t_cint64 = HIR_TYPE_CINT64;
     HirType const_type = hir_type_from_cint((int64_t)oparg, t_cint64);
@@ -1072,7 +1072,7 @@ extern HirType hir_get_context_type_for_common_constant(int i);
 
 void hir_builder_emit_load_common_constant_c(
         PhxTranslationContext *tc, void *builder, int oparg) {
-    void *out = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *out = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     HirType type = hir_get_context_type_for_common_constant(oparg);
     phx_tc_emit(tc, hir_c_create_load_const(out, type));
     phx_ptr_arr_push(&tc->frame.stack, out);
@@ -2303,12 +2303,12 @@ void hir_builder_emit_yield_value_c(
         int next_bc_opcode,
         int next_bc_oparg) {
     void *in = phx_ptr_arr_pop(&tc->frame.stack);
-    void *out = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *out = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     if (code_flags & CO_ASYNC_GENERATOR) {
         phx_tc_emit_checked_call_cfunc_1(
             tc, out, /*kCix_PyAsyncGenValueWrapperNew=*/0, in);
         in = out;
-        out = hir_builder_state_temps_alloc_stack_cpp(builder);
+        out = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     }
     if (next_bc_opcode == RESUME && next_bc_oparg >= 2) {
         /* yield-from path: peek (do not pop) the iter at TOS. */
@@ -2363,7 +2363,7 @@ void hir_builder_emit_load_method_or_attr_super_c(
     void *receiver = phx_ptr_arr_pop(&tc->frame.stack);
     void *type = phx_ptr_arr_pop(&tc->frame.stack);
     void *global_super = phx_ptr_arr_pop(&tc->frame.stack);
-    void *result = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *result = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
 
     /* (#8) deopt-path emits go into deopt_tc.block. */
     phx_tc_emit(&deopt_tc, hir_c_create_snapshot(&deopt_tc.frame));
@@ -2389,7 +2389,7 @@ void hir_builder_emit_load_method_or_attr_super_c(
     /* (#5) load_method=true: alloc method_instance, emit LoadMethodSuper,
      * extract second output. Order matters: LoadMethodSuper FIRST, then
      * GetSecondOutput which depends on LoadMethodSuper's result reg. */
-    void *method_instance = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *method_instance = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     phx_tc_emit(tc, hir_c_create_load_method_super_reg(
         result, global_super, type, receiver,
         (int32_t)name_idx, no_args_in_super_call, &tc->frame));
@@ -2455,7 +2455,7 @@ void hir_builder_emit_invoke_method_vector_call_c(
         HirType ret_type) {
     /* Allocate out internally (was caller-allocated; moved into bridge per
      * Batch 1 #3 PARTIAL→STUB cleanup so C++ stub can drop temps_.AllocateStack). */
-    void *out = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *out = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     uint32_t flags = is_awaited ? 2u : 0u;  /* CallFlags::Awaited = 1<<1 */
     void *call = hir_c_create_vectorcall_reg(arg_regs_count, out, flags);
     for (size_t i = 0; i < arg_regs_count; i++) {
@@ -2526,12 +2526,12 @@ bool hir_builder_emit_invoke_function_c(
         return false;
     }
 
-    void *funcreg = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *funcreg = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
 
     if (container_is_immutable) {
         if (is_function && is_statically_typed) {
             /* Path (A): direct InvokeStaticFunction call. */
-            void *out = hir_builder_state_temps_alloc_stack_cpp(builder);
+            void *out = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
             HirType callable_type = hir_type_from_object((PyObject *)callable);
             phx_tc_emit(tc, hir_c_create_load_const(funcreg, callable_type));
 
@@ -2567,7 +2567,7 @@ bool hir_builder_emit_invoke_function_c(
         builder, tc, descr, nargs, /*statically_invoked=*/0,
         arg_regs, &arg_regs_count);
 
-    void *out = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *out = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     if (container_is_immutable) {
         flags |= 4u;  /* CallFlags::Static = 1<<2 */
     }
@@ -2687,7 +2687,7 @@ void hir_builder_emit_invoke_native_c(
 
     Py_ssize_t nargs = PyTuple_GET_SIZE(signature) - 1;
 
-    void *out = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *out = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     void *call = hir_c_create_call_static_reg((size_t)nargs, out, callable, ret_type);
     for (Py_ssize_t i = nargs - 1; i >= 0; i--) {
         void *operand = phx_ptr_arr_pop(&tc->frame.stack);
@@ -2743,8 +2743,8 @@ void hir_builder_emit_dispatch_eager_coro_result_c(
         stack_top, t_wait_handle, has_wh_blk, await_block));
 
     /* (6) Allocate wh_coro_or_result + wh_waiter — both BEFORE WaitHandle emits. */
-    void *wh_coro_or_result = hir_builder_state_temps_alloc_stack_cpp(builder);
-    void *wh_waiter = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *wh_coro_or_result = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
+    void *wh_waiter = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
 
     /* (7) WaitHandle ORDER: LoadCoroOrResult → LoadWaiter → Release. */
     phx_tc_emit(&has_wh_tc, hir_c_create_wait_handle_load_coro_reg(
@@ -2831,7 +2831,7 @@ void hir_builder_emit_get_awaitable_c(
         int error_aexit) {
     /* P1: pop iterable, alloc iter, CallCFunc(JitCoro_GetAwaitableIter). */
     void *iterable = phx_ptr_arr_pop(&tc->frame.stack);
-    void *iter = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *iter = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     {
         void *operands[1] = { iterable };
         phx_tc_emit(tc, hir_c_create_call_cfunc_reg(
@@ -2846,7 +2846,7 @@ void hir_builder_emit_get_awaitable_c(
 
         /* error_block: LoadField(type=ob_type) + RaiseAwaitableError */
         tc->block = error_block;
-        void *type_reg = hir_builder_state_temps_alloc_stack_cpp(builder);
+        void *type_reg = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
         HirType t_type = HIR_TYPE_TYPE;
         phx_tc_emit(tc, hir_c_create_load_field_reg(
             type_reg, iterable, "ob_type",
@@ -2888,7 +2888,7 @@ void hir_builder_emit_get_awaitable_c(
         block_assert_not_awaited_coro, block_done));
 
     /* P4: yf check (CallCFunc kJitGen_yf=2). */
-    void *yf = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *yf = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     tc->block = block_assert_not_awaited_coro;
     {
         void *operands[1] = { iter };
@@ -2990,7 +2990,7 @@ void hir_builder_emit_load_method_static_c(
 
     /* P2: pop self, alloc type. */
     void *self = phx_ptr_arr_pop(&tc->frame.stack);
-    void *type = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *type = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     if (!is_classmethod) {
         phx_tc_emit(tc, hir_c_create_load_field_reg(
             type, self, "ob_type",
@@ -3128,7 +3128,7 @@ void hir_builder_emit_unpack_sequence_c(
     void *list_check_path = hir_cfg_alloc_block(func);
     void *list_fast_path = hir_cfg_alloc_block(func);
     void *tuple_fast_path = hir_cfg_alloc_block(func);
-    void *list_mem = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *list_mem = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     /* Now pop seq from main tc.stack (deopt_tc.frame already preserved
      * the pre-pop state per PA). */
     phx_ptr_arr_pop(&tc->frame.stack);
@@ -3155,7 +3155,7 @@ void hir_builder_emit_unpack_sequence_c(
     /* P4: tuple_fast_path emission. */
     tc->block = tuple_fast_path;
     {
-        void *offset_reg = hir_builder_state_temps_alloc_stack_cpp(builder);
+        void *offset_reg = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
         HirType t_cint64 = (HirType)HIR_TYPE_CINT64;
         HirType offset_type = hir_type_from_cint(
             (int64_t)offsetof(PyTupleObject, ob_item), t_cint64);
@@ -3178,8 +3178,8 @@ void hir_builder_emit_unpack_sequence_c(
     /* P6: fast_path size check. */
     tc->block = fast_path;
     {
-        void *seq_size = hir_builder_state_temps_alloc_stack_cpp(builder);
-        void *target_size = hir_builder_state_temps_alloc_stack_cpp(builder);
+        void *seq_size = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
+        void *target_size = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
         void *is_equal = hir_builder_state_temps_alloc_stack_cpp(builder);
         HirType t_cint64 = (HirType)HIR_TYPE_CINT64;
         phx_tc_emit(tc, hir_c_create_load_var_object_size_reg(seq_size, seq));
