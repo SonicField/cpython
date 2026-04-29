@@ -1087,18 +1087,57 @@ static inline void **hir_c_operand_slot(void *instr, size_t i) {
  * iteration, zero to stop early. */
 typedef int (*HirRegVisitor)(void **reg_slot, void *user);
 
-/* C-callable bridges to C++ visitor extensions on Snapshot / DeoptBase
- * subclasses. Implemented in hir.cpp; wrap the std::function-based C++
- * methods with a callback adapter. Foundation for Phase 4.A Batch 9
- * visitor-pattern port; subclass ports themselves remain in C++. */
-int hir_snapshot_visit_uses_c(void *snap, HirRegVisitor visitor, void *user);
-int hir_deopt_visit_uses_deopt_c(void *db, HirRegVisitor visitor, void *user);
+/* C-callable bridges to C++ visitor extensions. Implemented in hir.cpp:
+ *   - hir_frame_state_visit_uses_c: wraps FrameState::visitUses
+ *     (data-structure traversal of stack/localsplus/parent recursion).
+ *   - hir_deopt_visit_live_regs_c: iterates DeoptBase.live_regs in C++
+ *     (deferred from pure-C until Batch 11 adds HirRegState struct +
+ *     V4 cast-iteration falsifier). */
+int hir_frame_state_visit_uses_c(void *fs, HirRegVisitor visitor, void *user);
+int hir_deopt_visit_live_regs_c(void *db, HirRegVisitor visitor, void *user);
+
+/* Snapshot-specific frame_state accessor (HirSnapshot.frame_state_ptr,
+ * distinct from DeoptBase.frame_state). */
+static inline void *hir_c_snapshot_get_frame_state(const void *snap) {
+    return ((const HirSnapshot *)snap)->frame_state_ptr;
+}
+
+/* Snapshot::visitUses port (replaces Batch 9 hir_snapshot_visit_uses_c
+ * bridge). Snapshot has no operands; visits frame_state only. */
+static inline int hir_c_snapshot_visit_uses(void *snap,
+                                            HirRegVisitor visitor,
+                                            void *user) {
+    void *fs = hir_c_snapshot_get_frame_state(snap);
+    if (fs == NULL) return 1;
+    return hir_frame_state_visit_uses_c(fs, visitor, user);
+}
+
+/* DeoptBase::visitUsesDeopt port (replaces Batch 9
+ * hir_deopt_visit_uses_deopt_c bridge). Visits frame_state +
+ * live_regs + guilty_reg. live_regs iteration delegated to C++ bridge
+ * (V4 pure-C iteration deferred to Batch 11). */
+static inline int hir_c_deopt_visit_uses_deopt(void *db,
+                                               HirRegVisitor visitor,
+                                               void *user) {
+    void *fs = hir_c_get_frame_state(db);
+    if (fs && !hir_frame_state_visit_uses_c(fs, visitor, user)) {
+        return 0;
+    }
+    if (!hir_deopt_visit_live_regs_c(db, visitor, user)) {
+        return 0;
+    }
+    void **gr_slot = &((HirDeoptLayout *)db)->guilty_reg;
+    if (*gr_slot != NULL && !visitor(gr_slot, user)) {
+        return 0;
+    }
+    return 1;
+}
 
 /* Visit each operand-slot of an instruction:
- *   1. For Snapshot opcodes: delegate to hir_snapshot_visit_uses_c (visits
- *      frame_state only, no operands).
+ *   1. For Snapshot opcodes: delegate to hir_c_snapshot_visit_uses
+ *      (visits frame_state only, no operands).
  *   2. Otherwise: iterate the operand array, invoking visitor on each slot.
- *   3. For DeoptBase subclasses: delegate to hir_deopt_visit_uses_deopt_c
+ *   3. For DeoptBase subclasses: delegate to hir_c_deopt_visit_uses_deopt
  *      to also visit frame_state, live_regs, guilty_reg.
  * Returns 1 if visitor returned non-zero for every slot, 0 if any visitor
  * call returned zero (early stop). */
@@ -1107,7 +1146,7 @@ static inline int hir_c_instr_visit_uses(void *instr,
                                          void *user) {
     int op = hir_c_opcode(instr);
     if (op == HIR_OP_Snapshot) {
-        return hir_snapshot_visit_uses_c(instr, visitor, user);
+        return hir_c_snapshot_visit_uses(instr, visitor, user);
     }
     size_t n = hir_c_num_operands(instr);
     for (size_t i = 0; i < n; i++) {
@@ -1117,7 +1156,7 @@ static inline int hir_c_instr_visit_uses(void *instr,
         }
     }
     if (hir_instr_info_is_deopt_base(op)) {
-        return hir_deopt_visit_uses_deopt_c(instr, visitor, user);
+        return hir_c_deopt_visit_uses_deopt(instr, visitor, user);
     }
     return 1;
 }

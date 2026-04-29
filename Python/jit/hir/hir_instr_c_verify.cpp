@@ -534,10 +534,68 @@ static void verify_phase4a_batch1_exhaustive() {
 #undef VERIFY_OPCODE
 }
 
+/* Phase 4.A Batch 10 V5 falsifier: input-domain callback-identity test
+ * for hir_c_instr_visit_uses. Verifies the dispatcher invokes the
+ * visitor callback the expected number of times for representative
+ * opcode classes:
+ *   - Decref (1 operand, not DeoptBase) → 1 callback
+ *   - Snapshot with NULL frame_state → 0 callbacks
+ *   - BinaryOp (2 operands, DeoptBase, empty live_regs, NULL guilty_reg)
+ *     → 2 callbacks (operands only; bridge contributes 0 with empty
+ *     live_regs + NULL guilty_reg)
+ * Catches callback-identity drift between the C dispatcher and the
+ * pre-port C++ Instr::visitUses semantics. */
+static int verify_phase4a_batch10_counter_visitor(void **slot, void *user) {
+    (void)slot;
+    int *count = static_cast<int*>(user);
+    (*count)++;
+    return 1;
+}
+
+static void verify_phase4a_batch10_visitor() {
+    /* Test 1: 1-operand non-DeoptBase opcode (Decref) → 1 callback */
+    void *decref = hir_c_alloc_instr(sizeof(HirInstrLayout), 1);
+    assert(decref != NULL);
+    hir_c_init_instr(decref, HIR_OP_Decref);
+    int count = 0;
+    hir_c_instr_visit_uses(decref,
+                           verify_phase4a_batch10_counter_visitor,
+                           &count);
+    assert(count == 1 && "Phase 4.A Batch 10: Decref visitor expected 1 callback");
+    free((char *)decref - 1 * sizeof(void *) - sizeof(size_t));
+
+    /* Test 2: Snapshot with NULL frame_state → 0 callbacks */
+    void *snap = hir_c_alloc_instr(sizeof(HirSnapshot), 0);
+    assert(snap != NULL);
+    hir_c_init_instr(snap, HIR_OP_Snapshot);
+    ((HirSnapshot *)snap)->frame_state_ptr = NULL;
+    count = 0;
+    hir_c_instr_visit_uses(snap,
+                           verify_phase4a_batch10_counter_visitor,
+                           &count);
+    assert(count == 0 && "Phase 4.A Batch 10: NULL-frame Snapshot visitor expected 0 callbacks");
+    free((char *)snap - sizeof(size_t));
+
+    /* Test 3: 2-operand DeoptBase (BinaryOp) with empty live_regs +
+     * NULL guilty_reg + NULL frame_state → 2 callbacks (operands only).
+     * calloc-zero from hir_c_alloc_instr leaves all DeoptBase fields
+     * NULL/zero. */
+    void *binop = hir_c_alloc_instr(sizeof(HirDeoptLayout), 2);
+    assert(binop != NULL);
+    hir_c_init_deopt(binop, HIR_OP_BinaryOp);
+    count = 0;
+    hir_c_instr_visit_uses(binop,
+                           verify_phase4a_batch10_counter_visitor,
+                           &count);
+    assert(count == 2 && "Phase 4.A Batch 10: 2-op BinaryOp empty-deopt visitor expected 2 callbacks");
+    free((char *)binop - 2 * sizeof(void *) - sizeof(size_t));
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
     verify_is_replayable_table();
     verify_bytecode_offset_invariant();
     verify_phase4a_batch1_exhaustive();
+    verify_phase4a_batch10_visitor();
 }

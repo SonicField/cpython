@@ -311,30 +311,33 @@ void Instr::SetOperand(std::size_t i, Register* reg) {
   hir_c_set_operand(this, i, reg);
 }
 
-// Phase 4.A Batch 9: visitor-pattern foundation. C-callable bridges
-// expose Snapshot::visitUses + DeoptBase::visitUsesDeopt via
-// HirRegVisitor function pointer. Instr::visitUses wraps the
-// std::function as opaque user data and dispatches through C.
+// Phase 4.A Batch 10: pure-C ports of Snapshot::visitUses +
+// DeoptBase::visitUsesDeopt (replaces Batch 9 extern "C" bridges).
+// Two C-callable C++ helpers remain: FrameState::visitUses (data
+// traversal, kept in C++ for now) and DeoptBase live_regs iteration
+// (V4 pure-C deferred to Batch 11 with HirRegState struct).
 }  // namespace jit::hir
 
-extern "C" int hir_snapshot_visit_uses_c(void *snap,
-                                         HirRegVisitor visitor,
-                                         void *user) {
-  auto* s = static_cast<jit::hir::Snapshot*>(snap);
-  bool ok = s->visitUses([&](jit::hir::Register*& reg) {
+extern "C" int hir_frame_state_visit_uses_c(void *fs,
+                                            HirRegVisitor visitor,
+                                            void *user) {
+  auto* f = static_cast<jit::hir::FrameState*>(fs);
+  bool ok = f->visitUses([&](jit::hir::Register*& reg) {
     return visitor(reinterpret_cast<void**>(&reg), user) != 0;
   });
   return ok ? 1 : 0;
 }
 
-extern "C" int hir_deopt_visit_uses_deopt_c(void *db,
-                                            HirRegVisitor visitor,
-                                            void *user) {
+extern "C" int hir_deopt_visit_live_regs_c(void *db,
+                                           HirRegVisitor visitor,
+                                           void *user) {
   auto* d = static_cast<jit::hir::DeoptBase*>(db);
-  bool ok = d->visitUsesDeopt([&](jit::hir::Register*& reg) {
-    return visitor(reinterpret_cast<void**>(&reg), user) != 0;
-  });
-  return ok ? 1 : 0;
+  for (auto& rs : d->live_regs()) {
+    if (!visitor(reinterpret_cast<void**>(&rs.reg), user)) {
+      return 0;
+    }
+  }
+  return 1;
 }
 
 namespace jit::hir {
