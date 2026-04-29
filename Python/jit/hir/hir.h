@@ -1181,6 +1181,16 @@ class INSTR_CLASS(Phi, (TTop), HasOutput, Operands<>) {
     return phi;
   }
 
+  // Allocate a Phi shell with `count` operand slots; caller fills the
+  // operands + basic_blocks_ separately. Used by the Batch 25 C-side
+  // add/remove predecessor flows via the hir_make_phi_with_count_c
+  // bridge so they can apply pre-sorted parallel arrays without going
+  // through the std::unordered_map setArgs path.
+  static Phi* createWithCount(Register* dst, std::size_t count) {
+    void* ptr = Instr::allocate(sizeof(Phi), count);
+    return new (ptr) Phi(dst);
+  }
+
   Register* isTrivial() const {
     return static_cast<Register*>(hir_phi_is_trivial_impl(this));
   }

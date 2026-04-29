@@ -269,6 +269,154 @@ static inline void hir_c_insert_after_pure(void *instr, void *after, const HirBa
     hir_c_link(instr, (void *)bb);
 }
 
+/* C++ bridge for Phi shell allocation, defined in hir.cpp. Used by
+ * the Batch 25 add/remove predecessor flows so they can build new Phis
+ * with the right operand count before applying sorted args. */
+void *hir_make_phi_with_count_c(void *dst, size_t count);
+
+/* Forward decl: hir_c_instr_replace_with is defined later in this header
+ * (Batch 23 section). The Batch 25 add/remove flows below need it. */
+static inline void hir_c_instr_replace_with(void *self, void *replacement);
+
+/* Build sorted (key, value) parallel arrays for the post-add Phi
+ * state. Returns 1 on success (caller must free *out_keys + *out_values),
+ * 0 if old_pred is not a current predecessor of old_phi (no-op signal —
+ * the C++ shim's collect-first-then-process pass already filters but
+ * this guard keeps the C function safe to call directly). */
+static inline int hir_c_phi_collect_add_args(void *old_phi,
+                                             void *old_pred,
+                                             void *new_pred,
+                                             void ***out_keys,
+                                             void ***out_values,
+                                             size_t *out_n) {
+    HirPhi *p = (HirPhi *)old_phi;
+    size_t old_n = p->bb_count;
+
+    int has_old = 0;
+    for (size_t i = 0; i < old_n; i++) {
+        if (p->bb_data[i] == old_pred) { has_old = 1; break; }
+    }
+    if (!has_old) {
+        *out_keys = NULL;
+        *out_values = NULL;
+        *out_n = 0;
+        return 0;
+    }
+
+    size_t new_n = old_n + 1;
+    HirPhiArgPair *pairs =
+        (HirPhiArgPair *)malloc(new_n * sizeof(HirPhiArgPair));
+    size_t idx = 0;
+    for (size_t i = 0; i < old_n; i++) {
+        void *block = p->bb_data[i];
+        void *reg = hir_c_get_operand(old_phi, i);
+        pairs[idx].key = block;
+        pairs[idx].value = reg;
+        idx++;
+        if (block == old_pred) {
+            pairs[idx].key = new_pred;
+            pairs[idx].value = reg;
+            idx++;
+        }
+    }
+    qsort(pairs, new_n, sizeof(HirPhiArgPair), hir_c_phi_pair_cmp_by_block_id);
+
+    *out_keys = (void **)malloc(new_n * sizeof(void *));
+    *out_values = (void **)malloc(new_n * sizeof(void *));
+    for (size_t i = 0; i < new_n; i++) {
+        (*out_keys)[i] = pairs[i].key;
+        (*out_values)[i] = pairs[i].value;
+    }
+    free(pairs);
+    *out_n = new_n;
+    return 1;
+}
+
+/* Build sorted (key, value) parallel arrays for the post-remove Phi
+ * state. Drops every entry whose key equals old_pred. Returns count
+ * via *out_n; *out_keys / *out_values are NULL when count == 0
+ * (zero-pred Phi corner case — caller must free otherwise). */
+static inline void hir_c_phi_collect_remove_args(void *old_phi,
+                                                 void *old_pred,
+                                                 void ***out_keys,
+                                                 void ***out_values,
+                                                 size_t *out_n) {
+    HirPhi *p = (HirPhi *)old_phi;
+    size_t old_n = p->bb_count;
+
+    size_t new_n = 0;
+    for (size_t i = 0; i < old_n; i++) {
+        if (p->bb_data[i] != old_pred) new_n++;
+    }
+    if (new_n == 0) {
+        *out_keys = NULL;
+        *out_values = NULL;
+        *out_n = 0;
+        return;
+    }
+
+    HirPhiArgPair *pairs =
+        (HirPhiArgPair *)malloc(new_n * sizeof(HirPhiArgPair));
+    size_t idx = 0;
+    for (size_t i = 0; i < old_n; i++) {
+        void *block = p->bb_data[i];
+        if (block == old_pred) continue;
+        pairs[idx].key = block;
+        pairs[idx].value = hir_c_get_operand(old_phi, i);
+        idx++;
+    }
+    qsort(pairs, new_n, sizeof(HirPhiArgPair), hir_c_phi_pair_cmp_by_block_id);
+
+    *out_keys = (void **)malloc(new_n * sizeof(void *));
+    *out_values = (void **)malloc(new_n * sizeof(void *));
+    for (size_t i = 0; i < new_n; i++) {
+        (*out_keys)[i] = pairs[i].key;
+        (*out_values)[i] = pairs[i].value;
+    }
+    free(pairs);
+    *out_n = new_n;
+}
+
+/* BasicBlock::addPhiPredecessor per-Phi step (Batch 25). Allocates a
+ * new Phi with one extra operand slot, applies the sorted args via
+ * hir_c_phi_apply_args, replaces old with new in the block, then
+ * destroys old. No-op when old_pred is not a current predecessor. */
+static inline void hir_c_phi_add_predecessor(void *old_phi,
+                                             void *old_pred,
+                                             void *new_pred) {
+    void **keys = NULL, **values = NULL;
+    size_t n = 0;
+    if (!hir_c_phi_collect_add_args(old_phi, old_pred, new_pred,
+                                    &keys, &values, &n)) {
+        return;
+    }
+    void *new_phi = hir_make_phi_with_count_c(hir_c_output(old_phi), n);
+    hir_c_phi_apply_args(new_phi, keys, values, n);
+    free(keys);
+    free(values);
+
+    hir_c_instr_replace_with(old_phi, new_phi);
+    hir_c_destroy_instr_impl(old_phi);
+}
+
+/* BasicBlock::removePhiPredecessor per-Phi step (Batch 25). Allocates
+ * a new Phi with one fewer operand slot, applies the sorted args,
+ * replaces old with new, destroys old. */
+static inline void hir_c_phi_remove_predecessor(void *old_phi,
+                                                void *old_pred) {
+    void **keys = NULL, **values = NULL;
+    size_t n = 0;
+    hir_c_phi_collect_remove_args(old_phi, old_pred, &keys, &values, &n);
+
+    void *new_phi = hir_make_phi_with_count_c(hir_c_output(old_phi), n);
+    hir_c_phi_apply_args(new_phi, keys, values, n);
+    free(keys);
+    free(values);
+
+    hir_c_instr_replace_with(old_phi, new_phi);
+    hir_c_destroy_instr_impl(old_phi);
+}
+
 /* BasicBlock::fixupPhis per-Phi remap step (Batch 24). Walk the Phi's
  * basic_blocks_, swap any occurrence of old_pred with new_pred, then
  * re-apply via the Batch 20 sort+apply path so the post-fixup state

@@ -336,6 +336,15 @@ extern "C" void *hir_make_frame_state_c(const void *src) {
   return new jit::hir::FrameState(*static_cast<const jit::hir::FrameState*>(src));
 }
 
+/* Phase 4.A Batch 25: allocate + placement-new a Phi shell with the
+ * given operand count. Bypasses the std::unordered_map setArgs path
+ * in Phi::create so the C-side add/remove predecessor flows can apply
+ * pre-sorted parallel arrays directly via hir_c_phi_apply_args. */
+extern "C" void *hir_make_phi_with_count_c(void *dst, size_t count) {
+  return jit::hir::Phi::createWithCount(
+      static_cast<jit::hir::Register*>(dst), count);
+}
+
 namespace jit::hir {
 
 bool Instr::visitUses(const std::function<bool(Register*&)>& func) {
@@ -649,41 +658,18 @@ void BasicBlock::addPhiPredecessor(BasicBlock* old_pred, BasicBlock* new_pred) {
       }
     }
   });
-
   for (auto phi : replacements) {
-    std::unordered_map<BasicBlock*, Register*> args;
-    for (size_t i = 0, n = phi->NumOperands(); i < n; ++i) {
-      auto block = phi->basic_blocks()[i];
-      if (block == old_pred) {
-        args[new_pred] = phi->GetOperand(i);
-      }
-      args[block] = phi->GetOperand(i);
-    }
-
-    phi->ReplaceWith(*Phi::create(phi->output(), args));
-    Instr::Destroy(phi);
+    hir_c_phi_add_predecessor(phi, old_pred, new_pred);
   }
 }
 
 void BasicBlock::removePhiPredecessor(BasicBlock* old_pred) {
-  for (auto it = instrs_.begin(); it != instrs_.end();) {
-    auto& instr = *it;
-    ++it;
-    if (!instr.IsPhi()) {
-      break;
-    }
-
-    Phi* phi = static_cast<Phi*>(&instr);
-    std::unordered_map<BasicBlock*, Register*> args;
-    for (size_t i = 0, n = phi->NumOperands(); i < n; ++i) {
-      auto block = phi->basic_blocks()[i];
-      if (block == old_pred) {
-        continue;
-      }
-      args[block] = phi->GetOperand(i);
-    }
-    phi->ReplaceWith(*Phi::create(phi->output(), args));
-    Instr::Destroy(phi);
+  std::vector<Phi*> all_phis;
+  forEachPhi([&](Phi& phi) {
+    all_phis.push_back(&phi);
+  });
+  for (auto phi : all_phis) {
+    hir_c_phi_remove_predecessor(phi, old_pred);
   }
 }
 

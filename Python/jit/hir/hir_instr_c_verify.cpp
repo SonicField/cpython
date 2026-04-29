@@ -1280,6 +1280,107 @@ static void verify_phase4a_batch24_fixup_phis() {
     hir_c_instr_free(phi);
 }
 
+/* Phase 4.A Batch 25 V5 BOUNDARY falsifier for add/remove predecessor
+ * collect helpers. Tests the args-extraction step (sentinel-feasible)
+ * in isolation; the substantive add/remove flow (allocate new Phi via
+ * the C++ bridge + replace_with + destroy_instr_impl) requires
+ * intrusive-list multi-step setup and stays V1-prod-use covered (cfg
+ * simplify) per the V5-deferred-fall-back framework. */
+static void verify_phase4a_batch25_add_remove_collect() {
+    HirBasicBlock bb1{}, bb2{}, bb3{}, bb4{};
+    bb1.id = 1;
+    bb2.id = 2;
+    bb3.id = 3;
+    bb4.id = 4;
+
+    void *r1 = (void *)(uintptr_t)0xACE10001ULL;
+    void *r2 = (void *)(uintptr_t)0xACE10002ULL;
+    void *r3 = (void *)(uintptr_t)0xACE10003ULL;
+
+    void *phi = hir_c_alloc_instr(sizeof(HirPhi), 3);
+    assert(phi != NULL);
+    hir_c_init_instr(phi, HIR_OP_Phi);
+
+    void *initial_keys[3]   = { &bb1, &bb2, &bb3 };
+    void *initial_values[3] = { r1,   r2,   r3   };
+    hir_c_phi_apply_args(phi, initial_keys, initial_values, 3);
+
+    /* (a) collect_add_args with old_pred=bb2, new_pred=bb4: result
+     * is 4 sorted entries with bb2 + bb4 both pointing to r2. */
+    {
+        void **keys = NULL, **values = NULL;
+        size_t n = 0;
+        int found = hir_c_phi_collect_add_args(phi, &bb2, &bb4,
+                                               &keys, &values, &n);
+        assert(found == 1 &&
+               "Phase 4.A Batch 25(add): old_pred present should return 1");
+        assert(n == 4 &&
+               "Phase 4.A Batch 25(add): n+1 = 4 entries");
+        assert(keys[0] == &bb1 && values[0] == r1 &&
+               "Phase 4.A Batch 25(add): sorted [0] = bb1/r1");
+        assert(keys[1] == &bb2 && values[1] == r2 &&
+               "Phase 4.A Batch 25(add): sorted [1] = bb2/r2");
+        assert(keys[2] == &bb3 && values[2] == r3 &&
+               "Phase 4.A Batch 25(add): sorted [2] = bb3/r3");
+        assert(keys[3] == &bb4 && values[3] == r2 &&
+               "Phase 4.A Batch 25(add): sorted [3] = bb4/r2 (paired with replaced)");
+        free(keys);
+        free(values);
+    }
+
+    /* (b) collect_add_args no-op: old_pred not present returns 0. */
+    {
+        void **keys = NULL, **values = NULL;
+        size_t n = 0;
+        int found = hir_c_phi_collect_add_args(phi, &bb4, &bb4,
+                                               &keys, &values, &n);
+        assert(found == 0 &&
+               "Phase 4.A Batch 25(add no-op): old_pred absent returns 0");
+        assert(n == 0 && keys == NULL && values == NULL &&
+               "Phase 4.A Batch 25(add no-op): outputs zero/NULL");
+    }
+
+    /* (c) collect_remove_args drops bb2: 2 sorted entries [bb1, bb3]. */
+    {
+        void **keys = NULL, **values = NULL;
+        size_t n = 0;
+        hir_c_phi_collect_remove_args(phi, &bb2, &keys, &values, &n);
+        assert(n == 2 &&
+               "Phase 4.A Batch 25(remove): n-1 = 2 entries");
+        assert(keys[0] == &bb1 && values[0] == r1 &&
+               "Phase 4.A Batch 25(remove): sorted [0] = bb1/r1");
+        assert(keys[1] == &bb3 && values[1] == r3 &&
+               "Phase 4.A Batch 25(remove): sorted [1] = bb3/r3");
+        free(keys);
+        free(values);
+    }
+
+    /* (d) collect_remove_args dropping every entry yields n=0 + NULLs. */
+    {
+        /* Build a single-pred Phi: only bb1. */
+        void *single_phi = hir_c_alloc_instr(sizeof(HirPhi), 1);
+        assert(single_phi != NULL);
+        hir_c_init_instr(single_phi, HIR_OP_Phi);
+        void *single_keys[1]   = { &bb1 };
+        void *single_values[1] = { r1   };
+        hir_c_phi_apply_args(single_phi, single_keys, single_values, 1);
+
+        void **keys = (void **)0xDEADBEEF;
+        void **values = (void **)0xDEADBEEF;
+        size_t n = 99;
+        hir_c_phi_collect_remove_args(single_phi, &bb1,
+                                      &keys, &values, &n);
+        assert(n == 0 && keys == NULL && values == NULL &&
+               "Phase 4.A Batch 25(remove zero): outputs zero/NULL when all dropped");
+
+        free(((HirPhi *)single_phi)->bb_data);
+        hir_c_instr_free(single_phi);
+    }
+
+    free(((HirPhi *)phi)->bb_data);
+    hir_c_instr_free(phi);
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -1300,4 +1401,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch22_edges_dispatch();
     verify_phase4a_batch23_instr_lifecycle();
     verify_phase4a_batch24_fixup_phis();
+    verify_phase4a_batch25_add_remove_collect();
 }
