@@ -266,6 +266,48 @@ static inline void *hir_c_env_references(void *env) {
     return ((HirEnvironment *)env)->references_opaque;
 }
 
+/* ---- Phase 4.C Pilot 3 step 1 (Batch 42): TempAllocator port ----
+ *
+ * HirTempAllocator owns an Environment* pointer (non-owning) plus a
+ * cache of stack-temp Registers. AllocateStack appends to the cache,
+ * GetOrAllocateStack reads or appends, AllocateNonStack bypasses the
+ * cache. Pure C; the C++ TempAllocator wrapper at builder.h:112 is
+ * now a 1-line shim layer on top.
+ *
+ * PhxRegisterArray is a typedef-alias for PhxPtrArray (already exists
+ * at phx_ptr_array.h:18) — same data/count/capacity layout, doubling
+ * realloc, void* element type. Aliased here for naming clarity at the
+ * register-cache call sites; no separate storage layout. */
+typedef PhxPtrArray PhxRegisterArray;
+
+typedef struct HirTempAllocator {
+    void *env;                  /* Environment* — non-owning */
+    PhxRegisterArray cache;     /* malloc'd; lifetime owned by allocator */
+} HirTempAllocator;
+
+/* AllocateStack: allocate a new Register via env, append to cache,
+ * return it. Cache is the back-end for GetOrAllocateStack idempotency. */
+static inline void *hir_c_temps_alloc_stack(HirTempAllocator *t) {
+    void *reg = hir_c_env_allocate_register(t->env);
+    phx_ptr_arr_push(&t->cache, reg);
+    return reg;
+}
+
+/* GetOrAllocateStack: idx-indexed fetch from cache; if past the end,
+ * grow by appending one fresh Register (delegates to AllocateStack). */
+static inline void *hir_c_temps_get_or_alloc_stack(HirTempAllocator *t,
+                                                   size_t idx) {
+    if (idx < t->cache.count) {
+        return t->cache.data[idx];
+    }
+    return hir_c_temps_alloc_stack(t);
+}
+
+/* AllocateNonStack: fresh Register via env, NO cache touch. */
+static inline void *hir_c_temps_alloc_non_stack(HirTempAllocator *t) {
+    return hir_c_env_allocate_register(t->env);
+}
+
 /* ---- Function C struct (opaque blob with offsetof-verified field access) ---- */
 typedef struct HirFunctionLayout {
     char opaque[328]; /* sizeof(Function) == 41 * kPointerSize */

@@ -108,10 +108,36 @@ class Environment;
 class Function;
 class Register;
 
-// Helper class for managing temporary variables
+// Helper class for managing temporary variables.
+// Phase 4.C Pilot 3 step 1 (Batch 42): now a thin C++ shim over the
+// pure-C HirTempAllocator; methods delegate to hir_c_temps_*. The
+// PhxRegisterArray cache (typedef of PhxPtrArray) replaces the prior
+// std::vector<Register*>; move-only semantics + explicit dtor manage
+// the malloc-backed storage.
 class TempAllocator {
  public:
-  explicit TempAllocator(Environment* env) : env_(env) {}
+  explicit TempAllocator(Environment* env) {
+    state_.env = env;
+    phx_ptr_arr_init(&state_.cache);
+  }
+  ~TempAllocator() {
+    phx_ptr_arr_destroy(&state_.cache);
+  }
+
+  // Move-only: cache_ owns malloc'd storage.
+  TempAllocator(TempAllocator&& o) noexcept : state_(o.state_) {
+    phx_ptr_arr_init(&o.state_.cache);
+  }
+  TempAllocator& operator=(TempAllocator&& o) noexcept {
+    if (this != &o) {
+      phx_ptr_arr_destroy(&state_.cache);
+      state_ = o.state_;
+      phx_ptr_arr_init(&o.state_.cache);
+    }
+    return *this;
+  }
+  TempAllocator(const TempAllocator&) = delete;
+  TempAllocator& operator=(const TempAllocator&) = delete;
 
   // Allocate a temp register that may be used for the stack. It should not be a
   // register that will be treated specially in the FrameState (e.g. tracked as
@@ -125,8 +151,7 @@ class TempAllocator {
   Register* AllocateNonStack();
 
  private:
-  Environment* env_;
-  std::vector<Register*> cache_;
+  HirTempAllocator state_;
 };
 
 // We expect that on exit from a basic block the stack only contains temporaries

@@ -312,23 +312,18 @@ bool isBannedName(std::string_view name) {
 // register that will be treated specially in the FrameState (e.g. tracked as
 // containing a local or cell.)
 Register* TempAllocator::AllocateStack() {
-  Register* reg = env_->AllocateRegister();
-  cache_.emplace_back(reg);
-  return reg;
+  return static_cast<Register*>(hir_c_temps_alloc_stack(&state_));
 }
 
 // Get the i-th stack temporary or allocate one.
 Register* TempAllocator::GetOrAllocateStack(std::size_t idx) {
-  if (idx < cache_.size()) {
-    Register* reg = cache_[idx];
-    return reg;
-  }
-  return AllocateStack();
+  return static_cast<Register*>(
+      hir_c_temps_get_or_alloc_stack(&state_, idx));
 }
 
 // Allocate a temp register that will not be used for a stack value.
 Register* TempAllocator::AllocateNonStack() {
-  return env_->AllocateRegister();
+  return static_cast<Register*>(hir_c_temps_alloc_non_stack(&state_));
 }
 
 void HIRBuilder::allocateLocalsplus(Environment* env, FrameState& state) {

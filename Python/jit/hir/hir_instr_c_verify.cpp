@@ -2336,6 +2336,62 @@ static void verify_phase4a_batch41_constraint_name() {
            "Phase 4.A Batch 41: kOptObjectOrCIntOrCBool string match");
 }
 
+/* Phase 4.C Pilot 3 Batch 42 V5 sentinel falsifier for HirTempAllocator
+ * (TempAllocator port). Three behaviors anchored:
+ *   (a) AllocateStack 3x grows cache to 3 + each Register matches env's
+ *       allocation sequence.
+ *   (b) GetOrAllocateStack(0..2) returns cached entries; (3) appends.
+ *   (c) AllocateNonStack does NOT grow the cache. */
+static void verify_phase4c_batch42_temp_allocator() {
+    HirEnvironment env = {};
+    HirTempAllocator t = {};
+    t.env = &env;
+    phx_ptr_arr_init(&t.cache);
+
+    /* (a) AllocateStack 3x. */
+    void *r0 = hir_c_temps_alloc_stack(&t);
+    void *r1 = hir_c_temps_alloc_stack(&t);
+    void *r2 = hir_c_temps_alloc_stack(&t);
+    assert(t.cache.count == 3 &&
+           "Phase 4.C Batch 42(a): cache grew to 3 after 3 AllocateStack");
+    assert(t.cache.data[0] == r0 && t.cache.data[1] == r1 &&
+           t.cache.data[2] == r2 &&
+           "Phase 4.C Batch 42(a): cache holds the allocated Register sequence");
+    /* env-side reg ids should be 0/1/2 — sequential from AllocateRegister. */
+    assert(hir_reg_id(r0) == 0 &&
+           hir_reg_id(r1) == 1 &&
+           hir_reg_id(r2) == 2 &&
+           "Phase 4.C Batch 42(a): env allocator id sequence preserved");
+
+    /* (b) GetOrAllocateStack idempotent for in-range; appends past-end. */
+    assert(hir_c_temps_get_or_alloc_stack(&t, 0) == r0 &&
+           "Phase 4.C Batch 42(b): GetOrAllocate(0) returns cached");
+    assert(hir_c_temps_get_or_alloc_stack(&t, 2) == r2 &&
+           "Phase 4.C Batch 42(b): GetOrAllocate(2) returns cached");
+    void *r3 = hir_c_temps_get_or_alloc_stack(&t, 3);
+    assert(t.cache.count == 4 &&
+           "Phase 4.C Batch 42(b): GetOrAllocate(3) appended");
+    assert(t.cache.data[3] == r3 &&
+           "Phase 4.C Batch 42(b): cache[3] = newly allocated");
+
+    /* (c) AllocateNonStack does NOT grow the cache. */
+    size_t cache_pre = t.cache.count;
+    void *r_ns = hir_c_temps_alloc_non_stack(&t);
+    assert(t.cache.count == cache_pre &&
+           "Phase 4.C Batch 42(c): AllocateNonStack does NOT touch cache");
+    assert(hir_reg_id(r_ns) == 4 &&
+           "Phase 4.C Batch 42(c): env allocator continues sequence");
+
+    /* Cleanup: reg_data ownership stays with env; chain helper not used. */
+    delete static_cast<jit::hir::Register *>(r0);
+    delete static_cast<jit::hir::Register *>(r1);
+    delete static_cast<jit::hir::Register *>(r2);
+    delete static_cast<jit::hir::Register *>(r3);
+    delete static_cast<jit::hir::Register *>(r_ns);
+    free(env.reg_data);
+    phx_ptr_arr_destroy(&t.cache);
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -2373,4 +2429,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch38_get_frame_state();
     verify_phase4a_batch39_load_method_model_reg();
     verify_phase4a_batch41_constraint_name();
+    verify_phase4c_batch42_temp_allocator();
 }
