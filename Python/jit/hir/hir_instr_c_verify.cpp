@@ -1954,6 +1954,76 @@ static void verify_phase4a_batch32_add_remove_phi_substantive() {
     delete static_cast<jit::hir::Register *>(out_reg);
 }
 
+/* Phase 4.A Batch 33: SUBSTANTIVE V5 back-fill for B27
+ * (BasicBlock::Append + push_front + pop_front 25b4c825a4) via
+ * Batch I infra. Falsifier-only; no production code change.
+ *
+ * Tests the multi-instr ordering V1-prod-use covers but never
+ * empirically anchored: build [B, A, C] via Append + push_front +
+ * Append, verify iter order, pop_front and verify [A, C] remains
+ * with B detached. */
+static void verify_phase4a_batch33_bb_list_substantive() {
+    HirBasicBlock bb;
+    hir_c_test_chain_init(&bb);
+
+    /* 3 standalone instrs, not yet linked. */
+    void *A = hir_c_alloc_instr(sizeof(HirInstrLayout), 1);
+    void *B = hir_c_alloc_instr(sizeof(HirInstrLayout), 1);
+    void *C = hir_c_alloc_instr(sizeof(HirInstrLayout), 1);
+    assert(A != NULL && B != NULL && C != NULL);
+    hir_c_init_instr(A, HIR_OP_Assign);
+    hir_c_init_instr(B, HIR_OP_Assign);
+    hir_c_init_instr(C, HIR_OP_Assign);
+
+    /* Sequence Append(A) → push_front(B) → Append(C) → expect [B, A, C]. */
+    void *appended_A = hir_c_bb_append(&bb, A);
+    assert(appended_A == A &&
+           "Phase 4.A Batch 33: Append(A) returns A");
+
+    hir_c_bb_push_front(&bb, B);
+    hir_c_bb_append(&bb, C);
+
+    /* Iterate + assert order [B, A, C]. */
+    void *expected1[3] = { B, A, C };
+    void *cur = hir_bb_first_instr(&bb);
+    for (int i = 0; i < 3; i++) {
+        assert(cur == expected1[i] &&
+               "Phase 4.A Batch 33: post-build iter order [B, A, C]");
+        cur = hir_bb_next_instr(&bb, cur);
+    }
+    assert(cur == NULL &&
+           "Phase 4.A Batch 33: chain terminates at sentinel after 3 instrs");
+
+    /* All 3 should report block_ == &bb. */
+    assert(((HirInstrLayout *)A)->block == &bb &&
+           ((HirInstrLayout *)B)->block == &bb &&
+           ((HirInstrLayout *)C)->block == &bb &&
+           "Phase 4.A Batch 33: all linked instrs have block_ == bb");
+
+    /* pop_front removes B, returns it with block_ cleared. */
+    void *popped = hir_c_bb_pop_front(&bb);
+    assert(popped == B &&
+           "Phase 4.A Batch 33: pop_front returns the head (B)");
+    assert(((HirInstrLayout *)B)->block == NULL &&
+           "Phase 4.A Batch 33: pop_front clears B's block_");
+
+    /* Remaining chain iter [A, C]. */
+    void *expected2[2] = { A, C };
+    cur = hir_bb_first_instr(&bb);
+    for (int i = 0; i < 2; i++) {
+        assert(cur == expected2[i] &&
+               "Phase 4.A Batch 33: post-pop iter order [A, C]");
+        cur = hir_bb_next_instr(&bb, cur);
+    }
+    assert(cur == NULL &&
+           "Phase 4.A Batch 33: post-pop chain terminates after 2 instrs");
+
+    /* Cleanup: B was popped (no longer in bb), free directly.
+     * A + C are in bb, freed by chain_destroy. */
+    hir_c_destroy_instr_impl(B);
+    hir_c_test_chain_destroy(&bb);
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -1983,4 +2053,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch30_dominating_frame_state_substantive();
     verify_phase4a_batch31_expand_into_substantive();
     verify_phase4a_batch32_add_remove_phi_substantive();
+    verify_phase4a_batch33_bb_list_substantive();
 }
