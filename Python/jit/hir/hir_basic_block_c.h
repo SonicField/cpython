@@ -185,6 +185,34 @@ static inline size_t hir_phi_block_index(const void *phi, const HirBasicBlock *b
     return lo;
 }
 
+/* Instr::getDominatingFrameState port (Batch 21). Reverse-walks the
+ * containing block from the target towards the head, returning the
+ * FrameState* of the nearest dominating Snapshot. Stops early if a
+ * non-replayable Instr is encountered (the Snapshot would not survive
+ * deopt past it). Returns NULL when block_ is unset, when no Snapshot
+ * precedes the target, or when a non-replayable interposes.
+ *
+ * C++ const_reverse_iterator_to(*this) followed by ++it lands on the
+ * instruction *before* this in the list — same as hir_bb_prev_instr,
+ * which returns the prev or NULL when prev is the sentinel head. */
+static inline void *hir_c_get_dominating_frame_state(const void *instr) {
+    void *block = ((const HirInstrLayout *)instr)->block;
+    if (block == NULL) return NULL;
+    HirBasicBlock *bb = (HirBasicBlock *)block;
+    void *cur = hir_bb_prev_instr(bb, (void *)instr);
+    while (cur != NULL) {
+        int op = hir_c_opcode(cur);
+        if (op == HIR_OP_Snapshot) {
+            return hir_c_snapshot_get_frame_state(cur);
+        }
+        if (!hir_c_is_replayable(cur)) {
+            return NULL;
+        }
+        cur = hir_bb_prev_instr(bb, cur);
+    }
+    return NULL;
+}
+
 /* ---- Instr set_block (needs HirBasicBlock + hir_edge_set_from) ---- */
 
 static inline void hir_c_set_block(void *instr, void *block) {

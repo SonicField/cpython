@@ -492,21 +492,7 @@ void Instr::copyBytecodeOffset(const Instr& instr) {
 }
 
 const FrameState* Instr::getDominatingFrameState() const {
-  if (block_ == nullptr) {
-    return nullptr;
-  }
-  auto rend = block()->crend();
-  auto it = block()->const_reverse_iterator_to(*this);
-  for (it++; it != rend; it++) {
-    if (it->IsSnapshot()) {
-      auto snapshot = static_cast<const Snapshot*>(&*it);
-      return snapshot->frameState();
-    }
-    if (!it->isReplayable()) {
-      return nullptr;
-    }
-  }
-  return nullptr;
+  return static_cast<const FrameState*>(hir_c_get_dominating_frame_state(this));
 }
 
 DeoptBase* Instr::asDeoptBase() {

@@ -1021,6 +1021,73 @@ static void verify_phase4a_batch20_phi_apply_args() {
     hir_c_instr_free(phi);
 }
 
+/* Phase 4.A Batch 21 V5 BOUNDARY falsifiers for getDominatingFrameState.
+ *
+ * Two boundary cases land here per the codified V5-feasibility analysis
+ * (theologian 07:19:46Z); the SUBSTANTIVE multi-instr replayable+Snapshot
+ * chain remains V5-DEFERRED with the cited blocker (3+ batched
+ * intrusive-list dependencies + Snapshot.frame_state alloc), substituted
+ * by V1 production-use coverage in refcount_pass + simplify.
+ *
+ *   (a) block_ == nullptr early-return: the pre-block hand-off check
+ *       must be the first short-circuit, before any list iteration.
+ *
+ *   (b) Single-instr block (loop body never enters): hir_bb_prev_instr
+ *       on the only Instr returns NULL because its block_node.prev is
+ *       the sentinel head. */
+static void verify_phase4a_batch21_dominating_frame_state() {
+    /* (a) block_ == NULL early return. */
+    {
+        void *instr = hir_c_alloc_instr(sizeof(HirInstrLayout), 0);
+        assert(instr != NULL);
+        hir_c_init_instr(instr, HIR_OP_BinaryOp);
+        /* block_ defaults to NULL from calloc. */
+        assert(((HirInstrLayout *)instr)->block == NULL &&
+               "Phase 4.A Batch 21(a): pre-condition block_ == NULL");
+
+        const void *fs = hir_c_get_dominating_frame_state(instr);
+        assert(fs == NULL &&
+               "Phase 4.A Batch 21(a): block_ == NULL must short-circuit to NULL");
+
+        hir_c_instr_free(instr);
+    }
+
+    /* (b) Single-instr block: target is the only Instr; reverse-walk
+     * lands at the sentinel immediately, returns NULL. */
+    {
+        HirBasicBlock bb = {};
+        /* Empty intrusive list: sentinel root_ self-pointers. */
+        bb.instrs_.root_.prev_ = &bb.instrs_.root_;
+        bb.instrs_.root_.next_ = &bb.instrs_.root_;
+        /* block_node is at offset 0 in HirInstrLayout. */
+        bb.instrs_.node_member_offset_ = 0;
+
+        void *target = hir_c_alloc_instr(sizeof(HirInstrLayout), 0);
+        assert(target != NULL);
+        hir_c_init_instr(target, HIR_OP_BinaryOp);
+        ((HirInstrLayout *)target)->block = &bb;
+
+        /* Wire target as the sole entry; cast HirListNode* (no-underscore
+         * field names) to HirIntrusiveListNode* — they share the
+         * pointer-pair POD layout (verified by static_asserts in this
+         * same file: sizeof(HirIntrusiveListNode) == sizeof(HirListNode)
+         * shouldn't be needed since both equal 16 bytes by definition). */
+        HirListNode *target_node = (HirListNode *)target;
+        target_node->prev = (HirListNode *)&bb.instrs_.root_;
+        target_node->next = (HirListNode *)&bb.instrs_.root_;
+        bb.instrs_.root_.prev_ = (HirIntrusiveListNode *)target_node;
+        bb.instrs_.root_.next_ = (HirIntrusiveListNode *)target_node;
+
+        const void *fs = hir_c_get_dominating_frame_state(target);
+        assert(fs == NULL &&
+               "Phase 4.A Batch 21(b): single-instr block must return NULL");
+
+        /* Unwire before free so hir_c_instr_free doesn't see a stale
+         * sentinel reference (free just walks back to the slab base). */
+        hir_c_instr_free(target);
+    }
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -1037,4 +1104,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch18_set_frame_state();
     verify_phase4a_batch19_deopt_copy();
     verify_phase4a_batch20_phi_apply_args();
+    verify_phase4a_batch21_dominating_frame_state();
 }
