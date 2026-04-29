@@ -612,39 +612,46 @@ struct HIRBuilder::TranslationContext {
     hir_c_tc_emit_wait_handle_load_waiter(this, dst, src);
   }
   void emitWaitHandleLoadCoroOrResult(Register* dst, Register* src) {
-    emitC(static_cast<Instr*>(hir_c_create_wait_handle_load_coro_reg(dst, src)));
+    hir_c_tc_emit_wait_handle_load_coro_or_result(this, dst, src);
   }
   void emitSetUpdate(Register* dst, Register* set, Register* iter, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_set_update_reg(dst, set, iter, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_set_update(this, dst, set, iter,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitDictUpdate(Register* dst, Register* dict, Register* update, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_dict_update_reg(dst, dict, update, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_dict_update(this, dst, dict, update,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitListExtend(Register* dst, Register* list, Register* iter, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_list_extend_reg(dst, list, iter, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_list_extend(this, dst, list, iter,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitCopyDictWithoutKeys(Register* dst, Register* subj, Register* keys, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_copy_dict_without_keys_reg(dst, subj, keys, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_copy_dict_without_keys(this, dst, subj, keys,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitMakeTupleFromList(Register* dst, Register* list, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_make_tuple_from_list_reg(dst, list, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_make_tuple_from_list(this, dst, list,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitListAppend(Register* dst, Register* list, Register* item, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_list_append_reg(dst, list, item, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_list_append(this, dst, list, item,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitCheckFreevar(Register* dst, Register* src, PyObject* name, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_check_freevar_reg(dst, src, name, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_check_freevar(this, dst, src, name,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitLoadGlobal(Register* dst, int name_idx, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_load_global_reg(dst, name_idx, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_load_global(this, dst, name_idx,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
   // StoreSubscr via C++ bridge (DeoptBase, no output).
   void emitStoreSubscr(Register* container, Register* sub, Register* value,
                         const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_store_subscr_reg(
-        container, sub, value,
-        const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_store_subscr(this, container, sub, value,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   // SetSetItem via C++ bridge (DeoptBase, HasOutput).
   void emitSetSetItem(Register* dst, Register* set, Register* item,

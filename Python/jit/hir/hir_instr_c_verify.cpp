@@ -2783,6 +2783,55 @@ static void verify_phase4d_batch58_emit_cluster_4() {
     hir_c_test_chain_destroy(&bb);
 }
 
+/* Phase 4.D Batch 59 V5 sentinel: emit cluster 5 representative cases.
+ *
+ *   - emit_load_global (FS-coupled, name_idx + dst, cur_instr_offs=119):
+ *     LoadGlobal instr appended with bytecode_offset stamped.
+ *   - emit_wait_handle_load_coro_or_result (no-FS, dst+src, cur_instr_offs=131).
+ *
+ * Remaining 8 primitives covered by V1 production path. */
+static void verify_phase4d_batch59_emit_cluster_5() {
+    HirBasicBlock bb;
+    hir_c_test_chain_init(&bb);
+
+    PhxTranslationContext tc{};
+    tc.block = &bb;
+
+    /* Case 1: emit_load_global — FS-coupled. */
+    tc.frame.cur_instr_offs = 119;
+    FrameState fs{};
+    fs.cur_instr_offs = jit::BCOffset{119};
+    HirRegLayout dst_reg{};
+    dst_reg.id = 61;
+    hir_c_tc_emit_load_global(&tc, &dst_reg, /*name_idx=*/4, &fs);
+
+    void *first = hir_bb_first_instr(&bb);
+    assert(first != NULL && "Phase 4.D Batch 59: load_global appended");
+    HirInstrLayout *lg = (HirInstrLayout *)first;
+    assert(lg->opcode == HIR_OP_LoadGlobal &&
+           "Phase 4.D Batch 59: appended instr is LoadGlobal");
+    assert(lg->bytecode_offset == 119 &&
+           "Phase 4.D Batch 59: load_global bytecode_offset stamped");
+
+    /* Case 2: emit_wait_handle_load_coro_or_result — no-FS. */
+    tc.frame.cur_instr_offs = 131;
+    HirRegLayout coro_dst{};
+    coro_dst.id = 62;
+    HirRegLayout coro_src{};
+    coro_src.id = 63;
+    hir_c_tc_emit_wait_handle_load_coro_or_result(&tc, &coro_dst, &coro_src);
+
+    void *second = hir_bb_next_instr(&bb, first);
+    assert(second != NULL && "Phase 4.D Batch 59: wait_handle_load_coro appended");
+    HirInstrLayout *whc = (HirInstrLayout *)second;
+    assert(whc->opcode == HIR_OP_WaitHandleLoadCoroOrResult &&
+           "Phase 4.D Batch 59: appended instr is WaitHandleLoadCoroOrResult");
+    assert(whc->bytecode_offset == 131 &&
+           "Phase 4.D Batch 59: wait_handle_load_coro bytecode_offset stamped");
+
+    hir_c_test_chain_destroy(&bb);
+}
+
 /* Phase 4.D Batch 52 V5 sentinel falsifier for hir_c_advance_past_yield. */
 static void verify_phase4d_batch52_advance_past_yield() {
     HirFrameStateLayout fs = {};
@@ -2846,4 +2895,5 @@ static void hir_instr_runtime_check() {
     verify_phase4d_batch55_fs_coupled_cluster();
     verify_phase4d_batch57_emit_cluster_3();
     verify_phase4d_batch58_emit_cluster_4();
+    verify_phase4d_batch59_emit_cluster_5();
 }

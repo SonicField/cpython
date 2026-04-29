@@ -1155,6 +1155,69 @@ static inline void hir_c_tc_emit_wait_handle_load_waiter(void *tc,
     hir_c_tc_emit_c(tc, hir_c_create_wait_handle_load_waiter_reg(dst, src));
 }
 
+/* ---- Phase 4.D pilot step 7 (Batch 59): emit cluster 5 (10 FS-heavy) ---- */
+
+static inline void hir_c_tc_emit_wait_handle_load_coro_or_result(void *tc,
+                                                                   HirRegister dst,
+                                                                   HirRegister src) {
+    hir_c_tc_emit_c(tc, hir_c_create_wait_handle_load_coro_reg(dst, src));
+}
+
+static inline void hir_c_tc_emit_set_update(void *tc, HirRegister dst,
+                                              HirRegister set, HirRegister iter,
+                                              void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_set_update_reg(dst, set, iter, fs));
+}
+
+static inline void hir_c_tc_emit_dict_update(void *tc, HirRegister dst,
+                                               HirRegister dict, HirRegister update,
+                                               void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_dict_update_reg(dst, dict, update, fs));
+}
+
+static inline void hir_c_tc_emit_list_extend(void *tc, HirRegister dst,
+                                               HirRegister list, HirRegister iter,
+                                               void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_list_extend_reg(dst, list, iter, fs));
+}
+
+static inline void hir_c_tc_emit_copy_dict_without_keys(void *tc, HirRegister dst,
+                                                          HirRegister subj,
+                                                          HirRegister keys,
+                                                          void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_copy_dict_without_keys_reg(dst, subj, keys, fs));
+}
+
+static inline void hir_c_tc_emit_make_tuple_from_list(void *tc, HirRegister dst,
+                                                        HirRegister list,
+                                                        void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_make_tuple_from_list_reg(dst, list, fs));
+}
+
+static inline void hir_c_tc_emit_list_append(void *tc, HirRegister dst,
+                                               HirRegister list, HirRegister item,
+                                               void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_list_append_reg(dst, list, item, fs));
+}
+
+static inline void hir_c_tc_emit_check_freevar(void *tc, HirRegister dst,
+                                                 HirRegister src, void *name,
+                                                 void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_check_freevar_reg(dst, src, name, fs));
+}
+
+static inline void hir_c_tc_emit_load_global(void *tc, HirRegister dst,
+                                               int32_t name_idx, void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_load_global_reg(dst, name_idx, fs));
+}
+
+static inline void hir_c_tc_emit_store_subscr(void *tc, HirRegister container,
+                                                HirRegister sub, HirRegister value,
+                                                void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_store_subscr_reg(container, sub, value, fs));
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
