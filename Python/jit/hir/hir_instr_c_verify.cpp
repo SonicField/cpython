@@ -1798,6 +1798,73 @@ static void verify_phase4a_batch30_dominating_frame_state_substantive() {
     }
 }
 
+/* Phase 4.A Batch 31: SUBSTANTIVE V5 back-fill for B23
+ * (Instr::ExpandInto efb6199aaa) using Batch I infra. Falsifier-only;
+ * no production code change. Tests the multi-instr expansion path
+ * V1-prod-use covers but never empirically anchored: a prefix case
+ * verifies the expansion sequence preserves the original prefix and
+ * inserts expansion in order, unlinking target. Bytecode offset
+ * propagation from target is also asserted. */
+static void verify_phase4a_batch31_expand_into_substantive() {
+    HirBasicBlock bb;
+    hir_c_test_chain_init(&bb);
+
+    /* Original chain: [prefix, target]. */
+    void *prefix = hir_c_test_chain_append_instr(
+        &bb, HIR_OP_Assign, sizeof(HirInstrLayout), 1);
+    void *target = hir_c_test_chain_append_instr(
+        &bb, HIR_OP_Assign, sizeof(HirInstrLayout), 1);
+    /* Mark target's bytecode_offset so we can verify propagation. */
+    ((HirInstrLayout *)target)->bytecode_offset = 71;
+
+    /* 3 expansion instrs allocated standalone (NOT yet linked into bb;
+     * expand_into does the inserts). hir_c_alloc_instr inits the
+     * IntrusiveListNode self-pointers so they're insertable. */
+    void *exp0 = hir_c_alloc_instr(sizeof(HirInstrLayout), 1);
+    void *exp1 = hir_c_alloc_instr(sizeof(HirInstrLayout), 1);
+    void *exp2 = hir_c_alloc_instr(sizeof(HirInstrLayout), 1);
+    assert(exp0 != NULL && exp1 != NULL && exp2 != NULL);
+    hir_c_init_instr(exp0, HIR_OP_Assign);
+    hir_c_init_instr(exp1, HIR_OP_Assign);
+    hir_c_init_instr(exp2, HIR_OP_Assign);
+    void *expansion[3] = { exp0, exp1, exp2 };
+
+    /* Pre-condition: target is in bb, bytecode_offset = 71, expansion
+     * instrs are not in any block. */
+    assert(((HirInstrLayout *)target)->block == &bb &&
+           "Phase 4.A Batch 31: pre-call target.block == &bb");
+    assert(((HirInstrLayout *)exp0)->block == NULL &&
+           "Phase 4.A Batch 31: pre-call expansion[0].block == NULL");
+
+    hir_c_instr_expand_into(target, expansion, 3);
+
+    /* Post-call: target unlinked, bb chain is [prefix, exp0, exp1, exp2]. */
+    assert(((HirInstrLayout *)target)->block == NULL &&
+           "Phase 4.A Batch 31: target unlinked from bb");
+    void *expected[4] = { prefix, exp0, exp1, exp2 };
+    void *cur = hir_bb_first_instr(&bb);
+    for (int i = 0; i < 4; i++) {
+        assert(cur == expected[i] &&
+               "Phase 4.A Batch 31: post-call iteration order [prefix, exp0..2]");
+        cur = hir_bb_next_instr(&bb, cur);
+    }
+    assert(cur == NULL &&
+           "Phase 4.A Batch 31: chain terminates at sentinel after 4 instrs");
+
+    /* Bytecode offset propagation: each expansion instr inherits target's. */
+    assert(((HirInstrLayout *)exp0)->bytecode_offset == 71 &&
+           "Phase 4.A Batch 31: exp0 bytecode_offset = target's");
+    assert(((HirInstrLayout *)exp1)->bytecode_offset == 71 &&
+           "Phase 4.A Batch 31: exp1 bytecode_offset = target's");
+    assert(((HirInstrLayout *)exp2)->bytecode_offset == 71 &&
+           "Phase 4.A Batch 31: exp2 bytecode_offset = target's");
+
+    /* Cleanup: target was unlinked, free directly. The expansion
+     * instrs are now in bb and will be freed by chain_destroy. */
+    hir_c_destroy_instr_impl(target);
+    hir_c_test_chain_destroy(&bb);
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -1825,4 +1892,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batchI_chain_helper();
     verify_phase4a_batch29_binary_unary_ops();
     verify_phase4a_batch30_dominating_frame_state_substantive();
+    verify_phase4a_batch31_expand_into_substantive();
 }
