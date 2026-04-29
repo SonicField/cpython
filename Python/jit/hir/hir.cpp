@@ -820,29 +820,10 @@ const char* getInlineFailureName(InlineFailureType failure_type) {
 }
 
 std::ostream& operator<<(std::ostream& os, OperandType op) {
-  switch (op.kind) {
-    case Constraint::kType:
-      return os << op.type;
-    case Constraint::kOptObjectOrCIntOrCBool:
-      return os << "(OptObject, CInt, CBool)";
-    case Constraint::kOptObjectOrCInt:
-      return os << "(OptObject, CInt)";
-    case Constraint::kTupleExactOrCPtr:
-      return os << "(TupleExact, CPtr)";
-    case Constraint::kOptObjectOrCPtr:
-      return os << "(OptObject, CPtr)";
-    case Constraint::kOptObjectOrCUInt64:
-      return os << "(OptObject, CUInt64)";
-    case Constraint::kListOrChkList:
-      return os << "(List, chklist)";
-    case Constraint::kDictOrChkDict:
-      return os << "(Dict, chkdict)";
-    case Constraint::kMatchAllAsCInt:
-      return os << "CInt";
-    case Constraint::kMatchAllAsPrimitive:
-      return os << "Primitive";
+  if (op.kind == Constraint::kType) {
+    return os << op.type;
   }
-  JIT_ABORT("unknown constraint");
+  return os << hir_c_constraint_name(static_cast<int>(op.kind));
 }
 
 const FrameState* get_frame_state(const Instr& instr) {

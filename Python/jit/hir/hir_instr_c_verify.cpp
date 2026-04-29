@@ -2312,6 +2312,30 @@ static void verify_phase4a_batch39_load_method_model_reg() {
     }
 }
 
+/* Phase 4.A Batch 41 V5 falsifier for Constraint name lookup.
+ * Table-size pin (10 entries) + per-enum smoke (kType=NULL, others
+ * non-empty) + canonical anchor on the kOptObject* family. */
+static void verify_phase4a_batch41_constraint_name() {
+    assert(kNumConstraints_c == 10 &&
+           "Phase 4.A Batch 41: Constraint table size = 10");
+    /* kType (index 0) is the NULL sentinel for the type-printing path. */
+    assert(hir_c_constraint_name(0) == NULL &&
+           "Phase 4.A Batch 41: kType returns NULL (delegate to ostream)");
+    /* All 9 non-kType entries have non-empty strings. */
+    for (int i = 1; i < (int)kNumConstraints_c; i++) {
+        const char *s = hir_c_constraint_name(i);
+        assert(s != NULL && s[0] != '\0' &&
+               "Phase 4.A Batch 41: non-kType entry non-empty");
+    }
+    /* Canonical anchors per the C++ switch order before deletion. */
+    assert(strcmp(hir_c_constraint_name(1), "CInt") == 0 &&
+           "Phase 4.A Batch 41: kMatchAllAsCInt = 'CInt'");
+    assert(strcmp(hir_c_constraint_name(2), "Primitive") == 0 &&
+           "Phase 4.A Batch 41: kMatchAllAsPrimitive = 'Primitive'");
+    assert(strcmp(hir_c_constraint_name(7), "(OptObject, CInt, CBool)") == 0 &&
+           "Phase 4.A Batch 41: kOptObjectOrCIntOrCBool string match");
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -2348,4 +2372,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch37_function_inline_lookups();
     verify_phase4a_batch38_get_frame_state();
     verify_phase4a_batch39_load_method_model_reg();
+    verify_phase4a_batch41_constraint_name();
 }

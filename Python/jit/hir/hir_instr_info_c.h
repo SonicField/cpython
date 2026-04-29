@@ -110,6 +110,17 @@ static inline const char *hir_c_get_inline_failure_name(int type) {
     return kInlineFailureNames_c[type];
 }
 
+/* ---- Constraint name lookup (Batch 41) ----
+ * Index = enum class Constraint value (kType=0, ...).
+ * kType returns NULL — caller delegates to ostream << Type printing.
+ * The other 9 cases return a fixed string (parens-wrapped union name
+ * or single primitive). JIT_ABORT_C on out-of-range. */
+
+extern const char *const kConstraintNames_c[];
+extern const size_t kNumConstraints_c;
+
+const char *hir_c_constraint_name(int kind);
+
 /* Convenience accessors */
 static inline int hir_instr_info_is_deopt_base(int opcode) {
     return hir_instr_get_info(opcode)->is_deopt_base;

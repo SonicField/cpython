@@ -440,3 +440,30 @@ const char *const kInlineFailureNames_c[] = {
 };
 const size_t kNumInlineFailureTypes_c =
     sizeof(kInlineFailureMsgs_c) / sizeof(kInlineFailureMsgs_c[0]);
+
+/* ==== Constraint name table (Batch 41) ====
+ * Mirrors hir.h:89 enum class Constraint. Order MUST match the enum
+ * values declared there. Index 0 (kType) is NULL — caller delegates
+ * to ostream << Type for the type-printing path. */
+
+const char *const kConstraintNames_c[] = {
+    NULL,                         /* kType */
+    "CInt",                       /* kMatchAllAsCInt */
+    "Primitive",                  /* kMatchAllAsPrimitive */
+    "(TupleExact, CPtr)",         /* kTupleExactOrCPtr */
+    "(List, chklist)",            /* kListOrChkList */
+    "(Dict, chkdict)",            /* kDictOrChkDict */
+    "(OptObject, CInt)",          /* kOptObjectOrCInt */
+    "(OptObject, CInt, CBool)",   /* kOptObjectOrCIntOrCBool */
+    "(OptObject, CPtr)",          /* kOptObjectOrCPtr */
+    "(OptObject, CUInt64)",       /* kOptObjectOrCUInt64 */
+};
+const size_t kNumConstraints_c =
+    sizeof(kConstraintNames_c) / sizeof(kConstraintNames_c[0]);
+
+const char *hir_c_constraint_name(int kind) {
+    if (kind < 0 || (size_t)kind >= kNumConstraints_c) {
+        JIT_ABORT_C("unknown constraint kind=%d", kind);
+    }
+    return kConstraintNames_c[kind];
+}
