@@ -171,6 +171,13 @@ struct HirInstrLayoutVerifier {
                   "CondBranchBase span{&true_edge_, 2} requires "
                   "false_edge_ to follow true_edge_ contiguously");
 
+    /* Phase 4.A Batch 28: compare op table size pins. The C arrays
+     * kCompareOpNames_c / kPrimitiveCompareOpNames_c must stay in
+     * lockstep with the FOREACH_*_OP macros in hir.h. */
+    /* Cannot use static_assert on extern const size_t (not a constant
+     * expression); the falsifier verify_phase4a_batch28_compare_ops
+     * checks this at constructor-time instead. */
+
     /* T2-B Batch 2: derived type sizes */
     static_assert(sizeof(HirBinaryOp) == sizeof(BinaryOp));
     static_assert(sizeof(HirUnaryOp) == sizeof(UnaryOp));
@@ -1530,6 +1537,63 @@ static void verify_phase4a_batch27_bb_list_wrappers() {
     }
 }
 
+/* Phase 4.A Batch 28 V5 falsifier for compare op tables + helpers.
+ * Verifies (a) table sizes match the C++ enum counts (V3 layout-pin
+ * deferred to runtime since the C-side counts are extern const, not
+ * constant expressions); (b) GetX/ParseX round-trips for every enum
+ * value; (c) toPrimitiveCompareOp mapping per-case, including the
+ * three nullopt cases (kIn, kNotIn, kExcMatch). */
+static void verify_phase4a_batch28_compare_ops() {
+    /* (a) Table-size pin. */
+    assert(kNumCompareOps_c == kNumCompareOps &&
+           "Phase 4.A Batch 28: kCompareOpNames_c size matches C++ kNumCompareOps");
+    assert(kNumPrimitiveCompareOps_c == kNumPrimitiveCompareOps &&
+           "Phase 4.A Batch 28: kPrimitiveCompareOpNames_c size matches C++ kNumPrimitiveCompareOps");
+
+    /* (b) CompareOp round-trip: GetName(Parse(GetName(i))) == GetName(i). */
+    for (int i = 0; i < (int)kNumCompareOps_c; i++) {
+        const char *name = hir_c_get_compare_op_name(i);
+        assert(name != NULL && name[0] != '\0' &&
+               "Phase 4.A Batch 28: CompareOp name non-empty");
+        int parsed = hir_c_parse_compare_op_name(name, strlen(name));
+        assert(parsed == i &&
+               "Phase 4.A Batch 28: CompareOp name round-trip preserves enum value");
+    }
+
+    /* (b cont.) PrimitiveCompareOp round-trip. */
+    for (int i = 0; i < (int)kNumPrimitiveCompareOps_c; i++) {
+        const char *name = hir_c_get_primitive_compare_op_name(i);
+        assert(name != NULL && name[0] != '\0' &&
+               "Phase 4.A Batch 28: PrimitiveCompareOp name non-empty");
+        int parsed = hir_c_parse_primitive_compare_op_name(name, strlen(name));
+        assert(parsed == i &&
+               "Phase 4.A Batch 28: PrimitiveCompareOp name round-trip");
+    }
+
+    /* (c) toPrimitiveCompareOp per-case mapping. */
+    /* Identity for kLessThan..kGreaterThanEqual (CompareOp 0..5 → Primitive 0..5). */
+    for (int i = 0; i <= 5; i++) {
+        assert(hir_c_to_primitive_compare_op(i) == i &&
+               "Phase 4.A Batch 28: toPrimitive identity for kLT..kGE");
+    }
+    /* Three nullopt cases: kIn (6), kNotIn (7), kExcMatch (8). */
+    assert(hir_c_to_primitive_compare_op(6) == -1 &&
+           "Phase 4.A Batch 28: toPrimitive(kIn) = nullopt");
+    assert(hir_c_to_primitive_compare_op(7) == -1 &&
+           "Phase 4.A Batch 28: toPrimitive(kNotIn) = nullopt");
+    assert(hir_c_to_primitive_compare_op(8) == -1 &&
+           "Phase 4.A Batch 28: toPrimitive(kExcMatch) = nullopt");
+    /* Unsigned variants shift down by 3: CompareOp 9..12 → Primitive 6..9. */
+    assert(hir_c_to_primitive_compare_op(9) == 6 &&
+           "Phase 4.A Batch 28: toPrimitive(kGTu) = kGTu primitive");
+    assert(hir_c_to_primitive_compare_op(10) == 7 &&
+           "Phase 4.A Batch 28: toPrimitive(kGEu) = kGEu primitive");
+    assert(hir_c_to_primitive_compare_op(11) == 8 &&
+           "Phase 4.A Batch 28: toPrimitive(kLTu) = kLTu primitive");
+    assert(hir_c_to_primitive_compare_op(12) == 9 &&
+           "Phase 4.A Batch 28: toPrimitive(kLEu) = kLEu primitive");
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -1553,4 +1617,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch25_add_remove_collect();
     verify_phase4a_batch26_env_register();
     verify_phase4a_batch27_bb_list_wrappers();
+    verify_phase4a_batch28_compare_ops();
 }

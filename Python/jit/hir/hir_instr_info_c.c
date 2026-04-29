@@ -11,6 +11,9 @@
  */
 
 #include "cinderx/Jit/hir/hir_instr_info_c.h"
+#include "cinderx/Common/jit_log_c.h"  /* JIT_ABORT_C (Batch 28) */
+
+#include <string.h>
 
 /* Table entries in FOREACH_OPCODE order (must match hir_ops.h enum) */
 /* {name, arity, output, deopt, term, replayable} */
@@ -193,4 +196,86 @@ const HirInstrInfo *hir_instr_get_info(int opcode) {
         return &hir_instr_info_table[0]; /* fallback to Assign */
     }
     return &hir_instr_info_table[opcode];
+}
+
+/* ==== Compare op metadata (Batch 28) ====
+ * Mirrors FOREACH_COMPARE_OP / FOREACH_PRIMITIVE_COMPARE_OP from hir.h.
+ * Order MUST match the enum values declared in hir.h:1771 and 2144.
+ * V3 layout-pin: kNumCompareOps_c == kNumCompareOps + same for primitive
+ * is verified in hir_instr_c_verify.cpp. */
+
+const char *const kCompareOpNames_c[] = {
+    "LessThan",
+    "LessThanEqual",
+    "Equal",
+    "NotEqual",
+    "GreaterThan",
+    "GreaterThanEqual",
+    "In",
+    "NotIn",
+    "ExcMatch",
+    "GreaterThanUnsigned",
+    "GreaterThanEqualUnsigned",
+    "LessThanUnsigned",
+    "LessThanEqualUnsigned",
+};
+const size_t kNumCompareOps_c =
+    sizeof(kCompareOpNames_c) / sizeof(kCompareOpNames_c[0]);
+
+const char *const kPrimitiveCompareOpNames_c[] = {
+    "LessThan",
+    "LessThanEqual",
+    "Equal",
+    "NotEqual",
+    "GreaterThan",
+    "GreaterThanEqual",
+    "GreaterThanUnsigned",
+    "GreaterThanEqualUnsigned",
+    "LessThanUnsigned",
+    "LessThanEqualUnsigned",
+};
+const size_t kNumPrimitiveCompareOps_c =
+    sizeof(kPrimitiveCompareOpNames_c) / sizeof(kPrimitiveCompareOpNames_c[0]);
+
+int hir_c_parse_compare_op_name(const char *name, size_t len) {
+    for (size_t i = 0; i < kNumCompareOps_c; i++) {
+        if (strlen(kCompareOpNames_c[i]) == len &&
+            strncmp(name, kCompareOpNames_c[i], len) == 0) {
+            return (int)i;
+        }
+    }
+    JIT_ABORT_C("Invalid CompareOp name (length %zu)", len);
+}
+
+int hir_c_parse_primitive_compare_op_name(const char *name, size_t len) {
+    for (size_t i = 0; i < kNumPrimitiveCompareOps_c; i++) {
+        if (strlen(kPrimitiveCompareOpNames_c[i]) == len &&
+            strncmp(name, kPrimitiveCompareOpNames_c[i], len) == 0) {
+            return (int)i;
+        }
+    }
+    JIT_ABORT_C("Invalid PrimitiveCompareOp name (length %zu)", len);
+}
+
+int hir_c_to_primitive_compare_op(int op) {
+    /* CompareOp enum (hir.h:1771):
+     *   0 LessThan     1 LessThanEqual     2 Equal     3 NotEqual
+     *   4 GreaterThan  5 GreaterThanEqual  6 In        7 NotIn
+     *   8 ExcMatch     9 GTUnsigned       10 GEUnsigned
+     *  11 LTUnsigned  12 LEUnsigned
+     * PrimitiveCompareOp enum (hir.h:2144):
+     *   0 LessThan     1 LessThanEqual     2 Equal     3 NotEqual
+     *   4 GreaterThan  5 GreaterThanEqual
+     *   6 GTUnsigned   7 GEUnsigned        8 LTUnsigned 9 LEUnsigned
+     * Identity for the first 6 entries; last 4 (unsigned variants)
+     * shift down by 3 to skip In/NotIn/ExcMatch. */
+    switch (op) {
+        case 0: case 1: case 2: case 3: case 4: case 5:
+            return op;
+        case 9:  return 6;
+        case 10: return 7;
+        case 11: return 8;
+        case 12: return 9;
+        default: return -1;
+    }
 }

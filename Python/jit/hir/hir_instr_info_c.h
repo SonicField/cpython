@@ -25,6 +25,33 @@ typedef struct {
 /* Accessor: get metadata for an opcode */
 const HirInstrInfo *hir_instr_get_info(int opcode);
 
+/* ---- Compare op metadata (Batch 28) ----
+ * Lookup tables + parse/convert helpers for CompareOp + PrimitiveCompareOp.
+ * Index = enum value (kLessThan=0, kLessThanEqual=1, ...). Defined in
+ * hir_instr_info_c.c so they live in one TU rather than per-include. */
+
+extern const char *const kCompareOpNames_c[];
+extern const size_t kNumCompareOps_c;
+extern const char *const kPrimitiveCompareOpNames_c[];
+extern const size_t kNumPrimitiveCompareOps_c;
+
+static inline const char *hir_c_get_compare_op_name(int op) {
+    return kCompareOpNames_c[op];
+}
+
+static inline const char *hir_c_get_primitive_compare_op_name(int op) {
+    return kPrimitiveCompareOpNames_c[op];
+}
+
+/* Parse: returns enum value (>= 0) on match. JIT_ABORT_C on miss. */
+int hir_c_parse_compare_op_name(const char *name, size_t len);
+int hir_c_parse_primitive_compare_op_name(const char *name, size_t len);
+
+/* Convert CompareOp → PrimitiveCompareOp.
+ * Returns -1 for the 3 CompareOp values without a primitive equivalent
+ * (kIn, kNotIn, kExcMatch); valid PrimitiveCompareOp int otherwise. */
+int hir_c_to_primitive_compare_op(int op);
+
 /* Convenience accessors */
 static inline int hir_instr_info_is_deopt_base(int opcode) {
     return hir_instr_get_info(opcode)->is_deopt_base;

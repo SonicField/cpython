@@ -679,70 +679,28 @@ void BasicBlock::removePhiPredecessor(BasicBlock* old_pred) {
   }
 }
 
-constexpr std::array<std::string_view, kNumCompareOps> kCompareOpNames = {
-#define OP_STR(NAME) #NAME,
-    FOREACH_COMPARE_OP(OP_STR)
-#undef OP_STR
-};
-
 std::string_view GetCompareOpName(CompareOp op) {
-  return kCompareOpNames[static_cast<int>(op)];
+  return hir_c_get_compare_op_name(static_cast<int>(op));
 }
 
 CompareOp ParseCompareOpName(std::string_view name) {
-  for (size_t i = 0; i < kCompareOpNames.size(); ++i) {
-    if (name == kCompareOpNames[i]) {
-      return static_cast<CompareOp>(i);
-    }
-  }
-  JIT_ABORT("Invalid CompareOp '{}'", name);
+  return static_cast<CompareOp>(
+      hir_c_parse_compare_op_name(name.data(), name.size()));
 }
 
-constexpr std::array<std::string_view, kNumPrimitiveCompareOps>
-    kPrimitiveCompareOpNames = {
-#define OP_STR(NAME) #NAME,
-        FOREACH_PRIMITIVE_COMPARE_OP(OP_STR)
-#undef OP_STR
-};
-
 std::string_view GetPrimitiveCompareOpName(PrimitiveCompareOp op) {
-  return kPrimitiveCompareOpNames[static_cast<int>(op)];
+  return hir_c_get_primitive_compare_op_name(static_cast<int>(op));
 }
 
 PrimitiveCompareOp ParsePrimitiveCompareOpName(std::string_view name) {
-  for (size_t i = 0; i < kPrimitiveCompareOpNames.size(); i++) {
-    if (name == kPrimitiveCompareOpNames[i]) {
-      return static_cast<PrimitiveCompareOp>(i);
-    }
-  }
-  JIT_ABORT("Invalid PrimitiveCompareOp '{}'", name);
+  return static_cast<PrimitiveCompareOp>(
+      hir_c_parse_primitive_compare_op_name(name.data(), name.size()));
 }
 
 std::optional<PrimitiveCompareOp> toPrimitiveCompareOp(CompareOp op) {
-  switch (op) {
-    case CompareOp::kLessThan:
-      return PrimitiveCompareOp::kLessThan;
-    case CompareOp::kLessThanEqual:
-      return PrimitiveCompareOp::kLessThanEqual;
-    case CompareOp::kLessThanUnsigned:
-      return PrimitiveCompareOp::kLessThanUnsigned;
-    case CompareOp::kLessThanEqualUnsigned:
-      return PrimitiveCompareOp::kLessThanEqualUnsigned;
-    case CompareOp::kEqual:
-      return PrimitiveCompareOp::kEqual;
-    case CompareOp::kNotEqual:
-      return PrimitiveCompareOp::kNotEqual;
-    case CompareOp::kGreaterThan:
-      return PrimitiveCompareOp::kGreaterThan;
-    case CompareOp::kGreaterThanEqual:
-      return PrimitiveCompareOp::kGreaterThanEqual;
-    case CompareOp::kGreaterThanUnsigned:
-      return PrimitiveCompareOp::kGreaterThanUnsigned;
-    case CompareOp::kGreaterThanEqualUnsigned:
-      return PrimitiveCompareOp::kGreaterThanEqualUnsigned;
-    default:
-      return std::nullopt;
-  }
+  int result = hir_c_to_primitive_compare_op(static_cast<int>(op));
+  if (result < 0) return std::nullopt;
+  return static_cast<PrimitiveCompareOp>(result);
 }
 
 constexpr std::array<std::string_view, kNumBinaryOpKinds> kBinaryOpNames = {
