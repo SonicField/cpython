@@ -1762,6 +1762,41 @@ static void verify_phase4a_batch34_primitive_unary_inplace_ops() {
     }
 }
 
+/* Phase 4.A Batch 35 V5 falsifier for Environment::getRegister.
+ * V5 N/A for the trivial 1-line shims (retargetPreds, references —
+ * pure delegation, V1 prod-use covers). getRegister has the bounds
+ * check + slot lookup as substantive logic. */
+static void verify_phase4a_batch35_env_get_register() {
+    HirEnvironment env = {};
+    void *r5 = hir_make_register_c(5);
+    void *added = hir_c_env_add_register(&env, r5);
+    assert(added == r5 &&
+           "Phase 4.A Batch 35: addRegister precondition");
+
+    /* In-bounds positive lookup: id=5 returns the registered ptr. */
+    void *got5 = hir_env_get_register(&env, 5);
+    assert(got5 == r5 &&
+           "Phase 4.A Batch 35(a): getRegister(5) returns registered Register");
+
+    /* In-bounds NULL slot: id=2 (gap) returns NULL. */
+    void *got2 = hir_env_get_register(&env, 2);
+    assert(got2 == NULL &&
+           "Phase 4.A Batch 35(b): getRegister(2) NULL gap returns NULL");
+
+    /* Negative id: returns NULL (bounds check lower). */
+    void *got_neg = hir_env_get_register(&env, -1);
+    assert(got_neg == NULL &&
+           "Phase 4.A Batch 35(c): getRegister(-1) returns NULL");
+
+    /* Out-of-bounds id: returns NULL (bounds check upper). */
+    void *got_oob = hir_env_get_register(&env, 999);
+    assert(got_oob == NULL &&
+           "Phase 4.A Batch 35(d): getRegister(999) returns NULL");
+
+    delete static_cast<jit::hir::Register *>(r5);
+    free(env.reg_data);
+}
+
 /* Phase 4.A Batch 30: SUBSTANTIVE V5 back-fill for B21
  * (Instr::getDominatingFrameState ef73c50a75) using the Batch I
  * test-chain helper. Falsifier-only addition; no production code
@@ -2083,4 +2118,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch32_add_remove_phi_substantive();
     verify_phase4a_batch33_bb_list_substantive();
     verify_phase4a_batch34_primitive_unary_inplace_ops();
+    verify_phase4a_batch35_env_get_register();
 }

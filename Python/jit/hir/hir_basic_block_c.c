@@ -138,6 +138,9 @@ hir_edge_destroy(HirEdge *edge) {
 
 void
 hir_bb_retarget_preds(HirBasicBlock *bb, HirBasicBlock *target) {
+    /* Phase 4.A Batch 35: precondition fold from C++ shim. Self-retarget
+     * would alias bb's in_edges_ to itself and infinite-loop the swap. */
+    JIT_CHECK_C(target != bb, "Can't retarget to self");
     /* Snapshot: set_to modifies in_edges_ (swap-and-pop erase), so we
      * can't iterate the live array while mutating it. */
     size_t n = bb->in_edges_.count;
@@ -146,6 +149,21 @@ hir_bb_retarget_preds(HirBasicBlock *bb, HirBasicBlock *target) {
     for (size_t i = 0; i < n; i++) {
         hir_edge_set_to((HirEdge *)snapshot[i], target);
     }
+}
+
+/* Phase 4.A Batch 35: BasicBlock destructor port. Mirrors the C++
+ * ~BasicBlock at hir.cpp:624-632: assert in_edges empty + clear instr
+ * list + assert out_edges empty + free both edge arrays. JIT_DCHECK_C
+ * release-mode-no-op matches the C++ JIT_DCHECK semantics. */
+void
+hir_c_bb_destroy(HirBasicBlock *bb) {
+    JIT_DCHECK_C(phx_edge_arr_empty(&bb->in_edges_),
+                 "Attempt to destroy a block with in-edges, %d", bb->id);
+    hir_bb_clear(bb);
+    JIT_DCHECK_C(phx_edge_arr_empty(&bb->out_edges_),
+                 "out_edges not empty after deleting all instrs");
+    phx_edge_arr_destroy(&bb->in_edges_);
+    phx_edge_arr_destroy(&bb->out_edges_);
 }
 
 /* ---- Insert before / clear / GetTerminator ---- */

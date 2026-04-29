@@ -76,6 +76,9 @@ const HirEdge *hir_bb_out_edge(const HirBasicBlock *bb, size_t i);
 
 void hir_bb_retarget_preds(HirBasicBlock *bb, HirBasicBlock *target);
 
+/* Phase 4.A Batch 35: BasicBlock destructor port. */
+void hir_c_bb_destroy(HirBasicBlock *bb);
+
 /* ---- Instruction list operations ---- */
 
 int hir_bb_empty(const HirBasicBlock *bb);

@@ -587,7 +587,6 @@ Instr* BasicBlock::Append(Instr* instr) {
 }
 
 void BasicBlock::retargetPreds(BasicBlock* target) {
-  JIT_CHECK(target != this, "Can't retarget to self");
   hir_bb_retarget_preds(
       reinterpret_cast<HirBasicBlock*>(this),
       reinterpret_cast<HirBasicBlock*>(target));
@@ -622,13 +621,7 @@ void BasicBlock::clear() {
 }
 
 BasicBlock::~BasicBlock() {
-  JIT_DCHECK(
-      phx_edge_arr_empty(&in_edges_), "Attempt to destroy a block with in-edges, {}", id);
-  clear();
-  JIT_DCHECK(
-      phx_edge_arr_empty(&out_edges_), "out_edges not empty after deleting all instrs");
-  phx_edge_arr_destroy(&in_edges_);
-  phx_edge_arr_destroy(&out_edges_);
+  hir_c_bb_destroy(reinterpret_cast<HirBasicBlock*>(this));
 }
 
 Instr* BasicBlock::GetTerminator() {
@@ -824,10 +817,7 @@ Register* Environment::AllocateRegister() {
 }
 
 Register* Environment::getRegister(int id) {
-  if (id < 0 || static_cast<size_t>(id) >= reg_count_) {
-    return nullptr;
-  }
-  return reg_data_[id];
+  return static_cast<Register*>(hir_env_get_register(this, id));
 }
 
 Register* Environment::addRegister(std::unique_ptr<Register> reg) {
@@ -848,7 +838,8 @@ PyObject* Environment::addReference(Ref<> obj) {
 }
 
 const Environment::ReferenceSet& Environment::references() const {
-  return references_;
+  return *reinterpret_cast<const ReferenceSet*>(
+      hir_c_env_references(const_cast<Environment*>(this)));
 }
 
 bool usesRuntimeFunc([[maybe_unused]] PyCodeObject* code) {

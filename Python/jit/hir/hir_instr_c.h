@@ -257,6 +257,15 @@ static inline void *hir_c_env_add_register(void *env, void *reg) {
     return reg;
 }
 
+/* Phase 4.A Batch 35: pointer to Environment::references_ opaque blob
+ * (std::unordered_set<ThreadedRef<>>). C++ shim reinterpret_cast's
+ * back to ReferenceSet&. The opaque storage lives at offset
+ * offsetof(HirEnvironment, references_opaque) — pinned by the existing
+ * HirEnvironmentLayoutVerifier. */
+static inline void *hir_c_env_references(void *env) {
+    return ((HirEnvironment *)env)->references_opaque;
+}
+
 /* ---- Function C struct (opaque blob with offsetof-verified field access) ---- */
 typedef struct HirFunctionLayout {
     char opaque[328]; /* sizeof(Function) == 41 * kPointerSize */
