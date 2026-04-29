@@ -1734,6 +1734,70 @@ static void verify_phase4a_batch29_binary_unary_ops() {
     }
 }
 
+/* Phase 4.A Batch 30: SUBSTANTIVE V5 back-fill for B21
+ * (Instr::getDominatingFrameState ef73c50a75) using the Batch I
+ * test-chain helper. Falsifier-only addition; no production code
+ * changes — semantic-equivalent SAME-content per supervisor 10:02:58Z
+ * back-fill exemption. Tests both the walk-past-replayable success
+ * path and the non-replayable-interpose return-NULL path that V1
+ * production-use covers but never empirically anchored. */
+static void verify_phase4a_batch30_dominating_frame_state_substantive() {
+    /* (a) Walk-past-replayable: chain [Snapshot, Assign, target_BinaryOp].
+     * Assign is replayable (arity=1, replayable=1 per hir_instr_info_c.c);
+     * Snapshot precedes it. Walk from target → Assign (replayable,
+     * continue) → Snapshot → return its frame_state. */
+    {
+        HirBasicBlock bb;
+        hir_c_test_chain_init(&bb);
+
+        FrameState fs{};
+        fs.cur_instr_offs = jit::BCOffset{42};
+        void *snap = hir_c_test_chain_append_snapshot(&bb, &fs);
+        void *assign = hir_c_test_chain_append_instr(
+            &bb, HIR_OP_Assign, sizeof(HirInstrLayout), 1);
+        (void)assign;
+        void *target = hir_c_test_chain_append_instr(
+            &bb, HIR_OP_BinaryOp, sizeof(HirBinaryOp), 2);
+        hir_c_init_deopt(target, HIR_OP_BinaryOp);
+
+        const void *dominating_fs = hir_c_get_dominating_frame_state(target);
+        assert(dominating_fs != NULL &&
+               "Phase 4.A Batch 30(a): dominating Snapshot's frame_state non-NULL");
+        assert(dominating_fs == hir_c_snapshot_get_frame_state(snap) &&
+               "Phase 4.A Batch 30(a): returns the Snapshot's frame_state ptr");
+        assert(static_cast<const FrameState*>(dominating_fs)
+                   ->cur_instr_offs.value() == 42 &&
+               "Phase 4.A Batch 30(a): frame_state cur_instr_offs preserved");
+
+        hir_c_test_chain_destroy(&bb);
+    }
+
+    /* (b) Non-replayable interpose: chain [Snapshot, BinaryOp, target].
+     * BinaryOp is NOT replayable (arity=2, replayable=0). Walk from
+     * target → BinaryOp (not replayable) → return NULL. */
+    {
+        HirBasicBlock bb;
+        hir_c_test_chain_init(&bb);
+
+        FrameState fs{};
+        fs.cur_instr_offs = jit::BCOffset{99};
+        void *snap = hir_c_test_chain_append_snapshot(&bb, &fs);
+        (void)snap;
+        void *blocker = hir_c_test_chain_append_instr(
+            &bb, HIR_OP_BinaryOp, sizeof(HirBinaryOp), 2);
+        hir_c_init_deopt(blocker, HIR_OP_BinaryOp);
+        void *target = hir_c_test_chain_append_instr(
+            &bb, HIR_OP_BinaryOp, sizeof(HirBinaryOp), 2);
+        hir_c_init_deopt(target, HIR_OP_BinaryOp);
+
+        const void *dominating_fs = hir_c_get_dominating_frame_state(target);
+        assert(dominating_fs == NULL &&
+               "Phase 4.A Batch 30(b): non-replayable interpose returns NULL");
+
+        hir_c_test_chain_destroy(&bb);
+    }
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -1760,4 +1824,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch28_compare_ops();
     verify_phase4a_batchI_chain_helper();
     verify_phase4a_batch29_binary_unary_ops();
+    verify_phase4a_batch30_dominating_frame_state_substantive();
 }
