@@ -341,27 +341,11 @@ struct HIRBuilder::TranslationContext {
   TranslationContext(BasicBlock* b, const FrameState& fs)
       : block(b), frame(fs) {}
 
-  template <typename T, typename... Args>
-  T* emit(Args&&... args) {
-    auto instr = block->appendWithOff<T>(
-        frame.instrOffset(), std::forward<Args>(args)...);
-    return instr;
-  }
-
-  template <typename T, typename... Args>
-  T* emitChecked(Args&&... args) {
-    auto instr = emit<T>(std::forward<Args>(args)...);
-    auto out = instr->output();
-    auto* chk = static_cast<Instr*>(hir_c_create_check_exc_reg(out, out));
-    chk->asDeoptBase()->setFrameState(frame);
-    emitC(chk);
-    return instr;
-  }
-
-  // emitVariadic<T> + emitVariadicDeopt + emitCallMethod removed in
-  // PARTIAL→STUB Batch 1 (supervisor L2565 (a) dead-code cleanup): no
-  // callers remain post-W26 (emitAnyCall now uses hir_c_create_vectorcall_reg
-  // + hir_c_create_call_method_reg directly in C body).
+  // emit<T>/emitChecked<T> templates DELETED Phase 4.D Batch 56:
+  // zero callers remained post-B54+B55 (all emit-via-template paths
+  // migrated to direct factory C-API calls or hir_c_tc_emit_* primitives).
+  // emitVariadic<T> + emitVariadicDeopt + emitCallMethod removed earlier
+  // in PARTIAL→STUB Batch 1 (W26 PartialConversion dead-code cleanup).
 
   // Phase 4.D pilot step 2 (Batch 54): no-FrameState emit cluster — each
   // dispatches to the matching hir_c_tc_emit_* primitive in hir_c_api.h.
