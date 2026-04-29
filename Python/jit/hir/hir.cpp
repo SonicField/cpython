@@ -104,8 +104,7 @@ void DeoptBase::sortLiveRegs() {
 }
 
 void DeoptBase::setFrameState(const FrameState& state) {
-  delete frame_state_;
-  frame_state_ = new FrameState(state);
+  hir_c_deopt_set_frame_state(this, &state);
 }
 
 int DeoptBase::nonce() const {
@@ -328,6 +327,13 @@ extern "C" int hir_frame_state_visit_uses_c(void *fs,
     return visitor(reinterpret_cast<void**>(&reg), user) != 0;
   });
   return ok ? 1 : 0;
+}
+
+/* Phase 4.A Batch 18: copy-construct a new FrameState. C++ class with
+ * std::vector members; the actual copy stays C++, exposed via this
+ * thin extern "C" bridge so hir_c_deopt_set_frame_state can use it. */
+extern "C" void *hir_make_frame_state_c(const void *src) {
+  return new jit::hir::FrameState(*static_cast<const jit::hir::FrameState*>(src));
 }
 
 namespace jit::hir {

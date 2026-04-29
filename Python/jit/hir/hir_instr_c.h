@@ -1343,6 +1343,26 @@ static inline void hir_c_instr_init_copy(void *dst, const void *src) {
     d->output = s->output;
 }
 
+/* C-callable bridge for FrameState copy-construction (Batch 18).
+ * FrameState is C++ class with std::vector members; the actual copy ctor
+ * stays C++. Implemented in hir.cpp. */
+void *hir_make_frame_state_c(const void *src);
+
+/* Forward decl needed by hir_c_deopt_set_frame_state below; full decl
+ * remains in the C++ destruction helpers section further down. */
+void hir_c_destroy_frame_state(void *frame_state);
+
+/* DeoptBase::setFrameState port (Batch 18). Frees prior frame_state via
+ * existing C-side hir_c_destroy_frame_state, then copy-constructs a new
+ * one via the C++ bridge. */
+static inline void hir_c_deopt_set_frame_state(void *self, const void *src) {
+    HirDeoptLayout *d = (HirDeoptLayout *)self;
+    if (d->frame_state) {
+        hir_c_destroy_frame_state(d->frame_state);
+    }
+    d->frame_state = hir_make_frame_state_c(src);
+}
+
 /* ==== C++ destruction helpers ====
  * These thin wrappers are implemented in hir_c_api.cpp. They handle
  * C++ members that can't be cleaned up from pure C. */

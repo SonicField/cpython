@@ -869,6 +869,35 @@ static void verify_phase4a_batch17_instr_ctor_init() {
            "Phase 4.A Batch 17: copy-init must NOT touch block_node");
 }
 
+/* Phase 4.A Batch 18 V5 sentinel falsifier for setFrameState. */
+static void verify_phase4a_batch18_set_frame_state() {
+    /* Allocate stub DeoptBase, plant marker FrameState as old state. */
+    void *db = hir_c_alloc_instr(sizeof(HirDeoptLayout), 0);
+    assert(db != NULL);
+    hir_c_init_deopt(db, HIR_OP_BinaryOp);
+
+    HirDeoptLayout *d = (HirDeoptLayout *)db;
+    auto* old = new FrameState{};
+    old->cur_instr_offs = jit::BCOffset{99};
+    d->frame_state = old;
+
+    FrameState src{};
+    src.cur_instr_offs = jit::BCOffset{42};
+
+    hir_c_deopt_set_frame_state(db, &src);
+
+    assert(d->frame_state != NULL &&
+           "Phase 4.A Batch 18: setFrameState produces a new FrameState");
+    assert(d->frame_state != old &&
+           "Phase 4.A Batch 18: setFrameState replaces the prior FrameState pointer");
+    auto* new_fs = static_cast<FrameState*>(d->frame_state);
+    assert(new_fs->cur_instr_offs.value() == 42 &&
+           "Phase 4.A Batch 18: setFrameState copy contains src.cur_instr_offs");
+
+    hir_c_destroy_frame_state(d->frame_state);
+    free((char *)db - 2 * sizeof(void *) - sizeof(size_t));
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -882,4 +911,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch15_edge_in_edges();
     verify_phase4a_batch16_allocator();
     verify_phase4a_batch17_instr_ctor_init();
+    verify_phase4a_batch18_set_frame_state();
 }
