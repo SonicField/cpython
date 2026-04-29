@@ -400,27 +400,26 @@ Edge* Instr::edge(std::size_t i) {
 }
 
 const Edge* Instr::edge(std::size_t i) const {
-  auto es = edges();
+  size_t n = hir_c_num_edges(this);
   JIT_CHECK(
-      i < es.size(),
+      i < n,
       "Trying to access edge {} of {} but it only has {}",
       i,
       opname(),
-      es.size());
-  return &es[i];
+      n);
+  return reinterpret_cast<const Edge*>(
+      hir_c_edge_at(const_cast<Instr*>(this), i));
 }
 
 std::span<const Edge> Instr::edges() const {
-  switch (opcode_) {
-    case Opcode::kBranch:
-      return static_cast<const Branch*>(this)->edges();
-    case Opcode::kCondBranch:
-    case Opcode::kCondBranchIterNotDone:
-    case Opcode::kCondBranchCheckType:
-      return static_cast<const CondBranchBase*>(this)->edges();
-    default:
-      return {};
+  size_t n = hir_c_num_edges(this);
+  if (n == 0) {
+    return {};
   }
+  return std::span<const Edge>{
+      reinterpret_cast<const Edge*>(
+          hir_c_edge_at(const_cast<Instr*>(this), 0)),
+      n};
 }
 
 BasicBlock* Instr::successor(std::size_t i) const {
@@ -523,16 +522,6 @@ Register*& Instr::operandAt(std::size_t i) {
       i,
       NumOperands() - 1);
   return operands()[i];
-}
-
-std::span<const Edge> Branch::edges() const {
-  return std::span{&edge_, 1};
-}
-
-std::span<const Edge> CondBranchBase::edges() const {
-  // Depends on the struct layout.  We expect false_edge_ to follow immediately
-  // after true_edge_.
-  return std::span{&true_edge_, 2};
 }
 
 bool isLoadMethodBase(const Instr& instr) {

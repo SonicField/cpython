@@ -820,11 +820,10 @@ class INSTR_CLASS(Branch, (), Operands<0>) {
     edge_.set_to(target);
   }
 
-  std::span<const Edge> edges() const;
-
  private:
   Edge edge_;
   friend class Instr;
+  friend struct ::HirInstrLayoutVerifier;
 };
 
 enum class FunctionAttr {
@@ -2273,8 +2272,6 @@ class CondBranchBase : public Instr {
   void set_false_bb(BasicBlock* block) {
     false_edge_.set_to(block);
   }
-
-  std::span<const Edge> edges() const;
 
   friend struct ::HirInstrLayoutVerifier;
 

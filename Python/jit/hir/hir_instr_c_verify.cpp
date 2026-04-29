@@ -161,6 +161,16 @@ struct HirInstrLayoutVerifier {
     static_assert(offsetof(HirCondBranchInstr, true_edge) == offsetof(CondBranchBase, true_edge_));
     static_assert(offsetof(HirCondBranchInstr, false_edge) == offsetof(CondBranchBase, false_edge_));
 
+    /* Phase 4.A Batch 22: HirBranch.edge offset pin + CondBranch
+     * contiguity pin so std::span{&true_edge_, 2} (now sole-sourced
+     * via hir_c_edge_at) walks adjacent storage. */
+    static_assert(offsetof(HirBranch, edge) == offsetof(Branch, edge_));
+    static_assert(offsetof(HirCondBranchInstr, false_edge) -
+                      offsetof(HirCondBranchInstr, true_edge) ==
+                  sizeof(HirEdge),
+                  "CondBranchBase span{&true_edge_, 2} requires "
+                  "false_edge_ to follow true_edge_ contiguously");
+
     /* T2-B Batch 2: derived type sizes */
     static_assert(sizeof(HirBinaryOp) == sizeof(BinaryOp));
     static_assert(sizeof(HirUnaryOp) == sizeof(UnaryOp));
@@ -1088,6 +1098,65 @@ static void verify_phase4a_batch21_dominating_frame_state() {
     }
 }
 
+/* Phase 4.A Batch 22 V5 sentinel falsifier: edges/edge dispatchers.
+ * Three cases land here per the codified V5-feasibility analysis
+ * (theologian 07:39:41Z): default opcode (count==0), Branch (count==1
+ * + ptr-equality to &edge), CondBranch (count==2 + paired ptr-equality
+ * + storage adjacency). No intrusive-list setup — Edge fields are
+ * direct struct members. */
+static void verify_phase4a_batch22_edges_dispatch() {
+    /* Default opcode (BinaryOp): no edges. */
+    {
+        HirInstrLayout instr = {};
+        instr.opcode = HIR_OP_BinaryOp;
+        assert(hir_c_num_edges(&instr) == 0 &&
+               "Phase 4.A Batch 22(default): non-branch opcode has 0 edges");
+        assert(hir_c_edge_at(&instr, 0) == NULL &&
+               "Phase 4.A Batch 22(default): edge_at returns NULL");
+    }
+
+    /* Branch sentinel: 1 edge at &branch.edge. */
+    {
+        HirBranch br = {};
+        br.opcode = HIR_OP_Branch;
+        assert(hir_c_num_edges(&br) == 1 &&
+               "Phase 4.A Batch 22(Branch): num_edges == 1");
+        assert(hir_c_edge_at(&br, 0) == &br.edge &&
+               "Phase 4.A Batch 22(Branch): edge_at(0) == &edge");
+    }
+
+    /* CondBranch sentinel: 2 edges, contiguous true_edge then false_edge. */
+    {
+        HirCondBranchInstr cb = {};
+        cb.opcode = HIR_OP_CondBranch;
+        assert(hir_c_num_edges(&cb) == 2 &&
+               "Phase 4.A Batch 22(CondBranch): num_edges == 2");
+        assert(hir_c_edge_at(&cb, 0) == &cb.true_edge &&
+               "Phase 4.A Batch 22(CondBranch): edge_at(0) == &true_edge");
+        assert(hir_c_edge_at(&cb, 1) == &cb.false_edge &&
+               "Phase 4.A Batch 22(CondBranch): edge_at(1) == &false_edge");
+        /* Storage adjacency: span{&true_edge_, 2} only walks correctly
+         * when false_edge follows true_edge with no padding. */
+        assert((char *)&cb.false_edge - (char *)&cb.true_edge ==
+                   (ptrdiff_t)sizeof(HirEdge) &&
+               "Phase 4.A Batch 22(CondBranch): false_edge contiguous after true_edge");
+    }
+
+    /* CondBranchIterNotDone + CondBranchCheckType share the same
+     * 2-edge dispatch; verify count + ptr-equality on a CheckType
+     * sentinel since it has the extra HirType trailer. */
+    {
+        HirCondBranchCheckType cct = {};
+        cct.opcode = HIR_OP_CondBranchCheckType;
+        assert(hir_c_num_edges(&cct) == 2 &&
+               "Phase 4.A Batch 22(CondBranchCheckType): num_edges == 2");
+        assert(hir_c_edge_at(&cct, 0) == &cct.true_edge &&
+               "Phase 4.A Batch 22(CondBranchCheckType): edge_at(0) == &true_edge");
+        assert(hir_c_edge_at(&cct, 1) == &cct.false_edge &&
+               "Phase 4.A Batch 22(CondBranchCheckType): edge_at(1) == &false_edge");
+    }
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -1105,4 +1174,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch19_deopt_copy();
     verify_phase4a_batch20_phi_apply_args();
     verify_phase4a_batch21_dominating_frame_state();
+    verify_phase4a_batch22_edges_dispatch();
 }
