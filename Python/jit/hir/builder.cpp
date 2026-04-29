@@ -705,36 +705,45 @@ struct HIRBuilder::TranslationContext {
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitImportFrom(Register* dst, Register* name, int name_idx, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_import_from_reg(dst, name, name_idx, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_import_from(this, dst, name, name_idx,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitInvokeIterNext(Register* dst, Register* iter, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_invoke_iter_next_reg(dst, iter, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_invoke_iter_next(this, dst, iter,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitPrimitiveUnbox(Register* dst, Register* src, Type type) {
-    emitC(static_cast<Instr*>(hir_c_create_primitive_unbox_reg(dst, src, to_hir(type))));
+    hir_c_tc_emit_primitive_unbox(this, dst, src, to_hir(type));
   }
 
   // Batch 5 wrappers
   void emitEagerImportName(Register* dst, int name_idx, Register* fromlist, Register* level, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_eager_import_name_reg(dst, name_idx, fromlist, level, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_eager_import_name(this, dst, name_idx, fromlist, level,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitMakeCheckedDict(Register* dst, int size, Type type, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_make_checked_dict_reg(dst, size, to_hir(type), const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_make_checked_dict(this, dst, size, to_hir(type),
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   Instr* emitMakeCheckedList(int size, Register* dst, Type type, const FrameState& fs) {
-    return emitC(static_cast<Instr*>(hir_c_create_make_checked_list_reg(size, dst, to_hir(type), const_cast<void*>(static_cast<const void*>(&fs)))));
+    return static_cast<Instr*>(hir_c_tc_emit_make_checked_list(this, size, dst,
+        to_hir(type), const_cast<void*>(static_cast<const void*>(&fs))));
   }
   void emitMakeFunction(Register* dst, Register* code, Register* qualname, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_make_function_reg(dst, code, qualname, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_make_function(this, dst, code, qualname,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitBuildTemplate(Register* strings, Register* interps, Register* dst, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_build_template_reg(strings, interps, dst, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_build_template(this, strings, interps, dst,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitBuildInterpolation(Register* dst, Register* val, Register* str, Register* fmt, int conv, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_build_interpolation_reg(dst, val, str, fmt, conv, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_build_interpolation(this, dst, val, str, fmt, conv,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitLoadAttr2(Register* dst, Register* receiver, int name_idx, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_load_attr_reg2(dst, receiver, name_idx, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_load_attr2(this, dst, receiver, name_idx,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitInitFrameCellVars(Register* func, int nfree) {
     emitC(static_cast<Instr*>(hir_c_create_init_frame_cell_vars_reg(func, nfree)));

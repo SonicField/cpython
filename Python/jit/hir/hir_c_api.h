@@ -1284,6 +1284,79 @@ static inline void hir_c_tc_emit_unary_op(void *tc, HirRegister dst,
     hir_c_tc_emit_c(tc, hir_c_create_unary_op_reg(dst, op_kind, operand, fs));
 }
 
+/* ---- Phase 4.D pilot step 9 (Batch 61): emit cluster 7 (10 methods) ---- */
+
+static inline void hir_c_tc_emit_import_from(void *tc, HirRegister dst,
+                                               HirRegister name,
+                                               int32_t name_idx, void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_import_from_reg(dst, name, name_idx, fs));
+}
+
+static inline void hir_c_tc_emit_invoke_iter_next(void *tc, HirRegister dst,
+                                                    HirRegister iter, void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_invoke_iter_next_reg(dst, iter, fs));
+}
+
+static inline void hir_c_tc_emit_primitive_unbox(void *tc, HirRegister dst,
+                                                   HirRegister src, HirType type) {
+    hir_c_tc_emit_c(tc, hir_c_create_primitive_unbox_reg(dst, src, type));
+}
+
+static inline void hir_c_tc_emit_eager_import_name(void *tc, HirRegister dst,
+                                                     int32_t name_idx,
+                                                     HirRegister fromlist,
+                                                     HirRegister level,
+                                                     void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_eager_import_name_reg(dst, name_idx, fromlist, level, fs));
+}
+
+static inline void hir_c_tc_emit_make_checked_dict(void *tc, HirRegister dst,
+                                                     int32_t size, HirType type,
+                                                     void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_make_checked_dict_reg(dst, size, type, fs));
+}
+
+static inline HirInstr hir_c_tc_emit_make_checked_list(void *tc, int32_t size,
+                                                        HirRegister dst,
+                                                        HirType type, void *fs) {
+    HirInstr i = hir_c_create_make_checked_list_reg(size, dst, type, fs);
+    hir_c_tc_emit_c(tc, i);
+    return i;
+}
+
+static inline void hir_c_tc_emit_make_function(void *tc, HirRegister dst,
+                                                 HirRegister code,
+                                                 HirRegister qualname,
+                                                 void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_make_function_reg(dst, code, qualname, fs));
+}
+
+static inline void hir_c_tc_emit_build_template(void *tc, HirRegister strings,
+                                                  HirRegister interps,
+                                                  HirRegister dst, void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_build_template_reg(strings, interps, dst, fs));
+}
+
+static inline void hir_c_tc_emit_build_interpolation(void *tc, HirRegister dst,
+                                                       HirRegister val,
+                                                       HirRegister str,
+                                                       HirRegister fmt,
+                                                       int32_t conv, void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_build_interpolation_reg(dst, val, str, fmt, conv, fs));
+}
+
+static inline void hir_c_tc_emit_load_attr2(void *tc, HirRegister dst,
+                                              HirRegister receiver,
+                                              int32_t name_idx, void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_load_attr_reg2(dst, receiver, name_idx, fs));
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

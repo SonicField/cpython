@@ -2887,6 +2887,63 @@ static void verify_phase4d_batch60_emit_cluster_6() {
     hir_c_test_chain_destroy(&bb);
 }
 
+/* Phase 4.D Batch 61 V5 sentinel: emit cluster 7 representative cases.
+ *
+ *   - emit_make_checked_list (FS-coupled, Type arg, Instr* RETURN,
+ *     cur_instr_offs=157): MakeCheckedList instr appended + return ptr
+ *     non-NULL.
+ *   - emit_primitive_unbox (no-FS, Type arg, cur_instr_offs=163):
+ *     PrimitiveUnbox instr appended + Type carried.
+ *
+ * Remaining 8 primitives covered by V1 production path. */
+static void verify_phase4d_batch61_emit_cluster_7() {
+    HirBasicBlock bb;
+    hir_c_test_chain_init(&bb);
+
+    PhxTranslationContext tc{};
+    tc.block = &bb;
+
+    /* Case 1: emit_make_checked_list — FS-coupled Instr* return. */
+    tc.frame.cur_instr_offs = 157;
+    FrameState fs{};
+    fs.cur_instr_offs = jit::BCOffset{157};
+    HirRegLayout mcl_dst{};
+    mcl_dst.id = 81;
+    HirType list_type{};
+    list_type.bits_and_flags = 0xCAFE0001U;
+    HirInstr ret = hir_c_tc_emit_make_checked_list(&tc, /*size=*/4, &mcl_dst,
+                                                     list_type, &fs);
+    assert(ret != NULL && "Phase 4.D Batch 61: make_checked_list returns non-NULL");
+
+    void *first = hir_bb_first_instr(&bb);
+    assert(first != NULL && "Phase 4.D Batch 61: make_checked_list appended");
+    HirInstrLayout *mcl = (HirInstrLayout *)first;
+    assert(mcl->opcode == HIR_OP_MakeCheckedList &&
+           "Phase 4.D Batch 61: appended instr is MakeCheckedList");
+    assert(mcl->bytecode_offset == 157 &&
+           "Phase 4.D Batch 61: make_checked_list bytecode_offset stamped");
+
+    /* Case 2: emit_primitive_unbox — no-FS Type-arg. */
+    tc.frame.cur_instr_offs = 163;
+    HirRegLayout pu_dst{};
+    pu_dst.id = 82;
+    HirRegLayout pu_src{};
+    pu_src.id = 83;
+    HirType cint32_type{};
+    cint32_type.bits_and_flags = 0xCAFE0002U;
+    hir_c_tc_emit_primitive_unbox(&tc, &pu_dst, &pu_src, cint32_type);
+
+    void *second = hir_bb_next_instr(&bb, first);
+    assert(second != NULL && "Phase 4.D Batch 61: primitive_unbox appended");
+    HirInstrLayout *pu = (HirInstrLayout *)second;
+    assert(pu->opcode == HIR_OP_PrimitiveUnbox &&
+           "Phase 4.D Batch 61: appended instr is PrimitiveUnbox");
+    assert(pu->bytecode_offset == 163 &&
+           "Phase 4.D Batch 61: primitive_unbox bytecode_offset stamped");
+
+    hir_c_test_chain_destroy(&bb);
+}
+
 /* Phase 4.D Batch 52 V5 sentinel falsifier for hir_c_advance_past_yield. */
 static void verify_phase4d_batch52_advance_past_yield() {
     HirFrameStateLayout fs = {};
@@ -2952,4 +3009,5 @@ static void hir_instr_runtime_check() {
     verify_phase4d_batch58_emit_cluster_4();
     verify_phase4d_batch59_emit_cluster_5();
     verify_phase4d_batch60_emit_cluster_6();
+    verify_phase4d_batch61_emit_cluster_7();
 }
