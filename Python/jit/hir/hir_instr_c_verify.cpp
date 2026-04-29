@@ -2996,6 +2996,66 @@ static void verify_phase4d_batch62_emit_cluster_8() {
     hir_c_test_chain_destroy(&bb);
 }
 
+/* Phase 4.D Batch 63 V5 sentinel: emit cluster 9 representative cases.
+ *
+ *   - emit_call_c_func (no-FS, std::vector→data() ptr, Instr* return,
+ *     cur_instr_offs=199, n=3, func=0, args=[r4,r5,r6]).
+ *   - emit_cast (FS-coupled, PyTypeObject* + 2 bool, cur_instr_offs=205).
+ *
+ * Remaining 8 primitives covered by V1 production path. */
+static void verify_phase4d_batch63_emit_cluster_9() {
+    HirBasicBlock bb;
+    hir_c_test_chain_init(&bb);
+
+    PhxTranslationContext tc{};
+    tc.block = &bb;
+
+    /* Case 1: emit_call_c_func — std::vector→data() + Instr* return. */
+    tc.frame.cur_instr_offs = 199;
+    HirRegLayout cf_dst{};
+    cf_dst.id = 101;
+    HirRegLayout r4{};
+    r4.id = 104;
+    HirRegLayout r5{};
+    r5.id = 105;
+    HirRegLayout r6{};
+    r6.id = 106;
+    HirRegister args[3] = {&r4, &r5, &r6};
+    HirInstr ret = hir_c_tc_emit_call_c_func(&tc, /*n=*/3, &cf_dst,
+                                               /*func_enum=*/0, args);
+    assert(ret != NULL && "Phase 4.D Batch 63: call_c_func returns non-NULL");
+
+    void *first = hir_bb_first_instr(&bb);
+    assert(first != NULL && "Phase 4.D Batch 63: call_c_func appended");
+    HirInstrLayout *cf = (HirInstrLayout *)first;
+    assert(cf->opcode == HIR_OP_CallCFunc &&
+           "Phase 4.D Batch 63: appended instr is CallCFunc");
+    assert(cf->bytecode_offset == 199 &&
+           "Phase 4.D Batch 63: call_c_func bytecode_offset stamped");
+
+    /* Case 2: emit_cast — FS-coupled PyTypeObject* + bool. */
+    tc.frame.cur_instr_offs = 205;
+    FrameState fs{};
+    fs.cur_instr_offs = jit::BCOffset{205};
+    HirRegLayout cast_dst{};
+    cast_dst.id = 102;
+    HirRegLayout cast_value{};
+    cast_value.id = 103;
+    void *fake_pytype = (void *)0xCAFE0010ULL;
+    hir_c_tc_emit_cast(&tc, &cast_dst, &cast_value, fake_pytype,
+                        /*optional=*/1, /*exact=*/0, &fs);
+
+    void *second = hir_bb_next_instr(&bb, first);
+    assert(second != NULL && "Phase 4.D Batch 63: cast appended");
+    HirInstrLayout *cst = (HirInstrLayout *)second;
+    assert(cst->opcode == HIR_OP_Cast &&
+           "Phase 4.D Batch 63: appended instr is Cast");
+    assert(cst->bytecode_offset == 205 &&
+           "Phase 4.D Batch 63: cast bytecode_offset stamped");
+
+    hir_c_test_chain_destroy(&bb);
+}
+
 /* Phase 4.D Batch 52 V5 sentinel falsifier for hir_c_advance_past_yield. */
 static void verify_phase4d_batch52_advance_past_yield() {
     HirFrameStateLayout fs = {};
@@ -3063,4 +3123,5 @@ static void hir_instr_runtime_check() {
     verify_phase4d_batch60_emit_cluster_6();
     verify_phase4d_batch61_emit_cluster_7();
     verify_phase4d_batch62_emit_cluster_8();
+    verify_phase4d_batch63_emit_cluster_9();
 }

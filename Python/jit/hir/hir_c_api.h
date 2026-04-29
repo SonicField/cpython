@@ -1440,6 +1440,96 @@ static inline void hir_c_tc_emit_store_array_item(void *tc, HirRegister arr,
         hir_c_create_store_array_item_reg(arr, idx, value, container, elem_type));
 }
 
+/* ---- Phase 4.D pilot step 11 (Batch 63): emit cluster 9 (10 mixed) ----
+ * NEW PATTERN: std::vector<Register*> from C++ caller passes args.data()
+ * to hir_c_tc_emit_call_c_func / call_intrinsic — pointer to caller's
+ * contiguous backing array, lifetime bounded by caller frame. Size
+ * conveyed via separate `n` parameter (matches existing factory ABI).
+ * Architectural completeness ('covers ALL N occurrences') is
+ * un-falsified-at-gate per shepard 21:54:36Z. */
+
+static inline void hir_c_tc_emit_get_a_iter(void *tc, HirRegister dst,
+                                              HirRegister src, void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_get_a_iter_reg(dst, src, fs));
+}
+
+static inline void hir_c_tc_emit_cast(void *tc, HirRegister dst,
+                                        HirRegister value, void *pytype,
+                                        int optional, int exact, void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_cast_reg(dst, value, pytype, optional, exact, fs));
+}
+
+static inline void hir_c_tc_emit_raise_static(void *tc, int32_t reraise,
+                                                void *exc_type, const char *fmt,
+                                                void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_raise_static_reg(reraise, exc_type, fmt, fs));
+}
+
+static inline void hir_c_tc_emit_match_class(void *tc, HirRegister dst,
+                                               HirRegister subject,
+                                               HirRegister type,
+                                               HirRegister nargs,
+                                               HirRegister names) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_match_class_reg2(dst, subject, type, nargs, names));
+}
+
+static inline void hir_c_tc_emit_load_method_super(void *tc, HirRegister dst,
+                                                     HirRegister global_super,
+                                                     HirRegister type,
+                                                     HirRegister receiver,
+                                                     int32_t name_idx,
+                                                     int no_args, void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_load_method_super_reg(dst, global_super, type, receiver,
+                                            name_idx, no_args, fs));
+}
+
+static inline void hir_c_tc_emit_load_attr_super(void *tc, HirRegister dst,
+                                                   HirRegister global_super,
+                                                   HirRegister type,
+                                                   HirRegister receiver,
+                                                   int32_t name_idx,
+                                                   int no_args, void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_load_attr_super_reg(dst, global_super, type, receiver,
+                                          name_idx, no_args, fs));
+}
+
+static inline HirInstr hir_c_tc_emit_call_c_func(void *tc, size_t n,
+                                                   HirRegister dst,
+                                                   int32_t func_enum,
+                                                   HirRegister *operands) {
+    HirInstr i = hir_c_create_call_cfunc_reg(n, dst, func_enum, operands);
+    hir_c_tc_emit_c(tc, i);
+    return i;
+}
+
+static inline void hir_c_tc_emit_load_attr_special(void *tc, HirRegister dst,
+                                                     HirRegister receiver,
+                                                     void *id, const char *fmt,
+                                                     void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_load_attr_special_reg(dst, receiver, id, fmt, fs));
+}
+
+static inline void hir_c_tc_emit_call_intrinsic(void *tc, size_t n,
+                                                  HirRegister dst,
+                                                  int32_t oparg,
+                                                  HirRegister *operands) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_call_intrinsic_reg2(n, dst, oparg, operands));
+}
+
+static inline HirInstr hir_c_tc_emit_make_tuple(void *tc, size_t n,
+                                                  HirRegister dst, void *fs) {
+    HirInstr i = hir_c_create_make_tuple_reg(n, dst, fs);
+    hir_c_tc_emit_c(tc, i);
+    return i;
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

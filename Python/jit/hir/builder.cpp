@@ -795,35 +795,39 @@ struct HIRBuilder::TranslationContext {
 
   // Batch: 1-op HasOutput DeoptBase (dst, src, frame)
   void emitGetAIter(Register* dst, Register* src, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_get_a_iter_reg(
-        dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_get_a_iter(this, dst, src,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   // Batch 8b wrappers
   void emitCast(Register* dst, Register* value, PyTypeObject* pytype, bool optional, bool exact, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_cast_reg(dst, value, pytype, optional, exact, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_cast(this, dst, value, pytype, optional, exact,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitRaiseStatic(int reraise, PyObject* exc_type, const char* fmt, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_raise_static_reg(reraise, exc_type, fmt, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_raise_static(this, reraise, exc_type, fmt,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
   // MatchClass via C factory (4 operands + output)
   void emitMatchClass(Register* dst, Register* subject, Register* type, Register* nargs, Register* names) {
-    emitC(static_cast<Instr*>(hir_c_create_match_class_reg2(dst, subject, type, nargs, names)));
+    hir_c_tc_emit_match_class(this, dst, subject, type, nargs, names);
   }
 
   // LoadMethodSuper/LoadAttrSuper via C factory
   void emitLoadMethodSuper(Register* dst, Register* global_super, Register* type, Register* receiver, int name_idx, bool no_args, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_load_method_super_reg(dst, global_super, type, receiver, name_idx, no_args, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_load_method_super(this, dst, global_super, type, receiver,
+        name_idx, no_args, const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitLoadAttrSuper(Register* dst, Register* global_super, Register* type, Register* receiver, int name_idx, bool no_args, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_load_attr_super_reg(dst, global_super, type, receiver, name_idx, no_args, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_load_attr_super(this, dst, global_super, type, receiver,
+        name_idx, no_args, const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
   // CallCFunc via C factory (variadic, function enum)
   Instr* emitCallCFunc(size_t n, Register* dst, CallCFunc::Func func_enum, const std::vector<Register*>& args) {
-    return emitC(static_cast<Instr*>(hir_c_create_call_cfunc_reg(
-        n, dst, static_cast<int32_t>(func_enum),
-        reinterpret_cast<HirRegister*>(const_cast<Register**>(args.data())))));
+    return static_cast<Instr*>(hir_c_tc_emit_call_c_func(this, n, dst,
+        static_cast<int32_t>(func_enum),
+        reinterpret_cast<HirRegister*>(const_cast<Register**>(args.data()))));
   }
 
   // CallInd via C factory (variadic, string name)
@@ -834,18 +838,20 @@ struct HIRBuilder::TranslationContext {
 
   // LoadAttrSpecial via C factory
   void emitLoadAttrSpecial(Register* dst, Register* receiver, PyObject* id, const char* fmt, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_load_attr_special_reg(dst, receiver, id, fmt, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_load_attr_special(this, dst, receiver, id, fmt,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
   // CallIntrinsic via C factory
   void emitCallIntrinsic(size_t n, Register* dst, int oparg, const std::vector<Register*>& args) {
-    emitC(static_cast<Instr*>(hir_c_create_call_intrinsic_reg2(
-        n, dst, oparg, reinterpret_cast<HirRegister*>(const_cast<Register**>(args.data())))));
+    hir_c_tc_emit_call_intrinsic(this, n, dst, oparg,
+        reinterpret_cast<HirRegister*>(const_cast<Register**>(args.data())));
   }
 
   // Batch 4 wrappers
   Instr* emitMakeTuple(size_t n, Register* dst, const FrameState& fs) {
-    return emitC(static_cast<Instr*>(hir_c_create_make_tuple_reg(n, dst, const_cast<void*>(static_cast<const void*>(&fs)))));
+    return static_cast<Instr*>(hir_c_tc_emit_make_tuple(this, n, dst,
+        const_cast<void*>(static_cast<const void*>(&fs))));
   }
   Instr* emitMakeList(size_t n, Register* dst, const FrameState& fs) {
     return emitC(static_cast<Instr*>(hir_c_create_make_list_reg(n, dst, const_cast<void*>(static_cast<const void*>(&fs)))));
