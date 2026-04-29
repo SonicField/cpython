@@ -279,3 +279,60 @@ int hir_c_to_primitive_compare_op(int op) {
         default: return -1;
     }
 }
+
+/* ==== Binary/Unary op metadata (Batch 29) ====
+ * Mirrors FOREACH_BINARY_OP_KIND / FOREACH_UNARY_OP_KIND from hir.h.
+ * Order MUST match the enum values declared in hir.h:644 and 695.
+ * Runtime size pin verified in hir_instr_c_verify.cpp. */
+
+const char *const kBinaryOpNames_c[] = {
+    "Add",
+    "And",
+    "FloorDivide",
+    "LShift",
+    "MatrixMultiply",
+    "Modulo",
+    "Multiply",
+    "Or",
+    "Power",
+    "RShift",
+    "Subscript",
+    "Subtract",
+    "TrueDivide",
+    "Xor",
+    "FloorDivideUnsigned",
+    "ModuloUnsigned",
+    "RShiftUnsigned",
+    "PowerUnsigned",
+};
+const size_t kNumBinaryOpKinds_c =
+    sizeof(kBinaryOpNames_c) / sizeof(kBinaryOpNames_c[0]);
+
+const char *const kUnaryOpNames_c[] = {
+    "Not",
+    "Negate",
+    "Positive",
+    "Invert",
+};
+const size_t kNumUnaryOpKinds_c =
+    sizeof(kUnaryOpNames_c) / sizeof(kUnaryOpNames_c[0]);
+
+int hir_c_parse_binary_op_name(const char *name, size_t len) {
+    for (size_t i = 0; i < kNumBinaryOpKinds_c; i++) {
+        if (strlen(kBinaryOpNames_c[i]) == len &&
+            strncmp(name, kBinaryOpNames_c[i], len) == 0) {
+            return (int)i;
+        }
+    }
+    JIT_ABORT_C("Invalid BinaryOpKind name (length %zu)", len);
+}
+
+int hir_c_parse_unary_op_name(const char *name, size_t len) {
+    for (size_t i = 0; i < kNumUnaryOpKinds_c; i++) {
+        if (strlen(kUnaryOpNames_c[i]) == len &&
+            strncmp(name, kUnaryOpNames_c[i], len) == 0) {
+            return (int)i;
+        }
+    }
+    JIT_ABORT_C("Invalid UnaryOpKind name (length %zu)", len);
+}

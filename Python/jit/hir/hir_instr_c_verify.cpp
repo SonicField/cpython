@@ -1706,6 +1706,34 @@ static void verify_phase4a_batch28_compare_ops() {
            "Phase 4.A Batch 28: toPrimitive(kLEu) = kLEu primitive");
 }
 
+/* Phase 4.A Batch 29 V5 falsifier for BinaryOp + UnaryOp name helpers.
+ * Same pattern as Batch 28: table-size pin + GetX/ParseX round-trip
+ * for every enum value of both tables. */
+static void verify_phase4a_batch29_binary_unary_ops() {
+    assert(kNumBinaryOpKinds_c == kNumBinaryOpKinds &&
+           "Phase 4.A Batch 29: kBinaryOpNames_c size matches C++ kNumBinaryOpKinds");
+    assert(kNumUnaryOpKinds_c == kNumUnaryOpKinds &&
+           "Phase 4.A Batch 29: kUnaryOpNames_c size matches C++ kNumUnaryOpKinds");
+
+    for (int i = 0; i < (int)kNumBinaryOpKinds_c; i++) {
+        const char *name = hir_c_get_binary_op_name(i);
+        assert(name != NULL && name[0] != '\0' &&
+               "Phase 4.A Batch 29: BinaryOpKind name non-empty");
+        int parsed = hir_c_parse_binary_op_name(name, strlen(name));
+        assert(parsed == i &&
+               "Phase 4.A Batch 29: BinaryOpKind name round-trip");
+    }
+
+    for (int i = 0; i < (int)kNumUnaryOpKinds_c; i++) {
+        const char *name = hir_c_get_unary_op_name(i);
+        assert(name != NULL && name[0] != '\0' &&
+               "Phase 4.A Batch 29: UnaryOpKind name non-empty");
+        int parsed = hir_c_parse_unary_op_name(name, strlen(name));
+        assert(parsed == i &&
+               "Phase 4.A Batch 29: UnaryOpKind name round-trip");
+    }
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -1731,4 +1759,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch27_bb_list_wrappers();
     verify_phase4a_batch28_compare_ops();
     verify_phase4a_batchI_chain_helper();
+    verify_phase4a_batch29_binary_unary_ops();
 }

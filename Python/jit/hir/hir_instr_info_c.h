@@ -52,6 +52,25 @@ int hir_c_parse_primitive_compare_op_name(const char *name, size_t len);
  * (kIn, kNotIn, kExcMatch); valid PrimitiveCompareOp int otherwise. */
 int hir_c_to_primitive_compare_op(int op);
 
+/* ---- Binary/Unary op metadata (Batch 29) ----
+ * Same pattern as Batch 28. Index = enum value (kAdd=0, kAnd=1, ...). */
+
+extern const char *const kBinaryOpNames_c[];
+extern const size_t kNumBinaryOpKinds_c;
+extern const char *const kUnaryOpNames_c[];
+extern const size_t kNumUnaryOpKinds_c;
+
+static inline const char *hir_c_get_binary_op_name(int op) {
+    return kBinaryOpNames_c[op];
+}
+
+static inline const char *hir_c_get_unary_op_name(int op) {
+    return kUnaryOpNames_c[op];
+}
+
+int hir_c_parse_binary_op_name(const char *name, size_t len);
+int hir_c_parse_unary_op_name(const char *name, size_t len);
+
 /* Convenience accessors */
 static inline int hir_instr_info_is_deopt_base(int opcode) {
     return hir_instr_get_info(opcode)->is_deopt_base;

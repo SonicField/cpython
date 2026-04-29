@@ -703,42 +703,22 @@ std::optional<PrimitiveCompareOp> toPrimitiveCompareOp(CompareOp op) {
   return static_cast<PrimitiveCompareOp>(result);
 }
 
-constexpr std::array<std::string_view, kNumBinaryOpKinds> kBinaryOpNames = {
-#define OP_STR(NAME) #NAME,
-    FOREACH_BINARY_OP_KIND(OP_STR)
-#undef OP_STR
-};
-
 std::string_view GetBinaryOpName(BinaryOpKind op) {
-  return kBinaryOpNames[static_cast<int>(op)];
+  return hir_c_get_binary_op_name(static_cast<int>(op));
 }
 
 BinaryOpKind ParseBinaryOpName(std::string_view name) {
-  for (size_t i = 0; i < kBinaryOpNames.size(); ++i) {
-    if (name == kBinaryOpNames[i]) {
-      return static_cast<BinaryOpKind>(i);
-    }
-  }
-  JIT_ABORT("Invalid BinaryOpKind '{}'", name);
+  return static_cast<BinaryOpKind>(
+      hir_c_parse_binary_op_name(name.data(), name.size()));
 }
 
-constexpr std::array<std::string_view, kNumUnaryOpKinds> kUnaryOpNames = {
-#define OP_STR(NAME) #NAME,
-    FOREACH_UNARY_OP_KIND(OP_STR)
-#undef OP_STR
-};
-
 std::string_view GetUnaryOpName(UnaryOpKind op) {
-  return kUnaryOpNames[static_cast<int>(op)];
+  return hir_c_get_unary_op_name(static_cast<int>(op));
 }
 
 UnaryOpKind ParseUnaryOpName(std::string_view name) {
-  for (size_t i = 0; i < kUnaryOpNames.size(); ++i) {
-    if (name == kUnaryOpNames[i]) {
-      return static_cast<UnaryOpKind>(i);
-    }
-  }
-  JIT_ABORT("Invalid UnaryOpKind '{}'", name);
+  return static_cast<UnaryOpKind>(
+      hir_c_parse_unary_op_name(name.data(), name.size()));
 }
 
 constexpr std::array<std::string_view, kNumPrimitiveUnaryOpKinds>
