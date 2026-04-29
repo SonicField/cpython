@@ -396,19 +396,16 @@ PhxHirBuilderState *phx_hir_builder_state(void *builder);
  * (theologian 00:28:34Z + supervisor 00:28:51Z). */
 void *hir_builder_state_static_method_stack_pop_cpp(void *builder);
 
-/* Phase 3 Batch 6 (R-single ATOMIC) Class B-kept disposition closure
- * for temps_ (TempAllocator): allocate a stack-temp Register from
- * HIRBuilder.temps_.AllocateStack(). Renamed from
- * hir_builder_temps_alloc_stack to align with state-bridge _cpp suffix
- * convention (Batch 2/4/5 precedent). 71 C-side callers in
- * builder_emit_c.c sed-renamed in lockstep. The other TempAllocator
- * methods (AllocateNonStack, GetOrAllocateStack) stay C++-direct from
- * C++ method context per as-needed discipline (zero C-side callers
- * verified pre-Step-A by generalist 00:51:54Z + theologian 00:53:06Z).
+/* Phase 4.C Pilot 3 step 6 (Batch 47) CLOSURE: temps_ bridge
+ * fully retired. All 71 C-side callers in builder_emit_c.c migrated
+ * to direct hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)
+ * ->temps_phx) over B45-B47 (24+24+23). Bridge function deleted from
+ * builder.cpp + decl deleted here + friend decl deleted in builder.h
+ * + scripts/w45_bridge_drift_falsifier.sh:101 entry removed.
  *
- * Closes Phase 3 §5 forcing-decision validation: all 5 Class B members
- * disposed (4 closed via _cpp bridges, 1 dead-deleted). */
-void *hir_builder_state_temps_alloc_stack_cpp(void *builder);
+ * Class B-kept disposition closure: all 5 Class B members now resolved
+ * (4 closed via _cpp bridges + this 1 elevated to direct C-state-struct
+ * access). Pilot 3 of Phase 4.C complete. */
 
 #ifdef __cplusplus
 } /* extern "C" */

@@ -983,13 +983,14 @@ void hir_builder_emit_kw_names_c(
  *   non_tuple_path: Snapshot, GetTuple(tuple_reg, iterable), Branch(merge)
  *   merge_block:    Snapshot, ... (continues with primitive box + subscript)
  *
- * Stack-temp allocation via hir_builder_state_temps_alloc_stack_cpp (NEW BRIDGE):
- * preserves cache_ side-effect required by GetOrAllocateStack at
- * builder.cpp:2842 (stack-layout computation). Cannot use bare
- * hir_func_alloc_register (no cache update). */
+ * Stack-temp allocation via hir_c_temps_alloc_stack(&phx_hir_builder_state(
+ * builder)->temps_phx) (Phase 4.C Pilot 3 close, B47): direct state-struct
+ * access; the AllocateStack cache side-effect required by GetOrAllocateStack
+ * at builder.cpp:2842 is preserved through PhxRegisterArray mirroring
+ * (single source of truth = state.temps_phx.cache, B44). Cannot use
+ * bare hir_func_alloc_register (no cache update). */
 /* hir_register_type canonical decl in hir_c_api.h. */
 extern HirType hir_type_from_cint(int64_t value, HirType cint_type);
-extern void *hir_builder_state_temps_alloc_stack_cpp(void *builder);
 
 void hir_builder_emit_load_iterable_arg_c(
         PhxTranslationContext *tc, void *func, void *builder, int oparg) {
@@ -4408,8 +4409,8 @@ void hir_builder_emit_setup_with_common_c(
         int is_async,
         void **out_enter_result) {
     void *manager = phx_ptr_arr_pop(&tc->frame.stack);
-    void *enter = hir_builder_state_temps_alloc_stack_cpp(builder);
-    void *exit = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *enter = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
+    void *exit = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
 
     const char *enter_fmt = is_async
         ? "'%.200s' object does not support the asynchronous context manager "
@@ -4426,7 +4427,7 @@ void hir_builder_emit_setup_with_common_c(
         exit, manager, exit_id, exit_fmt, &tc->frame));
     phx_ptr_arr_push(&tc->frame.stack, exit);
 
-    void *enter_result = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *enter_result = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     /* CallFlags::None = 0. VectorCall(1, enter_result, None) + setFrameState. */
     void *call = hir_c_create_vectorcall_reg(1, enter_result, 0u);
     hir_deopt_set_frame_state(call, &tc->frame);
@@ -4534,7 +4535,7 @@ void hir_builder_emit_send_c(
         int next_instr_off) {
     void *value_out = phx_ptr_arr_pop(&tc->frame.stack);
     void *iter = tc->frame.stack.data[tc->frame.stack.count - 1];  /* peek */
-    void *value_in = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *value_in = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     phx_tc_emit(tc, hir_c_create_send_reg(iter, value_out, value_in, &tc->frame));
     /* AllocateNonStack equivalent: hir_func_alloc_register per
      * builder_emit_c.c:929 convention. Avoids stack-temp tracking. */
@@ -4574,7 +4575,7 @@ void hir_builder_emit_sequence_set_c(
     void *idx = phx_ptr_arr_pop(&tc->frame.stack);
     void *sequence = phx_ptr_arr_pop(&tc->frame.stack);
     void *value = phx_ptr_arr_pop(&tc->frame.stack);
-    void *adjusted_idx = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *adjusted_idx = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
 
     HirType t_type = HIR_TYPE_TYPE;
     HirType t_listexact = HIR_TYPE_LISTEXACT;
@@ -4582,7 +4583,7 @@ void hir_builder_emit_sequence_set_c(
     HirType t_cptr = HIR_TYPE_CPTR;
 
     if (oparg == PHX_SEQ_LIST_INEXACT) {
-        void *type = hir_builder_state_temps_alloc_stack_cpp(builder);
+        void *type = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
         phx_tc_emit(tc, hir_c_create_load_field_reg(
             type, sequence, "ob_type",
             (intptr_t)offsetof(PyObject, ob_type), t_type, 0));
@@ -4594,9 +4595,9 @@ void hir_builder_emit_sequence_set_c(
     phx_tc_emit(tc, hir_c_create_check_seq_bounds_reg(
         adjusted_idx, sequence, idx, &tc->frame));
 
-    void *ob_item = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *ob_item = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     if (oparg == PHX_SEQ_ARRAY_INT64) {
-        void *offset_reg = hir_builder_state_temps_alloc_stack_cpp(builder);
+        void *offset_reg = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
         HirType offset_type = hir_type_from_cint(
             (int64_t)offsetof(PyStaticArrayObject, ob_item), t_cint64);
         phx_tc_emit(tc, hir_c_create_load_const(offset_reg, offset_type));
@@ -4741,7 +4742,7 @@ void hir_builder_emit_get_yield_from_iter_c(
     tc->block = next_block;
 
     void *slow_path = hir_cfg_alloc_block(func);
-    void *iter_out = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *iter_out = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     HirType t_gen = HIR_TYPE_GEN;
     phx_tc_emit(tc, hir_c_create_cond_branch_check_type_cpp(
         iter_in, t_gen, nop_block, slow_path));
@@ -4777,11 +4778,11 @@ void hir_builder_emit_match_class_c(
     void *subject = phx_ptr_arr_pop(&tc->frame.stack);
 
     HirType t_cuint64 = HIR_TYPE_CUINT64;
-    void *nargs = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *nargs = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     HirType nargs_type = hir_type_from_cuint((uint64_t)oparg, t_cuint64);
     phx_tc_emit(tc, hir_c_create_load_const(nargs, nargs_type));
 
-    void *attrs_tuple = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *attrs_tuple = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     phx_tc_emit(tc, hir_c_create_match_class_reg2(
         attrs_tuple, subject, type, nargs, names));
     /* TOptTupleExact = TTupleExact | TNullptr (per theologian L2544 fallback
@@ -4792,11 +4793,11 @@ void hir_builder_emit_match_class_c(
     phx_tc_emit(tc, hir_c_create_refine_type_reg(
         attrs_tuple, t_opt_tupleexact, attrs_tuple));
 
-    void *tuple_or_none = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *tuple_or_none = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     phx_ptr_arr_push(&tc->frame.stack, tuple_or_none);
     void *if_success = NULL;
 #if PY_VERSION_HEX < 0x030C0000
-    if_success = hir_builder_state_temps_alloc_stack_cpp(builder);
+    if_success = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     phx_ptr_arr_push(&tc->frame.stack, if_success);
 #endif
 
@@ -4849,21 +4850,21 @@ void hir_builder_emit_match_mapping_sequence_c(
     HirType t_type = HIR_TYPE_TYPE;
     HirType t_cuint64 = HIR_TYPE_CUINT64;
 
-    void *type = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *type = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     phx_tc_emit(tc, hir_c_create_load_field_reg(
         type, top, "ob_type",
         (intptr_t)offsetof(PyObject, ob_type), t_type, 0));
 
-    void *tp_flags = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *tp_flags = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     phx_tc_emit(tc, hir_c_create_load_field_reg(
         tp_flags, type, "tp_flags",
         (intptr_t)offsetof(PyTypeObject, tp_flags), t_cuint64, 0));
 
-    void *flag = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *flag = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     HirType flag_type = hir_type_from_cuint(tf_flag, t_cuint64);
     phx_tc_emit(tc, hir_c_create_load_const(flag, flag_type));
 
-    void *and_result = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *and_result = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     phx_tc_emit(tc, hir_c_create_int_binary_op(
         and_result, HIR_BOP_And, tp_flags, flag));
 
@@ -4872,7 +4873,7 @@ void hir_builder_emit_match_mapping_sequence_c(
     /* _cpp variant required: Edge::set_to manages BasicBlock in_edges_. */
     phx_tc_emit(tc, hir_c_create_cond_branch_cpp(and_result, true_block, false_block));
 
-    void *result = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *result = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
     void *done = hir_cfg_alloc_block(func);
 
     tc->block = true_block;
@@ -4917,7 +4918,7 @@ void hir_builder_emit_sequence_get_c(
     HirType t_cptr = HIR_TYPE_CPTR;
 
     if (oparg == PHX_SEQ_LIST_INEXACT) {
-        void *type = hir_builder_state_temps_alloc_stack_cpp(builder);
+        void *type = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
         phx_tc_emit(tc, hir_c_create_load_field_reg(
             type, sequence, "ob_type",
             (intptr_t)offsetof(PyObject, ob_type), t_type, 0));
@@ -4930,15 +4931,15 @@ void hir_builder_emit_sequence_get_c(
     void *adjusted_idx;
     int unchecked = oparg & PHX_SEQ_SUBSCR_UNCHECKED;
     if (!unchecked) {
-        adjusted_idx = hir_builder_state_temps_alloc_stack_cpp(builder);
+        adjusted_idx = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
         phx_tc_emit(tc, hir_c_create_check_seq_bounds_reg(
             adjusted_idx, sequence, idx, &tc->frame));
     } else {
         adjusted_idx = idx;
         oparg &= ~PHX_SEQ_SUBSCR_UNCHECKED;
     }
-    void *ob_item = hir_builder_state_temps_alloc_stack_cpp(builder);
-    void *result = hir_builder_state_temps_alloc_stack_cpp(builder);
+    void *ob_item = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
+    void *result = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
 
     if (oparg == PHX_SEQ_LIST || oparg == PHX_SEQ_LIST_INEXACT
         || oparg == PHX_SEQ_CHECKED_LIST) {
@@ -4946,7 +4947,7 @@ void hir_builder_emit_sequence_get_c(
         phx_tc_emit(tc, hir_c_create_load_field_reg(
             ob_item, sequence, "ob_item", offset, t_cptr, 0));
     } else if (oparg == PHX_SEQ_ARRAY_INT64) {
-        void *offset_reg = hir_builder_state_temps_alloc_stack_cpp(builder);
+        void *offset_reg = hir_c_temps_alloc_stack(&phx_hir_builder_state(builder)->temps_phx);
         HirType offset_type = hir_type_from_cint(
             (int64_t)offsetof(PyStaticArrayObject, ob_item), t_cint64);
         phx_tc_emit(tc, hir_c_create_load_const(offset_reg, offset_type));

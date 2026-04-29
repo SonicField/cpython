@@ -3034,11 +3034,6 @@ void HIRBuilder::emitLoadIterableArg(
       bc_instr.oparg());
 }
 
-extern "C" void *hir_builder_state_temps_alloc_stack_cpp(void *builder) {
-  auto *b = static_cast<HIRBuilder*>(builder);
-  return static_cast<void*>(b->temps_.AllocateStack());
-}
-
 // Lite bridge per spec 12:42:11Z (theologian ACK 12:42:26Z): C-callable
 // thin wrapper around HIRBuilder::fixStaticReturn. Encapsulates the
 // Type::asBoxed + jit_get_config check + RefineType emit + unboxPrimitive

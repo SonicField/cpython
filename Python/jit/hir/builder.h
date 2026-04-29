@@ -188,7 +188,6 @@ class HIRBuilder {
       void*, void*, void*, void*, void*);
   friend void* ::hir_builder_get_kwnames(void*);
   friend void ::hir_builder_set_kwnames(void*, void*);
-  friend void* ::hir_builder_state_temps_alloc_stack_cpp(void*);
   friend void ::hir_builder_fix_static_return_c(void*, void*, void*, HirType);
   // INVOKE_* Phase 2 #2 (theologian L2430): bridges into emitInvokeMethod's
   // C++ helpers (tryEmitDirectMethodCall, setupStaticArgs, static_method_stack_).

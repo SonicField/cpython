@@ -98,7 +98,6 @@ FIXTURES=(
     "hir_builder_state_find_exception_handler_c|Phase 3 Batch 2 findExceptionHandler C body (4 args)"
     "phx_hir_builder_state|Tier 8 SECOND-PILOT Phase A canonical state accessor (1 arg)"
     "hir_builder_state_static_method_stack_pop_cpp|Phase 3 Batch 5 static_method_stack pop bridge (1 arg)"
-    "hir_builder_state_temps_alloc_stack_cpp|Phase 3 Batch 6 temps AllocateStack bridge (1 arg)"
 )
 
 # Mutation: append ', int phx_w45_drift' before the closing paren of the
