@@ -97,7 +97,6 @@ void *hir_builder_func_register_c(void *builder);
  * required so friend lines in HIRBuilder match a real global declaration
  * (build error otherwise). */
 int hir_builder_preloader_invoke_method_slot_c(void *builder, PyObject *descr);
-void hir_builder_state_static_method_stack_push_cpp(void *builder, void *reg);
 } // extern "C"
 #include <vector>
 
@@ -197,12 +196,11 @@ class HIRBuilder {
       void*, void*, PyObject*, long);
   friend void ::hir_builder_setup_static_args_c(
       void*, void*, PyObject*, long, int, void**, size_t*);
-  friend void* ::hir_builder_state_static_method_stack_pop_cpp(void*);
   // (D) emitLoadMethodStatic full PURE conversion (theologian 00:02Z + 00:03Z
-  // + supervisor 00:04Z hold-lift). Bridges grant C body access to private
-  // preloader_ (slot lookup) and static_method_stack_ (push).
+  // + supervisor 00:04Z hold-lift). preloader_ slot lookup bridge retained;
+  // static_method_stack_ access retired in Pilot 4 close (B50, op_stack_phx
+  // single source of truth).
   friend int ::hir_builder_preloader_invoke_method_slot_c(void*, PyObject*);
-  friend void ::hir_builder_state_static_method_stack_push_cpp(void*, void*);
   // INVOKE_* Phase 2 #3 (theologian L2430): function-target variants for
   // emitInvokeFunction C body.
   friend void ::hir_builder_invoke_function_target_c(

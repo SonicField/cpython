@@ -388,14 +388,12 @@ int hir_builder_state_find_exception_handler_c(
  * read. */
 PhxHirBuilderState *phx_hir_builder_state(void *builder);
 
-/* Phase 3 Batch 5 (P-strict) Class B-kept disposition closure for
- * static_method_stack_ (jit::Stack<Register*>): pop the top entry and
- * return it. Renamed from hir_builder_static_method_stack_pop_c to
- * align with state-bridge _cpp suffix convention (Batch 2 + 4 precedent).
- * The push side stays C++-direct from C++ method context (1 site at
- * builder.cpp:3449); push_cpp bridge deferred per as-needed discipline
- * (theologian 00:28:34Z + supervisor 00:28:51Z). */
-void *hir_builder_state_static_method_stack_pop_cpp(void *builder);
+/* Phase 4.C Pilot 4 step 3 (Batch 50) CLOSURE: static_method_stack_
+ * bridges (push_cpp + pop_cpp) fully retired. All callers in
+ * builder_emit_c.c (B49) + bridge bodies in builder.cpp + decls here
+ * + friend decls in builder.h + script falsifier entry retired.
+ * Storage = PhxHirBuilderState.op_stack_phx (single source of truth
+ * since B48 mirror-collapse). */
 
 /* Phase 4.C Pilot 3 step 6 (Batch 47) CLOSURE: temps_ bridge
  * fully retired. All 71 C-side callers in builder_emit_c.c migrated
