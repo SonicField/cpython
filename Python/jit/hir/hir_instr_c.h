@@ -1120,6 +1120,23 @@ static inline int hir_c_snapshot_visit_uses(void *snap,
     return hir_frame_state_visit_uses_c(fs, visitor, user);
 }
 
+/* qsort comparator for HirRegState by .reg id ascending. Used by
+ * hir_c_deopt_sort_live_regs (Batch 13 port of DeoptBase::sortLiveRegs). */
+static inline int hir_c_reg_state_id_cmp(const void *a, const void *b) {
+    int ia = hir_reg_id(((const HirRegState *)a)->reg);
+    int ib = hir_reg_id(((const HirRegState *)b)->reg);
+    return (ia > ib) - (ia < ib);
+}
+
+/* DeoptBase::sortLiveRegs port (Batch 13). Sorts the live_regs array in
+ * place by Register::id ascending using qsort over the HirRegState* cast
+ * (V4 POD-equivalence + Batch 11 V4 cast). */
+static inline void hir_c_deopt_sort_live_regs(void *db) {
+    HirDeoptLayout *d = (HirDeoptLayout *)db;
+    qsort(d->live_regs_data, d->live_regs_count, sizeof(HirRegState),
+          hir_c_reg_state_id_cmp);
+}
+
 /* DeoptBase::visitUsesDeopt port (replaces Batch 9
  * hir_deopt_visit_uses_deopt_c bridge). Visits frame_state +
  * live_regs + guilty_reg. Batch 11: live_regs iteration is now pure-C

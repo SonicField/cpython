@@ -89,16 +89,11 @@ bool DeoptBase::visitUsesDeopt(const std::function<bool(Register*&)>& func) {
 }
 
 void DeoptBase::sortLiveRegs() {
-  std::sort(
-      live_regs_.begin(),
-      live_regs_.end(),
-      [](const RegState& a, const RegState& b) {
-        return a.reg->id() < b.reg->id();
-      });
+  hir_c_deopt_sort_live_regs(this);
 
   if (kPyDebug) {
     // Check for uniqueness after sorting rather than inside the predicate
-    // passed to std::sort(), in case sort() performs extra comparisons to
+    // passed to qsort(), in case sort performs extra comparisons to
     // sanity-check our predicate.
     auto it = std::adjacent_find(
         live_regs_.begin(),

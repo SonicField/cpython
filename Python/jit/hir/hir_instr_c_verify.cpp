@@ -698,6 +698,39 @@ static void verify_phase4a_batch12_uses_replace() {
     free((char *)instr - 2 * sizeof(void *) - sizeof(size_t));
 }
 
+/* Phase 4.A Batch 13 V5 falsifier: sortLiveRegs result correctness.
+ * Inserts 3 RegState entries with descending Register::id (3,1,2) via
+ * C++ live_regs(), calls hir_c_deopt_sort_live_regs (qsort over
+ * HirRegState* cast), then verifies ids are {1,2,3} ascending. */
+static void verify_phase4a_batch13_sort_live_regs() {
+    void *db = hir_c_alloc_instr(sizeof(HirDeoptLayout), 0);
+    assert(db != NULL);
+    hir_c_init_deopt(db, HIR_OP_BinaryOp);
+
+    Register r3{3};
+    Register r1{1};
+    Register r2{2};
+    auto* base = static_cast<DeoptBase*>(db);
+    base->live_regs().push_back(RegState{&r3, RefKind::kBorrowed, ValueKind::kObject});
+    base->live_regs().push_back(RegState{&r1, RefKind::kBorrowed, ValueKind::kObject});
+    base->live_regs().push_back(RegState{&r2, RefKind::kBorrowed, ValueKind::kObject});
+
+    hir_c_deopt_sort_live_regs(db);
+
+    HirDeoptLayout *d = (HirDeoptLayout *)db;
+    HirRegState *regs = (HirRegState *)d->live_regs_data;
+    assert(d->live_regs_count == 3);
+    assert(hir_reg_id(regs[0].reg) == 1 &&
+           "Phase 4.A Batch 13: sortLiveRegs result[0].id should be 1");
+    assert(hir_reg_id(regs[1].reg) == 2 &&
+           "Phase 4.A Batch 13: sortLiveRegs result[1].id should be 2");
+    assert(hir_reg_id(regs[2].reg) == 3 &&
+           "Phase 4.A Batch 13: sortLiveRegs result[2].id should be 3");
+
+    base->live_regs() = PhxRegStateArray{};
+    free((char *)db - 2 * sizeof(void *) - sizeof(size_t));
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -707,4 +740,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch10_visitor();
     verify_phase4a_batch11_live_regs_iteration();
     verify_phase4a_batch12_uses_replace();
+    verify_phase4a_batch13_sort_live_regs();
 }
