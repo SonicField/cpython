@@ -2189,6 +2189,82 @@ static void verify_phase4a_batch37_function_inline_lookups() {
            "Phase 4.A Batch 37: failure msg[0] = 'it has defaults'");
 }
 
+/* Phase 4.A Batch 38 V5 SUBSTANTIVE falsifier for get_frame_state
+ * dispatcher via Batch I helper. Three opcode cases + the NULL fallback:
+ *   (a) Snapshot → returns its frame_state_ptr.
+ *   (b) BeginInlinedFunction → returns caller_state_ptr.
+ *   (c) DeoptBase opcode (BinaryOp) → returns deopt.frame_state.
+ *   (d) Plain non-DeoptBase non-Snapshot non-BeginInlined (Assign) → NULL. */
+static void verify_phase4a_batch38_get_frame_state() {
+    /* (a) Snapshot path. */
+    {
+        HirBasicBlock bb;
+        hir_c_test_chain_init(&bb);
+        FrameState src{};
+        src.cur_instr_offs = jit::BCOffset{38};
+        void *snap = hir_c_test_chain_append_snapshot(&bb, &src);
+        const void *fs = hir_c_instr_get_frame_state(snap);
+        assert(fs != NULL &&
+               "Phase 4.A Batch 38(a): Snapshot get_frame_state non-NULL");
+        assert(fs == hir_c_snapshot_get_frame_state(snap) &&
+               "Phase 4.A Batch 38(a): returns snapshot.frame_state");
+        hir_c_test_chain_destroy(&bb);
+    }
+
+    /* (b) BeginInlinedFunction path. */
+    {
+        HirBasicBlock bb;
+        hir_c_test_chain_init(&bb);
+        FrameState src{};
+        src.cur_instr_offs = jit::BCOffset{77};
+        FrameState *caller_fs =
+            static_cast<FrameState *>(hir_make_frame_state_c(&src));
+        void *bi = hir_c_test_chain_append_instr(
+            &bb, HIR_OP_BeginInlinedFunction,
+            sizeof(HirBeginInlinedFunction), 0);
+        ((HirBeginInlinedFunction *)bi)->caller_state_ptr = caller_fs;
+
+        const void *fs = hir_c_instr_get_frame_state(bi);
+        assert(fs == caller_fs &&
+               "Phase 4.A Batch 38(b): BeginInlined get_frame_state = caller_state_ptr");
+        hir_c_test_chain_destroy(&bb);
+    }
+
+    /* (c) DeoptBase opcode (BinaryOp) path. */
+    {
+        HirBasicBlock bb;
+        hir_c_test_chain_init(&bb);
+        FrameState src{};
+        src.cur_instr_offs = jit::BCOffset{99};
+        void *bin_op = hir_c_test_chain_append_instr(
+            &bb, HIR_OP_BinaryOp, sizeof(HirBinaryOp), 2);
+        hir_c_init_deopt(bin_op, HIR_OP_BinaryOp);
+        hir_c_deopt_set_frame_state(bin_op, &src);
+
+        const void *fs = hir_c_instr_get_frame_state(bin_op);
+        assert(fs != NULL &&
+               "Phase 4.A Batch 38(c): DeoptBase get_frame_state non-NULL");
+        assert(fs == hir_c_deopt_get_frame_state(bin_op) &&
+               "Phase 4.A Batch 38(c): returns deopt.frame_state");
+        assert(static_cast<const FrameState *>(fs)->cur_instr_offs.value() == 99 &&
+               "Phase 4.A Batch 38(c): cur_instr_offs preserved through deopt path");
+        hir_c_test_chain_destroy(&bb);
+    }
+
+    /* (d) Plain Instr (Assign, neither Snapshot/BeginInlined/DeoptBase)
+     * → returns NULL. */
+    {
+        HirBasicBlock bb;
+        hir_c_test_chain_init(&bb);
+        void *plain = hir_c_test_chain_append_instr(
+            &bb, HIR_OP_Assign, sizeof(HirInstrLayout), 1);
+        const void *fs = hir_c_instr_get_frame_state(plain);
+        assert(fs == NULL &&
+               "Phase 4.A Batch 38(d): plain Instr get_frame_state = NULL");
+        hir_c_test_chain_destroy(&bb);
+    }
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -2223,4 +2299,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch35_env_get_register();
     verify_phase4a_batch36_bb_insert_substantive();
     verify_phase4a_batch37_function_inline_lookups();
+    verify_phase4a_batch38_get_frame_state();
 }

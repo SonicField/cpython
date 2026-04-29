@@ -867,21 +867,11 @@ std::ostream& operator<<(std::ostream& os, OperandType op) {
 }
 
 const FrameState* get_frame_state(const Instr& instr) {
-  if (instr.IsSnapshot()) {
-    return static_cast<const Snapshot&>(instr).frameState();
-  }
-  if (instr.IsBeginInlinedFunction()) {
-    return static_cast<const BeginInlinedFunction&>(instr).callerFrameState();
-  }
-  if (auto db = instr.asDeoptBase()) {
-    return db->frameState();
-  }
-  return nullptr;
+  return static_cast<const FrameState*>(hir_c_instr_get_frame_state(&instr));
 }
 
 FrameState* get_frame_state(Instr& instr) {
-  return const_cast<FrameState*>(
-      get_frame_state(const_cast<const Instr&>(instr)));
+  return static_cast<FrameState*>(hir_c_instr_get_frame_state(&instr));
 }
 
 } // namespace jit::hir

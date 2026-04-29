@@ -1181,6 +1181,38 @@ static inline void *hir_c_snapshot_get_frame_state(const void *snap) {
     return ((const HirSnapshot *)snap)->frame_state_ptr;
 }
 
+/* DeoptBase.frame_state accessor (matches setFrameState's storage). */
+static inline void *hir_c_deopt_get_frame_state(const void *db) {
+    return ((const HirDeoptLayout *)db)->frame_state;
+}
+
+/* BeginInlinedFunction.caller_state_ptr accessor. */
+static inline void *hir_c_begin_inlined_get_caller_frame_state(const void *bi) {
+    return ((const HirBeginInlinedFunction *)bi)->caller_state_ptr;
+}
+
+/* Phase 4.A Batch 38: get_frame_state(Instr) free-function dispatch.
+ * Snapshot → snapshot.frame_state; BeginInlinedFunction →
+ * caller_state; DeoptBase opcode → deopt.frame_state; else NULL.
+ *
+ * Note: distinct from the older DeoptBase-only accessor named
+ * hir_c_get_frame_state (line ~1005) which assumes the instr is
+ * already a DeoptBase. This dispatcher matches the C++ free function
+ * get_frame_state(Instr&) ported in B38. */
+static inline void *hir_c_instr_get_frame_state(const void *instr) {
+    int op = hir_c_opcode(instr);
+    if (op == HIR_OP_Snapshot) {
+        return hir_c_snapshot_get_frame_state(instr);
+    }
+    if (op == HIR_OP_BeginInlinedFunction) {
+        return hir_c_begin_inlined_get_caller_frame_state(instr);
+    }
+    if (hir_instr_info_is_deopt_base(op)) {
+        return hir_c_deopt_get_frame_state(instr);
+    }
+    return NULL;
+}
+
 /* Snapshot::visitUses port (replaces Batch 9 hir_snapshot_visit_uses_c
  * bridge). Snapshot has no operands; visits frame_state only. */
 static inline int hir_c_snapshot_visit_uses(void *snap,
