@@ -895,46 +895,45 @@ struct HIRBuilder::TranslationContext {
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitIsNegativeAndErrOccurred(Register* dst, Register* src, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_is_neg_and_err_reg(
-        dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_is_negative_and_err_occurred(this, dst, src,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   // 0/1-op no-frame
   void emitLoadCellItem(Register* dst, Register* src) {
-    emitC(static_cast<Instr*>(hir_c_create_load_cell_item_reg(dst, src)));
+    hir_c_tc_emit_load_cell_item(this, dst, src);
   }
   void emitLoadCurrentFunc(Register* dst) {
-    emitC(static_cast<Instr*>(hir_c_create_load_current_func_reg(dst)));
+    hir_c_tc_emit_load_current_func(this, dst);
   }
   void emitLoadEvalBreaker(Register* dst) {
-    emitC(static_cast<Instr*>(hir_c_create_load_eval_breaker_reg(dst)));
+    hir_c_tc_emit_load_eval_breaker(this, dst);
   }
   void emitLoadFrame() {
-    emitC(static_cast<Instr*>(hir_c_create_load_frame_reg()));
+    hir_c_tc_emit_load_frame(this);
   }
   void emitLoadVarObjectSize(Register* dst, Register* src) {
-    emitC(static_cast<Instr*>(hir_c_create_load_var_object_size_reg(dst, src)));
+    hir_c_tc_emit_load_var_object_size(this, dst, src);
   }
   void emitCheckErrOccurred(const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_check_err_occurred_reg(
-        const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_check_err_occurred(this,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
   // IsTruthy via C++ bridge (DeoptBase + FrameState).
   void emitIsTruthy(Register* dst, Register* src, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_is_truthy_reg(
-        dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_is_truthy(this, dst, src,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
   // GetSecondOutput via C factory.
   void emitGetSecondOutput(Register* dst, Type type, Register* src) {
-    emitC(static_cast<Instr*>(
-        hir_c_create_get_second_output_reg(dst, to_hir(type), src)));
+    hir_c_tc_emit_get_second_output(this, dst, to_hir(type), src);
   }
 
   // SetFunctionAttr via C factory.
   void emitSetFunctionAttr(Register* value, Register* base, FunctionAttr field) {
-    emitC(static_cast<Instr*>(hir_c_create_set_function_attr_reg(
-        value, base, static_cast<int32_t>(field))));
+    hir_c_tc_emit_set_function_attr(this, value, base,
+        static_cast<int32_t>(field));
   }
 
   // CheckNeg via C++ bridge (DeoptBase + FrameState).

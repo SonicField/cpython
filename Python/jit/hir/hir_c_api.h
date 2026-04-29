@@ -1598,6 +1598,61 @@ static inline void hir_c_tc_emit_get_tuple(void *tc, HirRegister dst,
     hir_c_tc_emit_c(tc, hir_c_create_get_tuple_reg(dst, src, fs));
 }
 
+/* ---- Phase 4.D pilot step 13 (Batch 65): emit cluster 13 (10 mixed) ----
+ * NO new patterns (un-falsified-at-gate per
+ * feedback_arch_completeness_disclaimer). 3 FS + 7 no-FS. */
+
+static inline void hir_c_tc_emit_is_negative_and_err_occurred(void *tc,
+                                                                HirRegister dst,
+                                                                HirRegister src,
+                                                                void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_is_neg_and_err_reg(dst, src, fs));
+}
+
+static inline void hir_c_tc_emit_load_cell_item(void *tc, HirRegister dst,
+                                                  HirRegister src) {
+    hir_c_tc_emit_c(tc, hir_c_create_load_cell_item_reg(dst, src));
+}
+
+static inline void hir_c_tc_emit_load_current_func(void *tc, HirRegister dst) {
+    hir_c_tc_emit_c(tc, hir_c_create_load_current_func_reg(dst));
+}
+
+static inline void hir_c_tc_emit_load_eval_breaker(void *tc, HirRegister dst) {
+    hir_c_tc_emit_c(tc, hir_c_create_load_eval_breaker_reg(dst));
+}
+
+static inline void hir_c_tc_emit_load_frame(void *tc) {
+    hir_c_tc_emit_c(tc, hir_c_create_load_frame_reg());
+}
+
+static inline void hir_c_tc_emit_load_var_object_size(void *tc,
+                                                        HirRegister dst,
+                                                        HirRegister src) {
+    hir_c_tc_emit_c(tc, hir_c_create_load_var_object_size_reg(dst, src));
+}
+
+static inline void hir_c_tc_emit_check_err_occurred(void *tc, void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_check_err_occurred_reg(fs));
+}
+
+static inline void hir_c_tc_emit_is_truthy(void *tc, HirRegister dst,
+                                             HirRegister src, void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_is_truthy_reg(dst, src, fs));
+}
+
+static inline void hir_c_tc_emit_get_second_output(void *tc, HirRegister dst,
+                                                     HirType type,
+                                                     HirRegister src) {
+    hir_c_tc_emit_c(tc, hir_c_create_get_second_output_reg(dst, type, src));
+}
+
+static inline void hir_c_tc_emit_set_function_attr(void *tc, HirRegister value,
+                                                     HirRegister base,
+                                                     int32_t field) {
+    hir_c_tc_emit_c(tc, hir_c_create_set_function_attr_reg(value, base, field));
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

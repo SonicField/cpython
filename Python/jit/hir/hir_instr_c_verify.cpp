@@ -3102,6 +3102,49 @@ static void verify_phase4d_batch64_emit_cluster_10() {
     hir_c_test_chain_destroy(&bb);
 }
 
+/* Phase 4.D Batch 65 V5 sentinel: emit cluster 13 representative cases.
+ *
+ *   - emit_load_frame (no-args, no-FS, cur_instr_offs=223).
+ *   - emit_set_function_attr (no-FS, enum→int32_t, cur_instr_offs=229,
+ *     field=2). */
+static void verify_phase4d_batch65_emit_cluster_13() {
+    HirBasicBlock bb;
+    hir_c_test_chain_init(&bb);
+
+    PhxTranslationContext tc{};
+    tc.block = &bb;
+
+    /* Case 1: emit_load_frame — no-args path. */
+    tc.frame.cur_instr_offs = 223;
+    hir_c_tc_emit_load_frame(&tc);
+
+    void *first = hir_bb_first_instr(&bb);
+    assert(first != NULL && "Phase 4.D Batch 65: load_frame appended");
+    HirInstrLayout *lf = (HirInstrLayout *)first;
+    assert(lf->opcode == HIR_OP_LoadFrame &&
+           "Phase 4.D Batch 65: appended instr is LoadFrame");
+    assert(lf->bytecode_offset == 223 &&
+           "Phase 4.D Batch 65: load_frame bytecode_offset stamped");
+
+    /* Case 2: emit_set_function_attr — enum→int32_t. */
+    tc.frame.cur_instr_offs = 229;
+    HirRegLayout sfa_value{};
+    sfa_value.id = 121;
+    HirRegLayout sfa_base{};
+    sfa_base.id = 122;
+    hir_c_tc_emit_set_function_attr(&tc, &sfa_value, &sfa_base, /*field=*/2);
+
+    void *second = hir_bb_next_instr(&bb, first);
+    assert(second != NULL && "Phase 4.D Batch 65: set_function_attr appended");
+    HirInstrLayout *sfa = (HirInstrLayout *)second;
+    assert(sfa->opcode == HIR_OP_SetFunctionAttr &&
+           "Phase 4.D Batch 65: appended instr is SetFunctionAttr");
+    assert(sfa->bytecode_offset == 229 &&
+           "Phase 4.D Batch 65: set_function_attr bytecode_offset stamped");
+
+    hir_c_test_chain_destroy(&bb);
+}
+
 /* Phase 4.D Batch 52 V5 sentinel falsifier for hir_c_advance_past_yield. */
 static void verify_phase4d_batch52_advance_past_yield() {
     HirFrameStateLayout fs = {};
@@ -3171,4 +3214,5 @@ static void hir_instr_runtime_check() {
     verify_phase4d_batch62_emit_cluster_8();
     verify_phase4d_batch63_emit_cluster_9();
     verify_phase4d_batch64_emit_cluster_10();
+    verify_phase4d_batch65_emit_cluster_13();
 }
