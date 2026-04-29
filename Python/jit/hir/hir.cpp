@@ -459,15 +459,15 @@ BasicBlock* Instr::block() const {
 }
 
 BCOffset Instr::bytecodeOffset() const {
-  return bytecode_offset_;
+  return BCOffset{hir_c_bytecode_offset(this)};
 }
 
 void Instr::setBytecodeOffset(BCOffset off) {
-  bytecode_offset_ = off;
+  hir_c_set_bytecode_offset(this, off.value());
 }
 
 void Instr::copyBytecodeOffset(const Instr& instr) {
-  setBytecodeOffset(instr.bytecodeOffset());
+  hir_c_copy_bytecode_offset(this, &instr);
 }
 
 const FrameState* Instr::getDominatingFrameState() const {
