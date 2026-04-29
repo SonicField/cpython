@@ -13,6 +13,7 @@
 #include "cinderx/Jit/hir/hir_instr_info_c.h"
 #include "cinderx/Jit/hir/hir_operand_types_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
+#include "cinderx/Common/jit_log_c.h"  /* JIT_CHECK_C (Batch 26) */
 
 #include <stddef.h>
 #include <stdint.h>
@@ -194,6 +195,66 @@ static inline int hir_env_num_load_type_attr_caches(const void *env) {
 
 static inline int hir_env_num_load_type_method_caches(const void *env) {
     return ((const HirEnvironment *)env)->next_load_type_method_cache;
+}
+
+/* C++ bridge: heap-construct a Register with given id. Defined in
+ * hir.cpp. Used by hir_c_env_allocate_register below. */
+void *hir_make_register_c(int id);
+
+/* Forward decl: hir_reg_id is defined further down (HirRegisterLayout
+ * accessor). hir_c_env_add_register below needs it. */
+static inline int hir_reg_id(const void *reg);
+
+/* Phase 4.A Batch 26: shared capacity-grow + count-extend helper for
+ * Environment.reg_data. Mirrors the dup'd realloc loop in C++
+ * AllocateRegister + addRegister: doubles capacity until id fits,
+ * memsets the freshly-grown tail, extends count to id+1. */
+static inline void hir_c_env_ensure_capacity(HirEnvironment *e, size_t id) {
+    if (id >= e->reg_capacity) {
+        size_t new_cap = e->reg_capacity ? e->reg_capacity * 2 : 16;
+        while (new_cap <= id) new_cap *= 2;
+        e->reg_data = (void **)realloc(e->reg_data, new_cap * sizeof(void *));
+        memset(e->reg_data + e->reg_count, 0,
+               (new_cap - e->reg_count) * sizeof(void *));
+        e->reg_capacity = new_cap;
+    }
+    if (id >= e->reg_count) {
+        e->reg_count = id + 1;
+    }
+}
+
+/* Phase 4.A Batch 26: Environment::AllocateRegister port. Walks
+ * next_register_id_ past any already-occupied slots, allocates a new
+ * Register via the C++ bridge, ensures the reg_data array can hold
+ * the slot, and stores it. JIT_CHECK_C (release-fatal) preserves the
+ * C++ JIT_CHECK semantics for the post-walk uniqueness invariant. */
+static inline void *hir_c_env_allocate_register(void *env) {
+    HirEnvironment *e = (HirEnvironment *)env;
+    int id = e->next_register_id++;
+    while (id < (int)e->reg_count && e->reg_data[id] != NULL) {
+        id = e->next_register_id++;
+    }
+    void *reg = hir_make_register_c(id);
+    hir_c_env_ensure_capacity(e, (size_t)id);
+    JIT_CHECK_C(e->reg_data[id] == NULL,
+                "Register %d already allocated", id);
+    e->reg_data[id] = reg;
+    return reg;
+}
+
+/* Phase 4.A Batch 26: Environment::addRegister port. Caller passes a
+ * raw Register* whose ownership transfers to the Environment array
+ * (C++ shim does std::unique_ptr<Register>::release before the call).
+ * Reuses hir_c_env_ensure_capacity. JIT_CHECK_C guards the slot
+ * uniqueness invariant. */
+static inline void *hir_c_env_add_register(void *env, void *reg) {
+    HirEnvironment *e = (HirEnvironment *)env;
+    int id = hir_reg_id(reg);
+    hir_c_env_ensure_capacity(e, (size_t)id);
+    JIT_CHECK_C(e->reg_data[id] == NULL,
+                "Register %d already in map", id);
+    e->reg_data[id] = reg;
+    return reg;
 }
 
 /* ---- Function C struct (opaque blob with offsetof-verified field access) ---- */

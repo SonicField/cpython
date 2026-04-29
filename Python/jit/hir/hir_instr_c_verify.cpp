@@ -1381,6 +1381,79 @@ static void verify_phase4a_batch25_add_remove_collect() {
     hir_c_instr_free(phi);
 }
 
+/* Phase 4.A Batch 26 V5 sentinel falsifier for Environment register
+ * allocator + registry. Calloc'd HirEnvironment + AllocateRegister
+ * twice → assert ids 0/1 + reg_count grows; addRegister with hand-id=5
+ * → assert reg_count jumps to 6 + slot[5] holds the supplied Register;
+ * second AllocateRegister after a hand-allocated id=2 in the gap walks
+ * past the occupied slot. */
+static void verify_phase4a_batch26_env_register() {
+    HirEnvironment env = {};
+
+    /* AllocateRegister twice: ids 0 and 1, reg_count grows accordingly,
+     * capacity bumps from 0 to 16 on the first allocation. */
+    void *r0 = hir_c_env_allocate_register(&env);
+    assert(r0 != NULL &&
+           "Phase 4.A Batch 26: first AllocateRegister returns non-NULL");
+    assert(hir_reg_id(r0) == 0 &&
+           "Phase 4.A Batch 26: first reg id == 0");
+    assert(env.reg_count == 1 &&
+           "Phase 4.A Batch 26: reg_count == 1 after first allocate");
+    assert(env.reg_capacity == 16 &&
+           "Phase 4.A Batch 26: reg_capacity bootstraps to 16");
+    assert(env.reg_data[0] == r0 &&
+           "Phase 4.A Batch 26: reg_data[0] holds the new Register");
+    assert(env.next_register_id == 1 &&
+           "Phase 4.A Batch 26: next_register_id incremented to 1");
+
+    void *r1 = hir_c_env_allocate_register(&env);
+    assert(hir_reg_id(r1) == 1 &&
+           "Phase 4.A Batch 26: second reg id == 1");
+    assert(env.reg_count == 2 &&
+           "Phase 4.A Batch 26: reg_count == 2 after second allocate");
+
+    /* addRegister with id=5: capacity stays at 16 (5 < 16), reg_count
+     * jumps to 6 with NULL gaps at 2..4. */
+    void *r5 = hir_make_register_c(5);
+    void *added = hir_c_env_add_register(&env, r5);
+    assert(added == r5 &&
+           "Phase 4.A Batch 26: addRegister returns the inserted ptr");
+    assert(env.reg_data[5] == r5 &&
+           "Phase 4.A Batch 26: reg_data[5] holds the inserted Register");
+    assert(env.reg_count == 6 &&
+           "Phase 4.A Batch 26: reg_count jumps to 6 (id=5 + 1)");
+    assert(env.reg_data[2] == NULL &&
+           env.reg_data[3] == NULL &&
+           env.reg_data[4] == NULL &&
+           "Phase 4.A Batch 26: gap slots stay NULL");
+
+    /* Third AllocateRegister: next_register_id is 2, slot is NULL, so
+     * the walk-past-occupied loop doesn't fire; id 2 is taken. */
+    void *r2 = hir_c_env_allocate_register(&env);
+    assert(hir_reg_id(r2) == 2 &&
+           "Phase 4.A Batch 26: third allocate fills the next NULL slot id=2");
+
+    /* Now next_register_id is 3 and slot[3] is NULL, but if we had
+     * pre-occupied [3, 4] the loop would walk past. Hand-occupy [3]
+     * then allocate again to exercise the skip path. */
+    void *r3 = hir_make_register_c(3);
+    env.reg_data[3] = r3;
+    void *r4 = hir_c_env_allocate_register(&env);
+    assert(hir_reg_id(r4) == 4 &&
+           "Phase 4.A Batch 26: allocate skips occupied slot[3] → id 4");
+
+    /* Cleanup: each Register was heap-allocated via the C++ bridge
+     * (operator new). The verifier owns them since this is a sentinel
+     * Environment with no DISALLOW_COPY destructor running. */
+    delete static_cast<jit::hir::Register*>(r0);
+    delete static_cast<jit::hir::Register*>(r1);
+    delete static_cast<jit::hir::Register*>(r2);
+    delete static_cast<jit::hir::Register*>(r3);
+    delete static_cast<jit::hir::Register*>(r4);
+    delete static_cast<jit::hir::Register*>(r5);
+    free(env.reg_data);
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -1402,4 +1475,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch23_instr_lifecycle();
     verify_phase4a_batch24_fixup_phis();
     verify_phase4a_batch25_add_remove_collect();
+    verify_phase4a_batch26_env_register();
 }

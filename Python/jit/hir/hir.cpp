@@ -345,6 +345,15 @@ extern "C" void *hir_make_phi_with_count_c(void *dst, size_t count) {
       static_cast<jit::hir::Register*>(dst), count);
 }
 
+/* Phase 4.A Batch 26: heap-construct a Register with the given id.
+ * Register's ctor stays C++ (initializer-list pinning + member inits);
+ * exposed via this thin extern C bridge so the C-side Environment
+ * AllocateRegister path can hand off creation without repeating the
+ * C++ constructor body. */
+extern "C" void *hir_make_register_c(int id) {
+  return new jit::hir::Register(id);
+}
+
 namespace jit::hir {
 
 bool Instr::visitUses(const std::function<bool(Register*&)>& func) {
@@ -899,26 +908,7 @@ Environment::~Environment() {
 }
 
 Register* Environment::AllocateRegister() {
-  auto id = next_register_id_++;
-  while (id < static_cast<int>(reg_count_) && reg_data_[id] != nullptr) {
-    id = next_register_id_++;
-  }
-  auto reg = new Register(id);
-  if (static_cast<size_t>(id) >= reg_capacity_) {
-    size_t new_cap = reg_capacity_ ? reg_capacity_ * 2 : 16;
-    while (new_cap <= static_cast<size_t>(id)) new_cap *= 2;
-    reg_data_ = static_cast<Register**>(
-        realloc(reg_data_, new_cap * sizeof(Register*)));
-    memset(reg_data_ + reg_count_, 0,
-           (new_cap - reg_count_) * sizeof(Register*));
-    reg_capacity_ = new_cap;
-  }
-  if (static_cast<size_t>(id) >= reg_count_) {
-    reg_count_ = static_cast<size_t>(id) + 1;
-  }
-  JIT_CHECK(reg_data_[id] == nullptr, "Register {} already allocated", id);
-  reg_data_[id] = reg;
-  return reg;
+  return static_cast<Register*>(hir_c_env_allocate_register(this));
 }
 
 Register* Environment::getRegister(int id) {
@@ -929,22 +919,8 @@ Register* Environment::getRegister(int id) {
 }
 
 Register* Environment::addRegister(std::unique_ptr<Register> reg) {
-  auto id = reg->id();
-  if (static_cast<size_t>(id) >= reg_capacity_) {
-    size_t new_cap = reg_capacity_ ? reg_capacity_ * 2 : 16;
-    while (new_cap <= static_cast<size_t>(id)) new_cap *= 2;
-    reg_data_ = static_cast<Register**>(
-        realloc(reg_data_, new_cap * sizeof(Register*)));
-    memset(reg_data_ + reg_count_, 0,
-           (new_cap - reg_count_) * sizeof(Register*));
-    reg_capacity_ = new_cap;
-  }
-  if (static_cast<size_t>(id) >= reg_count_) {
-    reg_count_ = static_cast<size_t>(id) + 1;
-  }
-  JIT_CHECK(reg_data_[id] == nullptr, "Register {} already in map", id);
-  reg_data_[id] = reg.release();
-  return reg_data_[id];
+  return static_cast<Register*>(
+      hir_c_env_add_register(this, reg.release()));
 }
 
 PyObject* Environment::addReference(PyObject* obj) {
