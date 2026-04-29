@@ -1038,6 +1038,118 @@ static void verify_phase4a_batch20_phi_apply_args() {
     hir_c_instr_free(phi);
 }
 
+/* ==== Phase 4.A Batch I: V5 fixture infra ====
+ * Reusable helpers for SUBSTANTIVE V5 falsifiers requiring intrusive-list
+ * multi-instr chain setup. Built once here so the deferred SUBSTANTIVE
+ * V5 cases in Batches 21 (getDominatingFrameState), 23 (ExpandInto),
+ * 25 (add/remove predecessor), 27 (Append/push_front/pop_front) can be
+ * back-filled as fix-on-tops without each re-implementing the same
+ * intrusive-list wiring + Snapshot+FrameState alloc dance.
+ *
+ * File-static + verify-only — no production linkage. */
+
+/* Init a stack HirBasicBlock as an empty intrusive-list-ready container.
+ * After init, hir_bb_first_instr(bb) returns NULL and the block is ready
+ * to receive instrs via hir_c_test_chain_append_*. */
+static void hir_c_test_chain_init(HirBasicBlock *bb) {
+    memset(bb, 0, sizeof(*bb));
+    bb->instrs_.root_.prev_ = &bb->instrs_.root_;
+    bb->instrs_.root_.next_ = &bb->instrs_.root_;
+    /* node_member_offset_ = offsetof(HirInstrLayout, block_node) which is 0
+     * (block_node is the first field of HIR_INSTR_FIELDS). */
+    bb->instrs_.node_member_offset_ = 0;
+}
+
+/* Allocate an instr with the requested struct size + operand count, set
+ * its opcode, and append it to bb. Returns the new instr ptr. The instr
+ * is owned by the chain and freed by hir_c_test_chain_destroy. */
+static void *hir_c_test_chain_append_instr(HirBasicBlock *bb,
+                                           int opcode,
+                                           size_t struct_size,
+                                           size_t num_operands) {
+    void *instr = hir_c_alloc_instr(struct_size, num_operands);
+    assert(instr != NULL);
+    hir_c_init_instr(instr, opcode);
+    hir_bb_append_instr(bb, instr);
+    return instr;
+}
+
+/* Allocate a Snapshot, populate frame_state_ptr by deep-copying src
+ * via the C++ bridge (Batch 18), and append. Returns the Snapshot ptr. */
+static void *hir_c_test_chain_append_snapshot(HirBasicBlock *bb,
+                                              const FrameState *src) {
+    void *snap = hir_c_test_chain_append_instr(
+        bb, HIR_OP_Snapshot, sizeof(HirSnapshot), 0);
+    HirSnapshot *s = (HirSnapshot *)snap;
+    s->frame_state_ptr = hir_make_frame_state_c(src);
+    return snap;
+}
+
+/* Walk bb's instr list and free each via hir_c_destroy_instr_impl
+ * (handles per-opcode cleanup: Snapshot.frame_state_ptr, etc.). Then
+ * tear down the in/out edge arrays. After destroy, bb is back to
+ * zero-init and the test fixture can drop. */
+static void hir_c_test_chain_destroy(HirBasicBlock *bb) {
+    void *cur = hir_bb_first_instr(bb);
+    while (cur != NULL) {
+        void *next = hir_bb_next_instr(bb, cur);
+        hir_c_destroy_instr_impl(cur);
+        cur = next;
+    }
+    phx_edge_arr_destroy(&bb->in_edges_);
+    phx_edge_arr_destroy(&bb->out_edges_);
+}
+
+/* Self-falsifier for the chain helpers. */
+static void verify_phase4a_batchI_chain_helper() {
+    HirBasicBlock bb;
+    hir_c_test_chain_init(&bb);
+    assert(hir_bb_first_instr(&bb) == NULL &&
+           "Phase 4.A Batch I: post-init chain is empty");
+
+    /* Append BinaryOp (DeoptBase, 2 operands) + Snapshot + Return. */
+    void *bin_op = hir_c_test_chain_append_instr(
+        &bb, HIR_OP_BinaryOp, sizeof(HirBinaryOp), 2);
+    /* hir_c_init_instr leaves the DeoptBase fields zero — re-init
+     * specifically to set nonce=-1 etc. for safe destroy via
+     * hir_c_destroy_instr_impl. */
+    hir_c_init_deopt(bin_op, HIR_OP_BinaryOp);
+
+    FrameState src_fs{};
+    src_fs.cur_instr_offs = jit::BCOffset{77};
+    void *snap = hir_c_test_chain_append_snapshot(&bb, &src_fs);
+
+    void *ret = hir_c_test_chain_append_instr(
+        &bb, HIR_OP_Return, sizeof(HirReturn), 1);
+
+    /* (a) hir_bb_first_instr returns BinaryOp. */
+    assert(hir_bb_first_instr(&bb) == bin_op &&
+           "Phase 4.A Batch I: first_instr returns the first appended");
+
+    /* (b) Iteration yields all 3 in order. */
+    void *expected[3] = { bin_op, snap, ret };
+    void *cur = hir_bb_first_instr(&bb);
+    for (int i = 0; i < 3; i++) {
+        assert(cur == expected[i] &&
+               "Phase 4.A Batch I: iteration order matches append order");
+        cur = hir_bb_next_instr(&bb, cur);
+    }
+    assert(cur == NULL &&
+           "Phase 4.A Batch I: iteration terminates at sentinel after 3 instrs");
+
+    /* (c) Snapshot's frame_state populated with src.cur_instr_offs. */
+    void *fs_ptr = hir_c_snapshot_get_frame_state(snap);
+    assert(fs_ptr != NULL &&
+           "Phase 4.A Batch I: Snapshot frame_state_ptr populated");
+    assert(static_cast<FrameState*>(fs_ptr)->cur_instr_offs.value() == 77 &&
+           "Phase 4.A Batch I: Snapshot frame_state copy preserves cur_instr_offs");
+
+    /* (d) Destroy is leak-free under pydebug RTC. */
+    hir_c_test_chain_destroy(&bb);
+    assert(hir_bb_first_instr(&bb) == NULL &&
+           "Phase 4.A Batch I: post-destroy chain is empty");
+}
+
 /* Phase 4.A Batch 21 V5 BOUNDARY falsifiers for getDominatingFrameState.
  *
  * Two boundary cases land here per the codified V5-feasibility analysis
@@ -1618,4 +1730,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch26_env_register();
     verify_phase4a_batch27_bb_list_wrappers();
     verify_phase4a_batch28_compare_ops();
+    verify_phase4a_batchI_chain_helper();
 }
