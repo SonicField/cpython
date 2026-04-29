@@ -31,12 +31,18 @@ void hir_builder_state_init(
     phx_exception_table_init(&state->exception_table_phx);
     phx_block_map_init(&state->block_map_phx);
     phx_bc_block_array_init(&state->bc_block_array_phx);
+    /* Phase 4.C Pilot 3 step 2: temps_phx env wired by HIRBuilder ctor
+     * via state->temps_phx.env = &irfunc->env (B44+ migration). For now
+     * leave NULL — TempAllocator wrapper still owns the live state. */
+    state->temps_phx.env = NULL;
+    phx_ptr_arr_init(&state->temps_phx.cache);
 }
 
 void hir_builder_state_destroy(PhxHirBuilderState *state) {
     phx_exception_table_destroy(&state->exception_table_phx);
     phx_block_map_destroy(&state->block_map_phx);
     phx_bc_block_array_destroy(&state->bc_block_array_phx);
+    phx_ptr_arr_destroy(&state->temps_phx.cache);
 }
 
 void hir_builder_state_parse_exception_table_c(

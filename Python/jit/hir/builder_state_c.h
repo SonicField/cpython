@@ -29,6 +29,7 @@
 #include <string.h>
 
 #include "cinderx/Common/jit_log_c.h"  /* JIT_DCHECK_C (W-I3 (III) sentinel) */
+#include "cinderx/Jit/hir/hir_instr_c.h"  /* HirTempAllocator (Pilot 3 step 2) */
 
 #ifdef __cplusplus
 extern "C" {
@@ -336,6 +337,7 @@ typedef struct PhxHirBuilderState {
     PhxExceptionTable exception_table_phx; /* Tier 8 pilot 1 (Phase A) */
     PhxBlockMap block_map_phx;             /* Tier 8 pilot 2 (Phase A) */
     PhxBcBlockArray bc_block_array_phx;    /* Tier 8 pilot 2 (Phase B) */
+    HirTempAllocator temps_phx;            /* Phase 4.C Pilot 3 step 2 */
 } PhxHirBuilderState;
 
 /* Initialize state_ Class A fields from HIRBuilder ctor args. Mutable
