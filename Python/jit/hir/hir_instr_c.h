@@ -747,6 +747,23 @@ static inline void hir_c_deopt_set_descr(void *db, const char *r) {
     d->descr = (r && r[0]) ? strdup(r) : NULL;
 }
 
+/* Return instr if it is a DeoptBase, else NULL. Mirror of C++
+ * Instr::asDeoptBase(). Caller is responsible for the static_cast back
+ * to DeoptBase* on the C++ side; HirInstrLayout/DeoptBase POD layout
+ * is pinned by HirInstrLayoutVerifier. */
+static inline void *hir_c_as_deopt_base(void *instr) {
+    return hir_instr_info_is_deopt_base(hir_c_opcode(instr)) ? instr : NULL;
+}
+
+/* Returns address of the embedded PhxRegStateArray-equivalent storage
+ * inside HirDeoptLayout (live_regs_data/count/cap fields). The 3 contiguous
+ * fields match PhxRegStateArray's data_/count_/capacity_ layout — pinned by
+ * static_asserts in hir_instr_c_verify.cpp. C++ caller casts back to
+ * PhxRegStateArray*. */
+static inline void *hir_c_deopt_live_regs(void *db) {
+    return &((HirDeoptLayout *)db)->live_regs_data;
+}
+
 /* ==== Per-opcode data accessors via C struct casts ====
  * Pattern: cast void* to the per-opcode struct and read the field.
  * Step 6 validated this approach: C struct layout matches C++ at runtime. */

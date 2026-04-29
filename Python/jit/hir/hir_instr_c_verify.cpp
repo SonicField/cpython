@@ -40,6 +40,23 @@ struct HirBasicBlockLayoutVerifier {
     static_assert(offsetof(HirBasicBlock, in_edges_) == offsetof(BasicBlock, in_edges_));
 };
 
+/* Phase 4.A Batch 8: PhxRegStateArray POD-equivalence pin.
+ * hir_c_deopt_live_regs returns &HirDeoptLayout.live_regs_data; C++ shim
+ * casts it to PhxRegStateArray*. Required invariants:
+ *   - PhxRegStateArray is 3 contiguous pointer-sized fields (data_, count_,
+ *     capacity_) at offsets 0, sizeof(void*), 2*sizeof(void*).
+ *   - HirDeoptLayout.live_regs_{data,count,cap} sit at the matching
+ *     contiguous offsets within HirDeoptLayout.
+ * If any of these drifts, the shim cast becomes UB. */
+static_assert(sizeof(PhxRegStateArray) == 3 * sizeof(void *),
+    "PhxRegStateArray expected 3-pointer POD");
+static_assert(offsetof(HirDeoptLayout, live_regs_count) -
+              offsetof(HirDeoptLayout, live_regs_data) == sizeof(void *),
+    "live_regs_count must follow live_regs_data with no padding");
+static_assert(offsetof(HirDeoptLayout, live_regs_cap) -
+              offsetof(HirDeoptLayout, live_regs_data) == 2 * sizeof(void *),
+    "live_regs_cap must follow live_regs_count with no padding");
+
 /* Phase R1b: Register layout verification */
 static_assert(sizeof(HirRegisterLayout) == sizeof(Register),
     "HirRegisterLayout size mismatch with Register");

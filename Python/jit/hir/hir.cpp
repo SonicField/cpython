@@ -58,11 +58,12 @@ DeoptBase::~DeoptBase() {
 }
 
 const PhxRegStateArray& DeoptBase::live_regs() const {
-  return live_regs_;
+  return *static_cast<const PhxRegStateArray*>(
+      hir_c_deopt_live_regs(const_cast<DeoptBase*>(this)));
 }
 
 PhxRegStateArray& DeoptBase::live_regs() {
-  return live_regs_;
+  return *static_cast<PhxRegStateArray*>(hir_c_deopt_live_regs(this));
 }
 
 // asDeoptBase() devirtualized in T2-C1 — implementation moved to Instr
@@ -489,17 +490,12 @@ const FrameState* Instr::getDominatingFrameState() const {
 }
 
 DeoptBase* Instr::asDeoptBase() {
-  if (hir_instr_info_is_deopt_base(static_cast<int>(opcode_))) {
-    return static_cast<DeoptBase*>(this);
-  }
-  return nullptr;
+  return static_cast<DeoptBase*>(hir_c_as_deopt_base(this));
 }
 
 const DeoptBase* Instr::asDeoptBase() const {
-  if (hir_instr_info_is_deopt_base(static_cast<int>(opcode_))) {
-    return static_cast<const DeoptBase*>(this);
-  }
-  return nullptr;
+  return static_cast<const DeoptBase*>(
+      hir_c_as_deopt_base(const_cast<Instr*>(this)));
 }
 
 void* Instr::base() {
