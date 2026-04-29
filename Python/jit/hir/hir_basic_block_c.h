@@ -269,6 +269,42 @@ static inline void hir_c_insert_after_pure(void *instr, void *after, const HirBa
     hir_c_link(instr, (void *)bb);
 }
 
+/* BasicBlock::fixupPhis per-Phi remap step (Batch 24). Walk the Phi's
+ * basic_blocks_, swap any occurrence of old_pred with new_pred, then
+ * re-apply via the Batch 20 sort+apply path so the post-fixup state
+ * stays sorted by block id. Pure C; reuses HirPhiArgPair comparator
+ * + hir_c_phi_apply_args. No-op when old_pred is not present. */
+static inline void hir_c_phi_fixup_predecessor(void *phi,
+                                               void *old_pred,
+                                               void *new_pred) {
+    HirPhi *p = (HirPhi *)phi;
+    size_t n = p->bb_count;
+    if (n == 0) return;
+
+    HirPhiArgPair *pairs =
+        (HirPhiArgPair *)malloc(n * sizeof(HirPhiArgPair));
+    for (size_t i = 0; i < n; i++) {
+        void *block = p->bb_data[i];
+        if (block == old_pred) block = new_pred;
+        pairs[i].key = block;
+        pairs[i].value = hir_c_get_operand(phi, i);
+    }
+    qsort(pairs, n, sizeof(HirPhiArgPair), hir_c_phi_pair_cmp_by_block_id);
+
+    void **keys = (void **)malloc(n * sizeof(void *));
+    void **values = (void **)malloc(n * sizeof(void *));
+    for (size_t i = 0; i < n; i++) {
+        keys[i] = pairs[i].key;
+        values[i] = pairs[i].value;
+    }
+    free(pairs);
+
+    hir_c_phi_apply_args(phi, keys, values, n);
+
+    free(keys);
+    free(values);
+}
+
 /* ---- Instr lifecycle (Batch 23) ---- */
 
 /* Instr::link port. Sets self.block_ to block; asserts self was

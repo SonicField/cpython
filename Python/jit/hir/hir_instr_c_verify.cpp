@@ -1217,6 +1217,69 @@ static void verify_phase4a_batch23_instr_lifecycle() {
     }
 }
 
+/* Phase 4.A Batch 24 V5 sentinel falsifier for fixupPhis per-Phi remap.
+ * Builds a 3-block Phi sentinel via the Batch 20 apply path (so the
+ * starting state is sorted by id), then calls hir_c_phi_fixup_predecessor
+ * to swap one block for a higher-id replacement. The post-fixup state
+ * must be re-sorted with operands paired to the new id ordering. A
+ * second no-op fixup (replacing a block no longer present) verifies the
+ * walk is non-destructive when the predicate misses. */
+static void verify_phase4a_batch24_fixup_phis() {
+    HirBasicBlock bb1{}, bb2{}, bb3{}, bb4{};
+    bb1.id = 1;
+    bb2.id = 2;
+    bb3.id = 3;
+    bb4.id = 4;
+
+    void *r1 = (void *)(uintptr_t)0xDEED0001ULL;
+    void *r2 = (void *)(uintptr_t)0xDEED0002ULL;
+    void *r3 = (void *)(uintptr_t)0xDEED0003ULL;
+
+    void *phi = hir_c_alloc_instr(sizeof(HirPhi), 3);
+    assert(phi != NULL);
+    hir_c_init_instr(phi, HIR_OP_Phi);
+
+    void *initial_keys[3]   = { &bb1, &bb2, &bb3 };
+    void *initial_values[3] = { r1,   r2,   r3   };
+    hir_c_phi_apply_args(phi, initial_keys, initial_values, 3);
+
+    /* Replace bb2 (id=2) with bb4 (id=4). New sort: bb1, bb3, bb4. */
+    hir_c_phi_fixup_predecessor(phi, &bb2, &bb4);
+
+    HirPhi *p = (HirPhi *)phi;
+    assert(p->bb_count == 3 &&
+           "Phase 4.A Batch 24: count preserved after fixup");
+    assert(p->bb_data[0] == &bb1 &&
+           "Phase 4.A Batch 24: post-fixup bb_data[0] = bb1");
+    assert(p->bb_data[1] == &bb3 &&
+           "Phase 4.A Batch 24: post-fixup bb_data[1] = bb3");
+    assert(p->bb_data[2] == &bb4 &&
+           "Phase 4.A Batch 24: post-fixup bb_data[2] = bb4 (replaces bb2)");
+
+    assert(hir_c_get_operand(phi, 0) == r1 &&
+           "Phase 4.A Batch 24: operand[0] = r1 (paired with bb1)");
+    assert(hir_c_get_operand(phi, 1) == r3 &&
+           "Phase 4.A Batch 24: operand[1] = r3 (paired with bb3)");
+    assert(hir_c_get_operand(phi, 2) == r2 &&
+           "Phase 4.A Batch 24: operand[2] = r2 (paired with bb4 via replace)");
+
+    /* No-op fixup: bb2 no longer present, walk must leave state intact. */
+    hir_c_phi_fixup_predecessor(phi, &bb2, &bb4);
+    assert(p->bb_count == 3 &&
+           "Phase 4.A Batch 24: no-op fixup count unchanged");
+    assert(p->bb_data[0] == &bb1 &&
+           p->bb_data[1] == &bb3 &&
+           p->bb_data[2] == &bb4 &&
+           "Phase 4.A Batch 24: no-op fixup bb_data unchanged");
+    assert(hir_c_get_operand(phi, 0) == r1 &&
+           hir_c_get_operand(phi, 1) == r3 &&
+           hir_c_get_operand(phi, 2) == r2 &&
+           "Phase 4.A Batch 24: no-op fixup operands unchanged");
+
+    free(p->bb_data);
+    hir_c_instr_free(phi);
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -1236,4 +1299,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch21_dominating_frame_state();
     verify_phase4a_batch22_edges_dispatch();
     verify_phase4a_batch23_instr_lifecycle();
+    verify_phase4a_batch24_fixup_phis();
 }

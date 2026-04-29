@@ -634,17 +634,8 @@ void BasicBlock::fixupPhis(BasicBlock* old_pred, BasicBlock* new_pred) {
   // This won't work correctly if this block has two incoming edges from the
   // same block, but we already can't handle that correctly with our current Phi
   // setup.
-
   forEachPhi([&](Phi& phi) {
-    std::unordered_map<BasicBlock*, Register*> args;
-    for (size_t i = 0, n = phi.NumOperands(); i < n; ++i) {
-      auto block = phi.basic_blocks()[i];
-      if (block == old_pred) {
-        block = new_pred;
-      }
-      args[block] = phi.GetOperand(i);
-    }
-    phi.setArgs(args);
+    hir_c_phi_fixup_predecessor(&phi, old_pred, new_pred);
   });
 }
 
