@@ -1884,6 +1884,34 @@ static inline void *hir_phi_block_at(const void *phi, size_t i) {
     return ((const HirPhi *)phi)->bb_data[i];
 }
 
+/* Phi setArgs apply step (Batch 20). Replaces the basic_blocks_
+ * PhxBlockArray with a fresh malloc + memcpy of sorted_keys. capacity
+ * matches count, mirroring the C++ PhxBlockArray copy semantics at
+ * hir.h:1144-1149 where cap = count after copy. Caller (C++ shim)
+ * holds the only reference to sorted_keys and may free it after. */
+static inline void hir_c_phi_set_basic_blocks(void *phi, void **sorted_keys, size_t n) {
+    HirPhi *p = (HirPhi *)phi;
+    free(p->bb_data);
+    if (n) {
+        p->bb_data = (void **)malloc(n * sizeof(void *));
+        memcpy(p->bb_data, sorted_keys, n * sizeof(void *));
+    } else {
+        p->bb_data = NULL;
+    }
+    p->bb_count = n;
+    p->bb_cap = n;
+}
+
+/* Phi setArgs body (Batch 20). C++ shim sorts (BasicBlock*, Register*)
+ * pairs by block id, then hands sorted_keys + sorted_values arrays to
+ * this body which writes basic_blocks_ + the operand slots. */
+static inline void hir_c_phi_apply_args(void *phi, void **sorted_keys, void **sorted_values, size_t n) {
+    hir_c_phi_set_basic_blocks(phi, sorted_keys, n);
+    for (size_t i = 0; i < n; i++) {
+        hir_c_set_operand(phi, i, sorted_values[i]);
+    }
+}
+
 static inline void *hir_phi_is_trivial_impl(const void *phi) {
     void *out = hir_c_output(phi);
     void *val = NULL;

@@ -155,6 +155,23 @@ static inline void hir_cfg_remove_block(HirCFG *cfg, HirBasicBlock *bb) {
 
 /* ---- Phi query (needs HirBasicBlock for block id) ---- */
 
+/* Phi setArgs sort comparator (Batch 20). Operates on an array of
+ * HirPhiArgPair where .key is a BasicBlock* and .value is a Register*.
+ * The C++ shim builds the pair array from the unordered_map, qsorts
+ * via this comparator, then hands sorted parallel arrays to
+ * hir_c_phi_apply_args. Lives here (not hir_instr_c.h) because it
+ * dereferences HirBasicBlock.id. */
+typedef struct HirPhiArgPair {
+    void *key;     /* BasicBlock* */
+    void *value;   /* Register* */
+} HirPhiArgPair;
+
+static inline int hir_c_phi_pair_cmp_by_block_id(const void *a, const void *b) {
+    int ia = ((const HirBasicBlock *)((const HirPhiArgPair *)a)->key)->id;
+    int ib = ((const HirBasicBlock *)((const HirPhiArgPair *)b)->key)->id;
+    return (ia > ib) - (ia < ib);
+}
+
 static inline size_t hir_phi_block_index(const void *phi, const HirBasicBlock *block) {
     const HirPhi *p = (const HirPhi *)phi;
     const int target_id = block->id;

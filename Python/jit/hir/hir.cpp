@@ -143,26 +143,35 @@ std::string_view CallCFunc::funcName() const {
 
 void Phi::setArgs(const std::unordered_map<BasicBlock*, Register*>& args) {
   JIT_DCHECK(NumOperands() == args.size(), "arg mismatch");
+  size_t n = args.size();
 
-  basic_blocks_.clear();
-  basic_blocks_.reserve(args.size());
+  if (n == 0) {
+    hir_c_phi_apply_args(this, nullptr, nullptr, 0);
+    return;
+  }
 
+  HirPhiArgPair* pairs =
+      static_cast<HirPhiArgPair*>(malloc(n * sizeof(HirPhiArgPair)));
+  size_t i = 0;
   for (auto& kv : args) {
-    basic_blocks_.push_back(kv.first);
+    pairs[i].key = kv.first;
+    pairs[i].value = kv.second;
+    ++i;
   }
+  qsort(pairs, n, sizeof(HirPhiArgPair), hir_c_phi_pair_cmp_by_block_id);
 
-  std::sort(
-      basic_blocks_.begin(),
-      basic_blocks_.end(),
-      [](const BasicBlock* a, const BasicBlock* b) -> bool {
-        return a->id < b->id;
-      });
-
-  std::size_t i = 0;
-  for (auto& block : basic_blocks_) {
-    operandAt(i) = map_get(args, block);
-    i++;
+  void** keys = static_cast<void**>(malloc(n * sizeof(void*)));
+  void** values = static_cast<void**>(malloc(n * sizeof(void*)));
+  for (size_t j = 0; j < n; ++j) {
+    keys[j] = pairs[j].key;
+    values[j] = pairs[j].value;
   }
+  free(pairs);
+
+  hir_c_phi_apply_args(this, keys, values, n);
+
+  free(keys);
+  free(values);
 }
 
 std::size_t Phi::blockIndex(const BasicBlock* block) const {

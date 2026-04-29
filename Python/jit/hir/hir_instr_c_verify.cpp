@@ -952,6 +952,75 @@ static void verify_phase4a_batch19_deopt_copy() {
     hir_c_instr_free(dst_v);
 }
 
+/* Phase 4.A Batch 20 V5 sentinel falsifier: Phi setArgs apply step.
+ * Allocates a 3-operand Phi sentinel + 3 stack-only HirBasicBlock
+ * sentinels (only .id is read by the comparator + the spec assertions),
+ * builds pre-sorted parallel arrays, calls hir_c_phi_apply_args, and
+ * asserts both basic_blocks_ writes (capacity = count, data = malloc
+ * copy) and operand-slot writes hit the right indices. Independently
+ * exercises hir_c_phi_pair_cmp_by_block_id by qsorting an unsorted pair
+ * array and asserting paired permutation. */
+static void verify_phase4a_batch20_phi_apply_args() {
+    HirBasicBlock bb1{}, bb2{}, bb3{};
+    bb1.id = 1;
+    bb2.id = 2;
+    bb3.id = 3;
+
+    void *r1 = (void *)(uintptr_t)0xC0FFEE01ULL;
+    void *r2 = (void *)(uintptr_t)0xC0FFEE02ULL;
+    void *r3 = (void *)(uintptr_t)0xC0FFEE03ULL;
+
+    void *phi = hir_c_alloc_instr(sizeof(HirPhi), 3);
+    assert(phi != NULL);
+    hir_c_init_instr(phi, HIR_OP_Phi);
+
+    void *sorted_keys[3]   = { &bb1, &bb2, &bb3 };
+    void *sorted_values[3] = { r2,   r3,   r1   };
+
+    hir_c_phi_apply_args(phi, sorted_keys, sorted_values, 3);
+
+    HirPhi *p = (HirPhi *)phi;
+    assert(p->bb_count == 3 &&
+           "Phase 4.A Batch 20: bb_count == n");
+    assert(p->bb_cap == 3 &&
+           "Phase 4.A Batch 20: bb_cap == n (PhxBlockArray copy semantics)");
+    assert(p->bb_data != NULL &&
+           "Phase 4.A Batch 20: bb_data freshly malloc'd");
+    assert(p->bb_data != sorted_keys &&
+           "Phase 4.A Batch 20: bb_data must be a fresh allocation, not aliased");
+
+    assert(hir_phi_block_at(phi, 0) == &bb1 &&
+           "Phase 4.A Batch 20: basic_blocks_[0] = bb1");
+    assert(hir_phi_block_at(phi, 1) == &bb2 &&
+           "Phase 4.A Batch 20: basic_blocks_[1] = bb2");
+    assert(hir_phi_block_at(phi, 2) == &bb3 &&
+           "Phase 4.A Batch 20: basic_blocks_[2] = bb3");
+
+    assert(hir_c_get_operand(phi, 0) == r2 &&
+           "Phase 4.A Batch 20: operand[0] = r2 (paired with bb1)");
+    assert(hir_c_get_operand(phi, 1) == r3 &&
+           "Phase 4.A Batch 20: operand[1] = r3 (paired with bb2)");
+    assert(hir_c_get_operand(phi, 2) == r1 &&
+           "Phase 4.A Batch 20: operand[2] = r1 (paired with bb3)");
+
+    /* Independently verify the paired-permute comparator. */
+    HirPhiArgPair pairs[3] = {
+        { &bb3, r1 },
+        { &bb1, r2 },
+        { &bb2, r3 },
+    };
+    qsort(pairs, 3, sizeof(HirPhiArgPair), hir_c_phi_pair_cmp_by_block_id);
+    assert(pairs[0].key == &bb1 && pairs[0].value == r2 &&
+           "Phase 4.A Batch 20: pair sort paired permute [0]");
+    assert(pairs[1].key == &bb2 && pairs[1].value == r3 &&
+           "Phase 4.A Batch 20: pair sort paired permute [1]");
+    assert(pairs[2].key == &bb3 && pairs[2].value == r1 &&
+           "Phase 4.A Batch 20: pair sort paired permute [2]");
+
+    free(p->bb_data);
+    hir_c_instr_free(phi);
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -967,4 +1036,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch17_instr_ctor_init();
     verify_phase4a_batch18_set_frame_state();
     verify_phase4a_batch19_deopt_copy();
+    verify_phase4a_batch20_phi_apply_args();
 }
