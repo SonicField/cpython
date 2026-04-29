@@ -898,6 +898,60 @@ static void verify_phase4a_batch18_set_frame_state() {
     free((char *)db - 2 * sizeof(void *) - sizeof(size_t));
 }
 
+/* Phase 4.A Batch 19 V5 sentinel falsifier: DeoptBase copy ctor + dtor.
+ * Builds a SRC DeoptBase with deep-state sentinels (descr=strdup,
+ * frame_state=new FrameState{42}, nonce=99, guilty_reg=0xDEADBEEF, empty
+ * live_regs), copies via hir_c_deopt_base_init_copy, asserts deep-copy
+ * semantics (different ptr, same content), then destroys both via
+ * hir_c_deopt_base_destroy. No-crash + pydebug RTC counters validate the
+ * destroy path; full leak detection is testkeeper cap-check class. */
+static void verify_phase4a_batch19_deopt_copy() {
+    /* SRC sentinel. */
+    void *src_v = hir_c_alloc_instr(sizeof(HirDeoptLayout), 0);
+    assert(src_v != NULL);
+    hir_c_init_deopt(src_v, HIR_OP_BinaryOp);
+    HirDeoptLayout *src = (HirDeoptLayout *)src_v;
+    src->descr = strdup("test");
+    auto* fs = new FrameState{};
+    fs->cur_instr_offs = jit::BCOffset{42};
+    src->frame_state = fs;
+    src->nonce = 99;
+    src->guilty_reg = (void *)(uintptr_t)0xDEADBEEFULL;
+
+    /* DST allocated zero, then deep-copied from src. */
+    void *dst_v = hir_c_alloc_instr(sizeof(HirDeoptLayout), 0);
+    assert(dst_v != NULL);
+    hir_c_init_deopt(dst_v, HIR_OP_BinaryOp);
+    HirDeoptLayout *dst = (HirDeoptLayout *)dst_v;
+
+    hir_c_deopt_base_init_copy(dst_v, src_v);
+
+    assert(dst->descr != src->descr &&
+           "Phase 4.A Batch 19: descr must be a fresh strdup, not aliased");
+    assert(strcmp(dst->descr, "test") == 0 &&
+           "Phase 4.A Batch 19: descr contents must match");
+    assert(dst->frame_state != NULL &&
+           dst->frame_state != src->frame_state &&
+           "Phase 4.A Batch 19: frame_state must be a fresh allocation");
+    assert(static_cast<FrameState*>(dst->frame_state)->cur_instr_offs.value()
+               == 42 &&
+           "Phase 4.A Batch 19: frame_state cur_instr_offs must copy");
+    assert(dst->nonce == 99 &&
+           "Phase 4.A Batch 19: nonce must copy");
+    assert(dst->guilty_reg == (void *)(uintptr_t)0xDEADBEEFULL &&
+           "Phase 4.A Batch 19: guilty_reg pointer must copy");
+    assert(dst->live_regs_data == NULL &&
+           dst->live_regs_count == 0 &&
+           dst->live_regs_cap == 0 &&
+           "Phase 4.A Batch 19: empty live_regs must remain empty");
+
+    hir_c_deopt_base_destroy(dst_v);
+    hir_c_deopt_base_destroy(src_v);
+
+    hir_c_instr_free(src_v);
+    hir_c_instr_free(dst_v);
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -912,4 +966,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch16_allocator();
     verify_phase4a_batch17_instr_ctor_init();
     verify_phase4a_batch18_set_frame_state();
+    verify_phase4a_batch19_deopt_copy();
 }

@@ -1363,6 +1363,52 @@ static inline void hir_c_deopt_set_frame_state(void *self, const void *src) {
     d->frame_state = hir_make_frame_state_c(src);
 }
 
+/* DeoptBase copy-construction (Batch 19). Caller invokes after the
+ * Instr base copy-ctor has run (which handles opcode/bytecode_offset/
+ * output via hir_c_instr_init_copy in the C++ shim).
+ *
+ * Deep-copies live_regs (PhxRegStateArray malloc + memcpy: capacity
+ * matches count to mirror the C++ PhxRegStateArray copy ctor at
+ * hir.h:341-347), descr (strdup), frame_state (hir_make_frame_state_c
+ * bridge — same one used by Batch 18 setFrameState), guilty_reg + nonce
+ * + suppress_exception_deopt as POD copies. */
+static inline void hir_c_deopt_base_init_copy(void *dst, const void *src) {
+    HirDeoptLayout *d = (HirDeoptLayout *)dst;
+    const HirDeoptLayout *s = (const HirDeoptLayout *)src;
+
+    d->live_regs_count = s->live_regs_count;
+    d->live_regs_cap = s->live_regs_count;
+    if (d->live_regs_count) {
+        size_t bytes = d->live_regs_count * sizeof(HirRegState);
+        d->live_regs_data = malloc(bytes);
+        memcpy(d->live_regs_data, s->live_regs_data, bytes);
+    } else {
+        d->live_regs_data = NULL;
+    }
+
+    d->guilty_reg = s->guilty_reg;
+    d->nonce = s->nonce;
+    d->descr = s->descr ? strdup(s->descr) : NULL;
+    d->frame_state =
+        s->frame_state ? hir_make_frame_state_c(s->frame_state) : NULL;
+    d->suppress_exception_deopt = s->suppress_exception_deopt;
+}
+
+/* DeoptBase destruction (Batch 19). Mirrors C++ ~DeoptBase() at
+ * hir.cpp:54-58: free descr, free live_regs.data_ (~PhxRegStateArray),
+ * delete frame_state via hir_c_destroy_frame_state.
+ *
+ * delete on null is well-defined (and hir_c_destroy_frame_state is a
+ * thin delete) so the if-guard is defensive clarity, not correctness. */
+static inline void hir_c_deopt_base_destroy(void *self) {
+    HirDeoptLayout *d = (HirDeoptLayout *)self;
+    free(d->descr);
+    free(d->live_regs_data);
+    if (d->frame_state) {
+        hir_c_destroy_frame_state(d->frame_state);
+    }
+}
+
 /* ==== C++ destruction helpers ====
  * These thin wrappers are implemented in hir_c_api.cpp. They handle
  * C++ members that can't be cleaned up from pure C. */

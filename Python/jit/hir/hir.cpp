@@ -40,21 +40,12 @@ DeoptBase::DeoptBase(Opcode op, const FrameState& frame) : Instr(op) {
   setFrameState(frame);
 }
 
-DeoptBase::DeoptBase(const DeoptBase& other)
-    : Instr(other),
-      live_regs_{other.live_regs()},
-      guilty_reg_{other.guiltyReg()},
-      nonce_{other.nonce()},
-      descr_(other.descr_ ? strdup(other.descr_) : nullptr) {
-  if (FrameState* copy_fs = other.frameState()) {
-    frame_state_ = new FrameState(*copy_fs);
-  }
+DeoptBase::DeoptBase(const DeoptBase& other) : Instr(other) {
+  hir_c_deopt_base_init_copy(this, &other);
 }
 
 DeoptBase::~DeoptBase() {
-  free(descr_);
-  // live_regs_ cleaned up by ~PhxRegStateArray (free(data_))
-  delete frame_state_;  // H2-E3: was ~unique_ptr
+  hir_c_deopt_base_destroy(this);
 }
 
 const PhxRegStateArray& DeoptBase::live_regs() const {
