@@ -1087,14 +1087,22 @@ static inline void **hir_c_operand_slot(void *instr, size_t i) {
  * iteration, zero to stop early. */
 typedef int (*HirRegVisitor)(void **reg_slot, void *user);
 
-/* C-callable bridges to C++ visitor extensions. Implemented in hir.cpp:
- *   - hir_frame_state_visit_uses_c: wraps FrameState::visitUses
- *     (data-structure traversal of stack/localsplus/parent recursion).
- *   - hir_deopt_visit_live_regs_c: iterates DeoptBase.live_regs in C++
- *     (deferred from pure-C until Batch 11 adds HirRegState struct +
- *     V4 cast-iteration falsifier). */
+/* C-callable bridge to C++ FrameState::visitUses. Implemented in hir.cpp;
+ * data-structure traversal of stack/localsplus/parent recursion. */
 int hir_frame_state_visit_uses_c(void *fs, HirRegVisitor visitor, void *user);
-int hir_deopt_visit_live_regs_c(void *db, HirRegVisitor visitor, void *user);
+
+/* HirRegState: C-equivalent of C++ jit::hir::RegState (register.h:97).
+ * POD layout: Register* reg (8B) + RefKind ref_kind (1B, enum class : char)
+ * + ValueKind value_kind (1B, enum class : char) + 6B trailing padding.
+ * sizeof + per-field offsets pinned by static_asserts in
+ * hir_instr_c_verify.cpp. Used by hir_c_deopt_visit_uses_deopt to
+ * iterate PhxRegStateArray storage in pure C (V4 POD-equivalence cast). */
+typedef struct {
+    void *reg;
+    uint8_t ref_kind;
+    uint8_t value_kind;
+    uint8_t _pad[6];
+} HirRegState;
 
 /* Snapshot-specific frame_state accessor (HirSnapshot.frame_state_ptr,
  * distinct from DeoptBase.frame_state). */
@@ -1114,8 +1122,9 @@ static inline int hir_c_snapshot_visit_uses(void *snap,
 
 /* DeoptBase::visitUsesDeopt port (replaces Batch 9
  * hir_deopt_visit_uses_deopt_c bridge). Visits frame_state +
- * live_regs + guilty_reg. live_regs iteration delegated to C++ bridge
- * (V4 pure-C iteration deferred to Batch 11). */
+ * live_regs + guilty_reg. Batch 11: live_regs iteration is now pure-C
+ * via HirRegState* cast over PhxRegStateArray storage (V4
+ * POD-equivalence pinned by hir_instr_c_verify.cpp). */
 static inline int hir_c_deopt_visit_uses_deopt(void *db,
                                                HirRegVisitor visitor,
                                                void *user) {
@@ -1123,10 +1132,14 @@ static inline int hir_c_deopt_visit_uses_deopt(void *db,
     if (fs && !hir_frame_state_visit_uses_c(fs, visitor, user)) {
         return 0;
     }
-    if (!hir_deopt_visit_live_regs_c(db, visitor, user)) {
-        return 0;
+    HirDeoptLayout *d = (HirDeoptLayout *)db;
+    HirRegState *regs = (HirRegState *)d->live_regs_data;
+    for (size_t i = 0; i < d->live_regs_count; i++) {
+        if (!visitor(&regs[i].reg, user)) {
+            return 0;
+        }
     }
-    void **gr_slot = &((HirDeoptLayout *)db)->guilty_reg;
+    void **gr_slot = &d->guilty_reg;
     if (*gr_slot != NULL && !visitor(gr_slot, user)) {
         return 0;
     }

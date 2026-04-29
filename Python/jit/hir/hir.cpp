@@ -328,18 +328,6 @@ extern "C" int hir_frame_state_visit_uses_c(void *fs,
   return ok ? 1 : 0;
 }
 
-extern "C" int hir_deopt_visit_live_regs_c(void *db,
-                                           HirRegVisitor visitor,
-                                           void *user) {
-  auto* d = static_cast<jit::hir::DeoptBase*>(db);
-  for (auto& rs : d->live_regs()) {
-    if (!visitor(reinterpret_cast<void**>(&rs.reg), user)) {
-      return 0;
-    }
-  }
-  return 1;
-}
-
 namespace jit::hir {
 
 bool Instr::visitUses(const std::function<bool(Register*&)>& func) {

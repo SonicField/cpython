@@ -40,6 +40,23 @@ struct HirBasicBlockLayoutVerifier {
     static_assert(offsetof(HirBasicBlock, in_edges_) == offsetof(BasicBlock, in_edges_));
 };
 
+/* Phase 4.A Batch 11: HirRegState POD-equivalence pin.
+ * hir_c_deopt_visit_uses_deopt iterates PhxRegStateArray.data_ as
+ * HirRegState* in pure C. Required invariants:
+ *   - sizeof(HirRegState) == sizeof(jit::hir::RegState) (16 bytes)
+ *   - HirRegState.reg / ref_kind / value_kind offsets match the C++
+ *     RegState struct field offsets. */
+static_assert(sizeof(HirRegState) == sizeof(jit::hir::RegState),
+    "HirRegState size must match jit::hir::RegState");
+static_assert(offsetof(HirRegState, reg) == offsetof(jit::hir::RegState, reg),
+    "HirRegState.reg offset must match jit::hir::RegState.reg");
+static_assert(offsetof(HirRegState, ref_kind) ==
+              offsetof(jit::hir::RegState, ref_kind),
+    "HirRegState.ref_kind offset must match jit::hir::RegState.ref_kind");
+static_assert(offsetof(HirRegState, value_kind) ==
+              offsetof(jit::hir::RegState, value_kind),
+    "HirRegState.value_kind offset must match jit::hir::RegState.value_kind");
+
 /* Phase 4.A Batch 8: PhxRegStateArray POD-equivalence pin.
  * hir_c_deopt_live_regs returns &HirDeoptLayout.live_regs_data; C++ shim
  * casts it to PhxRegStateArray*. Required invariants:
@@ -591,6 +608,47 @@ static void verify_phase4a_batch10_visitor() {
     free((char *)binop - 2 * sizeof(void *) - sizeof(size_t));
 }
 
+/* Phase 4.A Batch 11 V4 falsifier: insert+read-back on live_regs.
+ * Inserts 3 RegState entries via the C++ DeoptBase live_regs accessor,
+ * iterates them via the pure-C HirRegState* cast used by
+ * hir_c_deopt_visit_uses_deopt, and verifies each .reg matches the
+ * inserted sentinel pointer. Catches POD-equivalence drift between
+ * HirRegState and jit::hir::RegState that the static_asserts above
+ * cannot detect (e.g., a future hidden field or inheritance change
+ * that preserves sizeof but shifts behavior). */
+static void verify_phase4a_batch11_live_regs_iteration() {
+    void *db = hir_c_alloc_instr(sizeof(HirDeoptLayout), 0);
+    assert(db != NULL);
+    hir_c_init_deopt(db, HIR_OP_BinaryOp);
+
+    Register* sentinels[3] = {
+        reinterpret_cast<Register*>(0x10001000),
+        reinterpret_cast<Register*>(0x20002000),
+        reinterpret_cast<Register*>(0x30003000),
+    };
+    auto* base = static_cast<DeoptBase*>(db);
+    for (int i = 0; i < 3; i++) {
+        base->live_regs().push_back(
+            RegState{sentinels[i], RefKind::kBorrowed, ValueKind::kObject});
+    }
+
+    HirDeoptLayout *d = (HirDeoptLayout *)db;
+    HirRegState *regs = (HirRegState *)d->live_regs_data;
+    assert(d->live_regs_count == 3 &&
+           "Phase 4.A Batch 11: live_regs_count after 3 push_back");
+    for (int i = 0; i < 3; i++) {
+        assert(regs[i].reg == sentinels[i] &&
+               "Phase 4.A Batch 11: HirRegState pure-C iteration matches C++ insert");
+    }
+
+    /* Cleanup: free live_regs malloc storage via destructor invocation
+     * pattern. Then free instance preamble. */
+    base->live_regs() = PhxRegStateArray{};  /* triggers data_ free in op= */
+    /* H2-E1+E2: descr=NULL, frame_state=NULL, calloc-safe — no other
+     * destructor work needed. */
+    free((char *)db - 2 * sizeof(void *) - sizeof(size_t));
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -598,4 +656,5 @@ static void hir_instr_runtime_check() {
     verify_bytecode_offset_invariant();
     verify_phase4a_batch1_exhaustive();
     verify_phase4a_batch10_visitor();
+    verify_phase4a_batch11_live_regs_iteration();
 }
