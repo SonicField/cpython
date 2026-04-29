@@ -1958,6 +1958,47 @@ static inline int hir_c_is_load_method_base(const void *instr) {
            op == HIR_OP_LoadModuleMethodCached;
 }
 
+/* hir_is_passthrough_c is defined in pass_output_type_c.c (200-line
+ * opcode-switch body extracted by Tier 7 Batch 4). Forward-declared
+ * here so static-inline consumers below can call it. */
+int hir_is_passthrough_c(const void *instr);
+
+/* Phase 4.A Batch 39: isAnyLoadMethod port. isLoadMethodBase OR a 2-op
+ * Phi whose operand-pair pattern matches (LoadTypeMethodCacheEntryValue,
+ * FillTypeMethodCache) in either order. Reuses the existing
+ * hir_c_is_load_method_base above. */
+static inline int hir_c_is_any_load_method(const void *instr) {
+    if (hir_c_is_load_method_base(instr)) return 1;
+    int op = hir_c_opcode(instr);
+    if (op != HIR_OP_Phi || hir_c_num_operands(instr) != 2) return 0;
+    void *r1 = hir_c_get_operand(instr, 0);
+    void *r2 = hir_c_get_operand(instr, 1);
+    int op1 = hir_c_opcode(hir_reg_instr_ptr(r1));
+    int op2 = hir_c_opcode(hir_reg_instr_ptr(r2));
+    return (op1 == HIR_OP_LoadTypeMethodCacheEntryValue &&
+            op2 == HIR_OP_FillTypeMethodCache) ||
+           (op2 == HIR_OP_LoadTypeMethodCacheEntryValue &&
+            op1 == HIR_OP_FillTypeMethodCache);
+}
+
+/* Phase 4.A Batch 39: modelReg port. Walks the passthrough chain back
+ * to the originating register. GuardIs is intentionally treated as a
+ * non-passthrough boundary (it verifies a runtime value is a specific
+ * object, breaking the dependency on the producer). Cycle-detection
+ * via JIT_DCHECK_C matches the C++ JIT_DCHECK semantics. */
+static inline void *hir_c_model_reg(void *reg) {
+    void *orig_reg = reg;
+    void *instr = hir_reg_instr_ptr(reg);
+    while (hir_is_passthrough_c(instr) &&
+           hir_c_opcode(instr) != HIR_OP_GuardIs) {
+        reg = hir_c_get_operand(instr, 0);
+        JIT_DCHECK_C(reg != orig_reg,
+                     "Hit cycle while looking for model reg");
+        instr = hir_reg_instr_ptr(reg);
+    }
+    return reg;
+}
+
 /* CallCFunc::funcName() port — name lookup for the CallCFunc::Func enum
  * defined by CallCFunc_FUNCS in hir.h. Names + order MUST stay in sync
  * with hir.h's CallCFunc_FUNCS X-macro; hir.cpp pins this with a

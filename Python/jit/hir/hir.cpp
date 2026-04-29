@@ -536,23 +536,11 @@ Register*& Instr::operandAt(std::size_t i) {
 }
 
 bool isLoadMethodBase(const Instr& instr) {
-  return instr.IsLoadMethod() || instr.IsLoadMethodCached() ||
-         instr.IsLoadModuleMethodCached();
+  return hir_c_is_load_method_base(&instr) != 0;
 }
 
 bool isAnyLoadMethod(const Instr& instr) {
-  if (isLoadMethodBase(instr)) {
-    return true;
-  }
-  if (!instr.IsPhi() || instr.NumOperands() != 2) {
-    return false;
-  }
-  const Instr* arg1 = instr.GetOperand(0)->instr();
-  const Instr* arg2 = instr.GetOperand(1)->instr();
-  return (arg1->IsLoadTypeMethodCacheEntryValue() &&
-          arg2->IsFillTypeMethodCache()) ||
-      (arg2->IsLoadTypeMethodCacheEntryValue() &&
-       arg1->IsFillTypeMethodCache());
+  return hir_c_is_any_load_method(&instr) != 0;
 }
 
 /* extern decl for the pure-C predicate body (defined at
@@ -570,15 +558,7 @@ bool isPassthrough(const Instr& instr) {
 }
 
 Register* modelReg(Register* reg) {
-  auto orig_reg = reg;
-  // Even though GuardIs is a passthrough, it verifies that a runtime value is a
-  // specific object, breaking the dependency on the instruction that produced
-  // the runtime value
-  while (isPassthrough(*reg->instr()) && !(reg->instr()->IsGuardIs())) {
-    reg = reg->instr()->GetOperand(0);
-    JIT_DCHECK(reg != orig_reg, "Hit cycle while looking for model reg");
-  }
-  return reg;
+  return static_cast<Register*>(hir_c_model_reg(reg));
 }
 
 Instr* BasicBlock::Append(Instr* instr) {

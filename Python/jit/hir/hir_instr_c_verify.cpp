@@ -2265,6 +2265,53 @@ static void verify_phase4a_batch38_get_frame_state() {
     }
 }
 
+/* Phase 4.A Batch 39 V5 falsifier: isLoadMethodBase + isAnyLoadMethod
+ * + modelReg dispatchers. Stub Instrs and Registers exercised directly
+ * (none of these touch block_, so no chain-helper setup required). */
+static void verify_phase4a_batch39_load_method_model_reg() {
+    /* (a) isLoadMethodBase: 3 hit opcodes + 1 miss. */
+    {
+        HirInstrLayout instr = {};
+        instr.opcode = HIR_OP_LoadMethod;
+        assert(hir_c_is_load_method_base(&instr) &&
+               "Phase 4.A Batch 39(a): LoadMethod is base");
+        instr.opcode = HIR_OP_LoadMethodCached;
+        assert(hir_c_is_load_method_base(&instr) &&
+               "Phase 4.A Batch 39(a): LoadMethodCached is base");
+        instr.opcode = HIR_OP_LoadModuleMethodCached;
+        assert(hir_c_is_load_method_base(&instr) &&
+               "Phase 4.A Batch 39(a): LoadModuleMethodCached is base");
+        instr.opcode = HIR_OP_BinaryOp;
+        assert(!hir_c_is_load_method_base(&instr) &&
+               "Phase 4.A Batch 39(a): BinaryOp is NOT base");
+    }
+
+    /* (b) isAnyLoadMethod: pass-through to isLoadMethodBase for hit;
+     * non-Phi non-LoadMethod miss returns false. */
+    {
+        HirInstrLayout instr = {};
+        instr.opcode = HIR_OP_LoadMethod;
+        assert(hir_c_is_any_load_method(&instr) &&
+               "Phase 4.A Batch 39(b): LoadMethod passes through to any");
+        instr.opcode = HIR_OP_BinaryOp;
+        assert(!hir_c_is_any_load_method(&instr) &&
+               "Phase 4.A Batch 39(b): non-Phi non-LoadMethod = false");
+    }
+
+    /* (c) modelReg: 1-instr identity case (instr is non-passthrough,
+     * loop doesn't enter, returns same reg). BinaryOp is not
+     * passthrough, so the walk terminates immediately. */
+    {
+        HirInstrLayout instr = {};
+        instr.opcode = HIR_OP_BinaryOp;
+        HirRegisterLayout reg = {};
+        reg.instr = &instr;
+        void *result = hir_c_model_reg(&reg);
+        assert(result == &reg &&
+               "Phase 4.A Batch 39(c): non-passthrough instr returns same reg");
+    }
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -2300,4 +2347,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch36_bb_insert_substantive();
     verify_phase4a_batch37_function_inline_lookups();
     verify_phase4a_batch38_get_frame_state();
+    verify_phase4a_batch39_load_method_model_reg();
 }
