@@ -3145,6 +3145,57 @@ static void verify_phase4d_batch65_emit_cluster_13() {
     hir_c_test_chain_destroy(&bb);
 }
 
+/* Phase 4.D Batch 66 V5 sentinel: emit cluster 14 representative cases.
+ *
+ *   - emit_guard (FS-coupled, Instr* return + setFrameState-AFTER pattern,
+ *     cur_instr_offs=233).
+ *   - emit_double_binary_op (no-FS, enum→int32_t multi-arg,
+ *     cur_instr_offs=239, op=1). */
+static void verify_phase4d_batch66_emit_cluster_14() {
+    HirBasicBlock bb;
+    hir_c_test_chain_init(&bb);
+
+    PhxTranslationContext tc{};
+    tc.block = &bb;
+
+    /* Case 1: emit_guard — FS-coupled, Instr* return, setFrameState-AFTER. */
+    tc.frame.cur_instr_offs = 233;
+    FrameState fs{};
+    fs.cur_instr_offs = jit::BCOffset{233};
+    HirRegLayout g_src{};
+    g_src.id = 131;
+    HirInstr g = hir_c_tc_emit_guard(&tc, &g_src, &fs);
+    assert(g != NULL && "Phase 4.D Batch 66: guard returns non-NULL");
+
+    void *first = hir_bb_first_instr(&bb);
+    assert(first != NULL && "Phase 4.D Batch 66: guard appended");
+    HirInstrLayout *gi = (HirInstrLayout *)first;
+    assert(gi->opcode == HIR_OP_Guard &&
+           "Phase 4.D Batch 66: appended instr is Guard");
+    assert(gi->bytecode_offset == 233 &&
+           "Phase 4.D Batch 66: guard bytecode_offset stamped pre-setFrameState");
+
+    /* Case 2: emit_double_binary_op — no-FS, enum→int32_t. */
+    tc.frame.cur_instr_offs = 239;
+    HirRegLayout dbo_dst{};
+    dbo_dst.id = 132;
+    HirRegLayout dbo_left{};
+    dbo_left.id = 133;
+    HirRegLayout dbo_right{};
+    dbo_right.id = 134;
+    hir_c_tc_emit_double_binary_op(&tc, &dbo_dst, /*op=*/1, &dbo_left, &dbo_right);
+
+    void *second = hir_bb_next_instr(&bb, first);
+    assert(second != NULL && "Phase 4.D Batch 66: double_binary_op appended");
+    HirInstrLayout *dbo = (HirInstrLayout *)second;
+    assert(dbo->opcode == HIR_OP_DoubleBinaryOp &&
+           "Phase 4.D Batch 66: appended instr is DoubleBinaryOp");
+    assert(dbo->bytecode_offset == 239 &&
+           "Phase 4.D Batch 66: double_binary_op bytecode_offset stamped");
+
+    hir_c_test_chain_destroy(&bb);
+}
+
 /* Phase 4.D Batch 52 V5 sentinel falsifier for hir_c_advance_past_yield. */
 static void verify_phase4d_batch52_advance_past_yield() {
     HirFrameStateLayout fs = {};
@@ -3215,4 +3266,5 @@ static void hir_instr_runtime_check() {
     verify_phase4d_batch63_emit_cluster_9();
     verify_phase4d_batch64_emit_cluster_10();
     verify_phase4d_batch65_emit_cluster_13();
+    verify_phase4d_batch66_emit_cluster_14();
 }

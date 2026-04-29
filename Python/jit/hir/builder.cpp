@@ -938,62 +938,58 @@ struct HIRBuilder::TranslationContext {
 
   // CheckNeg via C++ bridge (DeoptBase + FrameState).
   void emitCheckNeg(Register* dst, Register* src, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_check_neg_reg(
-        dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_check_neg(this, dst, src,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
   // GetLength via C++ bridge (DeoptBase + FrameState).
   void emitGetLength(Register* dst, Register* src, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_get_length_reg(
-        dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_get_length(this, dst, src,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
   // PrimitiveBox via C++ bridge (DeoptBase + FrameState).
   void emitPrimitiveBox(Register* dst, Register* src, Type type,
                          const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_primitive_box_reg(
-        dst, src, to_hir(type),
-        const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_primitive_box(this, dst, src, to_hir(type),
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
   // LoadArrayItem via C++ bridge (caller-provided register).
   void emitLoadArrayItem(Register* dst, Register* arr, Register* idx,
                           Register* container, intptr_t offset, Type type) {
-    emitC(static_cast<Instr*>(hir_c_create_load_array_item_reg(
-        dst, arr, idx, container, offset, to_hir(type))));
+    hir_c_tc_emit_load_array_item(this, dst, arr, idx, container, offset,
+        to_hir(type));
   }
 
   // Guard via C factory (with FrameState). Returns instruction for mutation.
   Instr* emitGuard(Register* src, const FrameState& fs) {
-    auto* instr = emitC(static_cast<Instr*>(hir_c_create_guard(src)));
-    static_cast<DeoptBase*>(instr)->setFrameState(fs);
-    return instr;
+    return static_cast<Instr*>(hir_c_tc_emit_guard(this, src, &fs));
   }
 
   // BitCast via pure C factory.
   void emitBitCast(Register* dst, Register* src, Type type) {
-    emitC(static_cast<Instr*>(hir_c_create_bit_cast(dst, src, to_hir(type))));
+    hir_c_tc_emit_bit_cast(this, dst, src, to_hir(type));
   }
 
   // DoubleBinaryOp via pure C factory.
   void emitDoubleBinaryOp(Register* dst, BinaryOpKind op,
                            Register* left, Register* right) {
-    emitC(static_cast<Instr*>(hir_c_create_double_binary_op(
-        dst, static_cast<int32_t>(op), left, right)));
+    hir_c_tc_emit_double_binary_op(this, dst, static_cast<int32_t>(op),
+        left, right);
   }
 
   // PrimitiveUnaryOp via pure C factory.
   void emitPrimitiveUnaryOp(Register* dst, PrimitiveUnaryOpKind op,
                               Register* src) {
-    emitC(static_cast<Instr*>(hir_c_create_primitive_unary_op(
-        dst, static_cast<int32_t>(op), src)));
+    hir_c_tc_emit_primitive_unary_op(this, dst, static_cast<int32_t>(op), src);
   }
 
   // LoadField via C++ bridge (caller-provided register, no FrameState).
   void emitLoadField(Register* dst, Register* receiver, const char* name,
                       intptr_t offset, Type type, bool borrowed = false) {
-    emitC(static_cast<Instr*>(hir_c_create_load_field_reg(
-        dst, receiver, name, offset, to_hir(type), borrowed ? 1 : 0)));
+    hir_c_tc_emit_load_field(this, dst, receiver, name, offset, to_hir(type),
+        borrowed ? 1 : 0);
   }
 
   // CallStatic via C++ bridge (returns CallStatic* for operand wiring).
@@ -1005,7 +1001,7 @@ struct HIRBuilder::TranslationContext {
 
   // UseType via pure C factory.
   void emitUseType(Register* val, Type type) {
-    emitC(static_cast<Instr*>(hir_c_create_use_type(val, to_hir(type))));
+    hir_c_tc_emit_use_type(this, val, to_hir(type));
   }
 
   BasicBlock* block{nullptr};

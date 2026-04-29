@@ -1653,6 +1653,78 @@ static inline void hir_c_tc_emit_set_function_attr(void *tc, HirRegister value,
     hir_c_tc_emit_c(tc, hir_c_create_set_function_attr_reg(value, base, field));
 }
 
+/* ---- Phase 4.D pilot step 14 (Batch 66): emit cluster 14 (10 mixed) ----
+ * 'NO new patterns' [un-falsified at gate per
+ * feedback_arch_completeness_disclaimer]. emitGuard uses pattern 1
+ * (setFrameState-AFTER, B55 emit_check_exc_fs precedent). */
+
+static inline void hir_c_tc_emit_check_neg(void *tc, HirRegister dst,
+                                             HirRegister src, void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_check_neg_reg(dst, src, fs));
+}
+
+static inline void hir_c_tc_emit_get_length(void *tc, HirRegister dst,
+                                              HirRegister src, void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_get_length_reg(dst, src, fs));
+}
+
+static inline void hir_c_tc_emit_primitive_box(void *tc, HirRegister dst,
+                                                 HirRegister src, HirType type,
+                                                 void *fs) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_primitive_box_reg(dst, src, type, fs));
+}
+
+static inline void hir_c_tc_emit_load_array_item(void *tc, HirRegister dst,
+                                                   HirRegister arr,
+                                                   HirRegister idx,
+                                                   HirRegister container,
+                                                   intptr_t offset,
+                                                   HirType type) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_load_array_item_reg(dst, arr, idx, container, offset, type));
+}
+
+/* Pattern 1: emit + setFrameState-AFTER (B55 precedent). */
+static inline HirInstr hir_c_tc_emit_guard(void *tc, HirRegister src,
+                                             const void *fs) {
+    HirInstr i = hir_c_create_guard(src);
+    hir_c_tc_emit_c(tc, i);
+    hir_deopt_set_frame_state(i, fs);
+    return i;
+}
+
+static inline void hir_c_tc_emit_bit_cast(void *tc, HirRegister dst,
+                                            HirRegister src, HirType type) {
+    hir_c_tc_emit_c(tc, hir_c_create_bit_cast(dst, src, type));
+}
+
+static inline void hir_c_tc_emit_double_binary_op(void *tc, HirRegister dst,
+                                                    int32_t op,
+                                                    HirRegister left,
+                                                    HirRegister right) {
+    hir_c_tc_emit_c(tc, hir_c_create_double_binary_op(dst, op, left, right));
+}
+
+static inline void hir_c_tc_emit_primitive_unary_op(void *tc, HirRegister dst,
+                                                      int32_t op,
+                                                      HirRegister src) {
+    hir_c_tc_emit_c(tc, hir_c_create_primitive_unary_op(dst, op, src));
+}
+
+static inline void hir_c_tc_emit_load_field(void *tc, HirRegister dst,
+                                              HirRegister receiver,
+                                              const char *name, intptr_t offset,
+                                              HirType type, int borrowed) {
+    hir_c_tc_emit_c(tc,
+        hir_c_create_load_field_reg(dst, receiver, name, offset, type, borrowed));
+}
+
+static inline void hir_c_tc_emit_use_type(void *tc, HirRegister val,
+                                            HirType type) {
+    hir_c_tc_emit_c(tc, hir_c_create_use_type(val, type));
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
