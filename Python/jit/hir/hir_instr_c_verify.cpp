@@ -649,6 +649,55 @@ static void verify_phase4a_batch11_live_regs_iteration() {
     free((char *)db - 2 * sizeof(void *) - sizeof(size_t));
 }
 
+/* Phase 4.A Batch 12 V5 falsifier: input-domain coverage for
+ * Instr::Uses + Instr::ReplaceUsesOf shim conversions. Verifies the
+ * find-and-stop + write-through visitor patterns operate on operand
+ * slots correctly. */
+static void verify_phase4a_batch12_uses_replace() {
+    void* sentinel_a = reinterpret_cast<void*>(0xA000);
+    void* sentinel_b = reinterpret_cast<void*>(0xB000);
+    void* sentinel_c = reinterpret_cast<void*>(0xC000);
+
+    /* Build a 2-operand non-DeoptBase instr (Decref takes 1 op; use
+     * Branch with no operands wouldn't exercise the path. Need a
+     * 2-op non-deopt opcode — Phi is variable, but we can stub it
+     * with operand count 2 directly via hir_c_alloc_instr. We use
+     * Decref-class: HIR_OP_Phi with 2 stub operands works for the
+     * dispatcher because Phi is non-DeoptBase. */
+    void *instr = hir_c_alloc_instr(sizeof(HirInstrLayout), 2);
+    assert(instr != NULL);
+    hir_c_init_instr(instr, HIR_OP_Phi);
+    hir_c_set_operand(instr, 0, sentinel_a);
+    hir_c_set_operand(instr, 1, sentinel_b);
+
+    /* Uses: needle present in operand 0 → returns true */
+    bool found_a =
+        static_cast<Instr*>(instr)->Uses(static_cast<Register*>(sentinel_a));
+    assert(found_a && "Phase 4.A Batch 12: Uses should find operand 0");
+
+    /* Uses: needle present in operand 1 → returns true */
+    bool found_b =
+        static_cast<Instr*>(instr)->Uses(static_cast<Register*>(sentinel_b));
+    assert(found_b && "Phase 4.A Batch 12: Uses should find operand 1");
+
+    /* Uses: needle absent → returns false */
+    bool found_c =
+        static_cast<Instr*>(instr)->Uses(static_cast<Register*>(sentinel_c));
+    assert(!found_c && "Phase 4.A Batch 12: Uses should NOT find absent needle");
+
+    /* ReplaceUsesOf: replace operand 0 (sentinel_a → sentinel_c),
+     * operand 1 unchanged. */
+    static_cast<Instr*>(instr)->ReplaceUsesOf(
+        static_cast<Register*>(sentinel_a),
+        static_cast<Register*>(sentinel_c));
+    assert(hir_c_get_operand(instr, 0) == sentinel_c &&
+           "Phase 4.A Batch 12: ReplaceUsesOf should overwrite operand 0");
+    assert(hir_c_get_operand(instr, 1) == sentinel_b &&
+           "Phase 4.A Batch 12: ReplaceUsesOf should leave operand 1 unchanged");
+
+    free((char *)instr - 2 * sizeof(void *) - sizeof(size_t));
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -657,4 +706,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch1_exhaustive();
     verify_phase4a_batch10_visitor();
     verify_phase4a_batch11_live_regs_iteration();
+    verify_phase4a_batch12_uses_replace();
 }

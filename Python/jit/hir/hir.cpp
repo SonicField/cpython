@@ -348,24 +348,27 @@ bool Instr::visitUses(const std::function<bool(Register*)>& func) const {
 }
 
 bool Instr::Uses(Register* needle) const {
-  bool found = false;
-  visitUses([&](const Register* reg) {
-    if (reg == needle) {
-      found = true;
-      return false;
-    }
-    return true;
-  });
-  return found;
+  /* Stop iteration on first match. user-data is the needle pointer;
+   * visitor returns 0 to halt + signal found. */
+  auto thunk = +[](void **slot, void *user) -> int {
+    return (*slot == user) ? 0 : 1;
+  };
+  return hir_c_instr_visit_uses(
+      const_cast<Instr*>(this), thunk, needle) == 0;
 }
 
 void Instr::ReplaceUsesOf(Register* orig, Register* replacement) {
-  visitUses([&](Register*& reg) {
-    if (reg == orig) {
-      reg = replacement;
+  /* user-data: pair of {orig, replacement} pointers. Visitor writes
+   * replacement into any slot equal to orig and continues iteration. */
+  struct Pair { void *orig; void *replacement; } pair{orig, replacement};
+  auto thunk = +[](void **slot, void *user) -> int {
+    auto* p = static_cast<Pair*>(user);
+    if (*slot == p->orig) {
+      *slot = p->replacement;
     }
-    return true;
-  });
+    return 1;
+  };
+  hir_c_instr_visit_uses(this, thunk, &pair);
 }
 
 Register* Instr::output() const {
