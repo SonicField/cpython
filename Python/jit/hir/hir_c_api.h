@@ -897,6 +897,78 @@ void hir_builder_preloader_field_info(void *builder, PyObject *descr,
 void *hir_builder_preloader_preloaded_type(void *builder, PyObject *descr,
                                             int *optional_out, int *exact_out);
 
+/* ---- Phase 4.D pilot step 2 (Batch 54): TranslationContext emit primitives ----
+ *
+ * Per-method C primitives for the no-FrameState emit cluster. Each takes
+ * `void *tc` (PhxTranslationContext layout pinned via static_assert in
+ * hir_instr_c_verify.cpp) and dispatches via the B53 hir_c_tc_emit_c
+ * primitive. C++ TranslationContext methods become 1-line shims.
+ *
+ * These live in hir_c_api.h (rather than hir_instr_c.h per theologian's
+ * spec) because each body calls extern hir_c_create_X factories declared
+ * in this header — putting the primitives in hir_instr_c.h would require
+ * either circular include or duplicating the W25b opaque-handle
+ * typedefs. hir_c_api.h is included by all consumers (builder.cpp +
+ * builder_emit_c.c) so the architectural intent is preserved. */
+
+static inline void hir_c_tc_emit_snapshot(void *tc) {
+    /* PhxTranslationContext.frame at offset sizeof(void *) — see
+     * static_assert in hir_instr_c_verify.cpp (Batch 53). */
+    void *frame_ptr = (void *)((char *)tc + sizeof(void *));
+    hir_c_tc_emit_c(tc, hir_c_create_snapshot(frame_ptr));
+}
+
+static inline void hir_c_tc_emit_load_const(void *tc, HirRegister dst,
+                                              HirType type) {
+    hir_c_tc_emit_c(tc, hir_c_create_load_const(dst, type));
+}
+
+static inline void hir_c_tc_emit_guard_type(void *tc, HirRegister dst,
+                                              HirType target,
+                                              HirRegister src) {
+    hir_c_tc_emit_c(tc, hir_c_create_guard_type_reg(dst, target, src));
+}
+
+static inline void hir_c_tc_emit_refine_type(void *tc, HirRegister dst,
+                                               HirType type, HirRegister src) {
+    hir_c_tc_emit_c(tc, hir_c_create_refine_type_reg(dst, type, src));
+}
+
+static inline void hir_c_tc_emit_check_exc(void *tc, HirRegister dst,
+                                             HirRegister src) {
+    hir_c_tc_emit_c(tc, hir_c_create_check_exc_reg(dst, src));
+}
+
+static inline HirInstr hir_c_tc_emit_branch(void *tc, void *target_block) {
+    HirInstr i = hir_c_create_branch_cpp(target_block);
+    hir_c_tc_emit_c(tc, i);
+    return i;
+}
+
+static inline HirInstr hir_c_tc_emit_cond_branch(void *tc, HirRegister cond,
+                                                   void *true_bb,
+                                                   void *false_bb) {
+    HirInstr i = hir_c_create_cond_branch_cpp(cond, true_bb, false_bb);
+    hir_c_tc_emit_c(tc, i);
+    return i;
+}
+
+static inline HirInstr hir_c_tc_emit_deopt(void *tc) {
+    HirInstr i = hir_c_create_deopt();
+    hir_c_tc_emit_c(tc, i);
+    return i;
+}
+
+static inline void hir_c_tc_emit_return(void *tc, HirRegister src,
+                                          HirType type) {
+    hir_c_tc_emit_c(tc, hir_c_create_return(src, type));
+}
+
+static inline void hir_c_tc_emit_assign(void *tc, HirRegister dst,
+                                          HirRegister src) {
+    hir_c_tc_emit_c(tc, hir_assign_create(dst, src));
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

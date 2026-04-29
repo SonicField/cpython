@@ -363,10 +363,9 @@ struct HIRBuilder::TranslationContext {
   // callers remain post-W26 (emitAnyCall now uses hir_c_create_vectorcall_reg
   // + hir_c_create_call_method_reg directly in C body).
 
-  void emitSnapshot() {
-    emitC(static_cast<Instr*>(hir_c_create_snapshot(
-        const_cast<void*>(static_cast<const void*>(&frame)))));
-  }
+  // Phase 4.D pilot step 2 (Batch 54): no-FrameState emit cluster — each
+  // dispatches to the matching hir_c_tc_emit_* primitive in hir_c_api.h.
+  void emitSnapshot() { hir_c_tc_emit_snapshot(this); }
 
   // Insert a pre-created instruction from a C factory.
   // Sets bytecode offset and appends to current block.
@@ -381,13 +380,12 @@ struct HIRBuilder::TranslationContext {
 
   // Convenience: emit LoadConst via pure C factory.
   void emitLoadConst(Register* dst, Type type) {
-    emitC(static_cast<Instr*>(hir_c_create_load_const(dst, to_hir(type))));
+    hir_c_tc_emit_load_const(this, dst, to_hir(type));
   }
 
   // GuardType via C++ bridge (no FrameState).
   void emitGuardType(Register* dst, Type target, Register* src) {
-    emitC(static_cast<Instr*>(
-        hir_c_create_guard_type_reg(dst, to_hir(target), src)));
+    hir_c_tc_emit_guard_type(this, dst, to_hir(target), src);
   }
 
   // GuardType via C++ bridge (with FrameState).
@@ -400,13 +398,12 @@ struct HIRBuilder::TranslationContext {
 
   // RefineType via C factory (caller-provided register).
   void emitRefineType(Register* dst, Type type, Register* src) {
-    emitC(static_cast<Instr*>(
-        hir_c_create_refine_type_reg(dst, to_hir(type), src)));
+    hir_c_tc_emit_refine_type(this, dst, to_hir(type), src);
   }
 
   // CheckExc via C factory (no FrameState).
   void emitCheckExc(Register* dst, Register* src) {
-    emitC(static_cast<Instr*>(hir_c_create_check_exc_reg(dst, src)));
+    hir_c_tc_emit_check_exc(this, dst, src);
   }
 
   // CheckExc via C factory (with FrameState).
@@ -417,23 +414,22 @@ struct HIRBuilder::TranslationContext {
 
   // Branch via C++ bridge (Edge::set_to). Returns instruction.
   Instr* emitBranch(BasicBlock* target) {
-    return emitC(static_cast<Instr*>(hir_c_create_branch_cpp(target)));
+    return static_cast<Instr*>(hir_c_tc_emit_branch(this, target));
   }
 
   // CondBranch via C++ bridge (Edge::set_to). Returns instruction.
   Instr* emitCondBranch(Register* cond, BasicBlock* true_bb, BasicBlock* false_bb) {
-    return emitC(static_cast<Instr*>(
-        hir_c_create_cond_branch_cpp(cond, true_bb, false_bb)));
+    return static_cast<Instr*>(hir_c_tc_emit_cond_branch(this, cond, true_bb, false_bb));
   }
 
   // Deopt via C factory (0 operands). Returns Instr* for post-creation mutation.
   Instr* emitDeopt() {
-    return emitC(static_cast<Instr*>(hir_c_create_deopt()));
+    return static_cast<Instr*>(hir_c_tc_emit_deopt(this));
   }
 
   // Return via C factory.
   void emitReturn(Register* src, Type type) {
-    emitC(static_cast<Instr*>(hir_c_create_return(src, to_hir(type))));
+    hir_c_tc_emit_return(this, src, to_hir(type));
   }
 
   // VectorCall via C++ bridge (returns VectorCall* for operand wiring).
@@ -453,7 +449,7 @@ struct HIRBuilder::TranslationContext {
 
   // Assign via C factory.
   void emitAssign(Register* dst, Register* src) {
-    emitC(static_cast<Instr*>(hir_assign_create(dst, src)));
+    hir_c_tc_emit_assign(this, dst, src);
   }
 
   // PrimitiveCompare via pure C factory (hir_instr_c.h).

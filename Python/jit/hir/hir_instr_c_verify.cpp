@@ -13,6 +13,7 @@
 #include "cinderx/Jit/hir/function.h"
 #include "cinderx/Jit/hir/builder_state_c.h"  /* Pilot 3 step 2 (Batch 43) */
 #include "cinderx/Jit/hir/builder.h"          /* TempAllocator (Pilot 3 step 3 Batch 44) */
+#include "cinderx/Jit/hir/hir_c_api.h"         /* hir_c_tc_emit_* primitives (Batch 54) */
 
 #include <cassert>
 #include <cstring>
@@ -2572,6 +2573,62 @@ static_assert(offsetof(PhxTranslationContext, block) == 0,
 static_assert(offsetof(PhxTranslationContext, frame) == sizeof(void *),
     "PhxTranslationContext.frame must follow block at offset sizeof(void*)");
 
+/* Phase 4.D Batch 54 V5 sentinel: hir_c_tc_emit_snapshot + emit_load_const
+ *
+ * Validates the no-FrameState emit cluster dispatch chain end-to-end:
+ *   PhxTranslationContext → hir_c_tc_emit_X → hir_c_create_X →
+ *   hir_c_set_bytecode_offset → hir_c_bb_append.
+ *
+ * Two representative cases (per theologian B54 spec); remaining 8 primitives
+ * are trivial pass-throughs covered by V1 production path. */
+static void verify_phase4d_batch54_no_fs_cluster() {
+    HirBasicBlock bb;
+    hir_c_test_chain_init(&bb);
+
+    /* Build a PhxTranslationContext with non-zero cur_instr_offs to verify
+     * the bytecode-offset transfer. */
+    PhxTranslationContext tc{};
+    tc.block = &bb;
+    tc.frame.cur_instr_offs = 42;
+
+    /* Case 1: emit_snapshot — Snapshot instr appended; its frame_state_ptr
+     * deep-copied from tc.frame; bytecode_offset == cur_instr_offs. */
+    hir_c_tc_emit_snapshot(&tc);
+    void *first = hir_bb_first_instr(&bb);
+    assert(first != NULL && "Phase 4.D Batch 54: snapshot appended");
+    HirInstrLayout *snap = (HirInstrLayout *)first;
+    assert(snap->opcode == HIR_OP_Snapshot &&
+           "Phase 4.D Batch 54: appended instr is Snapshot");
+    assert(snap->bytecode_offset == 42 &&
+           "Phase 4.D Batch 54: Snapshot bytecode_offset == cur_instr_offs");
+    HirSnapshot *s = (HirSnapshot *)first;
+    assert(s->frame_state_ptr != NULL &&
+           "Phase 4.D Batch 54: Snapshot frame_state_ptr populated");
+
+    /* Case 2: emit_load_const — bump cur_instr_offs, call primitive, verify
+     * LoadConst appended with matching bytecode_offset + type field. */
+    tc.frame.cur_instr_offs = 99;
+    /* Real HirRegLayout fixture: hir_c_set_output() writes back-pointer. */
+    HirRegLayout fake_reg{};
+    fake_reg.id = 7;
+    HirType sentinel_type{};
+    sentinel_type.bits_and_flags = 0xABCD0001U;
+    hir_c_tc_emit_load_const(&tc, &fake_reg, sentinel_type);
+
+    void *second = hir_bb_next_instr(&bb, first);
+    assert(second != NULL && "Phase 4.D Batch 54: load_const appended");
+    HirInstrLayout *lc_inst = (HirInstrLayout *)second;
+    assert(lc_inst->opcode == HIR_OP_LoadConst &&
+           "Phase 4.D Batch 54: appended instr is LoadConst");
+    assert(lc_inst->bytecode_offset == 99 &&
+           "Phase 4.D Batch 54: LoadConst bytecode_offset bump observed");
+    HirLoadConst *lc = (HirLoadConst *)second;
+    assert(lc->type.bits_and_flags == sentinel_type.bits_and_flags &&
+           "Phase 4.D Batch 54: LoadConst type carried through primitive");
+
+    hir_c_test_chain_destroy(&bb);
+}
+
 /* Phase 4.D Batch 52 V5 sentinel falsifier for hir_c_advance_past_yield. */
 static void verify_phase4d_batch52_advance_past_yield() {
     HirFrameStateLayout fs = {};
@@ -2631,4 +2688,5 @@ static void hir_instr_runtime_check() {
     verify_phase4c_batch48_op_stack();
     verify_phase4d_batch51_allocate_localsplus();
     verify_phase4d_batch52_advance_past_yield();
+    verify_phase4d_batch54_no_fs_cluster();
 }
