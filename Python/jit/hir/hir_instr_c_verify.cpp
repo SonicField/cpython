@@ -12,6 +12,7 @@
 #include "cinderx/Jit/hir/frame_state.h"
 #include "cinderx/Jit/hir/function.h"
 #include "cinderx/Jit/hir/builder_state_c.h"  /* Pilot 3 step 2 (Batch 43) */
+#include "cinderx/Jit/hir/builder.h"          /* TempAllocator (Pilot 3 step 3 Batch 44) */
 
 #include <cassert>
 #include <cstring>
@@ -2434,6 +2435,51 @@ static void verify_phase4c_batch43_state_temps_phx() {
            "Phase 4.C Batch 43: post-destroy cache cleared (no leak)");
 }
 
+/* Phase 4.C Pilot 3 Batch 44 V5 mirror-collapse falsifier (addresses
+ * pythia 16:14:18Z B43-B47 inter-mirror-divergence concern):
+ * single-source-of-truth = state->temps_phx. Construct a state +
+ * point a C++ TempAllocator at it; alternate writes through C++
+ * wrapper and direct C; assert both observe the SAME cache count
+ * (no independent storage). */
+static void verify_phase4c_batch44_temp_allocator_mirror_collapse() {
+    PhxHirBuilderState state;
+    hir_builder_state_init(&state, NULL, NULL);
+    HirEnvironment env = {};
+    state.temps_phx.env = &env;
+
+    /* C++ wrapper points to state.temps_phx — single storage. */
+    jit::hir::TempAllocator wrapper(&state.temps_phx);
+
+    /* Write via wrapper x2 → cache count observable via state field. */
+    void *r0 = wrapper.AllocateStack();
+    void *r1 = wrapper.AllocateStack();
+    assert(state.temps_phx.cache.count == 2 &&
+           "Phase 4.C Batch 44: wrapper writes visible via state.temps_phx");
+    assert(state.temps_phx.cache.data[0] == r0 &&
+           state.temps_phx.cache.data[1] == r1 &&
+           "Phase 4.C Batch 44: state cache holds wrapper-allocated Registers");
+
+    /* Write via direct C → wrapper-side observation = count grows
+     * (no independent C++ storage to diverge). */
+    void *r2 = hir_c_temps_alloc_stack(&state.temps_phx);
+    assert(state.temps_phx.cache.count == 3 &&
+           "Phase 4.C Batch 44: direct C write visible via state field");
+    assert(state.temps_phx.cache.data[2] == r2 &&
+           "Phase 4.C Batch 44: cache[2] = direct-C-allocated");
+
+    /* GetOrAllocateStack via wrapper observes the direct-C write. */
+    void *got2 = wrapper.GetOrAllocateStack(2);
+    assert(got2 == r2 &&
+           "Phase 4.C Batch 44: wrapper.GetOrAllocate sees direct-C write");
+
+    /* Cleanup. */
+    delete static_cast<jit::hir::Register *>(r0);
+    delete static_cast<jit::hir::Register *>(r1);
+    delete static_cast<jit::hir::Register *>(r2);
+    free(env.reg_data);
+    hir_builder_state_destroy(&state);
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -2473,4 +2519,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch41_constraint_name();
     verify_phase4c_batch42_temp_allocator();
     verify_phase4c_batch43_state_temps_phx();
+    verify_phase4c_batch44_temp_allocator_mirror_collapse();
 }

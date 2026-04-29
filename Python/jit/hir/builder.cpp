@@ -312,18 +312,18 @@ bool isBannedName(std::string_view name) {
 // register that will be treated specially in the FrameState (e.g. tracked as
 // containing a local or cell.)
 Register* TempAllocator::AllocateStack() {
-  return static_cast<Register*>(hir_c_temps_alloc_stack(&state_));
+  return static_cast<Register*>(hir_c_temps_alloc_stack(state_));
 }
 
 // Get the i-th stack temporary or allocate one.
 Register* TempAllocator::GetOrAllocateStack(std::size_t idx) {
   return static_cast<Register*>(
-      hir_c_temps_get_or_alloc_stack(&state_, idx));
+      hir_c_temps_get_or_alloc_stack(state_, idx));
 }
 
 // Allocate a temp register that will not be used for a stack value.
 Register* TempAllocator::AllocateNonStack() {
-  return static_cast<Register*>(hir_c_temps_alloc_non_stack(&state_));
+  return static_cast<Register*>(hir_c_temps_alloc_non_stack(state_));
 }
 
 void HIRBuilder::allocateLocalsplus(Environment* env, FrameState& state) {
@@ -1468,7 +1468,8 @@ void HIRBuilder::emitTypeAnnotationGuards(TranslationContext& tc) {
 BasicBlock* HIRBuilder::buildHIRImpl(
     Function* irfunc,
     FrameState* frame_state) {
-  temps_ = TempAllocator(&irfunc->env);
+  state_.temps_phx.env = &irfunc->env;
+  temps_ = TempAllocator(&state_.temps_phx);
 
   BytecodeInstructionBlock bc_instrs{code()};
   createBlocks(*irfunc, bc_instrs);

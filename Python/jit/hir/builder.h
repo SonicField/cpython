@@ -109,35 +109,15 @@ class Function;
 class Register;
 
 // Helper class for managing temporary variables.
-// Phase 4.C Pilot 3 step 1 (Batch 42): now a thin C++ shim over the
-// pure-C HirTempAllocator; methods delegate to hir_c_temps_*. The
-// PhxRegisterArray cache (typedef of PhxPtrArray) replaces the prior
-// std::vector<Register*>; move-only semantics + explicit dtor manage
-// the malloc-backed storage.
+// Phase 4.C Pilot 3 step 3 (Batch 44): single-source-of-truth collapse.
+// The C++ class is now a thin pointer-wrapper; the live HirTempAllocator
+// state lives in PhxHirBuilderState.temps_phx. No own storage — methods
+// forward to hir_c_temps_*(state_pointer). Mirror collapsed to
+// eliminate divergence-window risk for B45-B47 bridge eliminations.
 class TempAllocator {
  public:
-  explicit TempAllocator(Environment* env) {
-    state_.env = env;
-    phx_ptr_arr_init(&state_.cache);
-  }
-  ~TempAllocator() {
-    phx_ptr_arr_destroy(&state_.cache);
-  }
-
-  // Move-only: cache_ owns malloc'd storage.
-  TempAllocator(TempAllocator&& o) noexcept : state_(o.state_) {
-    phx_ptr_arr_init(&o.state_.cache);
-  }
-  TempAllocator& operator=(TempAllocator&& o) noexcept {
-    if (this != &o) {
-      phx_ptr_arr_destroy(&state_.cache);
-      state_ = o.state_;
-      phx_ptr_arr_init(&o.state_.cache);
-    }
-    return *this;
-  }
-  TempAllocator(const TempAllocator&) = delete;
-  TempAllocator& operator=(const TempAllocator&) = delete;
+  TempAllocator() : state_(nullptr) {}
+  explicit TempAllocator(HirTempAllocator* state) : state_(state) {}
 
   // Allocate a temp register that may be used for the stack. It should not be a
   // register that will be treated specially in the FrameState (e.g. tracked as
@@ -151,7 +131,7 @@ class TempAllocator {
   Register* AllocateNonStack();
 
  private:
-  HirTempAllocator state_;
+  HirTempAllocator* state_;  // non-owning; lives in PhxHirBuilderState.temps_phx
 };
 
 // We expect that on exit from a basic block the stack only contains temporaries
@@ -727,7 +707,7 @@ class HIRBuilder {
   // 14:36:45Z). C++ field deleted; preloader() getter reads from
   // state_.preloader. Probe-1 of the §4.A.5c bracket-validation gate.
 
-  TempAllocator temps_{nullptr};
+  TempAllocator temps_{};
 
   // §4.A.5c Pilot 5 2026-04-28: func_ field migrated to state_.func;
   // 1 write (~1518) + 1 read (~1519) + 1 bridge read (~3562) converted
