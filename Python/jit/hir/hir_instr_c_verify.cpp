@@ -14,6 +14,7 @@
 
 #include <cassert>
 #include <cstring>
+#include <type_traits>
 
 using namespace jit::hir;
 
@@ -340,6 +341,26 @@ static_assert(Type::kUnicodeExact == 0x00000100000UL, "UnicodeExact bits mismatc
 static_assert(Type::kDictExact == 0x00000004000UL, "DictExact bits mismatch");
 static_assert(Type::kBool == 0x00000000002UL, "Bool bits mismatch");
 static_assert(Type::kNoneType == 0x00000000080UL, "NoneType bits mismatch");
+
+/* Phase 4.A Batch 14 V3 wrapper-signature pin (per supervisor 03:36:23Z
+ * V5-deferred fall-back: V1 production-use + V3 structural pin substitute
+ * when V5 input-domain falsifier requires fixture infra beyond batch
+ * scope). Pins the 4 GetOperandTypeImpl wrapper signatures so they
+ * cannot be silently re-typed (e.g., size_t → int, return-type swap). */
+using HirOperandTypeWrapper =
+    HirOperandTypeEntry (*)(const void *, size_t);
+static_assert(std::is_same_v<decltype(&hir_primitive_compare_operand_type_c),
+              HirOperandTypeWrapper>,
+    "hir_primitive_compare_operand_type_c signature drift");
+static_assert(std::is_same_v<decltype(&hir_primitive_unbox_operand_type_c),
+              HirOperandTypeWrapper>,
+    "hir_primitive_unbox_operand_type_c signature drift");
+static_assert(std::is_same_v<decltype(&hir_return_operand_type_c),
+              HirOperandTypeWrapper>,
+    "hir_return_operand_type_c signature drift");
+static_assert(std::is_same_v<decltype(&hir_use_type_operand_type_c),
+              HirOperandTypeWrapper>,
+    "hir_use_type_operand_type_c signature drift");
 
 /* ---- Runtime read-through-cast verification ----
  * Creates C++ HIR objects, casts to C structs, reads via C accessors.
