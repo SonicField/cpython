@@ -479,6 +479,36 @@ static inline void *hir_c_bb_pop_front(void *bb) {
     return hir_bb_pop_front_instr((HirBasicBlock *)bb);
 }
 
+/* Phase 4.A Batch 36: BasicBlock::insert port. C++ iterator semantics
+ * collapse to a `before` pointer in the C ABI: NULL = end-of-list
+ * (append fallback with bytecode-offset propagation from last instr),
+ * non-NULL = insert before the named instr (hir_bb_insert_before
+ * handles bytecode-offset propagation internally). Both paths
+ * preserve link()'s release-fatal block_==NULL precondition via the
+ * Batch 23 hir_c_bb_append / hir_c_instr_link wrappers.
+ *
+ * Forward decl for hir_c_instr_link (defined later in the Batch 23
+ * section of this header); hir_c_bb_append already forward-declared
+ * earlier as hir_c_bb_pop_front sibling. */
+static inline void hir_c_instr_link(void *self, void *block);
+
+static inline void hir_c_bb_insert(void *bb, void *instr, void *before) {
+    if (before == NULL) {
+        int32_t off = hir_c_bytecode_offset(instr);
+        if (off == -1) {
+            void *last = hir_bb_last_instr((HirBasicBlock *)bb);
+            if (last != NULL) {
+                hir_c_set_bytecode_offset(instr,
+                                          hir_c_bytecode_offset(last));
+            }
+        }
+        hir_c_bb_append(bb, instr);
+    } else {
+        hir_bb_insert_before((HirBasicBlock *)bb, instr, before);
+        hir_c_instr_link(instr, bb);
+    }
+}
+
 /* ---- Instr lifecycle (Batch 23) ---- */
 
 /* Instr::link port. Sets self.block_ to block; asserts self was

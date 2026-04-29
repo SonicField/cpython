@@ -602,18 +602,8 @@ Instr* BasicBlock::pop_front() {
 }
 
 void BasicBlock::insert(Instr* instr, Instr::List::iterator it) {
-  if (it == instrs_.end()) {
-    if (instr->bytecodeOffset() == -1 && it != instrs_.begin()) {
-      instr->setBytecodeOffset(std::prev(it)->bytecodeOffset());
-    }
-    Append(instr);
-    return;
-  }
-  hir_bb_insert_before(
-      reinterpret_cast<HirBasicBlock*>(this),
-      instr,
-      &*it);
-  instr->link(this);
+  Instr* before = (it == instrs_.end()) ? nullptr : &*it;
+  hir_c_bb_insert(reinterpret_cast<HirBasicBlock*>(this), instr, before);
 }
 
 void BasicBlock::clear() {

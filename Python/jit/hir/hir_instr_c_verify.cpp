@@ -2087,6 +2087,71 @@ static void verify_phase4a_batch33_bb_list_substantive() {
     hir_c_test_chain_destroy(&bb);
 }
 
+/* Phase 4.A Batch 36 V5 SUBSTANTIVE falsifier for BasicBlock::insert
+ * via Batch I helper. Two cases anchor the iterator-end vs mid-list
+ * paths: (a) before==NULL appends with bytecode-offset propagation
+ * from the last instr; (b) before==existing-instr inserts the new
+ * instr immediately before it (bytecode-offset propagated by
+ * hir_bb_insert_before from the previous adjacent instr). */
+static void verify_phase4a_batch36_bb_insert_substantive() {
+    HirBasicBlock bb;
+    hir_c_test_chain_init(&bb);
+
+    void *A = hir_c_test_chain_append_instr(
+        &bb, HIR_OP_Assign, sizeof(HirInstrLayout), 1);
+    void *B = hir_c_test_chain_append_instr(
+        &bb, HIR_OP_Assign, sizeof(HirInstrLayout), 1);
+    void *C = hir_c_test_chain_append_instr(
+        &bb, HIR_OP_Assign, sizeof(HirInstrLayout), 1);
+    ((HirInstrLayout *)A)->bytecode_offset = 10;
+    ((HirInstrLayout *)B)->bytecode_offset = 20;
+    ((HirInstrLayout *)C)->bytecode_offset = 30;
+
+    /* (a) Insert D before B → expect [A, D, B, C]. D's
+     * bytecode_offset=-1 propagates from prev (A=10). */
+    void *D = hir_c_alloc_instr(sizeof(HirInstrLayout), 1);
+    assert(D != NULL);
+    hir_c_init_instr(D, HIR_OP_Assign);
+    assert(((HirInstrLayout *)D)->bytecode_offset == -1 &&
+           "Phase 4.A Batch 36(a): pre-insert D bytecode_offset == -1");
+    hir_c_bb_insert(&bb, D, B);
+    assert(((HirInstrLayout *)D)->block == &bb &&
+           "Phase 4.A Batch 36(a): post-insert D linked to bb");
+    assert(((HirInstrLayout *)D)->bytecode_offset == 10 &&
+           "Phase 4.A Batch 36(a): D inherited prev (A) bytecode_offset=10");
+    void *expected_a[4] = { A, D, B, C };
+    void *cur = hir_bb_first_instr(&bb);
+    for (int i = 0; i < 4; i++) {
+        assert(cur == expected_a[i] &&
+               "Phase 4.A Batch 36(a): post-mid-insert iter [A, D, B, C]");
+        cur = hir_bb_next_instr(&bb, cur);
+    }
+    assert(cur == NULL &&
+           "Phase 4.A Batch 36(a): chain terminates at sentinel");
+
+    /* (b) Append E via NULL before-pointer → expect [A, D, B, C, E]
+     * with E's bytecode_offset propagated from C (last instr, =30). */
+    void *E = hir_c_alloc_instr(sizeof(HirInstrLayout), 1);
+    assert(E != NULL);
+    hir_c_init_instr(E, HIR_OP_Assign);
+    assert(((HirInstrLayout *)E)->bytecode_offset == -1 &&
+           "Phase 4.A Batch 36(b): pre-insert E bytecode_offset == -1");
+    hir_c_bb_insert(&bb, E, NULL);
+    assert(((HirInstrLayout *)E)->block == &bb &&
+           "Phase 4.A Batch 36(b): post-append E linked to bb");
+    assert(((HirInstrLayout *)E)->bytecode_offset == 30 &&
+           "Phase 4.A Batch 36(b): E inherited last (C) bytecode_offset=30");
+    void *expected_b[5] = { A, D, B, C, E };
+    cur = hir_bb_first_instr(&bb);
+    for (int i = 0; i < 5; i++) {
+        assert(cur == expected_b[i] &&
+               "Phase 4.A Batch 36(b): post-end-append iter [A, D, B, C, E]");
+        cur = hir_bb_next_instr(&bb, cur);
+    }
+
+    hir_c_test_chain_destroy(&bb);
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -2119,4 +2184,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch33_bb_list_substantive();
     verify_phase4a_batch34_primitive_unary_inplace_ops();
     verify_phase4a_batch35_env_get_register();
+    verify_phase4a_batch36_bb_insert_substantive();
 }
