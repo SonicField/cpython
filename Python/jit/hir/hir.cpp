@@ -260,44 +260,58 @@ std::span<Register* const> Instr::GetOperands() const {
   return {operands(), NumOperands()};
 }
 
+// Phase 4.A Batch 14: Instr::GetOperandType port. Pure-C dispatcher
+// (hir_c_instr_get_operand_type) routes 4 instance-dependent opcodes
+// to extern "C" wrappers below; all others use the static
+// hir_operand_type_get_info table. C++ shim decodes
+// HirOperandTypeEntry into OperandType.
+}  // namespace jit::hir
+
+namespace {
+inline HirOperandTypeEntry encode_operand_type(jit::hir::OperandType ot) {
+  HirOperandTypeEntry e;
+  e.kind = static_cast<int>(ot.kind);
+  e.type = jit::hir::Type::toHirType(ot.type);
+  return e;
+}
+}  // namespace
+
+extern "C" HirOperandTypeEntry hir_primitive_compare_operand_type_c(
+    const void *instr, size_t i) {
+  auto* p = static_cast<const jit::hir::PrimitiveCompare*>(instr);
+  return encode_operand_type(p->GetOperandTypeImpl(i));
+}
+
+extern "C" HirOperandTypeEntry hir_primitive_unbox_operand_type_c(
+    const void *instr, size_t i) {
+  auto* p = static_cast<const jit::hir::PrimitiveUnbox*>(instr);
+  return encode_operand_type(p->GetOperandTypeImpl(i));
+}
+
+extern "C" HirOperandTypeEntry hir_return_operand_type_c(
+    const void *instr, size_t i) {
+  auto* p = static_cast<const jit::hir::Return*>(instr);
+  return encode_operand_type(p->GetOperandTypeImpl(i));
+}
+
+extern "C" HirOperandTypeEntry hir_use_type_operand_type_c(
+    const void *instr, size_t i) {
+  auto* p = static_cast<const jit::hir::UseType*>(instr);
+  return encode_operand_type(p->GetOperandTypeImpl(i));
+}
+
+namespace jit::hir {
+
 OperandType Instr::GetOperandType(std::size_t i) const {
   JIT_DCHECK(
       i < NumOperands(),
       "operand {} out of range (max is {})",
       i,
       NumOperands() - 1);
-  // 4 types with instance-dependent GetOperandTypeImpl use C++ dispatch.
-  // All others use the C operand-type table (no C++ class needed).
-  int op = static_cast<int>(opcode_);
-  switch (opcode_) {
-    case Opcode::kPrimitiveCompare:
-      return static_cast<const PrimitiveCompare*>(this)->GetOperandTypeImpl(i);
-    case Opcode::kPrimitiveUnbox:
-      return static_cast<const PrimitiveUnbox*>(this)->GetOperandTypeImpl(i);
-    case Opcode::kReturn:
-      return static_cast<const Return*>(this)->GetOperandTypeImpl(i);
-    case Opcode::kUseType:
-      return static_cast<const UseType*>(this)->GetOperandTypeImpl(i);
-    default:
-      break;
-  }
-  const HirOpcodeOperandInfo *info = hir_operand_type_get_info(op);
-  if (info == nullptr || static_cast<int>(i) >= info->count) {
-    // Fallback: last entry repeated (matches C++ makeTypeVec behavior)
-    if (info != nullptr && info->count > 0) {
-      const auto& ot = info->types[info->count - 1];
-      auto constraint = static_cast<Constraint>(ot.kind);
-      if (constraint == Constraint::kType) {
-        return Type::fromHirType(ot.type);
-      }
-      return constraint;
-    }
-    return TBottom;
-  }
-  const auto& ot = info->types[i];
-  auto constraint = static_cast<Constraint>(ot.kind);
+  HirOperandTypeEntry entry = hir_c_instr_get_operand_type(this, i);
+  Constraint constraint = static_cast<Constraint>(entry.kind);
   if (constraint == Constraint::kType) {
-    return Type::fromHirType(ot.type);
+    return Type::fromHirType(entry.type);
   }
   return constraint;
 }

@@ -11,6 +11,7 @@
 #pragma once
 
 #include "cinderx/Jit/hir/hir_instr_info_c.h"
+#include "cinderx/Jit/hir/hir_operand_types_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
 
 #include <stddef.h>
@@ -1118,6 +1119,53 @@ static inline int hir_c_snapshot_visit_uses(void *snap,
     void *fs = hir_c_snapshot_get_frame_state(snap);
     if (fs == NULL) return 1;
     return hir_frame_state_visit_uses_c(fs, visitor, user);
+}
+
+/* C-callable bridges for the 4 instance-dependent
+ * GetOperandTypeImpl overrides (Batch 14). Each calls the C++
+ * subclass method and encodes the OperandType result as
+ * HirOperandTypeEntry (kind:int + HirType). Implemented in hir.cpp. */
+HirOperandTypeEntry hir_primitive_compare_operand_type_c(
+    const void *instr, size_t i);
+HirOperandTypeEntry hir_primitive_unbox_operand_type_c(
+    const void *instr, size_t i);
+HirOperandTypeEntry hir_return_operand_type_c(
+    const void *instr, size_t i);
+HirOperandTypeEntry hir_use_type_operand_type_c(
+    const void *instr, size_t i);
+
+/* Instr::GetOperandType pure-C dispatcher (Batch 14). Routes the 4
+ * instance-dependent opcodes to their C++ wrappers; falls back to the
+ * static operand-type table for all others. C++ shim decodes the
+ * returned HirOperandTypeEntry: kind==Constraint::kType (0) → cast type
+ * via Type::fromHirType; else cast kind via static_cast<Constraint>. */
+static inline HirOperandTypeEntry hir_c_instr_get_operand_type(
+    const void *instr, size_t i) {
+    int op = hir_c_opcode(instr);
+    switch (op) {
+        case HIR_OP_PrimitiveCompare:
+            return hir_primitive_compare_operand_type_c(instr, i);
+        case HIR_OP_PrimitiveUnbox:
+            return hir_primitive_unbox_operand_type_c(instr, i);
+        case HIR_OP_Return:
+            return hir_return_operand_type_c(instr, i);
+        case HIR_OP_UseType:
+            return hir_use_type_operand_type_c(instr, i);
+        default:
+            break;
+    }
+    const HirOpcodeOperandInfo *info = hir_operand_type_get_info(op);
+    if (info == NULL || info->count == 0) {
+        /* TBottom: Constraint::kType (0) + zero HirType bits.
+         * C++ shim Type::fromHirType({0,0}) yields TBottom. */
+        HirOperandTypeEntry tb;
+        tb.kind = 0;
+        tb.type.bits_and_flags = 0;
+        tb.type.int_val = 0;
+        return tb;
+    }
+    size_t idx = (i < (size_t)info->count) ? i : (size_t)(info->count - 1);
+    return info->types[idx];
 }
 
 /* qsort comparator for HirRegState by .reg id ascending. Used by
