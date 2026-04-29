@@ -259,37 +259,36 @@ std::span<Register* const> Instr::GetOperands() const {
 // HirOperandTypeEntry into OperandType.
 }  // namespace jit::hir
 
-namespace {
-inline HirOperandTypeEntry encode_operand_type(jit::hir::OperandType ot) {
-  HirOperandTypeEntry e;
-  e.kind = static_cast<int>(ot.kind);
-  e.type = jit::hir::Type::toHirType(ot.type);
-  return e;
-}
-}  // namespace
-
 extern "C" HirOperandTypeEntry hir_primitive_compare_operand_type_c(
     const void *instr, size_t i) {
-  auto* p = static_cast<const jit::hir::PrimitiveCompare*>(instr);
-  return encode_operand_type(p->GetOperandTypeImpl(i));
+  auto ot = static_cast<const jit::hir::PrimitiveCompare*>(instr)
+                ->GetOperandTypeImpl(i);
+  return hir_c_encode_operand_type(
+      static_cast<int>(ot.kind), jit::hir::Type::toHirType(ot.type));
 }
 
 extern "C" HirOperandTypeEntry hir_primitive_unbox_operand_type_c(
     const void *instr, size_t i) {
-  auto* p = static_cast<const jit::hir::PrimitiveUnbox*>(instr);
-  return encode_operand_type(p->GetOperandTypeImpl(i));
+  auto ot = static_cast<const jit::hir::PrimitiveUnbox*>(instr)
+                ->GetOperandTypeImpl(i);
+  return hir_c_encode_operand_type(
+      static_cast<int>(ot.kind), jit::hir::Type::toHirType(ot.type));
 }
 
 extern "C" HirOperandTypeEntry hir_return_operand_type_c(
     const void *instr, size_t i) {
-  auto* p = static_cast<const jit::hir::Return*>(instr);
-  return encode_operand_type(p->GetOperandTypeImpl(i));
+  auto ot = static_cast<const jit::hir::Return*>(instr)
+                ->GetOperandTypeImpl(i);
+  return hir_c_encode_operand_type(
+      static_cast<int>(ot.kind), jit::hir::Type::toHirType(ot.type));
 }
 
 extern "C" HirOperandTypeEntry hir_use_type_operand_type_c(
     const void *instr, size_t i) {
-  auto* p = static_cast<const jit::hir::UseType*>(instr);
-  return encode_operand_type(p->GetOperandTypeImpl(i));
+  auto ot = static_cast<const jit::hir::UseType*>(instr)
+                ->GetOperandTypeImpl(i);
+  return hir_c_encode_operand_type(
+      static_cast<int>(ot.kind), jit::hir::Type::toHirType(ot.type));
 }
 
 namespace jit::hir {

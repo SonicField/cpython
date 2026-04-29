@@ -22,6 +22,17 @@ typedef struct {
     HirType type;
 } HirOperandTypeEntry;
 
+/* Phase 4.A Batch 40: pure-C encode helper for the 4 instance-dependent
+ * GetOperandTypeImpl extern "C" wrappers. The wrappers do the C++ side
+ * (Type::toHirType conversion + OperandType.kind cast) then hand the
+ * already-decoupled int + HirType to this constructor. */
+static inline HirOperandTypeEntry hir_c_encode_operand_type(int kind, HirType type) {
+    HirOperandTypeEntry e;
+    e.kind = kind;
+    e.type = type;
+    return e;
+}
+
 /* Per-opcode static operand type info */
 #define HIR_MAX_STATIC_OPERAND_TYPES 8
 
