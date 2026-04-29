@@ -181,13 +181,12 @@ std::size_t Phi::blockIndex(const BasicBlock* block) const {
 }
 
 Edge::Edge(const Edge& other) {
-  set_from(other.from_);
-  set_to(other.to_);
+  hir_c_edge_copy_init(reinterpret_cast<HirEdge*>(this),
+                       reinterpret_cast<const HirEdge*>(&other));
 }
 
 Edge::~Edge() {
-  set_from(nullptr);
-  set_to(nullptr);
+  hir_edge_destroy(reinterpret_cast<HirEdge*>(this));
 }
 
 BasicBlock* Edge::from() const {

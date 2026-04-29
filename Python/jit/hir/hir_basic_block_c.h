@@ -54,6 +54,15 @@ void hir_edge_set_from(HirEdge *edge, HirBasicBlock *new_from);
 void hir_edge_set_to(HirEdge *edge, HirBasicBlock *new_to);
 void hir_edge_destroy(HirEdge *edge);
 
+/* Initialize dst as a copy of src by routing both endpoints through
+ * hir_edge_set_from / hir_edge_set_to so the BasicBlock in_edges_
+ * tracking stays consistent. Used by Edge::Edge(const Edge&) port
+ * (Phase 4.A Batch 15). */
+static inline void hir_c_edge_copy_init(HirEdge *dst, const HirEdge *src) {
+    hir_edge_set_from(dst, (HirBasicBlock *)src->from);
+    hir_edge_set_to(dst, (HirBasicBlock *)src->to);
+}
+
 /* ---- Accessors ---- */
 
 int hir_bb_id(const HirBasicBlock *bb);
