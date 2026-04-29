@@ -1614,10 +1614,9 @@ void HIRBuilder::advancePastYieldInstr(TranslationContext& tc) {
   // interpreter should pick-up execution.
   BCOffset next_bc_offs{
       BytecodeInstruction{code(), tc.frame.cur_instr_offs}.nextInstrOffset()};
-  tc.frame.cur_instr_offs = next_bc_offs;
-  JIT_DCHECK(
-      next_bc_offs.asIndex().value() < countIndices(code()),
-      "Yield should not be end of instruction stream");
+  hir_c_advance_past_yield(&tc.frame, next_bc_offs.value(),
+                           next_bc_offs.asIndex().value(),
+                           countIndices(code()));
 }
 
 void HIRBuilder::translate(

@@ -2563,6 +2563,22 @@ static void verify_phase4d_batch51_allocate_localsplus() {
     phx_ptr_arr_destroy(&fs.localsplus);
 }
 
+/* Phase 4.D Batch 52 V5 sentinel falsifier for hir_c_advance_past_yield. */
+static void verify_phase4d_batch52_advance_past_yield() {
+    HirFrameStateLayout fs = {};
+    fs.cur_instr_offs = -1;
+
+    /* In-bounds: index < count → cur_instr_offs updates, no abort. */
+    hir_c_advance_past_yield(&fs, 42, 21, 100);
+    assert(fs.cur_instr_offs == 42 &&
+           "Phase 4.D Batch 52: cur_instr_offs updated to next_offs");
+
+    /* Boundary in-bounds: index = count - 1. */
+    hir_c_advance_past_yield(&fs, 198, 99, 100);
+    assert(fs.cur_instr_offs == 198 &&
+           "Phase 4.D Batch 52: boundary index = count-1 updates");
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -2605,4 +2621,5 @@ static void hir_instr_runtime_check() {
     verify_phase4c_batch44_temp_allocator_mirror_collapse();
     verify_phase4c_batch48_op_stack();
     verify_phase4d_batch51_allocate_localsplus();
+    verify_phase4d_batch52_advance_past_yield();
 }

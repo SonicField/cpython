@@ -425,6 +425,20 @@ static inline void hir_c_allocate_localsplus_n(void *env,
     fs->nlocals = nlocals;
 }
 
+/* Phase 4.D step 2 (Batch 52): advancePastYieldInstr port. Caller
+ * (C++ shim) computes the BytecodeInstruction.nextInstrOffset() +
+ * asIndex().value() and the countIndices upper bound; body writes
+ * cur_instr_offs + JIT_DCHECK_C the index against the bound. */
+static inline void hir_c_advance_past_yield(void *fs_void,
+                                            int next_offs,
+                                            int next_idx,
+                                            int count_indices) {
+    HirFrameStateLayout *fs = (HirFrameStateLayout *)fs_void;
+    fs->cur_instr_offs = next_offs;
+    JIT_DCHECK_C(next_idx < count_indices,
+                 "Yield should not be end of instruction stream");
+}
+
 static inline void *hir_fs_code(const void *fs) {
     return ((const HirFrameStateLayout *)fs)->code;
 }
