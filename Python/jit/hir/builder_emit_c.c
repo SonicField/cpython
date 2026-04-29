@@ -2605,7 +2605,8 @@ bool hir_builder_emit_invoke_function_c(
  *   - hir_builder_invoke_method_target_c (InvokeTarget query)
  *   - hir_builder_try_emit_direct_method_call_c (path 1)
  *   - hir_builder_setup_static_args_c (arg_regs)
- *   - hir_builder_state_static_method_stack_pop_cpp (entry pop) */
+ *   - direct hir_c_op_stack_pop on op_stack_phx (entry pop; was
+ *     hir_builder_state_static_method_stack_pop_cpp pre-B49). */
 extern void hir_builder_invoke_method_target_c(
     void *builder, PyObject *descr,
     int *out_is_builtin, int *out_is_statically_typed, HirType *out_return_type);
@@ -2614,7 +2615,10 @@ extern int hir_builder_try_emit_direct_method_call_c(
 extern void hir_builder_setup_static_args_c(
     void *builder, void *tc, PyObject *descr, long nargs, int statically_typed,
     void **out_arg_regs, size_t *out_count);
-extern void *hir_builder_state_static_method_stack_pop_cpp(void *builder);
+/* Phase 4.C Pilot 4 step 2 (Batch 49): static_method_stack_pop_cpp
+ * extern decl deleted; call sites migrated to direct hir_c_op_stack_pop
+ * on phx_hir_builder_state(builder)->op_stack_phx. Bridge function
+ * itself retired in B50. */
 
 bool hir_builder_emit_invoke_method_c(
         PhxTranslationContext *tc,
@@ -2645,7 +2649,7 @@ bool hir_builder_emit_invoke_method_c(
         /* AllocateNonStack equivalent: hir_func_alloc_register
          * (TempAllocator::AllocateNonStack just calls env->AllocateRegister). */
         void *out = hir_func_alloc_register(func);
-        void *entry = hir_builder_state_static_method_stack_pop_cpp(builder);
+        void *entry = hir_c_op_stack_pop(&phx_hir_builder_state(builder)->op_stack_phx);
         void *invoke = hir_c_create_call_ind_reg2(
             (size_t)nargs + 1, out, "vtable invoke", return_type);
         hir_c_set_operand(invoke, 0, entry);
@@ -2946,8 +2950,10 @@ void hir_builder_emit_get_awaitable_c(
  * is_classmethod check (already extern "C" in classloader.h). */
 extern int hir_builder_preloader_invoke_method_slot_c(
     void *builder, PyObject *descr);
-extern void hir_builder_state_static_method_stack_push_cpp(
-    void *builder, void *reg);
+/* Phase 4.C Pilot 4 step 2 (Batch 49): static_method_stack_push_cpp
+ * extern decl deleted; call site migrated to direct hir_c_op_stack_push
+ * on phx_hir_builder_state(builder)->op_stack_phx. Bridge function
+ * itself retired in B50. */
 
 /* hir_builder_invoke_method_target_c (existing) returns is_statically_typed
  * + is_builtin + return_type via out-params. We reuse it for is_static
@@ -3031,7 +3037,7 @@ void hir_builder_emit_load_method_static_c(
         phx_tc_emit(tc, hir_c_create_get_second_output_reg(
             entry_func, t_cptr, func_obj));
         if (entry_func != NULL) {
-            hir_builder_state_static_method_stack_push_cpp(builder, entry_func);
+            hir_c_op_stack_push(&phx_hir_builder_state(builder)->op_stack_phx, entry_func);
         }
     }
 
