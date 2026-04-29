@@ -833,8 +833,8 @@ static void verify_phase4a_batch17_instr_ctor_init() {
     HirInstrLayout sentinel;
     std::memset(&sentinel, 0, sizeof(sentinel));
     /* Mark block_node_ with sentinel pointers to detect overwrite. */
-    void *bn0 = reinterpret_cast<void*>(0xB0DE0001);
-    void *bn1 = reinterpret_cast<void*>(0xB0DE0002);
+    HirListNode *bn0 = reinterpret_cast<HirListNode*>(0xB0DE0001);
+    HirListNode *bn1 = reinterpret_cast<HirListNode*>(0xB0DE0002);
     sentinel.block_node.prev = bn0;
     sentinel.block_node.next = bn1;
 
@@ -850,7 +850,7 @@ static void verify_phase4a_batch17_instr_ctor_init() {
     std::memset(&src, 0, sizeof(src));
     src.opcode = HIR_OP_Decref;
     src.bytecode_offset = 42;
-    src.output = reinterpret_cast<void*>(0xCAFEFOOD);
+    src.output = reinterpret_cast<void*>(0xCAFEF00D);
 
     HirInstrLayout dst;
     std::memset(&dst, 0, sizeof(dst));
@@ -862,7 +862,7 @@ static void verify_phase4a_batch17_instr_ctor_init() {
            "Phase 4.A Batch 17: copy-init opcode");
     assert(dst.bytecode_offset == 42 &&
            "Phase 4.A Batch 17: copy-init bytecode_offset");
-    assert(dst.output == reinterpret_cast<void*>(0xCAFEFOOD) &&
+    assert(dst.output == reinterpret_cast<void*>(0xCAFEF00D) &&
            "Phase 4.A Batch 17: copy-init output");
     assert(dst.block_node.prev == bn0 &&
            dst.block_node.next == bn1 &&
