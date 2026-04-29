@@ -2629,6 +2629,62 @@ static void verify_phase4d_batch54_no_fs_cluster() {
     hir_c_test_chain_destroy(&bb);
 }
 
+/* Phase 4.D Batch 55 V5 sentinel: FrameState-coupled emit primitives.
+ *
+ * Two patterns covered:
+ *   (1) setFrameState-after — exercises hir_c_tc_emit_check_exc_fs:
+ *       create + emit + setFrameState ordering preserved.
+ *   (2) fs-as-factory-arg — exercises hir_c_tc_emit_initial_yield:
+ *       fs passed to factory then emitted.
+ *
+ * Validates dispatch end-to-end: PhxTranslationContext → primitive →
+ * factory → bytecode_offset stamp → block append. */
+static void verify_phase4d_batch55_fs_coupled_cluster() {
+    HirBasicBlock bb;
+    hir_c_test_chain_init(&bb);
+
+    PhxTranslationContext tc{};
+    tc.block = &bb;
+    tc.frame.cur_instr_offs = 17;
+
+    /* Real FrameState fixture for setFrameState (pattern 1) +
+     * factory-arg (pattern 2). Zero-init suffices; the bridge
+     * deep-copies into the instr. */
+    FrameState fs{};
+    fs.cur_instr_offs = jit::BCOffset{17};
+
+    /* Real HirRegLayout fixtures: hir_c_set_output() writes back-pointer. */
+    HirRegLayout dst_reg{};
+    dst_reg.id = 11;
+    HirRegLayout src_reg{};
+    src_reg.id = 12;
+
+    /* Pattern 1: emit_check_exc_fs — create + emit + setFrameState ordering. */
+    hir_c_tc_emit_check_exc_fs(&tc, &dst_reg, &src_reg, &fs);
+    void *first = hir_bb_first_instr(&bb);
+    assert(first != NULL && "Phase 4.D Batch 55: check_exc_fs appended");
+    HirInstrLayout *chk = (HirInstrLayout *)first;
+    assert(chk->opcode == HIR_OP_CheckExc &&
+           "Phase 4.D Batch 55: appended instr is CheckExc");
+    assert(chk->bytecode_offset == 17 &&
+           "Phase 4.D Batch 55: pattern-1 bytecode_offset stamped pre-setFrameState");
+
+    /* Pattern 2: emit_initial_yield — fs as factory arg. */
+    tc.frame.cur_instr_offs = 33;
+    HirRegLayout iy_dst{};
+    iy_dst.id = 13;
+    hir_c_tc_emit_initial_yield(&tc, &iy_dst, &fs);
+    void *second = hir_bb_next_instr(&bb, first);
+    assert(second != NULL && "Phase 4.D Batch 55: initial_yield appended");
+    HirInstrLayout *iy = (HirInstrLayout *)second;
+    assert(iy->opcode == HIR_OP_InitialYield &&
+           "Phase 4.D Batch 55: appended instr is InitialYield");
+    assert(iy->bytecode_offset == 33 &&
+           "Phase 4.D Batch 55: pattern-2 bytecode_offset stamped");
+
+    hir_c_test_chain_destroy(&bb);
+}
+
 /* Phase 4.D Batch 52 V5 sentinel falsifier for hir_c_advance_past_yield. */
 static void verify_phase4d_batch52_advance_past_yield() {
     HirFrameStateLayout fs = {};
@@ -2689,4 +2745,5 @@ static void hir_instr_runtime_check() {
     verify_phase4d_batch51_allocate_localsplus();
     verify_phase4d_batch52_advance_past_yield();
     verify_phase4d_batch54_no_fs_cluster();
+    verify_phase4d_batch55_fs_coupled_cluster();
 }

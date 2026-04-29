@@ -391,9 +391,7 @@ struct HIRBuilder::TranslationContext {
   // GuardType via C++ bridge (with FrameState).
   void emitGuardType(Register* dst, Type target, Register* src,
                      const FrameState& fs) {
-    auto* instr = emitC(static_cast<Instr*>(
-        hir_c_create_guard_type_reg(dst, to_hir(target), src)));
-    static_cast<DeoptBase*>(instr)->setFrameState(fs);
+    hir_c_tc_emit_guard_type_fs(this, dst, to_hir(target), src, &fs);
   }
 
   // RefineType via C factory (caller-provided register).
@@ -408,8 +406,7 @@ struct HIRBuilder::TranslationContext {
 
   // CheckExc via C factory (with FrameState).
   void emitCheckExc(Register* dst, Register* src, const FrameState& fs) {
-    auto* instr = emitC(static_cast<Instr*>(hir_c_create_check_exc_reg(dst, src)));
-    static_cast<DeoptBase*>(instr)->setFrameState(fs);
+    hir_c_tc_emit_check_exc_fs(this, dst, src, &fs);
   }
 
   // Branch via C++ bridge (Edge::set_to). Returns instruction.
@@ -523,8 +520,8 @@ struct HIRBuilder::TranslationContext {
 
   // YieldValue via C++ bridge (DeoptBase + FrameState).
   void emitYieldValue(Register* dst, Register* src, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_yield_value_reg(
-        dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_yield_value(this, dst, src,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
   // SetCurrentAwaiter via C factory (1 operand, no output).
@@ -544,14 +541,14 @@ struct HIRBuilder::TranslationContext {
 
   // MakeCell via C++ bridge (DeoptBase + FrameState).
   void emitMakeCell(Register* dst, Register* src, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_make_cell_reg(
-        dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_make_cell(this, dst, src,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
   // InitialYield via C++ bridge (DeoptBase + FrameState).
   void emitInitialYield(Register* dst, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_initial_yield_reg(
-        dst, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_initial_yield(this, dst,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
   // LoadArg via C factory (HasOutput, index + type).
@@ -563,17 +560,15 @@ struct HIRBuilder::TranslationContext {
   // YieldFrom via C++ bridge (DeoptBase + FrameState).
   void emitYieldFrom(Register* dst, Register* send_value, Register* iter,
                       const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_yield_from_reg(
-        dst, send_value, iter,
-        const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_yield_from(this, dst, send_value, iter,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
   // CheckVar via C++ bridge (DeoptBase + FrameState).
   void emitCheckVar(Register* dst, Register* src, PyObject* name,
                      const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_check_var_reg(
-        dst, src, name,
-        const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_check_var(this, dst, src, name,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
   // CondBranchIterNotDone via C++ bridge (Edge::set_to).
@@ -590,8 +585,8 @@ struct HIRBuilder::TranslationContext {
 
   // GetIter via C++ bridge (DeoptBase + FrameState).
   void emitGetIter(Register* dst, Register* src, const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_get_iter_reg(
-        dst, src, const_cast<void*>(static_cast<const void*>(&fs)))));
+    hir_c_tc_emit_get_iter(this, dst, src,
+        const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
   // Batch: simple DEFINE_SIMPLE_INSTR wrappers

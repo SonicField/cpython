@@ -969,6 +969,70 @@ static inline void hir_c_tc_emit_assign(void *tc, HirRegister dst,
     hir_c_tc_emit_c(tc, hir_assign_create(dst, src));
 }
 
+/* ---- Phase 4.D pilot step 3 (Batch 55): FrameState-coupled emit cluster ----
+ *
+ * Two patterns:
+ *   (1) setFrameState-after: factory takes no FrameState, instr is emitted,
+ *       then setFrameState applies via hir_deopt_set_frame_state. Used by
+ *       emitGuardType / emitCheckExc when FrameState is supplied.
+ *   (2) fs-as-factory-arg: factory takes void *frame_state; emit follows.
+ *       Used by emitYieldValue, emitMakeCell, emitInitialYield, etc.
+ *
+ * Order preserves C++ semantics: emit before setFrameState (pattern 1) so
+ * bytecode_offset is stamped via hir_c_tc_emit_c first, then FrameState
+ * metadata attaches. */
+
+/* Pattern 1: emit + setFrameState-after */
+static inline void hir_c_tc_emit_guard_type_fs(void *tc, HirRegister dst,
+                                                 HirType target,
+                                                 HirRegister src,
+                                                 const void *fs) {
+    HirInstr instr = hir_c_create_guard_type_reg(dst, target, src);
+    hir_c_tc_emit_c(tc, instr);
+    hir_deopt_set_frame_state(instr, fs);
+}
+
+static inline void hir_c_tc_emit_check_exc_fs(void *tc, HirRegister dst,
+                                                HirRegister src,
+                                                const void *fs) {
+    HirInstr instr = hir_c_create_check_exc_reg(dst, src);
+    hir_c_tc_emit_c(tc, instr);
+    hir_deopt_set_frame_state(instr, fs);
+}
+
+/* Pattern 2: fs-as-factory-arg */
+static inline void hir_c_tc_emit_yield_value(void *tc, HirRegister dst,
+                                               HirRegister src, void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_yield_value_reg(dst, src, fs));
+}
+
+static inline void hir_c_tc_emit_make_cell(void *tc, HirRegister dst,
+                                             HirRegister src, void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_make_cell_reg(dst, src, fs));
+}
+
+static inline void hir_c_tc_emit_initial_yield(void *tc, HirRegister dst,
+                                                 void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_initial_yield_reg(dst, fs));
+}
+
+static inline void hir_c_tc_emit_yield_from(void *tc, HirRegister dst,
+                                              HirRegister send_value,
+                                              HirRegister iter, void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_yield_from_reg(dst, send_value, iter, fs));
+}
+
+static inline void hir_c_tc_emit_check_var(void *tc, HirRegister dst,
+                                             HirRegister src, void *name,
+                                             void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_check_var_reg(dst, src, name, fs));
+}
+
+static inline void hir_c_tc_emit_get_iter(void *tc, HirRegister dst,
+                                            HirRegister src, void *fs) {
+    hir_c_tc_emit_c(tc, hir_c_create_get_iter_reg(dst, src, fs));
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
