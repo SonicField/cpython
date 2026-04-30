@@ -670,12 +670,15 @@ if [ "$BENCHMARK" -eq 1 ]; then
     for i in 1 2 3 4 5 6 7 8 9 10; do
         CANDIDATE="$(cd "$CPYTHON_ROOT" && git rev-parse --short "HEAD~${i}" 2>/dev/null || echo "")"
         [ -z "$CANDIDATE" ] && break
-        # M3-A6 (theologian SR-3a 18:44:45Z): skip failed-gate ancestors —
-        # without 'GATE PASS' check, a bad baseline becomes the comparison
-        # floor and compounds slow-drift detection.
+        # M3-A6 (theologian SR-3a 18:44:45Z) + M3-A6.1 (theologian 18:48:15Z):
+        # skip failed-gate ancestors. Anchor on overall-verdict line at line
+        # 823 ('GATE PASS — '); unanchored 'GATE PASS' would match sub-marker
+        # lines ('GATE PASS:') in partial-fail logs (3 confirmed in
+        # docs/gates/: 4ba30be373, a45aa5b69c, e9952d0af8) and admit a bad
+        # baseline as comparison floor.
         if [ -f "$GATE_LOG_DIR/${CANDIDATE}.log" ] && \
            grep -q 'GEOMETRIC MEAN' "$GATE_LOG_DIR/${CANDIDATE}.log" && \
-           grep -q 'GATE PASS' "$GATE_LOG_DIR/${CANDIDATE}.log"; then
+           grep -q 'GATE PASS — ' "$GATE_LOG_DIR/${CANDIDATE}.log"; then
             PRIOR_LOG="$GATE_LOG_DIR/${CANDIDATE}.log"
             PRIOR_HASH="$CANDIDATE"
             break
