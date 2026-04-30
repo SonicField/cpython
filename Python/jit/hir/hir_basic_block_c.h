@@ -224,11 +224,10 @@ static inline void hir_c_phi_apply_args_from_pairs(void *phi,
     qsort(pairs, n, sizeof(HirPhiArgPair), hir_c_phi_pair_cmp_by_block_id);
     void **keys = (void **)malloc(n * sizeof(void *));
     void **values = (void **)malloc(n * sizeof(void *));
-    if (keys == NULL || values == NULL) {
-        free(keys);
-        free(values);
-        return;
-    }
+    /* Loud-fail on OOM per feedback_no_workarounds (no bail-out/deopt;
+     * matches pre-W2 behavior where the next loop NULL-deref'd). */
+    JIT_CHECK_C(keys != NULL && values != NULL,
+                "phi apply_args malloc failed (n=%zu)", n);
     for (size_t j = 0; j < n; j++) {
         keys[j] = pairs[j].key;
         values[j] = pairs[j].value;
