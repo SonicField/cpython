@@ -656,6 +656,63 @@ if [ "$BENCHMARK" -eq 1 ]; then
         FAILURES="$FAILURES Benchmark:geo-mean=${GEO_MEAN}x(<1.0x)"
     fi
     rm -f "${PYTHON}_bench"
+
+    # M3: per-commit regression check (M-slate, supervisor D-1777572112).
+    # Compare per-bench speedups + geo-mean against most recent prior commit
+    # gate log (within 10 ancestors). BLOCKs if any bench drops >5% relative
+    # to prior OR geo-mean drops >2% relative to prior. First commit (no
+    # prior log) passes through (no signal yet). Eliminates social
+    # disposition-tree dependency for per-commit regression detection.
+    echo "" | tee -a "$RESULTS_FILE"
+    echo "--- Step 7b: M3 per-commit regression check ---" | tee -a "$RESULTS_FILE"
+    PRIOR_HASH=""
+    PRIOR_LOG=""
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        CANDIDATE="$(cd "$CPYTHON_ROOT" && git rev-parse --short "HEAD~${i}" 2>/dev/null || echo "")"
+        [ -z "$CANDIDATE" ] && break
+        if [ -f "$GATE_LOG_DIR/${CANDIDATE}.log" ] && \
+           grep -q 'GEOMETRIC MEAN' "$GATE_LOG_DIR/${CANDIDATE}.log"; then
+            PRIOR_LOG="$GATE_LOG_DIR/${CANDIDATE}.log"
+            PRIOR_HASH="$CANDIDATE"
+            break
+        fi
+    done
+    if [ -z "$PRIOR_LOG" ]; then
+        echo "M3: no prior gate log with benchmark step within 10 ancestors — skip" | tee -a "$RESULTS_FILE"
+    else
+        echo "M3: comparing against prior gate log (commit ${PRIOR_HASH})" | tee -a "$RESULTS_FILE"
+        PRIOR_BENCH="$(awk '/^  [a-z_]+[[:space:]]+[0-9.]+ms[[:space:]]+[0-9.]+ms[[:space:]]+[0-9.]+x/ { sp=$4; gsub(/x/,"",sp); printf "%s %s\n", $1, sp; }' "$PRIOR_LOG" | sort)"
+        CURR_BENCH="$(echo "$BENCH_OUTPUT" | awk '/^  [a-z_]+[[:space:]]+[0-9.]+ms[[:space:]]+[0-9.]+ms[[:space:]]+[0-9.]+x/ { sp=$4; gsub(/x/,"",sp); printf "%s %s\n", $1, sp; }' | sort)"
+        REGR_BENCHES=""
+        while read -r jline; do
+            [ -z "$jline" ] && continue
+            BNAME=$(echo "$jline" | awk '{print $1}')
+            BPSP=$(echo "$jline" | awk '{print $2}')
+            BCSP=$(echo "$jline" | awk '{print $3}')
+            BDELTA=$(echo "scale=2; ($BCSP - $BPSP) / $BPSP * 100" | bc -l 2>/dev/null || echo "0")
+            BDROP=$(echo "$BDELTA < -5" | bc -l 2>/dev/null || echo 0)
+            if [ "$BDROP" = "1" ]; then
+                REGR_BENCHES="${REGR_BENCHES} ${BNAME}(${BDELTA}%)"
+            fi
+        done < <(join -j 1 <(echo "$PRIOR_BENCH") <(echo "$CURR_BENCH"))
+        PRIOR_GEO="$(grep -oP 'GEOMETRIC MEAN\s+\K[0-9.]+(?=x)' "$PRIOR_LOG" | head -1 || echo "0")"
+        GEO_DELTA="0"
+        GEO_DROP="0"
+        if [ -n "$PRIOR_GEO" ] && [ "$PRIOR_GEO" != "0" ] && [ "$GEO_MEAN" != "0" ]; then
+            GEO_DELTA=$(echo "scale=2; ($GEO_MEAN - $PRIOR_GEO) / $PRIOR_GEO * 100" | bc -l 2>/dev/null || echo "0")
+            GEO_DROP=$(echo "$GEO_DELTA < -2" | bc -l 2>/dev/null || echo 0)
+        fi
+        if [ -n "$REGR_BENCHES" ] || [ "$GEO_DROP" = "1" ]; then
+            GATE_PASS=0
+            M3_REASON="vs ${PRIOR_HASH}:"
+            [ -n "$REGR_BENCHES" ] && M3_REASON="${M3_REASON} per-bench-drops>5%:${REGR_BENCHES}"
+            [ "$GEO_DROP" = "1" ] && M3_REASON="${M3_REASON} geo-mean=${GEO_DELTA}%(<-2%)"
+            echo "M3 BLOCK — ${M3_REASON}" | tee -a "$RESULTS_FILE"
+            FAILURES="$FAILURES M3:${M3_REASON}"
+        else
+            echo "M3 PASS — vs ${PRIOR_HASH}: per-bench all within ±5%; geo-mean delta ${GEO_DELTA}% (within ±2%)" | tee -a "$RESULTS_FILE"
+        fi
+    fi
 fi
 
 # Step 7: ARM64 remote gate (optional)
