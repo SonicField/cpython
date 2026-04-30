@@ -107,31 +107,12 @@ class Environment;
 class Function;
 class Register;
 
-// Helper class for managing temporary variables.
-// Phase 4.C Pilot 3 step 3 (Batch 44): single-source-of-truth collapse.
-// The C++ class is now a thin pointer-wrapper; the live HirTempAllocator
-// state lives in PhxHirBuilderState.temps_phx. No own storage — methods
-// forward to hir_c_temps_*(state_pointer). Mirror collapsed to
-// eliminate divergence-window risk for B45-B47 bridge eliminations.
-class TempAllocator {
- public:
-  TempAllocator() : state_(nullptr) {}
-  explicit TempAllocator(HirTempAllocator* state) : state_(state) {}
-
-  // Allocate a temp register that may be used for the stack. It should not be a
-  // register that will be treated specially in the FrameState (e.g. tracked as
-  // containing a local or cell.)
-  Register* AllocateStack();
-
-  // Get the i-th stack temporary or allocate one
-  Register* GetOrAllocateStack(std::size_t idx);
-
-  // Allocate a temp register that will not be used for a stack value.
-  Register* AllocateNonStack();
-
- private:
-  HirTempAllocator* state_;  // non-owning; lives in PhxHirBuilderState.temps_phx
-};
+// Phase 4.C Pilot 3 P3c (Batch 77): TempAllocator C++ class DELETED.
+// Live HirTempAllocator state lives in PhxHirBuilderState.temps_phx;
+// callers route through hir_c_temps_alloc_stack / get_or_alloc_stack /
+// alloc_non_stack(&state_.temps_phx) directly. P3a migrated 14 direct
+// caller sites; P3b changed BlockCanonicalizer signature to
+// HirTempAllocator*; P3c closes the wrapper-class teardown.
 
 // We expect that on exit from a basic block the stack only contains temporaries
 // in increasing order (called the canonical form). For example,
@@ -708,7 +689,8 @@ class HIRBuilder {
   // 14:36:45Z). C++ field deleted; preloader() getter reads from
   // state_.preloader. Probe-1 of the §4.A.5c bracket-validation gate.
 
-  TempAllocator temps_{};
+  // Phase 4.C Pilot 3 P3c (Batch 77): TempAllocator temps_{} field DELETED.
+  // Replaced by direct &state_.temps_phx access at call sites (P3a/P3b).
 
   // §4.A.5c Pilot 5 2026-04-28: func_ field migrated to state_.func;
   // 1 write (~1518) + 1 read (~1519) + 1 bridge read (~3562) converted

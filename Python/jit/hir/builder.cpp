@@ -308,23 +308,10 @@ bool isBannedName(std::string_view name) {
 
 } // namespace
 
-// Allocate a temp register that may be used for the stack. It should not be a
-// register that will be treated specially in the FrameState (e.g. tracked as
-// containing a local or cell.)
-Register* TempAllocator::AllocateStack() {
-  return static_cast<Register*>(hir_c_temps_alloc_stack(state_));
-}
-
-// Get the i-th stack temporary or allocate one.
-Register* TempAllocator::GetOrAllocateStack(std::size_t idx) {
-  return static_cast<Register*>(
-      hir_c_temps_get_or_alloc_stack(state_, idx));
-}
-
-// Allocate a temp register that will not be used for a stack value.
-Register* TempAllocator::AllocateNonStack() {
-  return static_cast<Register*>(hir_c_temps_alloc_non_stack(state_));
-}
+// Phase 4.C Pilot 3 P3c (Batch 77): TempAllocator method bodies DELETED.
+// Class itself removed from builder.h; callers now route through
+// hir_c_temps_alloc_stack / get_or_alloc_stack / alloc_non_stack
+// (&state_.temps_phx) directly per P3a/P3b migration.
 
 void HIRBuilder::allocateLocalsplus(Environment* env, FrameState& state) {
   hir_c_allocate_localsplus_n(env, &state,
@@ -1464,8 +1451,10 @@ void HIRBuilder::emitTypeAnnotationGuards(TranslationContext& tc) {
 BasicBlock* HIRBuilder::buildHIRImpl(
     Function* irfunc,
     FrameState* frame_state) {
+  // Phase 4.C Pilot 3 P3c (Batch 77): TempAllocator wrapper deleted;
+  // env is the only init the C-side allocator needs (state_.temps_phx
+  // cache + counters are zero-initialized via PhxHirBuilderState ctor).
   state_.temps_phx.env = &irfunc->env;
-  temps_ = TempAllocator(&state_.temps_phx);
 
   BytecodeInstructionBlock bc_instrs{code()};
   createBlocks(*irfunc, bc_instrs);
