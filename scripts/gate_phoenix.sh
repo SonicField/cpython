@@ -643,8 +643,12 @@ if [ "$BENCHMARK" -eq 1 ]; then
         --compile=auto --reps=3 --only=fibonacci,nqueens,gen_simple,func_calls 2>&1 || true)
     echo "$BENCH_OUTPUT" | tee -a "$RESULTS_FILE"
 
-    # Check geo-mean > 1.0x (hard floor)
-    GEO_MEAN=$(echo "$BENCH_OUTPUT" | grep -oP 'geo-mean:\s*\K[0-9.]+' | head -1 || echo "0")
+    # Check geo-mean > 1.0x (hard floor).
+    # F2/M2 fix (M-slate, supervisor D-1777572112): regex was 'geo-mean:\s*\K[0-9.]+'
+    # which matched zero output lines; benchmark_phoenix.py:2114-2116 actually emits
+    # 'GEOMETRIC MEAN          1.12x  (25 benchmarks)'. Silent-pass for ~277 commits
+    # since 6cc3b3c160 (2026-04-15) — perf-floor block never fired.
+    GEO_MEAN=$(echo "$BENCH_OUTPUT" | grep -oP 'GEOMETRIC MEAN\s+\K[0-9.]+(?=x)' | head -1 || echo "0")
     GEO_MEAN=${GEO_MEAN:-0}
     BELOW_FLOOR=$(echo "$GEO_MEAN < 1.0" | bc -l 2>/dev/null || echo 0)
     if [ "${BELOW_FLOOR:-0}" -eq 1 ] && [ "$GEO_MEAN" != "0" ]; then
