@@ -3542,6 +3542,110 @@ static void verify_phase4a_batch71_deopt_base_accessors() {
     free((char *)db - 2 * sizeof(void *) - sizeof(size_t));
 }
 
+/* Phase 4.A W6 Batch 72 (theologian docs/tier7-phase4a-preanalysis-2026-04-30.md
+ * §3 W6, supervisor D-1777579403 STRUCT-tier dispatch): BasicBlock
+ * GetTerminator + entrySnapshot falsifier coverage. The 12 BB methods
+ * are ALL pre-bridged; existing fixtures cover Append/push_front/
+ * pop_front/insert (batch27/33/36) and intrusive list invariants. This
+ * batch adds the 2 unverified edge-case-heavy accessors:
+ *   GetTerminator (returns last instr or NULL on empty BB)
+ *   entrySnapshot (returns first non-Phi Snapshot or NULL; skips
+ *     leading Phis per hir_basic_block_c.c:208-222 contract)
+ *
+ * SCOPE-NOTE per pre-analysis §4 STRUCT-tier:
+ *   IsTrampoline: complex Branch-to-self/Branch-to-empty interplay
+ *     with Edge wiring (W3 surface) — testable only with CFG fixture
+ *     scaffolding beyond batch72 isolation. Existing CFG-level
+ *     fixtures cover IsTrampoline indirectly via downstream consumers
+ *     (insert_update_prev_instr_c.c:253, hir_cfg_rpo_c.c:44,
+ *     pass_output_type_c.c:485).
+ *   retargetPreds + fixupPhis/addPhi/removePhiPredecessor: forEachPhi
+ *     callback + Edge::set_to interplay; W7-class (bundles with
+ *     visitUsesDeopt + Phi setArgs unordered_map per Cat-B callback
+ *     deferral pattern). */
+static void verify_phase4a_batch72_bb_terminator_and_entry_snapshot() {
+    HirBasicBlock bb;
+    hir_c_test_chain_init(&bb);
+
+    /* (a) Empty BB: GetTerminator + entrySnapshot both return NULL. */
+    assert(hir_bb_get_terminator(&bb) == NULL &&
+           "Phase 4.A Batch 72(a): empty BB GetTerminator returns NULL");
+    assert(hir_bb_entry_snapshot(&bb) == NULL &&
+           "Phase 4.A Batch 72(a): empty BB entrySnapshot returns NULL");
+
+    /* (b) Single non-Snapshot instr: GetTerminator returns it,
+     * entrySnapshot returns NULL (first instr is non-Snapshot). */
+    void *A = hir_c_alloc_instr(sizeof(HirInstrLayout), 0);
+    assert(A != NULL);
+    hir_c_init_instr(A, HIR_OP_Assign);
+    hir_c_bb_append(&bb, A);
+    assert(hir_bb_get_terminator(&bb) == A &&
+           "Phase 4.A Batch 72(b): GetTerminator returns last (and only) instr");
+    assert(hir_bb_entry_snapshot(&bb) == NULL &&
+           "Phase 4.A Batch 72(b): entrySnapshot NULL when first instr "
+           "is non-Snapshot non-Phi");
+
+    /* (c) Two instrs [A, B]: GetTerminator returns the LAST (B). */
+    void *B = hir_c_alloc_instr(sizeof(HirInstrLayout), 0);
+    assert(B != NULL);
+    hir_c_init_instr(B, HIR_OP_Assign);
+    hir_c_bb_append(&bb, B);
+    assert(hir_bb_get_terminator(&bb) == B &&
+           "Phase 4.A Batch 72(c): GetTerminator returns last after Append(B)");
+
+    hir_c_test_chain_destroy(&bb);
+
+    /* (d) Snapshot-first BB: entrySnapshot returns the Snapshot. */
+    HirBasicBlock bb_snap;
+    hir_c_test_chain_init(&bb_snap);
+    void *S = hir_c_alloc_instr(sizeof(HirInstrLayout), 0);
+    assert(S != NULL);
+    hir_c_init_instr(S, HIR_OP_Snapshot);
+    hir_c_bb_append(&bb_snap, S);
+    assert(hir_bb_entry_snapshot(&bb_snap) == S &&
+           "Phase 4.A Batch 72(d): entrySnapshot returns first instr when "
+           "it is a Snapshot");
+    /* GetTerminator on Snapshot-only BB returns the Snapshot itself
+     * (last == first). */
+    assert(hir_bb_get_terminator(&bb_snap) == S &&
+           "Phase 4.A Batch 72(d): GetTerminator returns Snapshot when sole instr");
+    hir_c_test_chain_destroy(&bb_snap);
+
+    /* (e) Phi-then-Snapshot BB: entrySnapshot SKIPS leading Phi and
+     * returns the Snapshot (per hir_bb_entry_snapshot contract). */
+    HirBasicBlock bb_phi_snap;
+    hir_c_test_chain_init(&bb_phi_snap);
+    void *P = hir_c_alloc_instr(sizeof(HirPhi), 0);
+    assert(P != NULL);
+    hir_c_init_instr(P, HIR_OP_Phi);
+    void *S2 = hir_c_alloc_instr(sizeof(HirInstrLayout), 0);
+    assert(S2 != NULL);
+    hir_c_init_instr(S2, HIR_OP_Snapshot);
+    hir_c_bb_append(&bb_phi_snap, P);
+    hir_c_bb_append(&bb_phi_snap, S2);
+    assert(hir_bb_entry_snapshot(&bb_phi_snap) == S2 &&
+           "Phase 4.A Batch 72(e): entrySnapshot skips leading Phi, "
+           "returns Snapshot");
+    hir_c_test_chain_destroy(&bb_phi_snap);
+
+    /* (f) Phi-then-non-Snapshot BB: entrySnapshot returns NULL (the
+     * non-Phi non-Snapshot terminates the search per the contract). */
+    HirBasicBlock bb_phi_op;
+    hir_c_test_chain_init(&bb_phi_op);
+    void *P2 = hir_c_alloc_instr(sizeof(HirPhi), 0);
+    assert(P2 != NULL);
+    hir_c_init_instr(P2, HIR_OP_Phi);
+    void *Op = hir_c_alloc_instr(sizeof(HirInstrLayout), 0);
+    assert(Op != NULL);
+    hir_c_init_instr(Op, HIR_OP_Assign);
+    hir_c_bb_append(&bb_phi_op, P2);
+    hir_c_bb_append(&bb_phi_op, Op);
+    assert(hir_bb_entry_snapshot(&bb_phi_op) == NULL &&
+           "Phase 4.A Batch 72(f): entrySnapshot NULL when first non-Phi "
+           "is non-Snapshot");
+    hir_c_test_chain_destroy(&bb_phi_op);
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -3602,4 +3706,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch69_edge_accessors();
     verify_phase4a_batch70_environment_accessors();
     verify_phase4a_batch71_deopt_base_accessors();
+    verify_phase4a_batch72_bb_terminator_and_entry_snapshot();
 }
