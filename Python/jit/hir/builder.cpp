@@ -2457,7 +2457,7 @@ void HIRBuilder::translate(
     // Make sure any values left on the stack are in the registers that we
     // expect
     BlockCanonicalizer bc;
-    bc.Run(tc.block, temps_, tc.frame.stack);
+    bc.Run(tc.block, &state_.temps_phx, tc.frame.stack);
 
     // Add successors to be processed
     //
@@ -2537,7 +2537,7 @@ void HIRBuilder::translate(
 
 void BlockCanonicalizer::InsertCopies(
     Register* reg,
-    TempAllocator& temps,
+    HirTempAllocator* temps,
     Instr& terminator,
     std::vector<Register*>& alloced) {
   if (done_.contains(reg)) {
@@ -2545,7 +2545,7 @@ void BlockCanonicalizer::InsertCopies(
   } else if (processing_.contains(reg)) {
     // We've detected a cycle. Move the register to a new home
     // in order to break the cycle.
-    auto tmp = temps.AllocateStack();
+    auto tmp = static_cast<Register*>(hir_c_temps_alloc_stack(temps));
     auto mov = static_cast<Instr*>(hir_c_create_assign(tmp, reg));
     mov->copyBytecodeOffset(terminator);
     mov->InsertBefore(terminator);
@@ -2579,7 +2579,7 @@ void BlockCanonicalizer::InsertCopies(
 
 void BlockCanonicalizer::Run(
     BasicBlock* block,
-    TempAllocator& temps,
+    HirTempAllocator* temps,
     PhxPtrArray& stack) {
   if (stack.count == 0) {
     return;
@@ -2593,7 +2593,7 @@ void BlockCanonicalizer::Run(
   std::vector<Register*> dsts;
   dsts.reserve(stack.count);
   for (std::size_t i = 0; i < stack.count; i++) {
-    auto reg = temps.GetOrAllocateStack(i);
+    auto reg = static_cast<Register*>(hir_c_temps_get_or_alloc_stack(temps, i));
     dsts.emplace_back(reg);
   }
 
@@ -2611,7 +2611,7 @@ void BlockCanonicalizer::Run(
       if (term->Uses(src)) {
         term->ReplaceUsesOf(src, dst);
       } else if (term->Uses(dst)) {
-        auto tmp = temps.AllocateStack();
+        auto tmp = static_cast<Register*>(hir_c_temps_alloc_stack(temps));
         alloced.emplace_back(tmp);
         auto mov = static_cast<Instr*>(hir_c_create_assign(tmp, dst));
         mov->InsertBefore(*term);

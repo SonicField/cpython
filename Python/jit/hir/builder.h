@@ -147,14 +147,18 @@ class BlockCanonicalizer {
  public:
   BlockCanonicalizer() : processing_(), done_(), copies_(), moved_() {}
 
-  void Run(BasicBlock* block, TempAllocator& temps, PhxPtrArray& stack);
+  // Phase 4.C Pilot 3 P3b: TempAllocator& replaced with HirTempAllocator*.
+  // Caller passes &state_.temps_phx; temp allocations route through
+  // hir_c_temps_X(temps) directly. Drops the C++ TempAllocator dispatch
+  // indirection so the class itself becomes deletable in P3c.
+  void Run(BasicBlock* block, HirTempAllocator* temps, PhxPtrArray& stack);
 
  private:
   DISALLOW_COPY_AND_ASSIGN(BlockCanonicalizer);
 
   void InsertCopies(
       Register* reg,
-      TempAllocator& temps,
+      HirTempAllocator* temps,
       Instr& terminator,
       std::vector<Register*>& alloced);
 
