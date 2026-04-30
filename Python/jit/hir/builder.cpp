@@ -390,70 +390,27 @@ struct HIRBuilder::TranslationContext {
     return static_cast<Instr*>(hir_c_tc_emit_cond_branch(this, cond, true_bb, false_bb));
   }
 
-  // Deopt via C factory (0 operands). Returns Instr* for post-creation mutation.
-  Instr* emitDeopt() {
-    return static_cast<Instr*>(hir_c_tc_emit_deopt(this));
-  }
 
   // Return via C factory.
   void emitReturn(Register* src, Type type) {
     hir_c_tc_emit_return(this, src, to_hir(type));
   }
 
-  // VectorCall via C++ bridge (returns VectorCall* for operand wiring).
-  VectorCall* emitVectorCall(size_t n_operands, Register* dst, CallFlags flags) {
-    return static_cast<VectorCall*>(emitC(static_cast<Instr*>(
-        hir_c_create_vectorcall_reg(n_operands, dst,
-                                     static_cast<uint32_t>(flags)))));
-  }
 
-  // CondBranchCheckType via C++ bridge (Edge::set_to). Returns instruction.
-  Instr* emitCondBranchCheckType(Register* target, Type type,
-                                  BasicBlock* true_bb, BasicBlock* false_bb) {
-    return emitC(static_cast<Instr*>(
-        hir_c_create_cond_branch_check_type_cpp(target, to_hir(type),
-                                                 true_bb, false_bb)));
-  }
 
   // Assign via C factory.
   void emitAssign(Register* dst, Register* src) {
     hir_c_tc_emit_assign(this, dst, src);
   }
 
-  // PrimitiveCompare via pure C factory (hir_instr_c.h).
-  void emitPrimitiveCompare(Register* dst, PrimitiveCompareOp op,
-                             Register* left, Register* right) {
-    emitC(static_cast<Instr*>(hir_c_create_primitive_compare(
-        dst, static_cast<int32_t>(op), left, right)));
-  }
 
   // PrimitiveBoxBool via pure C factory.
   void emitPrimitiveBoxBool(Register* dst, Register* src) {
     emitC(static_cast<Instr*>(hir_c_create_primitive_box_bool(dst, src)));
   }
 
-  // IntBinaryOp via pure C factory.
-  void emitIntBinaryOp(Register* dst, BinaryOpKind op,
-                        Register* left, Register* right) {
-    emitC(static_cast<Instr*>(hir_c_create_int_binary_op(
-        dst, static_cast<int32_t>(op), left, right)));
-  }
 
-  // CheckSequenceBounds via C++ bridge (DeoptBase + FrameState).
-  void emitCheckSequenceBounds(Register* dst, Register* seq, Register* idx,
-                                const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_check_seq_bounds_reg(
-        dst, seq, idx, const_cast<void*>(static_cast<const void*>(&fs)))));
-  }
 
-  // CheckField via C++ bridge (DeoptBase + FrameState). Returns DeoptBase* for mutation.
-  DeoptBase* emitCheckField(Register* dst, Register* src, PyObject* name,
-                             const FrameState& fs) {
-    return static_cast<DeoptBase*>(emitC(static_cast<Instr*>(
-        hir_c_create_check_field_reg(
-            dst, src, name,
-            const_cast<void*>(static_cast<const void*>(&fs))))));
-  }
 
   // BinaryOp via C++ bridge (DeoptBase + FrameState).
   void emitBinaryOp(Register* dst, BinaryOpKind op, Register* left,
@@ -462,28 +419,9 @@ struct HIRBuilder::TranslationContext {
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
-  // GuardIs via C++ bridge (caller-provided register). Returns DeoptBase*.
-  DeoptBase* emitGuardIs(Register* dst, PyObject* target, Register* src) {
-    return static_cast<DeoptBase*>(emitC(static_cast<Instr*>(
-        hir_c_create_guard_is_reg(dst, target, src))));
-  }
 
-  // SetDictItem via C++ bridge (DeoptBase, 3 operands + FrameState).
-  void emitSetDictItem(Register* dst, Register* dict, Register* key,
-                        Register* value, const FrameState& fs) {
-    hir_c_tc_emit_set_dict_item(this, dst, dict, key, value,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
 
-  // LoadTupleItem via C factory (HasOutput, 1 operand + index).
-  void emitLoadTupleItem(Register* dst, Register* tuple, Py_ssize_t idx) {
-    hir_c_tc_emit_load_tuple_item(this, dst, tuple, static_cast<int32_t>(idx));
-  }
 
-  // LoadFieldAddress via C factory.
-  void emitLoadFieldAddress(Register* dst, Register* object, Register* offset) {
-    hir_c_tc_emit_load_field_address(this, dst, object, offset);
-  }
 
   // YieldValue via C++ bridge (DeoptBase + FrameState).
   void emitYieldValue(Register* dst, Register* src, const FrameState& fs) {
@@ -491,20 +429,7 @@ struct HIRBuilder::TranslationContext {
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
-  // SetCurrentAwaiter via C factory (1 operand, no output).
-  void emitSetCurrentAwaiter(Register* src) {
-    hir_c_tc_emit_set_current_awaiter(this, src);
-  }
 
-  // Decref or XDecref depending on nullability.
-  // Uses Decref for non-nullable (TObject), XDecref for nullable (TOptObject).
-  void emitDecref(Register* src) {
-    if (src->type() <= TObject) {
-      hir_c_tc_emit_decref(this, src);
-    } else {
-      hir_c_tc_emit_xdecref(this, src);
-    }
-  }
 
   // MakeCell via C++ bridge (DeoptBase + FrameState).
   void emitMakeCell(Register* dst, Register* src, const FrameState& fs) {
@@ -530,22 +455,8 @@ struct HIRBuilder::TranslationContext {
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
-  // CheckVar via C++ bridge (DeoptBase + FrameState).
-  void emitCheckVar(Register* dst, Register* src, PyObject* name,
-                     const FrameState& fs) {
-    hir_c_tc_emit_check_var(this, dst, src, name,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
 
-  // CondBranchIterNotDone via C++ bridge (Edge::set_to).
-  void emitCondBranchIterNotDone(Register* src, BasicBlock* body, BasicBlock* done) {
-    hir_c_tc_emit_cond_branch_iter_not_done(this, src, body, done);
-  }
 
-  // IntConvert via C factory (HasOutput, type field).
-  void emitIntConvert(Register* dst, Register* src, Type type) {
-    hir_c_tc_emit_int_convert(this, dst, src, to_hir(type));
-  }
 
   // GetIter via C++ bridge (DeoptBase + FrameState).
   void emitGetIter(Register* dst, Register* src, const FrameState& fs) {
@@ -553,18 +464,6 @@ struct HIRBuilder::TranslationContext {
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
-  // Batch: simple DEFINE_SIMPLE_INSTR wrappers
-  void emitRaise(const FrameState& fs) {
-    emitC(static_cast<Instr*>(hir_c_create_raise_reg(
-        const_cast<void*>(static_cast<const void*>(&fs)))));
-  }
-  void emitWaitHandleRelease(Register* src) {
-    hir_c_tc_emit_wait_handle_release(this, src);
-  }
-  void emitMakeSet(Register* dst, const FrameState& fs) {
-    hir_c_tc_emit_make_set(this, dst,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
   void emitDeleteAttr(Register* receiver, int name_idx, const FrameState& fs) {
     hir_c_tc_emit_delete_attr(this, receiver, name_idx,
         const_cast<void*>(static_cast<const void*>(&fs)));
@@ -577,15 +476,6 @@ struct HIRBuilder::TranslationContext {
     hir_c_tc_emit_store_attr(this, receiver, value, name_idx,
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
-  void emitSwapCellItem(Register* dst, Register* cell, Register* value) {
-    hir_c_tc_emit_swap_cell_item(this, dst, cell, value);
-  }
-  void emitStealCellItem(Register* dst, Register* cell) {
-    hir_c_tc_emit_steal_cell_item(this, dst, cell);
-  }
-  void emitSetCellItem(Register* cell, Register* value, Register* old) {
-    hir_c_tc_emit_set_cell_item(this, cell, value, old);
-  }
   void emitAtQuiescentState() {
     hir_c_tc_emit_at_quiescent_state(this);
   }
@@ -594,13 +484,6 @@ struct HIRBuilder::TranslationContext {
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
-  // Batch 2 wrappers
-  void emitWaitHandleLoadWaiter(Register* dst, Register* src) {
-    hir_c_tc_emit_wait_handle_load_waiter(this, dst, src);
-  }
-  void emitWaitHandleLoadCoroOrResult(Register* dst, Register* src) {
-    hir_c_tc_emit_wait_handle_load_coro_or_result(this, dst, src);
-  }
   void emitSetUpdate(Register* dst, Register* set, Register* iter, const FrameState& fs) {
     hir_c_tc_emit_set_update(this, dst, set, iter,
         const_cast<void*>(static_cast<const void*>(&fs)));
@@ -617,16 +500,8 @@ struct HIRBuilder::TranslationContext {
     hir_c_tc_emit_copy_dict_without_keys(this, dst, subj, keys,
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
-  void emitMakeTupleFromList(Register* dst, Register* list, const FrameState& fs) {
-    hir_c_tc_emit_make_tuple_from_list(this, dst, list,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
   void emitListAppend(Register* dst, Register* list, Register* item, const FrameState& fs) {
     hir_c_tc_emit_list_append(this, dst, list, item,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitCheckFreevar(Register* dst, Register* src, PyObject* name, const FrameState& fs) {
-    hir_c_tc_emit_check_freevar(this, dst, src, name,
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitLoadGlobal(Register* dst, int name_idx, const FrameState& fs) {
@@ -640,22 +515,10 @@ struct HIRBuilder::TranslationContext {
     hir_c_tc_emit_store_subscr(this, container, sub, value,
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
-  // SetSetItem via C++ bridge (DeoptBase, HasOutput).
-  void emitSetSetItem(Register* dst, Register* set, Register* item,
-                       const FrameState& fs) {
-    hir_c_tc_emit_set_set_item(this, dst, set, item,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
   // InPlaceOp via C++ bridge.
   void emitInPlaceOp(Register* dst, InPlaceOpKind op, Register* left,
                       Register* right, const FrameState& fs) {
     hir_c_tc_emit_in_place_op(this, dst, static_cast<int32_t>(op), left, right,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  // Compare via C++ bridge.
-  void emitCompare(Register* dst, CompareOp op, Register* left,
-                    Register* right, const FrameState& fs) {
-    hir_c_tc_emit_compare(this, dst, static_cast<int32_t>(op), left, right,
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
   // FormatWithSpec via C++ bridge.
@@ -664,23 +527,10 @@ struct HIRBuilder::TranslationContext {
     hir_c_tc_emit_format_with_spec(this, dst, value, fmt_spec,
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
-  // MakeDict via C++ bridge.
-  void emitMakeDict(Register* dst, Py_ssize_t dict_size, const FrameState& fs) {
-    hir_c_tc_emit_make_dict(this, dst, static_cast<int32_t>(dict_size),
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
 
   // Batch 3 wrappers
   void emitDictMerge(Register* dst, Register* dict, Register* update, Register* func, const FrameState& fs) {
     hir_c_tc_emit_dict_merge(this, dst, dict, update, func,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitDictSubscr(Register* dst, Register* dict, Register* key, const FrameState& fs) {
-    hir_c_tc_emit_dict_subscr(this, dst, dict, key,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitSend(Register* iter, Register* vout, Register* vin, const FrameState& fs) {
-    hir_c_tc_emit_send(this, iter, vout, vin,
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitConvertValue(Register* dst, Register* value, int conversion, const FrameState& fs) {
@@ -695,27 +545,10 @@ struct HIRBuilder::TranslationContext {
     hir_c_tc_emit_import_from(this, dst, name, name_idx,
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
-  void emitInvokeIterNext(Register* dst, Register* iter, const FrameState& fs) {
-    hir_c_tc_emit_invoke_iter_next(this, dst, iter,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
   void emitPrimitiveUnbox(Register* dst, Register* src, Type type) {
     hir_c_tc_emit_primitive_unbox(this, dst, src, to_hir(type));
   }
 
-  // Batch 5 wrappers
-  void emitEagerImportName(Register* dst, int name_idx, Register* fromlist, Register* level, const FrameState& fs) {
-    hir_c_tc_emit_eager_import_name(this, dst, name_idx, fromlist, level,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitMakeCheckedDict(Register* dst, int size, Type type, const FrameState& fs) {
-    hir_c_tc_emit_make_checked_dict(this, dst, size, to_hir(type),
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  Instr* emitMakeCheckedList(int size, Register* dst, Type type, const FrameState& fs) {
-    return static_cast<Instr*>(hir_c_tc_emit_make_checked_list(this, size, dst,
-        to_hir(type), const_cast<void*>(static_cast<const void*>(&fs))));
-  }
   void emitMakeFunction(Register* dst, Register* code, Register* qualname, const FrameState& fs) {
     hir_c_tc_emit_make_function(this, dst, code, qualname,
         const_cast<void*>(static_cast<const void*>(&fs)));
@@ -732,21 +565,10 @@ struct HIRBuilder::TranslationContext {
     hir_c_tc_emit_load_attr2(this, dst, receiver, name_idx,
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
-  void emitInitFrameCellVars(Register* func, int nfree) {
-    hir_c_tc_emit_init_frame_cell_vars(this, func, nfree);
-  }
 
   // Batch 6 wrappers
   void emitStoreField(Register* receiver, const char* name, intptr_t offset, Register* value, Type type, Register* previous) {
     hir_c_tc_emit_store_field(this, receiver, name, offset, value, to_hir(type), previous);
-  }
-  void emitYieldAndYieldFrom(Register* dst, Register* waiter, Register* coro, const FrameState& fs) {
-    hir_c_tc_emit_yield_and_yield_from(this, dst, waiter, coro,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitYieldFromHandleStopAsyncIteration(Register* dst, Register* send, Register* awaitable, const FrameState& fs) {
-    hir_c_tc_emit_yield_from_handle_stop_async(this, dst, send, awaitable,
-        const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitCallEx(Register* dst, Register* func, Register* pargs, Register* kwargs, CallFlags flags, const FrameState& fs) {
     hir_c_tc_emit_call_ex(this, dst, func, pargs, kwargs,
@@ -763,22 +585,7 @@ struct HIRBuilder::TranslationContext {
   Instr* emitCallStaticRetVoid(size_t n, void* addr) {
     return static_cast<Instr*>(hir_c_tc_emit_call_static_ret_void(this, n, addr));
   }
-  DeoptBase* emitInvokeStaticFunction(size_t n, Register* dst, PyFunctionObject* func, Type ret_type) {
-    return static_cast<DeoptBase*>(emitC(static_cast<Instr*>(
-        hir_c_create_invoke_static_function_reg(n, dst, func, to_hir(ret_type)))));
-  }
 
-  // Batch 8 wrappers
-  void emitLoadGlobalCached(Register* dst, PyCodeObject* code, PyDictObject* builtins, PyDictObject* globals, int name_idx) {
-    hir_c_tc_emit_load_global_cached(this, dst, code, builtins, globals, name_idx);
-  }
-  void emitLoadFunctionIndirect(PyObject** ptr, PyObject* descr, Register* dst, const FrameState& fs) {
-    hir_c_tc_emit_load_function_indirect(this, ptr, descr, dst,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitStoreArrayItem(Register* arr, Register* idx, Register* value, Register* container, Type elem_type) {
-    hir_c_tc_emit_store_array_item(this, arr, idx, value, container, to_hir(elem_type));
-  }
 
   // Batch: 1-op HasOutput DeoptBase (dst, src, frame)
   void emitGetAIter(Register* dst, Register* src, const FrameState& fs) {
@@ -790,32 +597,9 @@ struct HIRBuilder::TranslationContext {
     hir_c_tc_emit_cast(this, dst, value, pytype, optional, exact,
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
-  void emitRaiseStatic(int reraise, PyObject* exc_type, const char* fmt, const FrameState& fs) {
-    hir_c_tc_emit_raise_static(this, reraise, exc_type, fmt,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
 
-  // MatchClass via C factory (4 operands + output)
-  void emitMatchClass(Register* dst, Register* subject, Register* type, Register* nargs, Register* names) {
-    hir_c_tc_emit_match_class(this, dst, subject, type, nargs, names);
-  }
 
-  // LoadMethodSuper/LoadAttrSuper via C factory
-  void emitLoadMethodSuper(Register* dst, Register* global_super, Register* type, Register* receiver, int name_idx, bool no_args, const FrameState& fs) {
-    hir_c_tc_emit_load_method_super(this, dst, global_super, type, receiver,
-        name_idx, no_args, const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitLoadAttrSuper(Register* dst, Register* global_super, Register* type, Register* receiver, int name_idx, bool no_args, const FrameState& fs) {
-    hir_c_tc_emit_load_attr_super(this, dst, global_super, type, receiver,
-        name_idx, no_args, const_cast<void*>(static_cast<const void*>(&fs)));
-  }
 
-  // CallCFunc via C factory (variadic, function enum)
-  Instr* emitCallCFunc(size_t n, Register* dst, CallCFunc::Func func_enum, const std::vector<Register*>& args) {
-    return static_cast<Instr*>(hir_c_tc_emit_call_c_func(this, n, dst,
-        static_cast<int32_t>(func_enum),
-        reinterpret_cast<HirRegister*>(const_cast<Register**>(args.data()))));
-  }
 
   // CallInd via C factory (variadic, string name)
   CallInd* emitCallInd(size_t n, Register* dst, const char* name, Type ret_type) {
@@ -823,49 +607,18 @@ struct HIRBuilder::TranslationContext {
         hir_c_create_call_ind_reg2(n, dst, name, to_hir(ret_type)))));
   }
 
-  // LoadAttrSpecial via C factory
-  void emitLoadAttrSpecial(Register* dst, Register* receiver, PyObject* id, const char* fmt, const FrameState& fs) {
-    hir_c_tc_emit_load_attr_special(this, dst, receiver, id, fmt,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
 
-  // CallIntrinsic via C factory
-  void emitCallIntrinsic(size_t n, Register* dst, int oparg, const std::vector<Register*>& args) {
-    hir_c_tc_emit_call_intrinsic(this, n, dst, oparg,
-        reinterpret_cast<HirRegister*>(const_cast<Register**>(args.data())));
-  }
 
-  // Batch 4 wrappers
-  Instr* emitMakeTuple(size_t n, Register* dst, const FrameState& fs) {
-    return static_cast<Instr*>(hir_c_tc_emit_make_tuple(this, n, dst,
-        const_cast<void*>(static_cast<const void*>(&fs))));
-  }
-  Instr* emitMakeList(size_t n, Register* dst, const FrameState& fs) {
-    return static_cast<Instr*>(hir_c_tc_emit_make_list(this, n, dst,
-        const_cast<void*>(static_cast<const void*>(&fs))));
-  }
   void emitTpAlloc(Register* dst, PyTypeObject* pytype, const FrameState& fs) {
     hir_c_tc_emit_tp_alloc(this, dst, pytype,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitUnpackExToTuple(Register* dst, Register* seq, int before, int after, const FrameState& fs) {
-    hir_c_tc_emit_unpack_ex_to_tuple(this, dst, seq, before, after,
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitLoadMethod(Register* dst, Register* receiver, int name_idx, const FrameState& fs) {
     hir_c_tc_emit_load_method(this, dst, receiver, name_idx,
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
-  void emitLoadSpecial(Register* dst, Register* self, int oparg, const FrameState& fs) {
-    hir_c_tc_emit_load_special(this, dst, self, oparg,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
   void emitMatchKeys(Register* dst, Register* subj, Register* keys, const FrameState& fs) {
     hir_c_tc_emit_match_keys(this, dst, subj, keys,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitRaiseAwaitableError(Register* type, int is_aenter, const FrameState& fs) {
-    hir_c_tc_emit_raise_awaitable_error(this, type, is_aenter,
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
   void emitFormatValue(Register* dst, Register* fmt, Register* val, int conv, const FrameState& fs) {
@@ -877,17 +630,9 @@ struct HIRBuilder::TranslationContext {
     hir_c_tc_emit_get_a_next(this, dst, src,
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
-  void emitGetTuple(Register* dst, Register* src, const FrameState& fs) {
-    hir_c_tc_emit_get_tuple(this, dst, src,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
   void emitIsNegativeAndErrOccurred(Register* dst, Register* src, const FrameState& fs) {
     hir_c_tc_emit_is_negative_and_err_occurred(this, dst, src,
         const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  // 0/1-op no-frame
-  void emitLoadCellItem(Register* dst, Register* src) {
-    hir_c_tc_emit_load_cell_item(this, dst, src);
   }
   void emitLoadCurrentFunc(Register* dst) {
     hir_c_tc_emit_load_current_func(this, dst);
@@ -898,30 +643,9 @@ struct HIRBuilder::TranslationContext {
   void emitLoadFrame() {
     hir_c_tc_emit_load_frame(this);
   }
-  void emitLoadVarObjectSize(Register* dst, Register* src) {
-    hir_c_tc_emit_load_var_object_size(this, dst, src);
-  }
-  void emitCheckErrOccurred(const FrameState& fs) {
-    hir_c_tc_emit_check_err_occurred(this,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
 
-  // IsTruthy via C++ bridge (DeoptBase + FrameState).
-  void emitIsTruthy(Register* dst, Register* src, const FrameState& fs) {
-    hir_c_tc_emit_is_truthy(this, dst, src,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
 
-  // GetSecondOutput via C factory.
-  void emitGetSecondOutput(Register* dst, Type type, Register* src) {
-    hir_c_tc_emit_get_second_output(this, dst, to_hir(type), src);
-  }
 
-  // SetFunctionAttr via C factory.
-  void emitSetFunctionAttr(Register* value, Register* base, FunctionAttr field) {
-    hir_c_tc_emit_set_function_attr(this, value, base,
-        static_cast<int32_t>(field));
-  }
 
   // CheckNeg via C++ bridge (DeoptBase + FrameState).
   void emitCheckNeg(Register* dst, Register* src, const FrameState& fs) {
@@ -929,11 +653,6 @@ struct HIRBuilder::TranslationContext {
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
-  // GetLength via C++ bridge (DeoptBase + FrameState).
-  void emitGetLength(Register* dst, Register* src, const FrameState& fs) {
-    hir_c_tc_emit_get_length(this, dst, src,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
 
   // PrimitiveBox via C++ bridge (DeoptBase + FrameState).
   void emitPrimitiveBox(Register* dst, Register* src, Type type,
@@ -942,35 +661,10 @@ struct HIRBuilder::TranslationContext {
         const_cast<void*>(static_cast<const void*>(&fs)));
   }
 
-  // LoadArrayItem via C++ bridge (caller-provided register).
-  void emitLoadArrayItem(Register* dst, Register* arr, Register* idx,
-                          Register* container, intptr_t offset, Type type) {
-    hir_c_tc_emit_load_array_item(this, dst, arr, idx, container, offset,
-        to_hir(type));
-  }
 
-  // Guard via C factory (with FrameState). Returns instruction for mutation.
-  Instr* emitGuard(Register* src, const FrameState& fs) {
-    return static_cast<Instr*>(hir_c_tc_emit_guard(this, src, &fs));
-  }
 
-  // BitCast via pure C factory.
-  void emitBitCast(Register* dst, Register* src, Type type) {
-    hir_c_tc_emit_bit_cast(this, dst, src, to_hir(type));
-  }
 
-  // DoubleBinaryOp via pure C factory.
-  void emitDoubleBinaryOp(Register* dst, BinaryOpKind op,
-                           Register* left, Register* right) {
-    hir_c_tc_emit_double_binary_op(this, dst, static_cast<int32_t>(op),
-        left, right);
-  }
 
-  // PrimitiveUnaryOp via pure C factory.
-  void emitPrimitiveUnaryOp(Register* dst, PrimitiveUnaryOpKind op,
-                              Register* src) {
-    hir_c_tc_emit_primitive_unary_op(this, dst, static_cast<int32_t>(op), src);
-  }
 
   // LoadField via C++ bridge (caller-provided register, no FrameState).
   void emitLoadField(Register* dst, Register* receiver, const char* name,
@@ -986,10 +680,6 @@ struct HIRBuilder::TranslationContext {
         hir_c_create_call_static_reg(n_operands, dst, addr, to_hir(ret_type)))));
   }
 
-  // UseType via pure C factory.
-  void emitUseType(Register* val, Type type) {
-    hir_c_tc_emit_use_type(this, val, to_hir(type));
-  }
 
   BasicBlock* block{nullptr};
   FrameState frame;
