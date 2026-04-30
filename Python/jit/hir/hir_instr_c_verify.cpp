@@ -3258,6 +3258,95 @@ static void verify_phase4a_batch67_call_cfunc_func_name() {
            "Phase 4.A Batch 67(c): CallCFunc[3] = JITRT_MatchAndClearException");
 }
 
+/* Phase 4.A W2 Batch 68 (theologian docs/tier7-phase4a-preanalysis-2026-04-30.md
+ * §3 W2): Phi setArgs helper + blockIndex falsifier. Pins:
+ *   (a) hir_c_phi_apply_args_from_pairs N=0 path applies empty arrays
+ *       without malloc/sort/split (early return)
+ *   (b) hir_c_phi_apply_args_from_pairs N>0 path sorts pairs by block id
+ *       and applies the paired permutation matching batch20 invariants
+ *   (c) hir_phi_block_index returns position in sorted bb_data when found
+ *   (d) hir_phi_block_index returns bb_count (= past-end sentinel) on miss
+ *   (e) Combined setArgs+blockIndex: build phi via helper, look up each
+ *       block, recover its operand. */
+static void verify_phase4a_batch68_phi_apply_helper_and_block_index() {
+    HirBasicBlock bb1{}, bb2{}, bb3{}, bb_missing{};
+    bb1.id = 1;
+    bb2.id = 2;
+    bb3.id = 3;
+    bb_missing.id = 99;
+
+    void *r1 = (void *)(uintptr_t)0xDEAD0001ULL;
+    void *r2 = (void *)(uintptr_t)0xDEAD0002ULL;
+    void *r3 = (void *)(uintptr_t)0xDEAD0003ULL;
+
+    /* (a) N=0 path: helper short-circuits to hir_c_phi_apply_args(NULL,NULL,0). */
+    void *phi0 = hir_c_alloc_instr(sizeof(HirPhi), 0);
+    assert(phi0 != NULL);
+    hir_c_init_instr(phi0, HIR_OP_Phi);
+    hir_c_phi_apply_args_from_pairs(phi0, NULL, 0);
+    HirPhi *p0 = (HirPhi *)phi0;
+    assert(p0->bb_count == 0 &&
+           "Phase 4.A Batch 68(a): N=0 helper leaves bb_count == 0");
+    assert(p0->bb_data == NULL &&
+           "Phase 4.A Batch 68(a): N=0 helper leaves bb_data == NULL");
+    hir_c_instr_free(phi0);
+
+    /* (b) N>0 path with intentionally unsorted input — helper sorts
+     * by block id and applies in the paired-permute manner verified
+     * by batch20. */
+    void *phi3 = hir_c_alloc_instr(sizeof(HirPhi), 3);
+    assert(phi3 != NULL);
+    hir_c_init_instr(phi3, HIR_OP_Phi);
+    HirPhiArgPair pairs[3] = {
+        { &bb3, r1 },  /* unsorted on purpose */
+        { &bb1, r2 },
+        { &bb2, r3 },
+    };
+    hir_c_phi_apply_args_from_pairs(phi3, pairs, 3);
+    HirPhi *p3 = (HirPhi *)phi3;
+    assert(p3->bb_count == 3 &&
+           "Phase 4.A Batch 68(b): bb_count == 3 after helper apply");
+    assert(hir_phi_block_at(phi3, 0) == &bb1 &&
+           "Phase 4.A Batch 68(b): sorted bb[0] = bb1 (id=1)");
+    assert(hir_phi_block_at(phi3, 1) == &bb2 &&
+           "Phase 4.A Batch 68(b): sorted bb[1] = bb2 (id=2)");
+    assert(hir_phi_block_at(phi3, 2) == &bb3 &&
+           "Phase 4.A Batch 68(b): sorted bb[2] = bb3 (id=3)");
+    assert(hir_c_get_operand(phi3, 0) == r2 &&
+           "Phase 4.A Batch 68(b): paired-permute operand[0] = r2");
+    assert(hir_c_get_operand(phi3, 1) == r3 &&
+           "Phase 4.A Batch 68(b): paired-permute operand[1] = r3");
+    assert(hir_c_get_operand(phi3, 2) == r1 &&
+           "Phase 4.A Batch 68(b): paired-permute operand[2] = r1");
+
+    /* (c) blockIndex hits at every position. */
+    assert(hir_phi_block_index(phi3, &bb1) == 0 &&
+           "Phase 4.A Batch 68(c): blockIndex(bb1) = 0");
+    assert(hir_phi_block_index(phi3, &bb2) == 1 &&
+           "Phase 4.A Batch 68(c): blockIndex(bb2) = 1");
+    assert(hir_phi_block_index(phi3, &bb3) == 2 &&
+           "Phase 4.A Batch 68(c): blockIndex(bb3) = 2");
+
+    /* (d) Miss returns past-end sentinel (bb_count). Binary search lands
+     * on the insertion point; for id=99 that is past the end of [1,2,3]. */
+    assert(hir_phi_block_index(phi3, &bb_missing) == 3 &&
+           "Phase 4.A Batch 68(d): blockIndex(missing id=99) = bb_count = 3");
+
+    /* (e) Combined: index round-trip recovers each block's paired register. */
+    void *expected[3] = { r2, r3, r1 };
+    for (size_t i = 0; i < 3; i++) {
+        size_t idx = hir_phi_block_index(
+            phi3, (const HirBasicBlock *)hir_phi_block_at(phi3, i));
+        assert(idx == i &&
+               "Phase 4.A Batch 68(e): blockIndex round-trip = i");
+        assert(hir_c_get_operand(phi3, idx) == expected[i] &&
+               "Phase 4.A Batch 68(e): operand at index i matches paired r");
+    }
+
+    free(p3->bb_data);
+    hir_c_instr_free(phi3);
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -3314,4 +3403,5 @@ static void hir_instr_runtime_check() {
     verify_phase4d_batch65_emit_cluster_13();
     verify_phase4d_batch66_emit_cluster_14();
     verify_phase4a_batch67_call_cfunc_func_name();
+    verify_phase4a_batch68_phi_apply_helper_and_block_index();
 }

@@ -189,6 +189,37 @@ static inline size_t hir_phi_block_index(const void *phi, const HirBasicBlock *b
     return lo;
 }
 
+/* Phi setArgs post-iteration helper (Phase 4.A W2 Batch 68 per theologian
+ * docs/tier7-phase4a-preanalysis-2026-04-30.md §3 W2). Takes an array of
+ * HirPhiArgPair populated by the C++ caller from std::unordered_map, sorts
+ * by block id, splits into parallel keys/values arrays, applies via
+ * hir_c_phi_apply_args, frees scratch. Caller owns the pairs buffer (this
+ * function does NOT free it). The N=0 case skips the malloc/sort/split
+ * and applies empty arrays directly. */
+static inline void hir_c_phi_apply_args_from_pairs(void *phi,
+                                                    HirPhiArgPair *pairs,
+                                                    size_t n) {
+    if (n == 0) {
+        hir_c_phi_apply_args(phi, NULL, NULL, 0);
+        return;
+    }
+    qsort(pairs, n, sizeof(HirPhiArgPair), hir_c_phi_pair_cmp_by_block_id);
+    void **keys = (void **)malloc(n * sizeof(void *));
+    void **values = (void **)malloc(n * sizeof(void *));
+    if (keys == NULL || values == NULL) {
+        free(keys);
+        free(values);
+        return;
+    }
+    for (size_t j = 0; j < n; j++) {
+        keys[j] = pairs[j].key;
+        values[j] = pairs[j].value;
+    }
+    hir_c_phi_apply_args(phi, keys, values, n);
+    free(keys);
+    free(values);
+}
+
 /* Instr::getDominatingFrameState port (Batch 21). Reverse-walks the
  * containing block from the target towards the head, returning the
  * FrameState* of the nearest dominating Snapshot. Stops early if a

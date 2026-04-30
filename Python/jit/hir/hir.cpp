@@ -143,14 +143,16 @@ std::string_view CallCFunc::funcName() const {
 }
 
 void Phi::setArgs(const std::unordered_map<BasicBlock*, Register*>& args) {
+  // Phase 4.A W2 Batch 68: post-iteration sort/split/apply/free factored
+  // into hir_c_phi_apply_args_from_pairs (hir_basic_block_c.h). The C++
+  // shim only does what STL forces — JIT_DCHECK invariant + iterate
+  // unordered_map into the HirPhiArgPair buffer.
   JIT_DCHECK(NumOperands() == args.size(), "arg mismatch");
   size_t n = args.size();
-
   if (n == 0) {
-    hir_c_phi_apply_args(this, nullptr, nullptr, 0);
+    hir_c_phi_apply_args_from_pairs(this, nullptr, 0);
     return;
   }
-
   HirPhiArgPair* pairs =
       static_cast<HirPhiArgPair*>(malloc(n * sizeof(HirPhiArgPair)));
   size_t i = 0;
@@ -159,20 +161,8 @@ void Phi::setArgs(const std::unordered_map<BasicBlock*, Register*>& args) {
     pairs[i].value = kv.second;
     ++i;
   }
-  qsort(pairs, n, sizeof(HirPhiArgPair), hir_c_phi_pair_cmp_by_block_id);
-
-  void** keys = static_cast<void**>(malloc(n * sizeof(void*)));
-  void** values = static_cast<void**>(malloc(n * sizeof(void*)));
-  for (size_t j = 0; j < n; ++j) {
-    keys[j] = pairs[j].key;
-    values[j] = pairs[j].value;
-  }
+  hir_c_phi_apply_args_from_pairs(this, pairs, n);
   free(pairs);
-
-  hir_c_phi_apply_args(this, keys, values, n);
-
-  free(keys);
-  free(values);
 }
 
 std::size_t Phi::blockIndex(const BasicBlock* block) const {
