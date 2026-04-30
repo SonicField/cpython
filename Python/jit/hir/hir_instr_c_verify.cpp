@@ -3646,6 +3646,87 @@ static void verify_phase4a_batch72_bb_terminator_and_entry_snapshot() {
     hir_c_test_chain_destroy(&bb_phi_op);
 }
 
+/* Phase 4.A W7a Batch 73 (theologian docs/tier7-phase4a-preanalysis-2026-04-30.md
+ * §9 W7a, supervisor D-1777582314 dispatch): Instr operand-layout STRUCT
+ * falsifier. Pins the prefix-pin invariant that NumOperands +
+ * operands-array depend on.
+ *
+ * Layout (from hir_instr_c.h:1255-1273):
+ *   [Register*[N] operands] [size_t num_operands] [HirInstrLayout fields...]
+ *                                                  ^ instr pointer
+ *   NumOperands = ((size_t*)instr)[-1]
+ *   operands array starts at ((size_t*)instr - 1) - N
+ *
+ * Existing fixtures cover: visitor (batch10), ctor_init (batch17),
+ * lifecycle (batch23), ExpandInto (batch31). This batch covers the 2
+ * structural invariants W7a is responsible for per pre-analysis §9.4.1:
+ *   (1) NumOperands prefix-pin matches the alloc_instr arity
+ *   (2) operandAt/SetOperand round-trip via the prefix-pin'd offset
+ *
+ * SCOPE-NOTE: visitUses + Uses + ReplaceUsesOf already covered by
+ * batch10/12; ExpandInto by batch31. This batch is additive coverage
+ * on the operand-prefix-pin surface that W7a STRUCT-tier identifies as
+ * load-bearing for the entire 42-method Instr surface. */
+static void verify_phase4a_batch73_instr_operand_layout() {
+    /* (a) Zero-operand instr: NumOperands == 0; no operand slots. */
+    void *i0 = hir_c_alloc_instr(sizeof(HirInstrLayout), 0);
+    assert(i0 != NULL);
+    hir_c_init_instr(i0, HIR_OP_Snapshot);
+    assert(hir_c_num_operands(i0) == 0 &&
+           "Phase 4.A Batch 73(a): NumOperands == 0 for 0-arity alloc");
+    hir_c_destroy_instr_impl(i0);
+
+    /* (b) N-operand instr: NumOperands == N; operandAt round-trip with
+     * sentinel pointers; operand_slot mutation visible via get. */
+    const size_t kN = 3;
+    void *i3 = hir_c_alloc_instr(sizeof(HirInstrLayout), kN);
+    assert(i3 != NULL);
+    hir_c_init_instr(i3, HIR_OP_Assign);
+    assert(hir_c_num_operands(i3) == kN &&
+           "Phase 4.A Batch 73(b): NumOperands == N for N-arity alloc");
+
+    void *sentinels[3] = {
+        (void *)(uintptr_t)0xBEEF0001ULL,
+        (void *)(uintptr_t)0xBEEF0002ULL,
+        (void *)(uintptr_t)0xBEEF0003ULL,
+    };
+    for (size_t i = 0; i < kN; i++) {
+        hir_c_set_operand(i3, i, sentinels[i]);
+    }
+    for (size_t i = 0; i < kN; i++) {
+        assert(hir_c_get_operand(i3, i) == sentinels[i] &&
+               "Phase 4.A Batch 73(b): set/get operand round-trip");
+    }
+
+    /* (c) operand_slot mutation: write through the slot, observe via get. */
+    void **slot1 = hir_c_operand_slot(i3, 1);
+    void *new_op1 = (void *)(uintptr_t)0xCAFE1234ULL;
+    *slot1 = new_op1;
+    assert(hir_c_get_operand(i3, 1) == new_op1 &&
+           "Phase 4.A Batch 73(c): operand_slot write visible via get_operand");
+    /* And the unmodified slots stay put. */
+    assert(hir_c_get_operand(i3, 0) == sentinels[0] &&
+           "Phase 4.A Batch 73(c): slot 0 unchanged after slot 1 write");
+    assert(hir_c_get_operand(i3, 2) == sentinels[2] &&
+           "Phase 4.A Batch 73(c): slot 2 unchanged after slot 1 write");
+    hir_c_destroy_instr_impl(i3);
+
+    /* (d) Larger arity smoke: arity 8 to confirm the prefix-pin works
+     * for non-trivial sizes. */
+    const size_t kM = 8;
+    void *i8 = hir_c_alloc_instr(sizeof(HirInstrLayout), kM);
+    assert(i8 != NULL);
+    hir_c_init_instr(i8, HIR_OP_Phi);
+    assert(hir_c_num_operands(i8) == kM &&
+           "Phase 4.A Batch 73(d): NumOperands == 8 for 8-arity alloc");
+    /* Verify each slot starts NULL (calloc zero-init). */
+    for (size_t i = 0; i < kM; i++) {
+        assert(hir_c_get_operand(i8, i) == NULL &&
+               "Phase 4.A Batch 73(d): fresh slot is NULL (calloc)");
+    }
+    hir_c_destroy_instr_impl(i8);
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -3707,4 +3788,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch70_environment_accessors();
     verify_phase4a_batch71_deopt_base_accessors();
     verify_phase4a_batch72_bb_terminator_and_entry_snapshot();
+    verify_phase4a_batch73_instr_operand_layout();
 }
