@@ -720,6 +720,51 @@ if [ "$BENCHMARK" -eq 1 ]; then
             echo "M3 PASS — vs ${PRIOR_HASH}: per-bench all within ±5%; geo-mean delta ${GEO_DELTA}% (within ±2%)" | tee -a "$RESULTS_FILE"
         fi
     fi
+
+    # M0b unknown-bucket compare (M-slate, supervisor D-1777572112).
+    # Single-subprocess probe queries cinderjit.get_compile_errors() after
+    # a representative force_compile pass; gate BLOCKs if the 'unknown'
+    # bucket count grows commit-over-commit. Reuses M3's PRIOR_HASH/PRIOR_LOG
+    # ancestor walk (already constrained to passing prior gates).
+    # Pre-M0b-deploy ancestors lack the M0B_UNKNOWN= line — gracefully
+    # degrade (skip compare) until ancestors have the marker.
+    echo "" | tee -a "$RESULTS_FILE"
+    echo "--- Step 7c: M0b unknown-bucket compare ---" | tee -a "$RESULTS_FILE"
+    M0B_OUTPUT=$(JIT_ENABLE=1 ASAN_OPTIONS=detect_leaks=0 "$PYTHON" -c "
+import _cinderx, cinderjit
+def add(x, y): return x + y
+def mul(x, y): return x * y
+def fib(n):
+    a, b = 0, 1
+    for _ in range(n): a, b = b, a + b
+    return a
+def gen():
+    yield from range(100)
+for f in [add, mul, fib, gen]:
+    try:
+        cinderjit.force_compile(f)
+    except Exception:
+        pass
+errors = cinderjit.get_compile_errors() if hasattr(cinderjit, 'get_compile_errors') else {}
+print('M0B_BUCKETS=' + ','.join(f'{k}:{v}' for k, v in sorted(errors.items())))
+print('M0B_UNKNOWN=' + str(errors.get('unknown', 0)))
+" 2>&1 || true)
+    echo "$M0B_OUTPUT" | tee -a "$RESULTS_FILE"
+    CURR_UNKNOWN=$(echo "$M0B_OUTPUT" | grep -oP 'M0B_UNKNOWN=\K\d+' | head -1 || echo "0")
+    if [ -n "${PRIOR_LOG:-}" ]; then
+        PRIOR_UNKNOWN=$(grep -oP 'M0B_UNKNOWN=\K\d+' "$PRIOR_LOG" | head -1 || echo "")
+        if [ -z "$PRIOR_UNKNOWN" ]; then
+            echo "M0b: prior log lacks M0B_UNKNOWN= line (pre-M0b deploy) — skip" | tee -a "$RESULTS_FILE"
+        elif [ "$CURR_UNKNOWN" -gt "$PRIOR_UNKNOWN" ]; then
+            GATE_PASS=0
+            FAILURES="$FAILURES M0b:unknown-bucket-grew(${PRIOR_UNKNOWN}->${CURR_UNKNOWN})"
+            echo "M0b BLOCK — unknown bucket grew from $PRIOR_UNKNOWN to $CURR_UNKNOWN vs ${PRIOR_HASH}" | tee -a "$RESULTS_FILE"
+        else
+            echo "M0b PASS — unknown bucket: prior=$PRIOR_UNKNOWN curr=$CURR_UNKNOWN (vs ${PRIOR_HASH})" | tee -a "$RESULTS_FILE"
+        fi
+    else
+        echo "M0b: no prior gate log within M3 ancestor walk — skip" | tee -a "$RESULTS_FILE"
+    fi
 fi
 
 # Step 7: ARM64 remote gate (optional)
