@@ -14,6 +14,7 @@
 #include "cinderx/Jit/hir/builder_state_c.h"  /* Pilot 3 step 2 (Batch 43) */
 #include "cinderx/Jit/hir/builder.h"          /* TempAllocator (Pilot 3 step 3 Batch 44) */
 #include "cinderx/Jit/hir/hir_c_api.h"         /* hir_c_tc_emit_* primitives (Batch 54) */
+#include "cinderx/Jit/hir/typed_argument_c.h"   /* phx_typed_argument_pytype_swap (Batch 76) */
 
 #include <cassert>
 #include <cstring>
