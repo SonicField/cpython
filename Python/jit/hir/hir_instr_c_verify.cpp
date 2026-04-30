@@ -3467,6 +3467,81 @@ static void verify_phase4a_batch70_environment_accessors() {
     free(env.reg_data);
 }
 
+/* Phase 4.A W5 Batch 71 (theologian docs/tier7-phase4a-preanalysis-2026-04-30.md
+ * §3 W5, supervisor D-1777578396 STRUCT-tier dispatch + Q-W5-1/Q-W5-2
+ * disposition): DeoptBase accessor falsifier coverage. Existing fixtures
+ * cover live_regs iteration (batch11), sortLiveRegs (batch13), set_frame_
+ * state (batch18), and copy ctor (batch19). This batch adds the 4
+ * unverified surface items:
+ *   nonce get/set / descr get/set / guiltyReg get/set / live_regs
+ *   const+non-const backing-storage identity.
+ *
+ * SCOPE-DEFER per supervisor disposition:
+ *   visitUsesDeopt → W7 (Cat-B std::function callback class, bundles
+ *     with Phi setArgs unordered_map + TypedArgument operator= + Env::~
+ *     + addReference per W1/W2/W4 deferral pattern).
+ *   sortLiveRegs kPyDebug post-condition → C++-stay W5 EXCEPTION (already
+ *     loud-fail via JIT_DCHECK + std::adjacent_find; no port-for-port's-
+ *     sake per supervisor 20:16:32Z). NOT a general scope-cut — revisit
+ *     in terminal-C-rewrite scope refresh. */
+static void verify_phase4a_batch71_deopt_base_accessors() {
+    void *db = hir_c_alloc_instr(sizeof(HirDeoptLayout), 0);
+    assert(db != NULL);
+    hir_c_init_deopt(db, HIR_OP_BinaryOp);
+    auto *base = static_cast<jit::hir::DeoptBase *>(db);
+
+    /* (a) nonce default zero + round-trip. */
+    assert(base->nonce() == 0 &&
+           "Phase 4.A Batch 71(a): default nonce == 0");
+    base->set_nonce(42);
+    assert(base->nonce() == 42 &&
+           "Phase 4.A Batch 71(a): set_nonce(42) round-trip");
+    base->set_nonce(-7);
+    assert(base->nonce() == -7 &&
+           "Phase 4.A Batch 71(a): set_nonce(-7) negative-value round-trip");
+
+    /* (b) descr default NULL + round-trip with two distinct strings. */
+    assert(base->descr() == NULL &&
+           "Phase 4.A Batch 71(b): default descr == NULL");
+    static const char kDescr1[] = "deopt-class-A";
+    static const char kDescr2[] = "deopt-class-B";
+    base->setDescr(kDescr1);
+    assert(base->descr() == kDescr1 &&
+           "Phase 4.A Batch 71(b): setDescr(kDescr1) round-trip pointer");
+    base->setDescr(kDescr2);
+    assert(base->descr() == kDescr2 &&
+           "Phase 4.A Batch 71(b): setDescr(kDescr2) overwrites prior");
+    base->setDescr(NULL);
+    assert(base->descr() == NULL &&
+           "Phase 4.A Batch 71(b): setDescr(NULL) clears");
+
+    /* (c) guiltyReg default NULL + round-trip with sentinel pointer. */
+    assert(base->guiltyReg() == NULL &&
+           "Phase 4.A Batch 71(c): default guiltyReg == NULL");
+    auto *sentinel_reg =
+        reinterpret_cast<jit::hir::Register *>(uintptr_t(0xBADF00D5ULL));
+    base->setGuiltyReg(sentinel_reg);
+    assert(base->guiltyReg() == sentinel_reg &&
+           "Phase 4.A Batch 71(c): setGuiltyReg sentinel round-trip");
+    base->setGuiltyReg(NULL);
+    assert(base->guiltyReg() == NULL &&
+           "Phase 4.A Batch 71(c): setGuiltyReg(NULL) clears");
+
+    /* (d) live_regs: const + non-const overloads return references to
+     * the same backing PhxRegStateArray. We can't directly compare two
+     * references, but identical addresses prove identity. */
+    const jit::hir::DeoptBase *cbase = base;
+    const PhxRegStateArray *const_addr = &cbase->live_regs();
+    PhxRegStateArray *mut_addr = &base->live_regs();
+    assert((const void *)const_addr == (const void *)mut_addr &&
+           "Phase 4.A Batch 71(d): const + non-const live_regs return "
+           "same backing storage address");
+
+    /* Cleanup: matches batch11 pattern. */
+    base->live_regs() = PhxRegStateArray{};
+    free((char *)db - 2 * sizeof(void *) - sizeof(size_t));
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -3526,4 +3601,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch68_phi_apply_helper_and_block_index();
     verify_phase4a_batch69_edge_accessors();
     verify_phase4a_batch70_environment_accessors();
+    verify_phase4a_batch71_deopt_base_accessors();
 }
