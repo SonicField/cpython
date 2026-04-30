@@ -730,6 +730,13 @@ if [ "$BENCHMARK" -eq 1 ]; then
     # degrade (skip compare) until ancestors have the marker.
     echo "" | tee -a "$RESULTS_FILE"
     echo "--- Step 7c: M0b unknown-bucket compare ---" | tee -a "$RESULTS_FILE"
+    # M0bGate-A1 (theologian SR-3a 18:58:38Z): probe coverage is 4 functions
+    # — name explicitly so deployers know coverage is partial-bytecode-shape,
+    # not full 25-bench coverage.
+    echo "M0b probe coverage: 4 reps (add, mul, fib, gen)" | tee -a "$RESULTS_FILE"
+    # M0bGate-A2 (theologian SR-3a 18:58:38Z): MUST fail-loud on probe error
+    # — without exit-code capture, '2>&1 || true' + grep-default-0 recreates
+    # the F2 silent-pass anti-pattern at the gate-side.
     M0B_OUTPUT=$(JIT_ENABLE=1 ASAN_OPTIONS=detect_leaks=0 "$PYTHON" -c "
 import _cinderx, cinderjit
 def add(x, y): return x + y
@@ -748,22 +755,30 @@ for f in [add, mul, fib, gen]:
 errors = cinderjit.get_compile_errors() if hasattr(cinderjit, 'get_compile_errors') else {}
 print('M0B_BUCKETS=' + ','.join(f'{k}:{v}' for k, v in sorted(errors.items())))
 print('M0B_UNKNOWN=' + str(errors.get('unknown', 0)))
-" 2>&1 || true)
+" 2>&1)
+    M0B_EXIT=$?
     echo "$M0B_OUTPUT" | tee -a "$RESULTS_FILE"
-    CURR_UNKNOWN=$(echo "$M0B_OUTPUT" | grep -oP 'M0B_UNKNOWN=\K\d+' | head -1 || echo "0")
-    if [ -n "${PRIOR_LOG:-}" ]; then
-        PRIOR_UNKNOWN=$(grep -oP 'M0B_UNKNOWN=\K\d+' "$PRIOR_LOG" | head -1 || echo "")
-        if [ -z "$PRIOR_UNKNOWN" ]; then
-            echo "M0b: prior log lacks M0B_UNKNOWN= line (pre-M0b deploy) — skip" | tee -a "$RESULTS_FILE"
-        elif [ "$CURR_UNKNOWN" -gt "$PRIOR_UNKNOWN" ]; then
-            GATE_PASS=0
-            FAILURES="$FAILURES M0b:unknown-bucket-grew(${PRIOR_UNKNOWN}->${CURR_UNKNOWN})"
-            echo "M0b BLOCK — unknown bucket grew from $PRIOR_UNKNOWN to $CURR_UNKNOWN vs ${PRIOR_HASH}" | tee -a "$RESULTS_FILE"
-        else
-            echo "M0b PASS — unknown bucket: prior=$PRIOR_UNKNOWN curr=$CURR_UNKNOWN (vs ${PRIOR_HASH})" | tee -a "$RESULTS_FILE"
-        fi
+    if [ "$M0B_EXIT" -ne 0 ] && ! echo "$M0B_OUTPUT" | grep -q '^M0B_UNKNOWN='; then
+        # Probe failed AND no marker line emitted — fail-loud per M0bGate-A2.
+        GATE_PASS=0
+        FAILURES="$FAILURES M0b:probe-failed(exit=${M0B_EXIT})"
+        echo "M0b BLOCK — probe failed (exit ${M0B_EXIT}, no M0B_UNKNOWN= line emitted)" | tee -a "$RESULTS_FILE"
     else
-        echo "M0b: no prior gate log within M3 ancestor walk — skip" | tee -a "$RESULTS_FILE"
+        CURR_UNKNOWN=$(echo "$M0B_OUTPUT" | grep -oP 'M0B_UNKNOWN=\K\d+' | head -1 || echo "0")
+        if [ -n "${PRIOR_LOG:-}" ]; then
+            PRIOR_UNKNOWN=$(grep -oP 'M0B_UNKNOWN=\K\d+' "$PRIOR_LOG" | head -1 || echo "")
+            if [ -z "$PRIOR_UNKNOWN" ]; then
+                echo "M0b: prior log lacks M0B_UNKNOWN= line (pre-M0b deploy) — skip" | tee -a "$RESULTS_FILE"
+            elif [ "$CURR_UNKNOWN" -gt "$PRIOR_UNKNOWN" ]; then
+                GATE_PASS=0
+                FAILURES="$FAILURES M0b:unknown-bucket-grew(${PRIOR_UNKNOWN}->${CURR_UNKNOWN})"
+                echo "M0b BLOCK — unknown bucket grew from $PRIOR_UNKNOWN to $CURR_UNKNOWN vs ${PRIOR_HASH}" | tee -a "$RESULTS_FILE"
+            else
+                echo "M0b PASS — unknown bucket: prior=$PRIOR_UNKNOWN curr=$CURR_UNKNOWN (vs ${PRIOR_HASH})" | tee -a "$RESULTS_FILE"
+            fi
+        else
+            echo "M0b: no prior gate log within M3 ancestor walk — skip" | tee -a "$RESULTS_FILE"
+        fi
     fi
 fi
 
