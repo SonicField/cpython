@@ -1013,7 +1013,7 @@ void HIRBuilder::addInitialYield(TranslationContext& tc) {
       "TranslationContext::block must be at offset 0 for PhxTranslationContext cast");
   static_assert(offsetof(TranslationContext, frame) == sizeof(void*),
       "TranslationContext::frame must follow block for PhxTranslationContext cast");
-  auto out = temps_.AllocateNonStack();
+  auto out = static_cast<Register*>(hir_c_temps_alloc_non_stack(&state_.temps_phx));
   tc.emitInitialYield(out, tc.frame);
 }
 
@@ -1049,7 +1049,7 @@ void HIRBuilder::addInitializeCells([[maybe_unused]] TranslationContext& tc) {
   int ncellvars = numCellvars(code());
   int nfreevars = numFreevars(code());
 
-  Register* null_reg = ncellvars > 0 ? temps_.AllocateNonStack() : nullptr;
+  Register* null_reg = ncellvars > 0 ? static_cast<Register*>(hir_c_temps_alloc_non_stack(&state_.temps_phx)) : nullptr;
   for (int i = 0; i < ncellvars; ++i) {
     int arg = CO_CELL_NOT_AN_ARG;
     Register* dst = static_cast<Register*>(tc.frame.localsplus.data[i + nlocals]);
@@ -1507,7 +1507,7 @@ BasicBlock* HIRBuilder::buildHIRImpl(
   // drop the frame_state == nullptr check.  Inlined functions should load a
   // const instead of using LoadCurrentFunc.
   if (frame_state == nullptr && irfunc->uses_runtime_func) {
-    set_func(temps_.AllocateNonStack());
+    set_func(static_cast<Register*>(hir_c_temps_alloc_non_stack(&state_.temps_phx)));
     entry_tc.emitLoadCurrentFunc(func());
   }
 
@@ -2042,7 +2042,7 @@ void HIRBuilder::translate(
           break;
         }
         case RETURN_CONST: {
-          Register* reg = temps_.AllocateStack();
+          Register* reg = static_cast<Register*>(hir_c_temps_alloc_stack(&state_.temps_phx));
           JIT_CHECK(
               bc_instr.oparg() < PyTuple_Size(code()->co_consts),
               "RETURN_CONST index out of bounds");
@@ -2272,7 +2272,7 @@ void HIRBuilder::translate(
           if (is_in_async_for_header_block()) {
             emitAsyncForHeaderYieldFrom(tc, bc_instr);
           } else {
-            emitYieldFrom(tc, temps_.AllocateStack());
+            emitYieldFrom(tc, static_cast<Register*>(hir_c_temps_alloc_stack(&state_.temps_phx)));
           }
           break;
         }
@@ -2375,7 +2375,7 @@ void HIRBuilder::translate(
           break;
         }
         case RETURN_GENERATOR: {
-          auto out = temps_.AllocateStack();
+          auto out = static_cast<Register*>(hir_c_temps_alloc_stack(&state_.temps_phx));
           if constexpr (
               PY_VERSION_HEX < 0x030C0000 || PY_VERSION_HEX >= 0x030E0000) {
             advancePastYieldInstr(tc);
@@ -3057,7 +3057,7 @@ bool HIRBuilder::tryEmitDirectMethodCall(
     if (target.builtin_returns_void) {
       staticCall = tc.emitCallStaticRetVoid(nargs, target.builtin_c_func);
     } else {
-      out = temps_.AllocateStack();
+      out = static_cast<Register*>(hir_c_temps_alloc_stack(&state_.temps_phx));
       Type ret_type =
           target.builtin_returns_error_code ? TCInt32 : target.return_type;
       staticCall =
@@ -3084,7 +3084,7 @@ bool HIRBuilder::tryEmitDirectMethodCall(
       // are only used in void contexts, or explicitly emit a LOAD_CONST None
       // when not used in a void context. For now we just produce None here (and
       // in _PyClassLoader_ConvertRet).
-      Register* tmp = temps_.AllocateStack();
+      Register* tmp = static_cast<Register*>(hir_c_temps_alloc_stack(&state_.temps_phx));
       tc.emitLoadConst(tmp, TNoneType);
       phx_ptr_arr_push(&stack, tmp);
     } else {
@@ -3112,7 +3112,7 @@ std::vector<Register*> HIRBuilder::setupStaticArgs(
   if (!target.primitive_arg_types.empty() && !statically_invoked) {
     for (auto [argnum, type] : target.primitive_arg_types) {
       Register* reg = arg_regs.at(argnum);
-      auto boxed_primitive_tmp = temps_.AllocateStack();
+      auto boxed_primitive_tmp = static_cast<Register*>(hir_c_temps_alloc_stack(&state_.temps_phx));
       boxPrimitive(tc, boxed_primitive_tmp, reg, type);
       arg_regs[argnum] = boxed_primitive_tmp;
     }
@@ -3161,7 +3161,7 @@ bool HIRBuilder::tryEmitStaticRandCall(
     return false;
   }
 
-  Register* out = temps_.AllocateStack();
+  Register* out = static_cast<Register*>(hir_c_temps_alloc_stack(&state_.temps_phx));
   Type ret_type = TCInt32;
   // Ci_static_rand() boxes the return value; call rand() directly instead.
   tc.emitCallStatic(nargs, out, (void*)rand, ret_type);
@@ -3674,7 +3674,7 @@ void HIRBuilder::unboxPrimitive(
     Type type) {
   tc.emitPrimitiveUnbox(dst, src, type);
   if (!(type <= (TCBool | TCDouble))) {
-    Register* did_unbox_work = temps_.AllocateStack();
+    Register* did_unbox_work = static_cast<Register*>(hir_c_temps_alloc_stack(&state_.temps_phx));
     tc.emitIsNegativeAndErrOccurred(did_unbox_work, dst, tc.frame);
   }
 }
@@ -3926,7 +3926,7 @@ void HIRBuilder::moveOverwrittenStackRegisters(
   for (std::size_t i = 0, stack_size = stack.count; i < stack_size; i++) {
     if (static_cast<Register*>(stack.data[i]) == dst) {
       if (tmp == nullptr) {
-        tmp = temps_.AllocateStack();
+        tmp = static_cast<Register*>(hir_c_temps_alloc_stack(&state_.temps_phx));
         tc.emitAssign(tmp, dst);
       }
       stack.data[i] = tmp;
@@ -4412,12 +4412,12 @@ void HIRBuilder::insertRunPeriodicActivites(
   check.emitAtQuiescentState();
 #endif
   // Check if the eval breaker has been set
-  Register* eval_breaker = temps_.AllocateStack();
+  Register* eval_breaker = static_cast<Register*>(hir_c_temps_alloc_stack(&state_.temps_phx));
   check.emitLoadEvalBreaker(eval_breaker);
   check.emitCondBranch(eval_breaker, body.block, succ);
   // If set, run periodic tasks
   body.emitSnapshot();
-  body.emitRunPeriodicTasks(temps_.AllocateStack(), body.frame);
+  body.emitRunPeriodicTasks(static_cast<Register*>(hir_c_temps_alloc_stack(&state_.temps_phx)), body.frame);
   body.emitBranch(succ);
 }
 
