@@ -740,17 +740,24 @@ TypedArgument::TypedArgument(const TypedArgument& other)
       jit_type(other.jit_type),
       thread_safe_flags(other.thread_safe_flags) {
   ThreadedCompileSerialize guard;
-  pytype = other.pytype;
-  Py_XINCREF(pytype);
+  // Phase 4.A W7d Batch 76: refcount swap via C body. pytype starts NULL
+  // (default-init), so phx_typed_argument_pytype_swap acts as a pure
+  // INCREF on the new value (Py_XDECREF(NULL) is a no-op).
+  pytype = nullptr;
+  phx_typed_argument_pytype_swap(&pytype, other.pytype);
 }
 
 TypedArgument& TypedArgument::operator=(const TypedArgument& other) {
   if (this != &other) {
     ThreadedCompileSerialize guard;
-    Py_XDECREF(pytype);
+    // Phase 4.A W7d Batch 76: refcount swap delegated to C body
+    // (typed_argument_c.{h,c}). The GIL + serialize guard stay C++ per
+    // Q-W7-3 stay-C++ exception for ThreadedCompileSerialize RAII.
+    // Field-copy assignments (incl. Type operator=) stay C++ — pure-POD
+    // for locals_idx/optional/exact/thread_safe_flags; jit_type uses
+    // Type::operator= which is non-POD C++.
+    phx_typed_argument_pytype_swap(&pytype, other.pytype);
     locals_idx = other.locals_idx;
-    pytype = other.pytype;
-    Py_XINCREF(pytype);
     optional = other.optional;
     exact = other.exact;
     jit_type = other.jit_type;
@@ -773,8 +780,13 @@ unsigned long TypedArgument::threadSafeTpFlags() const {
 }
 
 Environment::~Environment() {
-  // Serialize as we modify the ref-count of objects which may be widely
-  // accessible.
+  // Phase 4.A W7d Batch 76: STAY C++ per Q-W7-3 stay-C++ exception
+  // (ThreadedCompileSerialize RAII + std::unordered_set::clear + delete
+  // on Register* — all genuinely-can't-port surface). The references_
+  // teardown calls ThreadedRef destructors which run Py_DECREF inside
+  // STL clear; porting requires exposing both the serialize guard +
+  // the ThreadedRef container as C bridges, out of scope for W7d.
+  // Documented as W7d EXCEPTION in commit body.
   ThreadedCompileSerialize guard;
   references_.clear();
   for (size_t i = 0; i < reg_count_; i++) {
@@ -797,12 +809,17 @@ Register* Environment::addRegister(std::unique_ptr<Register> reg) {
 }
 
 PyObject* Environment::addReference(PyObject* obj) {
-  // Serialize as we modify the ref-count to obj which may be widely accessible.
+  // Phase 4.A W7d Batch 76: STAY C++ per Q-W7-3 stay-C++ exception.
+  // ThreadedRef<> + std::unordered_set::emplace are genuinely-can't-port
+  // (RAII + STL container insertion); porting requires exposing both as
+  // C bridges, out of scope for W7d. Serialize as we modify the ref-count
+  // to obj which may be widely accessible. Documented as W7d EXCEPTION.
   ThreadedCompileSerialize guard;
   return references_.emplace(ThreadedRef<>::create(obj)).first->get();
 }
 
 PyObject* Environment::addReference(Ref<> obj) {
+  // Phase 4.A W7d Batch 76: STAY C++ per Q-W7-3 (overload-of stay-C++).
   // ThreadedRef cannot steal from Ref, so have to go through the raw pointer
   // overload and accept the extra increfs and decrefs.
   return addReference((PyObject*)obj);

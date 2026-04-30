@@ -30,6 +30,14 @@ struct _typeobject;
 unsigned long phx_typed_argument_thread_safe_tp_flags(
     const struct _typeobject *pytype);
 
+/* Refcount-aware pytype slot replacement (Phase 4.A W7d Batch 76).
+ * Decref the current value at *slot, store new_value, incref the new.
+ * Caller MUST hold the GIL + the ThreadedCompileSerialize guard
+ * (TypedArgument::operator= and copy-ctor wrap this). Both XDECREF
+ * and XINCREF are NULL-safe (Py_XDECREF / Py_XINCREF semantics). */
+void phx_typed_argument_pytype_swap(
+    struct _typeobject **slot, struct _typeobject *new_value);
+
 #ifdef __cplusplus
 }
 #endif

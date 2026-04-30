@@ -3918,6 +3918,52 @@ static void verify_phase4a_batch75_collect_phis_alloc() {
     hir_c_test_chain_destroy(&bb_nonphi);
 }
 
+/* Phase 4.A W7d Batch 76 (theologian docs/tier7-phase4a-preanalysis-2026-04-30.md
+ * §9 W7d, supervisor D-1777584435 + Q-W7-3 disposition): refcount-aware
+ * pytype slot swap falsifier (phx_typed_argument_pytype_swap). The swap
+ * is the only refcount-touching primitive extracted to C from
+ * TypedArgument::operator= + copy-ctor; the GIL + ThreadedCompileSerialize
+ * guard + jit_type/locals_idx field-copy stay C++ per Q-W7-3 stay-C++
+ * exception (genuinely-can't-port).
+ *
+ * Runtime fixture exercises the NULL-safe paths only — fixturing real
+ * PyTypeObject refcount round-trips at __attribute__((constructor))
+ * time would require touching live Python state (PyType_Type) before
+ * the interpreter is initialized, which is unsafe. The refcount
+ * semantics themselves are trusted per Py_XDECREF/XINCREF spec; W7d
+ * exercise verifies the slot-write + NULL-safety invariant only.
+ *
+ * SCOPE-DEFER (W7d EXCEPTION per Q-W7-3 stay-C++ list):
+ *   Environment::~Environment (RAII + STL clear + delete loop) —
+ *     genuinely-can't-port surface; ThreadedRef destructors run
+ *     Py_DECREF inside std::unordered_set::clear. Stays C++.
+ *   Environment::addReference (PyObject*, Ref<>) — ThreadedRef::create
+ *     + std::unordered_set::emplace. Stays C++.
+ *   These three methods retain ThreadedCompileSerialize guard +
+ *     full C++ body. Falsifier coverage deferred to terminal-C-rewrite
+ *     scope refresh when ThreadedRef + STL container surrogates land. */
+static void verify_phase4a_batch76_typed_argument_pytype_swap() {
+    /* (a) NULL → NULL: no-op, slot stays NULL. */
+    struct _typeobject *slot_a = NULL;
+    phx_typed_argument_pytype_swap(&slot_a, NULL);
+    assert(slot_a == NULL &&
+           "Phase 4.A Batch 76(a): NULL→NULL leaves slot NULL");
+
+    /* (b) Slot-write semantic: when both incref/decref are no-ops on
+     * NULL, the slot must still take on the new value. We can't create
+     * a real PyTypeObject here, but the swap function's slot store is
+     * separable from refcount semantics — exercise via a sentinel
+     * pointer that never gets refcounted (we pass it as new_value;
+     * Py_XINCREF on a non-NULL pointer would normally touch the object
+     * header, so we must NOT exercise non-NULL paths in this fixture).
+     * This (b) case is therefore identical to (a) in this constructor
+     * context; full refcount round-trip is left to a future Python-init
+     * harness or to live testing during JIT compile. */
+    /* No additional sub-checks at constructor-time. */
+
+    (void)slot_a;
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -3982,4 +4028,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch73_instr_operand_layout();
     verify_phase4a_batch74_for_each_phi();
     verify_phase4a_batch75_collect_phis_alloc();
+    verify_phase4a_batch76_typed_argument_pytype_swap();
 }

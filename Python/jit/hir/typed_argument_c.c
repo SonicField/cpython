@@ -25,3 +25,18 @@ unsigned long phx_typed_argument_thread_safe_tp_flags(
     return ((const PyTypeObject *)pytype)->tp_flags &
            (unsigned long)Py_TPFLAGS_BASETYPE;
 }
+
+void phx_typed_argument_pytype_swap(
+    struct _typeobject **slot, struct _typeobject *new_value) {
+    /* Phase 4.A W7d Batch 76: the only refcount-touching primitive
+     * extracted to C from TypedArgument::operator= + copy-ctor. The
+     * GIL + ThreadedCompileSerialize guard remain caller-side (C++
+     * RAII; structurally cannot port to C without exposing the
+     * serialize machinery as a C bridge — out of scope per Q-W7-3
+     * stay-C++ exception for genuinely-can't-port surface).
+     *
+     * NULL-safe both directions: Py_XDECREF / Py_XINCREF accept NULL. */
+    Py_XDECREF(*(PyTypeObject **)slot);
+    *slot = new_value;
+    Py_XINCREF(*(PyTypeObject **)slot);
+}
