@@ -2437,50 +2437,14 @@ static void verify_phase4c_batch43_state_temps_phx() {
            "Phase 4.C Batch 43: post-destroy cache cleared (no leak)");
 }
 
-/* Phase 4.C Pilot 3 Batch 44 V5 mirror-collapse falsifier (addresses
- * pythia 16:14:18Z B43-B47 inter-mirror-divergence concern):
- * single-source-of-truth = state->temps_phx. Construct a state +
- * point a C++ TempAllocator at it; alternate writes through C++
- * wrapper and direct C; assert both observe the SAME cache count
- * (no independent storage). */
-static void verify_phase4c_batch44_temp_allocator_mirror_collapse() {
-    PhxHirBuilderState state;
-    hir_builder_state_init(&state, NULL, NULL);
-    HirEnvironment env = {};
-    state.temps_phx.env = &env;
-
-    /* C++ wrapper points to state.temps_phx — single storage. */
-    jit::hir::TempAllocator wrapper(&state.temps_phx);
-
-    /* Write via wrapper x2 → cache count observable via state field. */
-    void *r0 = wrapper.AllocateStack();
-    void *r1 = wrapper.AllocateStack();
-    assert(state.temps_phx.cache.count == 2 &&
-           "Phase 4.C Batch 44: wrapper writes visible via state.temps_phx");
-    assert(state.temps_phx.cache.data[0] == r0 &&
-           state.temps_phx.cache.data[1] == r1 &&
-           "Phase 4.C Batch 44: state cache holds wrapper-allocated Registers");
-
-    /* Write via direct C → wrapper-side observation = count grows
-     * (no independent C++ storage to diverge). */
-    void *r2 = hir_c_temps_alloc_stack(&state.temps_phx);
-    assert(state.temps_phx.cache.count == 3 &&
-           "Phase 4.C Batch 44: direct C write visible via state field");
-    assert(state.temps_phx.cache.data[2] == r2 &&
-           "Phase 4.C Batch 44: cache[2] = direct-C-allocated");
-
-    /* GetOrAllocateStack via wrapper observes the direct-C write. */
-    void *got2 = wrapper.GetOrAllocateStack(2);
-    assert(got2 == r2 &&
-           "Phase 4.C Batch 44: wrapper.GetOrAllocate sees direct-C write");
-
-    /* Cleanup. */
-    delete static_cast<jit::hir::Register *>(r0);
-    delete static_cast<jit::hir::Register *>(r1);
-    delete static_cast<jit::hir::Register *>(r2);
-    free(env.reg_data);
-    hir_builder_state_destroy(&state);
-}
+/* Phase 4.C Pilot 3 Batch 44 mirror-collapse falsifier DELETED in P3c
+ * (Batch 77): the C++ TempAllocator wrapper this fixture exercised
+ * was deleted in P3c — there is no longer a mirror to test for
+ * collapse. Direct-C behavior is covered by batch42
+ * (verify_phase4c_batch42_temp_allocator). The mirror-divergence
+ * concern this fixture addressed (pythia 16:14:18Z B43-B47) is
+ * structurally resolved by class deletion: zero mirror = zero
+ * divergence-window class. */
 
 /* Phase 4.C Pilot 4 Batch 48 V5 sentinel falsifier for HirOperandStack
  * (OperandStack port introduce step). LIFO push/pop semantics + state
@@ -4004,7 +3968,8 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch41_constraint_name();
     verify_phase4c_batch42_temp_allocator();
     verify_phase4c_batch43_state_temps_phx();
-    verify_phase4c_batch44_temp_allocator_mirror_collapse();
+    /* batch44 mirror-collapse falsifier deleted in P3c (Batch 77) — wrapper
+     * class gone, mirror-divergence class structurally resolved. */
     verify_phase4c_batch48_op_stack();
     verify_phase4d_batch51_allocate_localsplus();
     verify_phase4d_batch52_advance_past_yield();
