@@ -670,8 +670,12 @@ if [ "$BENCHMARK" -eq 1 ]; then
     for i in 1 2 3 4 5 6 7 8 9 10; do
         CANDIDATE="$(cd "$CPYTHON_ROOT" && git rev-parse --short "HEAD~${i}" 2>/dev/null || echo "")"
         [ -z "$CANDIDATE" ] && break
+        # M3-A6 (theologian SR-3a 18:44:45Z): skip failed-gate ancestors —
+        # without 'GATE PASS' check, a bad baseline becomes the comparison
+        # floor and compounds slow-drift detection.
         if [ -f "$GATE_LOG_DIR/${CANDIDATE}.log" ] && \
-           grep -q 'GEOMETRIC MEAN' "$GATE_LOG_DIR/${CANDIDATE}.log"; then
+           grep -q 'GEOMETRIC MEAN' "$GATE_LOG_DIR/${CANDIDATE}.log" && \
+           grep -q 'GATE PASS' "$GATE_LOG_DIR/${CANDIDATE}.log"; then
             PRIOR_LOG="$GATE_LOG_DIR/${CANDIDATE}.log"
             PRIOR_HASH="$CANDIDATE"
             break
