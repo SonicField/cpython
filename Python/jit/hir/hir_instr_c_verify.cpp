@@ -3837,6 +3837,87 @@ static void verify_phase4a_batch74_for_each_phi() {
     hir_c_test_chain_destroy(&bb_stop);
 }
 
+/* Phase 4.A W7c Batch 75 (theologian docs/tier7-phase4a-preanalysis-2026-04-30.md
+ * §9 W7c, supervisor D-1777583349 dispatch): hir_c_bb_collect_phis_alloc
+ * falsifier. Pins the std::vector → C-scratch replacement used by
+ * BasicBlock::addPhiPredecessor + removePhiPredecessor:
+ *   (a) Empty BB returns NULL + n=0
+ *   (b) Phi-only BB returns malloc'd array of all phis in chain order
+ *   (c) Phi-then-non-Phi BB returns only the leading-Phi prefix (matches
+ *       forEachPhi break-on-non-Phi semantics)
+ *   (d) Non-Phi-first BB returns NULL + n=0
+ *
+ * The OOM loud-fail path (JIT_CHECK_C) is unreachable in test (no way
+ * to inject malloc failure here); it is checked as syntax-present via
+ * grep at compose-time only — runtime exercise belongs to a future
+ * fault-injection harness if/when one lands. */
+static void verify_phase4a_batch75_collect_phis_alloc() {
+    /* (a) Empty BB. */
+    HirBasicBlock bb_empty;
+    hir_c_test_chain_init(&bb_empty);
+    size_t n_empty = 999;  // sentinel — must be overwritten to 0
+    void **phis_empty = hir_c_bb_collect_phis_alloc(&bb_empty, &n_empty);
+    assert(phis_empty == NULL && n_empty == 0 &&
+           "Phase 4.A Batch 75(a): empty BB returns NULL + n=0");
+    hir_c_test_chain_destroy(&bb_empty);
+
+    /* (b) Phi-only BB (3 phis): array length 3, chain order. */
+    HirBasicBlock bb_phis;
+    hir_c_test_chain_init(&bb_phis);
+    void *expected_phis[3];
+    for (int i = 0; i < 3; i++) {
+        expected_phis[i] = hir_c_alloc_instr(sizeof(HirPhi), 0);
+        assert(expected_phis[i] != NULL);
+        hir_c_init_instr(expected_phis[i], HIR_OP_Phi);
+        hir_c_bb_append(&bb_phis, expected_phis[i]);
+    }
+    size_t n_phis = 0;
+    void **phis_arr = hir_c_bb_collect_phis_alloc(&bb_phis, &n_phis);
+    assert(n_phis == 3 && phis_arr != NULL &&
+           "Phase 4.A Batch 75(b): 3-phi BB returns malloc'd array of 3");
+    for (size_t i = 0; i < 3; i++) {
+        assert(phis_arr[i] == expected_phis[i] &&
+               "Phase 4.A Batch 75(b): chain-order phi pointers");
+    }
+    free(phis_arr);
+    hir_c_test_chain_destroy(&bb_phis);
+
+    /* (c) Phi-then-non-Phi BB: only the leading 2 phis returned. */
+    HirBasicBlock bb_mixed;
+    hir_c_test_chain_init(&bb_mixed);
+    void *p0 = hir_c_alloc_instr(sizeof(HirPhi), 0);
+    void *p1 = hir_c_alloc_instr(sizeof(HirPhi), 0);
+    void *non_phi_c = hir_c_alloc_instr(sizeof(HirInstrLayout), 0);
+    assert(p0 != NULL && p1 != NULL && non_phi_c != NULL);
+    hir_c_init_instr(p0, HIR_OP_Phi);
+    hir_c_init_instr(p1, HIR_OP_Phi);
+    hir_c_init_instr(non_phi_c, HIR_OP_Assign);
+    hir_c_bb_append(&bb_mixed, p0);
+    hir_c_bb_append(&bb_mixed, p1);
+    hir_c_bb_append(&bb_mixed, non_phi_c);
+    size_t n_mixed = 0;
+    void **phis_mixed = hir_c_bb_collect_phis_alloc(&bb_mixed, &n_mixed);
+    assert(n_mixed == 2 && phis_mixed != NULL &&
+           "Phase 4.A Batch 75(c): [Phi, Phi, non-Phi] returns 2 phis");
+    assert(phis_mixed[0] == p0 && phis_mixed[1] == p1 &&
+           "Phase 4.A Batch 75(c): leading-Phi prefix only, no non-Phi");
+    free(phis_mixed);
+    hir_c_test_chain_destroy(&bb_mixed);
+
+    /* (d) Non-Phi-first BB. */
+    HirBasicBlock bb_nonphi;
+    hir_c_test_chain_init(&bb_nonphi);
+    void *first_op = hir_c_alloc_instr(sizeof(HirInstrLayout), 0);
+    assert(first_op != NULL);
+    hir_c_init_instr(first_op, HIR_OP_Assign);
+    hir_c_bb_append(&bb_nonphi, first_op);
+    size_t n_nonphi = 999;
+    void **phis_nonphi = hir_c_bb_collect_phis_alloc(&bb_nonphi, &n_nonphi);
+    assert(phis_nonphi == NULL && n_nonphi == 0 &&
+           "Phase 4.A Batch 75(d): non-Phi-first BB returns NULL + n=0");
+    hir_c_test_chain_destroy(&bb_nonphi);
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -3900,4 +3981,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch72_bb_terminator_and_entry_snapshot();
     verify_phase4a_batch73_instr_operand_layout();
     verify_phase4a_batch74_for_each_phi();
+    verify_phase4a_batch75_collect_phis_alloc();
 }

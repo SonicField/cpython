@@ -143,6 +143,40 @@ static inline size_t hir_c_bb_for_each_phi(HirBasicBlock *bb,
     return visited;
 }
 
+/* Collect leading Phi instructions into a malloc'd scratch buffer
+ * (Phase 4.A W7c Batch 75). Two-pass: count Phis, allocate exact-size
+ * array, fill. Caller frees the returned array. Returns NULL when
+ * count is 0 (caller checks *out_n). The two-pass pattern is required
+ * by addPhi/removePhiPredecessor consumers because the per-Phi
+ * mutator (hir_c_phi_add/remove_predecessor) replaces the Phi
+ * instruction in the BB list — iterating + mutating in one pass
+ * would invalidate the iterator. */
+static inline void **hir_c_bb_collect_phis_alloc(const HirBasicBlock *bb,
+                                                  size_t *out_n) {
+    size_t count = 0;
+    void *instr = hir_bb_first_instr(bb);
+    while (instr != NULL && hir_c_is_phi(instr)) {
+        count++;
+        instr = hir_bb_next_instr(bb, instr);
+    }
+    *out_n = count;
+    if (count == 0) {
+        return NULL;
+    }
+    void **arr = (void **)malloc(count * sizeof(void *));
+    /* Loud-fail on OOM per feedback_no_workarounds + forward stance #4
+     * (gatekeeper 19:39:45Z). */
+    JIT_CHECK_C(arr != NULL,
+                "hir_c_bb_collect_phis_alloc malloc failed (n=%zu)", count);
+    size_t i = 0;
+    instr = hir_bb_first_instr(bb);
+    while (instr != NULL && hir_c_is_phi(instr) && i < count) {
+        arr[i++] = instr;
+        instr = hir_bb_next_instr(bb, instr);
+    }
+    return arr;
+}
+
 /* ---- CFG C struct ---- */
 typedef struct HirCFG {
     void *entry_block;                /* BasicBlock* */

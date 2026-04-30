@@ -618,28 +618,33 @@ void BasicBlock::fixupPhis(BasicBlock* old_pred, BasicBlock* new_pred) {
 }
 
 void BasicBlock::addPhiPredecessor(BasicBlock* old_pred, BasicBlock* new_pred) {
-  std::vector<Phi*> replacements;
-  forEachPhi([&](Phi& phi) {
-    for (auto block : phi.basic_blocks()) {
-      if (block == old_pred) {
-        replacements.push_back(&phi);
-        break;
-      }
-    }
-  });
-  for (auto phi : replacements) {
-    hir_c_phi_add_predecessor(phi, old_pred, new_pred);
+  // Phase 4.A W7c Batch 75: std::vector replaced with C-side scratch via
+  // hir_c_bb_collect_phis_alloc. Per-Phi pred-presence filter dropped
+  // from the C++ shim — hir_c_phi_collect_add_args (called inside
+  // hir_c_phi_add_predecessor) returns 0 + early-returns when old_pred
+  // is not a current predecessor, so unconditional iteration is correct
+  // and the shim only owns the collect-then-mutate split required by
+  // mid-iter Phi replacement.
+  size_t n = 0;
+  void** phis = hir_c_bb_collect_phis_alloc(
+      reinterpret_cast<HirBasicBlock*>(this), &n);
+  for (size_t i = 0; i < n; i++) {
+    hir_c_phi_add_predecessor(phis[i], old_pred, new_pred);
   }
+  free(phis);
 }
 
 void BasicBlock::removePhiPredecessor(BasicBlock* old_pred) {
-  std::vector<Phi*> all_phis;
-  forEachPhi([&](Phi& phi) {
-    all_phis.push_back(&phi);
-  });
-  for (auto phi : all_phis) {
-    hir_c_phi_remove_predecessor(phi, old_pred);
+  // Phase 4.A W7c Batch 75: std::vector replaced with C-side scratch.
+  // See addPhiPredecessor comment above for the collect-then-mutate
+  // rationale.
+  size_t n = 0;
+  void** phis = hir_c_bb_collect_phis_alloc(
+      reinterpret_cast<HirBasicBlock*>(this), &n);
+  for (size_t i = 0; i < n; i++) {
+    hir_c_phi_remove_predecessor(phis[i], old_pred);
   }
+  free(phis);
 }
 
 std::string_view GetCompareOpName(CompareOp op) {
