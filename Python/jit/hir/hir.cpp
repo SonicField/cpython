@@ -180,11 +180,18 @@ Edge::~Edge() {
 }
 
 BasicBlock* Edge::from() const {
-  return from_;
+  // Phase 4.A W3 Batch 69: read-only endpoint accessor delegates to C
+  // (hir_edge_from). Mutators (set_from/set_to) STAY C++ per
+  // feedback_edge_management — they manage in_edges_ on the target
+  // BasicBlock and must route through the C++ bridge.
+  return reinterpret_cast<BasicBlock*>(
+      hir_edge_from(reinterpret_cast<const HirEdge*>(this)));
 }
 
 BasicBlock* Edge::to() const {
-  return to_;
+  // Phase 4.A W3 Batch 69: see Edge::from() comment above.
+  return reinterpret_cast<BasicBlock*>(
+      hir_edge_to(reinterpret_cast<const HirEdge*>(this)));
 }
 
 void Edge::set_from(BasicBlock* new_from) {

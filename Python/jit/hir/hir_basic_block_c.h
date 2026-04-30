@@ -64,6 +64,24 @@ static inline void hir_c_edge_copy_init(HirEdge *dst, const HirEdge *src) {
     hir_edge_set_to(dst, (HirBasicBlock *)src->to);
 }
 
+/* Edge endpoint accessors (Phase 4.A W3 Batch 69). Trivial reads of the
+ * from/to fields. Returns BasicBlock* via void* (HirEdge stores opaque
+ * pointers — same layout as C++ Edge::from_/to_ per HirEdgeLayout pin
+ * in hir_instr_c_verify.cpp).
+ *
+ * NOTE: pre-analysis §3 W3 + Q4 supervisor 19:18:37Z + feedback_edge_
+ * management codified rule: ONLY hir_edge_set_from / hir_edge_set_to may
+ * MUTATE the from/to fields (they manage in_edges_ on the target
+ * BasicBlock). Read-only accessors are conversion-eligible; mutators
+ * must stay routed through the C++ bridge. */
+static inline void *hir_edge_from(const HirEdge *edge) {
+    return edge->from;
+}
+
+static inline void *hir_edge_to(const HirEdge *edge) {
+    return edge->to;
+}
+
 /* ---- Accessors ---- */
 
 int hir_bb_id(const HirBasicBlock *bb);
