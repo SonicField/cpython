@@ -8,6 +8,7 @@
  */
 
 #include "cinderx/Jit/hir/typed_argument_c.h"
+#include "cinderx/Jit/threaded_compile_c.h"
 #include "Python.h"
 
 #include <assert.h>
@@ -39,14 +40,24 @@ void phx_typed_argument_pytype_swap(
      *
      * NULL-safe both directions: Py_XDECREF / Py_XINCREF accept NULL.
      *
-     * Batch 78 (W7d-A2 forward-fix): assert the GIL is held at entry.
-     * This discharges the GIL half of the W7d-A2 unfalsifiable caller-
-     * side precondition (debug-only; release builds elide).
-     * ThreadedCompileSerialize half remains deferred to the Phase 4.X
-     * spec (stay-C++ exception discharge workstream). */
+     * Batch 78 (W7d-A2 GIL-half discharge): assert the GIL is held at
+     * entry. Debug-only; release builds elide.
+     * Batch 79 (W7d-A2 ThreadedCompileSerialize-half discharge per
+     * Phase 4.X-mini X-mini-a, supervisor 22:42:40Z dispatch +
+     * theologian 22:45:02Z reframe-confirm): also assert safe-shared-
+     * data-access (== no threaded compile is running OR this thread
+     * holds the compile lock). Together these close the full W7d-A2
+     * caller-side invariant. The C-surrogate substrate
+     * (jit_compile_lock/unlock + JIT_COMPILE_GUARD macro at
+     * threaded_compile_c.h:20-41) was already in place from prior
+     * Phoenix work — X-mini-a discharges the assert-half here. */
     assert(PyGILState_Check() &&
            "phx_typed_argument_pytype_swap: GIL must be held by caller "
            "(see W7d-A2 caller-side invariant doc)");
+    assert(jit_compile_can_access_shared_data() &&
+           "phx_typed_argument_pytype_swap: caller must hold the compile "
+           "lock or no threaded compile must be running "
+           "(W7d-A2 ThreadedCompileSerialize-half invariant)");
     Py_XDECREF(*(PyTypeObject **)slot);
     *slot = new_value;
     Py_XINCREF(*(PyTypeObject **)slot);
