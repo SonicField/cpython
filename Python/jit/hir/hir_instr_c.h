@@ -1416,6 +1416,27 @@ static inline void hir_c_deopt_sort_live_regs(void *db) {
           hir_c_reg_state_id_cmp);
 }
 
+/* Phase 4.X-mini X-mini-b (Batch 80): inline replacement for std::adjacent_find
+ * lambda in DeoptBase::sortLiveRegs kPyDebug post-condition. Scans adjacent
+ * pairs in PhxRegStateArray and returns the SECOND of the first matching
+ * pair (the duplicate Register*); returns NULL when no adjacent pair has
+ * equal .reg fields (matches std::adjacent_find end-iterator semantic).
+ *
+ * E-4 stay-C++ exception discharged: replaces the only std::* surface
+ * in the kPyDebug uniqueness check, eliminating the C++-only post-cond
+ * surface from sortLiveRegs. Kept as caller-side debug check (the C++
+ * shim still calls JIT_DCHECK with fmt formatting on the duplicate). */
+static inline void *hir_c_deopt_find_adjacent_dup_reg(const void *db) {
+    const HirDeoptLayout *d = (const HirDeoptLayout *)db;
+    const HirRegState *regs = (const HirRegState *)d->live_regs_data;
+    for (size_t i = 1; i < d->live_regs_count; i++) {
+        if (regs[i].reg == regs[i - 1].reg) {
+            return regs[i].reg;
+        }
+    }
+    return NULL;
+}
+
 /* DeoptBase::visitUsesDeopt port (replaces Batch 9
  * hir_deopt_visit_uses_deopt_c bridge). Visits frame_state +
  * live_regs + guilty_reg. Batch 11: live_regs iteration is now pure-C

@@ -81,14 +81,13 @@ void DeoptBase::sortLiveRegs() {
   hir_c_deopt_sort_live_regs(this);
 
   if (kPyDebug) {
-    // Check for uniqueness after sorting rather than inside the predicate
-    // passed to qsort(), in case sort performs extra comparisons to
-    // sanity-check our predicate.
-    auto it = std::adjacent_find(
-        live_regs_.begin(),
-        live_regs_.end(),
-        [](const RegState& a, const RegState& b) { return a.reg == b.reg; });
-    JIT_DCHECK(it == live_regs_.end(), "Register {} is live twice", *it->reg);
+    // Phase 4.X-mini X-mini-b (Batch 80, E-4 discharge per supervisor
+    // 22:42:40Z): std::adjacent_find lambda replaced with inline C
+    // helper hir_c_deopt_find_adjacent_dup_reg (hir_instr_c.h). Same
+    // post-sort uniqueness check; same fail-loud message format.
+    Register* dup = static_cast<Register*>(
+        hir_c_deopt_find_adjacent_dup_reg(this));
+    JIT_DCHECK(dup == nullptr, "Register {} is live twice", *dup);
   }
 }
 

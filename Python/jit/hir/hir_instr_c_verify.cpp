@@ -3929,6 +3929,120 @@ static void verify_phase4a_batch76_typed_argument_pytype_swap() {
     (void)slot_a;
 }
 
+/* Phase 4.X-mini X-mini-b Batch 80 (theologian docs/tier7-phase4x-stay-cpp-
+ * exception-discharge-spec.md §2.3 + §7.3, supervisor 22:42:40Z dispatch):
+ * hir_c_deopt_find_adjacent_dup_reg falsifier. Pins std::adjacent_find
+ * end-vs-found semantic preservation:
+ *   (a) Empty live_regs (n=0): NULL
+ *   (b) Single element (n=1): NULL (no adjacent pair)
+ *   (c) Two distinct (n=2): NULL (no match)
+ *   (d) First-pair match (n=3, regs[0]==regs[1]): returns regs[1].reg
+ *   (e) Last-pair match (n=3, regs[1]==regs[2]): returns regs[2].reg
+ *   (f) Middle match (n=4, regs[1]==regs[2]): returns regs[2].reg
+ *   (g) Multiple-match returns FIRST (n=4, regs[0]==regs[1] AND
+ *       regs[2]==regs[3]): returns regs[1].reg (first pair only) */
+static void verify_phase4x_batch80_deopt_find_adjacent_dup_reg() {
+    /* Sentinel "Register*" pointers for tests; we don't deref them. */
+    void *r_a = (void *)(uintptr_t)0xAAAA0000ULL;
+    void *r_b = (void *)(uintptr_t)0xBBBB0000ULL;
+    void *r_c = (void *)(uintptr_t)0xCCCC0000ULL;
+    void *r_d = (void *)(uintptr_t)0xDDDD0000ULL;
+
+    /* (a) Empty: zero-init HirDeoptLayout has live_regs_count=0. */
+    void *db_a = hir_c_alloc_instr(sizeof(HirDeoptLayout), 0);
+    hir_c_init_deopt(db_a, HIR_OP_BinaryOp);
+    assert(hir_c_deopt_find_adjacent_dup_reg(db_a) == NULL &&
+           "Phase 4.X Batch 80(a): empty live_regs returns NULL");
+    /* Direct cleanup — no live_regs storage. */
+    free((char *)db_a - 2 * sizeof(void *) - sizeof(size_t));
+
+    /* (b) Single element. */
+    void *db_b = hir_c_alloc_instr(sizeof(HirDeoptLayout), 0);
+    hir_c_init_deopt(db_b, HIR_OP_BinaryOp);
+    {
+        HirRegState *regs = (HirRegState *)malloc(sizeof(HirRegState));
+        regs[0].reg = r_a;
+        ((HirDeoptLayout *)db_b)->live_regs_data = regs;
+        ((HirDeoptLayout *)db_b)->live_regs_count = 1;
+        assert(hir_c_deopt_find_adjacent_dup_reg(db_b) == NULL &&
+               "Phase 4.X Batch 80(b): single element returns NULL");
+        free(regs);
+    }
+    free((char *)db_b - 2 * sizeof(void *) - sizeof(size_t));
+
+    /* (c) Two distinct. */
+    void *db_c = hir_c_alloc_instr(sizeof(HirDeoptLayout), 0);
+    hir_c_init_deopt(db_c, HIR_OP_BinaryOp);
+    {
+        HirRegState *regs = (HirRegState *)malloc(2 * sizeof(HirRegState));
+        regs[0].reg = r_a; regs[1].reg = r_b;
+        ((HirDeoptLayout *)db_c)->live_regs_data = regs;
+        ((HirDeoptLayout *)db_c)->live_regs_count = 2;
+        assert(hir_c_deopt_find_adjacent_dup_reg(db_c) == NULL &&
+               "Phase 4.X Batch 80(c): two distinct returns NULL");
+        free(regs);
+    }
+    free((char *)db_c - 2 * sizeof(void *) - sizeof(size_t));
+
+    /* (d) First-pair match. */
+    void *db_d = hir_c_alloc_instr(sizeof(HirDeoptLayout), 0);
+    hir_c_init_deopt(db_d, HIR_OP_BinaryOp);
+    {
+        HirRegState *regs = (HirRegState *)malloc(3 * sizeof(HirRegState));
+        regs[0].reg = r_a; regs[1].reg = r_a; regs[2].reg = r_b;
+        ((HirDeoptLayout *)db_d)->live_regs_data = regs;
+        ((HirDeoptLayout *)db_d)->live_regs_count = 3;
+        assert(hir_c_deopt_find_adjacent_dup_reg(db_d) == r_a &&
+               "Phase 4.X Batch 80(d): first-pair match returns regs[1].reg");
+        free(regs);
+    }
+    free((char *)db_d - 2 * sizeof(void *) - sizeof(size_t));
+
+    /* (e) Last-pair match. */
+    void *db_e = hir_c_alloc_instr(sizeof(HirDeoptLayout), 0);
+    hir_c_init_deopt(db_e, HIR_OP_BinaryOp);
+    {
+        HirRegState *regs = (HirRegState *)malloc(3 * sizeof(HirRegState));
+        regs[0].reg = r_a; regs[1].reg = r_b; regs[2].reg = r_b;
+        ((HirDeoptLayout *)db_e)->live_regs_data = regs;
+        ((HirDeoptLayout *)db_e)->live_regs_count = 3;
+        assert(hir_c_deopt_find_adjacent_dup_reg(db_e) == r_b &&
+               "Phase 4.X Batch 80(e): last-pair match returns regs[2].reg");
+        free(regs);
+    }
+    free((char *)db_e - 2 * sizeof(void *) - sizeof(size_t));
+
+    /* (f) Middle match. */
+    void *db_f = hir_c_alloc_instr(sizeof(HirDeoptLayout), 0);
+    hir_c_init_deopt(db_f, HIR_OP_BinaryOp);
+    {
+        HirRegState *regs = (HirRegState *)malloc(4 * sizeof(HirRegState));
+        regs[0].reg = r_a; regs[1].reg = r_b; regs[2].reg = r_b; regs[3].reg = r_c;
+        ((HirDeoptLayout *)db_f)->live_regs_data = regs;
+        ((HirDeoptLayout *)db_f)->live_regs_count = 4;
+        assert(hir_c_deopt_find_adjacent_dup_reg(db_f) == r_b &&
+               "Phase 4.X Batch 80(f): middle match returns regs[2].reg");
+        free(regs);
+    }
+    free((char *)db_f - 2 * sizeof(void *) - sizeof(size_t));
+
+    /* (g) Multiple matches: returns FIRST (matches std::adjacent_find). */
+    void *db_g = hir_c_alloc_instr(sizeof(HirDeoptLayout), 0);
+    hir_c_init_deopt(db_g, HIR_OP_BinaryOp);
+    {
+        HirRegState *regs = (HirRegState *)malloc(4 * sizeof(HirRegState));
+        regs[0].reg = r_a; regs[1].reg = r_a; regs[2].reg = r_b; regs[3].reg = r_b;
+        ((HirDeoptLayout *)db_g)->live_regs_data = regs;
+        ((HirDeoptLayout *)db_g)->live_regs_count = 4;
+        assert(hir_c_deopt_find_adjacent_dup_reg(db_g) == r_a &&
+               "Phase 4.X Batch 80(g): multiple matches returns FIRST (r_a, "
+               "not r_b)");
+        free(regs);
+    }
+    free((char *)db_g - 2 * sizeof(void *) - sizeof(size_t));
+    (void)r_c; (void)r_d;
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -3995,4 +4109,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch74_for_each_phi();
     verify_phase4a_batch75_collect_phis_alloc();
     verify_phase4a_batch76_typed_argument_pytype_swap();
+    verify_phase4x_batch80_deopt_find_adjacent_dup_reg();
 }
