@@ -10,6 +10,8 @@
 #include "cinderx/Jit/hir/typed_argument_c.h"
 #include "Python.h"
 
+#include <assert.h>
+
 /* Pin: PHX_TYPED_ARGUMENT_THREAD_SAFE_FLAGS_MASK in the header must equal
  * the canonical Py_TPFLAGS_BASETYPE that hir.h's kThreadSafeFlagsMask uses.
  * If CPython renumbers Py_TPFLAGS_BASETYPE, this fires at compile-time. */
@@ -35,7 +37,16 @@ void phx_typed_argument_pytype_swap(
      * serialize machinery as a C bridge — out of scope per Q-W7-3
      * stay-C++ exception for genuinely-can't-port surface).
      *
-     * NULL-safe both directions: Py_XDECREF / Py_XINCREF accept NULL. */
+     * NULL-safe both directions: Py_XDECREF / Py_XINCREF accept NULL.
+     *
+     * Batch 78 (W7d-A2 forward-fix): assert the GIL is held at entry.
+     * This discharges the GIL half of the W7d-A2 unfalsifiable caller-
+     * side precondition (debug-only; release builds elide).
+     * ThreadedCompileSerialize half remains deferred to the Phase 4.X
+     * spec (stay-C++ exception discharge workstream). */
+    assert(PyGILState_Check() &&
+           "phx_typed_argument_pytype_swap: GIL must be held by caller "
+           "(see W7d-A2 caller-side invariant doc)");
     Py_XDECREF(*(PyTypeObject **)slot);
     *slot = new_value;
     Py_XINCREF(*(PyTypeObject **)slot);
