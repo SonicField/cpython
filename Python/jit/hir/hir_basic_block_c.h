@@ -64,6 +64,34 @@ static inline void hir_c_edge_copy_init(HirEdge *dst, const HirEdge *src) {
     hir_edge_set_to(dst, (HirBasicBlock *)src->to);
 }
 
+/* Phi visitor for hir_c_bb_for_each_phi. Receives the Phi instruction
+ * pointer + opaque user-data; return non-zero to continue iteration,
+ * zero to stop early (mirrors HirRegVisitor convention). */
+typedef int (*HirPhiInstrVisitor)(void *phi, void *user);
+
+/* forEachPhi C port (Phase 4.A W7b Batch 74). Walks the BB's
+ * instruction list, invoking visitor on each leading Phi instruction.
+ * Stops at the first non-Phi (matches C++ template forEachPhi at
+ * hir.h:3631 break-on-non-Phi semantics). Returns the number of
+ * Phis visited. */
+static inline size_t hir_c_bb_for_each_phi(HirBasicBlock *bb,
+                                            HirPhiInstrVisitor visitor,
+                                            void *user) {
+    size_t visited = 0;
+    void *instr = hir_bb_first_instr(bb);
+    while (instr != NULL) {
+        if (!hir_c_is_phi(instr)) {
+            break;
+        }
+        if (!visitor(instr, user)) {
+            break;
+        }
+        visited++;
+        instr = hir_bb_next_instr(bb, instr);
+    }
+    return visited;
+}
+
 /* Edge endpoint accessors (Phase 4.A W3 Batch 69). Trivial reads of the
  * from/to fields. Returns BasicBlock* via void* (HirEdge stores opaque
  * pointers — same layout as C++ Edge::from_/to_ per HirEdgeLayout pin

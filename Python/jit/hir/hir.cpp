@@ -62,22 +62,19 @@ PhxRegStateArray& DeoptBase::live_regs() {
 // (opcode metadata check). DeoptBase no longer overrides.
 
 bool DeoptBase::visitUsesDeopt(const std::function<bool(Register*&)>& func) {
-  if (auto fs = frameState()) {
-    if (!fs->visitUses(func)) {
-      return false;
-    }
-  }
-  for (auto& reg_state : live_regs_) {
-    if (!func(reg_state.reg)) {
-      return false;
-    }
-  }
-  if (guilty_reg_ != nullptr) {
-    if (!func(guilty_reg_)) {
-      return false;
-    }
-  }
-  return true;
+  // Phase 4.A W7b Batch 74: thunk pattern matches Instr::visitUses
+  // (line 356-366). hir_c_deopt_visit_uses_deopt walks frame_state +
+  // live_regs + guilty_reg in pure-C; this shim wraps the std::function
+  // callback as a C visitor + user pointer.
+  auto thunk = +[](void **slot, void *user) -> int {
+    auto& f = *static_cast<const std::function<bool(Register*&)>*>(user);
+    Register*& reg_ref = *reinterpret_cast<Register**>(slot);
+    return f(reg_ref) ? 1 : 0;
+  };
+  return hir_c_deopt_visit_uses_deopt(
+      this,
+      thunk,
+      const_cast<std::function<bool(Register*&)>*>(&func)) != 0;
 }
 
 void DeoptBase::sortLiveRegs() {
@@ -606,12 +603,18 @@ bool BasicBlock::IsTrampoline() {
 }
 
 void BasicBlock::fixupPhis(BasicBlock* old_pred, BasicBlock* new_pred) {
-  // This won't work correctly if this block has two incoming edges from the
-  // same block, but we already can't handle that correctly with our current Phi
-  // setup.
-  forEachPhi([&](Phi& phi) {
-    hir_c_phi_fixup_predecessor(&phi, old_pred, new_pred);
-  });
+  // Phase 4.A W7b Batch 74: thunk pattern over hir_c_bb_for_each_phi.
+  // The two-incoming-edges-from-same-block caveat from the prior C++
+  // forEachPhi-loop comment applies here too — Phi setup currently
+  // can't represent that case.
+  struct FixupPair { void* old_pred; void* new_pred; } pair{old_pred, new_pred};
+  auto thunk = +[](void* phi, void* user) -> int {
+    auto* p = static_cast<FixupPair*>(user);
+    hir_c_phi_fixup_predecessor(static_cast<Phi*>(phi), p->old_pred, p->new_pred);
+    return 1;  // continue iteration
+  };
+  hir_c_bb_for_each_phi(
+      reinterpret_cast<HirBasicBlock*>(this), thunk, &pair);
 }
 
 void BasicBlock::addPhiPredecessor(BasicBlock* old_pred, BasicBlock* new_pred) {

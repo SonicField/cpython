@@ -3727,6 +3727,116 @@ static void verify_phase4a_batch73_instr_operand_layout() {
     hir_c_destroy_instr_impl(i8);
 }
 
+/* Phi visitor for batch74 — counts visits + records last seen instr. */
+static int batch74_phi_count_visitor(void *phi, void *user) {
+    struct B74 { void *last; size_t count; size_t stop_at; };
+    B74 *b = (B74 *)user;
+    b->last = phi;
+    b->count++;
+    if (b->stop_at != 0 && b->count >= b->stop_at) {
+        return 0;  // stop early
+    }
+    return 1;
+}
+
+/* Phase 4.A W7b Batch 74 (theologian docs/tier7-phase4a-preanalysis-2026-04-30.md
+ * §9 W7b, supervisor D-1777582914 dispatch): forEachPhi C-port
+ * (hir_c_bb_for_each_phi) falsifier. Pins:
+ *   (a) Empty BB visits zero phis
+ *   (b) Phi-only BB visits all phis in chain order
+ *   (c) Phi-then-non-Phi BB stops at the first non-Phi (matches C++
+ *       template forEachPhi break-on-non-Phi at hir.h:3631)
+ *   (d) Non-Phi-first BB visits zero phis (early-bail)
+ *   (e) Visitor returning 0 stops iteration; count reflects partial visit
+ *
+ * NOTE: visitUsesDeopt thunk (W7b second deliverable) is verified
+ * indirectly via batch11 (live_regs iteration through
+ * hir_c_deopt_visit_uses_deopt) — the C body unchanged; W7b only
+ * swaps the C++ shim from manual loop to thunk delegation. */
+static void verify_phase4a_batch74_for_each_phi() {
+    struct B74 { void *last; size_t count; size_t stop_at; };
+
+    /* (a) Empty BB. */
+    HirBasicBlock bb_empty;
+    hir_c_test_chain_init(&bb_empty);
+    B74 ctx_a = { NULL, 0, 0 };
+    size_t visited_a = hir_c_bb_for_each_phi(
+        &bb_empty, batch74_phi_count_visitor, &ctx_a);
+    assert(visited_a == 0 && ctx_a.count == 0 &&
+           "Phase 4.A Batch 74(a): empty BB visits 0 phis");
+    hir_c_test_chain_destroy(&bb_empty);
+
+    /* (b) Phi-only BB (3 phis). */
+    HirBasicBlock bb_phis;
+    hir_c_test_chain_init(&bb_phis);
+    void *phis[3];
+    for (int i = 0; i < 3; i++) {
+        phis[i] = hir_c_alloc_instr(sizeof(HirPhi), 0);
+        assert(phis[i] != NULL);
+        hir_c_init_instr(phis[i], HIR_OP_Phi);
+        hir_c_bb_append(&bb_phis, phis[i]);
+    }
+    B74 ctx_b = { NULL, 0, 0 };
+    size_t visited_b = hir_c_bb_for_each_phi(
+        &bb_phis, batch74_phi_count_visitor, &ctx_b);
+    assert(visited_b == 3 && ctx_b.count == 3 &&
+           "Phase 4.A Batch 74(b): 3-phi BB visits 3");
+    assert(ctx_b.last == phis[2] &&
+           "Phase 4.A Batch 74(b): last visited == 3rd phi (chain order)");
+    hir_c_test_chain_destroy(&bb_phis);
+
+    /* (c) Phi-then-non-Phi BB: 2 phis then an Assign. Stops at Assign. */
+    HirBasicBlock bb_mixed;
+    hir_c_test_chain_init(&bb_mixed);
+    for (int i = 0; i < 2; i++) {
+        void *p = hir_c_alloc_instr(sizeof(HirPhi), 0);
+        assert(p != NULL);
+        hir_c_init_instr(p, HIR_OP_Phi);
+        hir_c_bb_append(&bb_mixed, p);
+    }
+    void *non_phi = hir_c_alloc_instr(sizeof(HirInstrLayout), 0);
+    assert(non_phi != NULL);
+    hir_c_init_instr(non_phi, HIR_OP_Assign);
+    hir_c_bb_append(&bb_mixed, non_phi);
+    B74 ctx_c = { NULL, 0, 0 };
+    size_t visited_c = hir_c_bb_for_each_phi(
+        &bb_mixed, batch74_phi_count_visitor, &ctx_c);
+    assert(visited_c == 2 && ctx_c.count == 2 &&
+           "Phase 4.A Batch 74(c): [Phi, Phi, non-Phi] visits 2");
+    hir_c_test_chain_destroy(&bb_mixed);
+
+    /* (d) Non-Phi-first BB visits zero phis. */
+    HirBasicBlock bb_nonphi;
+    hir_c_test_chain_init(&bb_nonphi);
+    void *first_non_phi = hir_c_alloc_instr(sizeof(HirInstrLayout), 0);
+    assert(first_non_phi != NULL);
+    hir_c_init_instr(first_non_phi, HIR_OP_Assign);
+    hir_c_bb_append(&bb_nonphi, first_non_phi);
+    B74 ctx_d = { NULL, 0, 0 };
+    size_t visited_d = hir_c_bb_for_each_phi(
+        &bb_nonphi, batch74_phi_count_visitor, &ctx_d);
+    assert(visited_d == 0 && ctx_d.count == 0 &&
+           "Phase 4.A Batch 74(d): non-Phi-first BB visits 0 (early-bail)");
+    hir_c_test_chain_destroy(&bb_nonphi);
+
+    /* (e) Visitor returning 0 stops iteration. 5 phis, stop after 2nd. */
+    HirBasicBlock bb_stop;
+    hir_c_test_chain_init(&bb_stop);
+    for (int i = 0; i < 5; i++) {
+        void *p = hir_c_alloc_instr(sizeof(HirPhi), 0);
+        assert(p != NULL);
+        hir_c_init_instr(p, HIR_OP_Phi);
+        hir_c_bb_append(&bb_stop, p);
+    }
+    B74 ctx_e = { NULL, 0, /* stop_at */ 2 };
+    size_t visited_e = hir_c_bb_for_each_phi(
+        &bb_stop, batch74_phi_count_visitor, &ctx_e);
+    assert(visited_e == 2 && ctx_e.count == 2 &&
+           "Phase 4.A Batch 74(e): visitor returning 0 stops iteration; "
+           "visited count reflects partial visit (2 of 5)");
+    hir_c_test_chain_destroy(&bb_stop);
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -3789,4 +3899,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch71_deopt_base_accessors();
     verify_phase4a_batch72_bb_terminator_and_entry_snapshot();
     verify_phase4a_batch73_instr_operand_layout();
+    verify_phase4a_batch74_for_each_phi();
 }
