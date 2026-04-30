@@ -65,12 +65,64 @@
 #include <iostream>
 #include <memory>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
 using namespace jit;
 
 namespace {
+
+// M-slate M0a/M0b (supervisor D-1777572112): process-lifetime compile-error
+// tracking for loud-fail observability.
+//   M0a: dedup compile-error log lines by (preloader.fullname, what-prefix);
+//        first occurrence emits JIT_LOG, subsequent occurrences increment
+//        counter only.
+//   M0b: bucket counters exposed via cinderjit.get_compile_errors() for
+//        gate-side regression detection on the 'unknown' bucket.
+struct CompileErrorKey {
+  std::string fullname;
+  std::string what_prefix;
+  bool operator==(const CompileErrorKey& o) const {
+    return fullname == o.fullname && what_prefix == o.what_prefix;
+  }
+};
+struct CompileErrorKeyHash {
+  size_t operator()(const CompileErrorKey& k) const {
+    return std::hash<std::string>{}(k.fullname) ^
+           (std::hash<std::string>{}(k.what_prefix) << 1);
+  }
+};
+std::unordered_set<CompileErrorKey, CompileErrorKeyHash>& seenCompileErrors() {
+  static std::unordered_set<CompileErrorKey, CompileErrorKeyHash> s;
+  return s;
+}
+std::unordered_map<std::string, size_t>& compileErrorBuckets() {
+  static std::unordered_map<std::string, size_t> m;
+  return m;
+}
+
+// Bucket exception::what() into known fault classes per builder.cpp throw
+// sites (2441/2446/4474/4485/4493). Returns 'unknown' for unrecognized
+// messages — gate BLOCKs if the 'unknown' bucket grows commit-over-commit.
+std::string bucketCompileError(const std::string& what) {
+  if (what.find("Cannot compile: opcode ") == 0) {
+    return "Cannot-compile-opcode";
+  }
+  if (what.find("Cannot compile: unhandled opcode ") == 0) {
+    return "Cannot-compile-unhandled-opcode";
+  }
+  if (what.find("uses super()") != std::string::npos) {
+    return "super";
+  }
+  if (what.find("uses banned global") != std::string::npos) {
+    return "banned-global";
+  }
+  if (what.find("contains unsupported opcode") != std::string::npos) {
+    return "Cannot-compile-unsupported-opcode";
+  }
+  return "unknown";
+}
 
 // RAII device for disabling GIL checking.
 class DisableGilCheck {
@@ -2435,6 +2487,28 @@ PyObject* get_compiled_functions(PyObject* /* self */, PyObject*) {
   return funcs.release();
 }
 
+// M-slate M0b (supervisor D-1777572112): expose process-wide
+// compile_error_count buckets. Returns a dict mapping bucket name (per
+// bucketCompileError above) to occurrence count. Gate-side compare uses
+// the 'unknown' bucket as the load-bearing signal.
+PyObject* get_compile_errors(PyObject* /* self */, PyObject*) {
+  auto dict = Ref<>::steal(PyDict_New());
+  if (dict == nullptr) {
+    return nullptr;
+  }
+  ThreadedCompileSerialize guard;
+  for (const auto& [bucket, count] : compileErrorBuckets()) {
+    auto py_count = Ref<>::steal(PyLong_FromSize_t(count));
+    if (py_count == nullptr) {
+      return nullptr;
+    }
+    if (PyDict_SetItemString(dict, bucket.c_str(), py_count) < 0) {
+      return nullptr;
+    }
+  }
+  return dict.release();
+}
+
 PyObject* get_compilation_time(PyObject* /* self */, PyObject*) {
   auto time = jitCtx() != nullptr ? jitCtx()->totalCompileTime()
                                   : std::chrono::milliseconds::zero();
@@ -3244,6 +3318,17 @@ PyMethodDef jit_methods[] = {
      get_compiled_functions,
      METH_NOARGS,
      PyDoc_STR("Return a list of functions that are currently JIT-compiled.")},
+    {"get_compile_errors",
+     get_compile_errors,
+     METH_NOARGS,
+     PyDoc_STR(
+         "Return a dict mapping compile-error bucket names "
+         "(Cannot-compile-opcode / Cannot-compile-unhandled-opcode / "
+         "Cannot-compile-unsupported-opcode / super / banned-global / "
+         "unknown) to process-lifetime occurrence counts. M-slate M0b — "
+         "the 'unknown' bucket is the load-bearing signal for gate-side "
+         "regression detection (gate BLOCKs if unknown grows commit-over-"
+         "commit).")},
     {"get_compilation_time",
      get_compilation_time,
      METH_NOARGS,
@@ -4333,7 +4418,19 @@ _PyJIT_Result compilePreloaderImpl(
   try {
     compiled_func = jit_ctx->compiler().Compile(preloader);
   } catch (const std::exception& exn) {
-    JIT_DLOG("{}", exn.what());
+    // M-slate M0a/M0b: dedup by (fullname, what-prefix); first occurrence
+    // emits a loud JIT_LOG (visible to gate stderr capture), subsequent
+    // occurrences only increment the bucket counter. Bucket counters are
+    // exposed via cinderjit.get_compile_errors() for gate-side comparison.
+    std::string what = exn.what();
+    std::string fullname = preloader.fullname();
+    ThreadedCompileSerialize guard;
+    CompileErrorKey key{fullname, what.substr(0, std::min<size_t>(80, what.size()))};
+    auto inserted = seenCompileErrors().insert(key).second;
+    compileErrorBuckets()[bucketCompileError(what)]++;
+    if (inserted) {
+      JIT_LOG("compile error: {} :: {}", fullname, what);
+    }
   }
 
   ThreadedCompileSerialize guard;
