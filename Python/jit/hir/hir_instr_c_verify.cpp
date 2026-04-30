@@ -3212,6 +3212,52 @@ static void verify_phase4d_batch52_advance_past_yield() {
            "Phase 4.D Batch 52: boundary index = count-1 updates");
 }
 
+/* Phase 4.A W1 Batch 67 (theologian docs/tier7-phase4a-preanalysis-2026-04-30.md
+ * §3 W1): CallCFunc lookup table V5 sentinel falsifier. Pins:
+ *   (a) all 4 known func enums return non-NULL canonical name
+ *   (b) out-of-range indices (-1, 4) return the "<unknown CallCFunc>" sentinel
+ *   (c) canonical anchors prevent silent enum reorder
+ * TypedArgument::threadSafeTpFlags W1 conversion verified at compile-time
+ * via _Static_assert in typed_argument_c.c (mask == Py_TPFLAGS_BASETYPE);
+ * runtime PyType_Type test is impractical at constructor-time (Python not
+ * yet initialized) and the static_assert already guards the only invariant. */
+static void verify_phase4a_batch67_call_cfunc_func_name() {
+    /* (a) All 4 known func enums per CallCFunc_FUNCS X-macro
+     * (cinderx/Jit/hir/hir_instr_c.h:2135-2147 kNames table). */
+    const char *n0 = hir_c_call_cfunc_func_name(0);
+    const char *n1 = hir_c_call_cfunc_func_name(1);
+    const char *n2 = hir_c_call_cfunc_func_name(2);
+    const char *n3 = hir_c_call_cfunc_func_name(3);
+    assert(n0 != NULL && n0[0] != '\0' &&
+           "Phase 4.A Batch 67(a): CallCFunc[0] non-empty");
+    assert(n1 != NULL && n1[0] != '\0' &&
+           "Phase 4.A Batch 67(a): CallCFunc[1] non-empty");
+    assert(n2 != NULL && n2[0] != '\0' &&
+           "Phase 4.A Batch 67(a): CallCFunc[2] non-empty");
+    assert(n3 != NULL && n3[0] != '\0' &&
+           "Phase 4.A Batch 67(a): CallCFunc[3] non-empty");
+
+    /* (b) Out-of-range fallback string. */
+    assert(strcmp(hir_c_call_cfunc_func_name(-1), "<unknown CallCFunc>") == 0 &&
+           "Phase 4.A Batch 67(b): negative index returns sentinel");
+    assert(strcmp(hir_c_call_cfunc_func_name(4), "<unknown CallCFunc>") == 0 &&
+           "Phase 4.A Batch 67(b): past-end index returns sentinel");
+    assert(strcmp(hir_c_call_cfunc_func_name(99), "<unknown CallCFunc>") == 0 &&
+           "Phase 4.A Batch 67(b): far-out-of-range returns sentinel");
+
+    /* (c) Canonical anchors per CallCFunc_FUNCS X-macro order. Reorder
+     * of the X-macro without re-flowing the C-side kNames table will
+     * break these. */
+    assert(strcmp(n0, "Cix_PyAsyncGenValueWrapperNew") == 0 &&
+           "Phase 4.A Batch 67(c): CallCFunc[0] = Cix_PyAsyncGenValueWrapperNew");
+    assert(strcmp(n1, "JitCoro_GetAwaitableIter") == 0 &&
+           "Phase 4.A Batch 67(c): CallCFunc[1] = JitCoro_GetAwaitableIter");
+    assert(strcmp(n2, "JitGen_yf") == 0 &&
+           "Phase 4.A Batch 67(c): CallCFunc[2] = JitGen_yf");
+    assert(strcmp(n3, "JITRT_MatchAndClearException") == 0 &&
+           "Phase 4.A Batch 67(c): CallCFunc[3] = JITRT_MatchAndClearException");
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -3267,4 +3313,5 @@ static void hir_instr_runtime_check() {
     verify_phase4d_batch64_emit_cluster_10();
     verify_phase4d_batch65_emit_cluster_13();
     verify_phase4d_batch66_emit_cluster_14();
+    verify_phase4a_batch67_call_cfunc_func_name();
 }

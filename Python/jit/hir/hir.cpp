@@ -7,6 +7,7 @@
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_instr_info_c.h"
 #include "cinderx/Jit/hir/hir_operand_types_c.h"
+#include "cinderx/Jit/hir/typed_argument_c.h"
 #include "cinderx/Jit/threaded_compile.h"
 
 #include <algorithm>
@@ -754,8 +755,14 @@ TypedArgument& TypedArgument::operator=(const TypedArgument& other) {
 }
 
 unsigned long TypedArgument::threadSafeTpFlags() const {
+  // Phase 4.A W1: tp_flags-mask read delegated to phx_typed_argument C body
+  // (typed_argument_c.{h,c}). Header mask is _Static_assert'd ==
+  // Py_TPFLAGS_BASETYPE, matching hir.h kThreadSafeFlagsMask. PyTypeObject
+  // is a typedef for struct _typeobject (Include/pytypedefs.h:20) so the
+  // pointer is implicitly compatible — no cast needed.
   JIT_DCHECK(
-      thread_safe_flags == (pytype->tp_flags & kThreadSafeFlagsMask),
+      thread_safe_flags ==
+          phx_typed_argument_thread_safe_tp_flags(pytype),
       "thread safe flags changed");
   return thread_safe_flags;
 }
