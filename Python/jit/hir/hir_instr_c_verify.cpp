@@ -3399,6 +3399,74 @@ static void verify_phase4a_batch69_edge_accessors() {
            "Phase 4.A Batch 69(c): accessor parity src vs e_direct");
 }
 
+/* Phase 4.A W4 Batch 70 (theologian docs/tier7-phase4a-preanalysis-2026-04-30.md
+ * §3 W4, supervisor D-1777578145 medium-logic dispatch): Environment
+ * accessor falsifier coverage. The 4 mutator/lookup methods (Allocate-
+ * Register, addRegister, getRegister, references) are already verified by
+ * batch26 + batch35 + the offsetof static_assert at line 124. This batch
+ * pins the 5 small read accessors not yet covered:
+ *   hir_env_reg_count / hir_env_reg_data / hir_env_next_register_id /
+ *   hir_env_num_load_type_attr_caches / hir_env_num_load_type_method_caches
+ * plus the references opaque-pointer return identity.
+ *
+ * SCOPE-NOTE: Environment::~Environment + Environment::addReference
+ * (PyObject* / Ref<>) DEFERRED. Dtor mixes ThreadedCompileSerialize RAII
+ * + std::unordered_set::clear + delete loop on Register*; addReference
+ * uses ThreadedRef + std::unordered_set::emplace. Both are RAII + STL
+ * heavy and structurally W7-class (same review tier as Instr ctor/copy
+ * deferred from W1). Documented for W7 backlog. */
+static void verify_phase4a_batch70_environment_accessors() {
+    HirEnvironment env = {};
+
+    /* (a) Initial empty-state accessors. */
+    assert(hir_env_reg_count(&env) == 0 &&
+           "Phase 4.A Batch 70(a): empty env reg_count == 0");
+    assert(hir_env_reg_data(&env) == NULL &&
+           "Phase 4.A Batch 70(a): empty env reg_data == NULL");
+    assert(hir_env_next_register_id(&env) == 0 &&
+           "Phase 4.A Batch 70(a): empty env next_register_id == 0");
+    assert(hir_env_num_load_type_attr_caches(&env) == 0 &&
+           "Phase 4.A Batch 70(a): empty env num_load_type_attr_caches == 0");
+    assert(hir_env_num_load_type_method_caches(&env) == 0 &&
+           "Phase 4.A Batch 70(a): empty env num_load_type_method_caches == 0");
+
+    /* (b) references opaque-pointer points into the struct (offset
+     * matches the static_assert pin at verify.cpp:124). */
+    void *refs_ptr = hir_c_env_references(&env);
+    assert(refs_ptr == (void *)env.references_opaque &&
+           "Phase 4.A Batch 70(b): hir_c_env_references returns "
+           "&references_opaque[0]");
+    /* The pointer must lie inside the env struct (not a heap allocation). */
+    assert((char *)refs_ptr >= (char *)&env &&
+           (char *)refs_ptr < (char *)&env + sizeof(env) &&
+           "Phase 4.A Batch 70(b): refs pointer is intra-struct, not heap");
+
+    /* (c) Direct field-write smoke for accessors that bypass mutators. */
+    env.next_register_id = 7;
+    env.next_load_type_attr_cache = 3;
+    env.next_load_type_method_cache = 2;
+    assert(hir_env_next_register_id(&env) == 7 &&
+           "Phase 4.A Batch 70(c): next_register_id field-write surfaces");
+    assert(hir_env_num_load_type_attr_caches(&env) == 3 &&
+           "Phase 4.A Batch 70(c): num_load_type_attr_caches surfaces");
+    assert(hir_env_num_load_type_method_caches(&env) == 2 &&
+           "Phase 4.A Batch 70(c): num_load_type_method_caches surfaces");
+
+    /* (d) reg_count + reg_data update after a single AllocateRegister
+     * (re-confirms batch26 invariant via the small-accessor path). */
+    void *r0 = hir_c_env_allocate_register(&env);
+    assert(hir_env_reg_count(&env) == 1 &&
+           "Phase 4.A Batch 70(d): reg_count == 1 after one allocate");
+    assert(hir_env_reg_data(&env) != NULL &&
+           "Phase 4.A Batch 70(d): reg_data non-NULL after one allocate");
+    assert(hir_env_reg_data(&env)[0] == r0 &&
+           "Phase 4.A Batch 70(d): reg_data[0] == allocated register");
+
+    /* Cleanup: matches batch26 pattern. */
+    delete static_cast<jit::hir::Register*>(r0);
+    free(env.reg_data);
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -3457,4 +3525,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch67_call_cfunc_func_name();
     verify_phase4a_batch68_phi_apply_helper_and_block_index();
     verify_phase4a_batch69_edge_accessors();
+    verify_phase4a_batch70_environment_accessors();
 }
