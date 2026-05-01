@@ -55,6 +55,10 @@ static_assert(offsetof(LirInstruction, basic_block_) == offsetof(Instruction, ba
     "LirInstruction.basic_block_ offset mismatch");
 static_assert(offsetof(LirInstruction, inputs_) == offsetof(Instruction, inputs_),
     "LirInstruction.inputs_ offset mismatch");
+static_assert(offsetof(LirInstruction, num_inputs_) == offsetof(Instruction, num_inputs_),
+    "LirInstruction.num_inputs_ offset mismatch");
+static_assert(offsetof(LirInstruction, inputs_capacity_) == offsetof(Instruction, inputs_capacity_),
+    "LirInstruction.inputs_capacity_ offset mismatch");
 static_assert(offsetof(LirInstruction, prev_) == offsetof(Instruction, prev_),
     "LirInstruction.prev_ offset mismatch");
 static_assert(offsetof(LirInstruction, next_) == offsetof(Instruction, next_),
