@@ -334,352 +334,9 @@ struct HIRBuilder::TranslationContext {
   // emitVariadic<T> + emitVariadicDeopt + emitCallMethod removed earlier
   // in PARTIAL→STUB Batch 1 (W26 PartialConversion dead-code cleanup).
 
-  // Phase 4.D pilot step 2 (Batch 54): no-FrameState emit cluster — each
-  // dispatches to the matching hir_c_tc_emit_* primitive in hir_c_api.h.
-  void emitSnapshot() { hir_c_tc_emit_snapshot(this); }
-
-  // Insert a pre-created instruction from a C factory.
-  // Sets bytecode offset and appends to current block.
-  // Phase 4.D step 1 (Batch 53): delegates to hir_c_tc_emit_c via the
-  // PhxTranslationContext POD-cast (layout pinned at builder.cpp:1011-1014).
-  Instr* emitC(Instr* instr) {
-    hir_c_tc_emit_c(this, instr);
-    return instr;
-  }
-
   // emitVariadicDeopt removed (see emitVariadic comment above).
 
-  // Convenience: emit LoadConst via pure C factory.
-  void emitLoadConst(Register* dst, Type type) {
-    hir_c_tc_emit_load_const(this, dst, to_hir(type));
-  }
-
-  // GuardType via C++ bridge (no FrameState).
-  void emitGuardType(Register* dst, Type target, Register* src) {
-    hir_c_tc_emit_guard_type(this, dst, to_hir(target), src);
-  }
-
-  // GuardType via C++ bridge (with FrameState).
-  void emitGuardType(Register* dst, Type target, Register* src,
-                     const FrameState& fs) {
-    hir_c_tc_emit_guard_type_fs(this, dst, to_hir(target), src, &fs);
-  }
-
-  // RefineType via C factory (caller-provided register).
-  void emitRefineType(Register* dst, Type type, Register* src) {
-    hir_c_tc_emit_refine_type(this, dst, to_hir(type), src);
-  }
-
-  // CheckExc via C factory (no FrameState).
-  void emitCheckExc(Register* dst, Register* src) {
-    hir_c_tc_emit_check_exc(this, dst, src);
-  }
-
-  // CheckExc via C factory (with FrameState).
-  void emitCheckExc(Register* dst, Register* src, const FrameState& fs) {
-    hir_c_tc_emit_check_exc_fs(this, dst, src, &fs);
-  }
-
-  // Branch via C++ bridge (Edge::set_to). Returns instruction.
-  Instr* emitBranch(BasicBlock* target) {
-    return static_cast<Instr*>(hir_c_tc_emit_branch(this, target));
-  }
-
-  // CondBranch via C++ bridge (Edge::set_to). Returns instruction.
-  Instr* emitCondBranch(Register* cond, BasicBlock* true_bb, BasicBlock* false_bb) {
-    return static_cast<Instr*>(hir_c_tc_emit_cond_branch(this, cond, true_bb, false_bb));
-  }
-
-
-  // Return via C factory.
-  void emitReturn(Register* src, Type type) {
-    hir_c_tc_emit_return(this, src, to_hir(type));
-  }
-
-
-
-  // Assign via C factory.
-  void emitAssign(Register* dst, Register* src) {
-    hir_c_tc_emit_assign(this, dst, src);
-  }
-
-
-  // PrimitiveBoxBool via pure C factory.
-  void emitPrimitiveBoxBool(Register* dst, Register* src) {
-    emitC(static_cast<Instr*>(hir_c_create_primitive_box_bool(dst, src)));
-  }
-
-
-
-
-  // BinaryOp via C++ bridge (DeoptBase + FrameState).
-  void emitBinaryOp(Register* dst, BinaryOpKind op, Register* left,
-                     Register* right, const FrameState& fs) {
-    hir_c_tc_emit_binary_op(this, dst, static_cast<int32_t>(op), left, right,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-
-
-
-
-
-  // YieldValue via C++ bridge (DeoptBase + FrameState).
-  void emitYieldValue(Register* dst, Register* src, const FrameState& fs) {
-    hir_c_tc_emit_yield_value(this, dst, src,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-
-
-
-  // MakeCell via C++ bridge (DeoptBase + FrameState).
-  void emitMakeCell(Register* dst, Register* src, const FrameState& fs) {
-    hir_c_tc_emit_make_cell(this, dst, src,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-
-  // InitialYield via C++ bridge (DeoptBase + FrameState).
-  void emitInitialYield(Register* dst, const FrameState& fs) {
-    hir_c_tc_emit_initial_yield(this, dst,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-
-  // LoadArg via C factory (HasOutput, index + type).
-  void emitLoadArg(Register* dst, int idx, Type type) {
-    hir_c_tc_emit_load_arg(this, dst, static_cast<int32_t>(idx), to_hir(type));
-  }
-
-  // YieldFrom via C++ bridge (DeoptBase + FrameState).
-  void emitYieldFrom(Register* dst, Register* send_value, Register* iter,
-                      const FrameState& fs) {
-    hir_c_tc_emit_yield_from(this, dst, send_value, iter,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-
-
-
-
-  // GetIter via C++ bridge (DeoptBase + FrameState).
-  void emitGetIter(Register* dst, Register* src, const FrameState& fs) {
-    hir_c_tc_emit_get_iter(this, dst, src,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-
-  void emitDeleteAttr(Register* receiver, int name_idx, const FrameState& fs) {
-    hir_c_tc_emit_delete_attr(this, receiver, name_idx,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitDeleteSubscr(Register* container, Register* sub, const FrameState& fs) {
-    hir_c_tc_emit_delete_subscr(this, container, sub,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitStoreAttr(Register* receiver, Register* value, int name_idx, const FrameState& fs) {
-    hir_c_tc_emit_store_attr(this, receiver, value, name_idx,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitAtQuiescentState() {
-    hir_c_tc_emit_at_quiescent_state(this);
-  }
-  void emitRunPeriodicTasks(Register* dst, const FrameState& fs) {
-    hir_c_tc_emit_run_periodic_tasks(this, dst,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-
-  void emitSetUpdate(Register* dst, Register* set, Register* iter, const FrameState& fs) {
-    hir_c_tc_emit_set_update(this, dst, set, iter,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitDictUpdate(Register* dst, Register* dict, Register* update, const FrameState& fs) {
-    hir_c_tc_emit_dict_update(this, dst, dict, update,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitListExtend(Register* dst, Register* list, Register* iter, const FrameState& fs) {
-    hir_c_tc_emit_list_extend(this, dst, list, iter,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitCopyDictWithoutKeys(Register* dst, Register* subj, Register* keys, const FrameState& fs) {
-    hir_c_tc_emit_copy_dict_without_keys(this, dst, subj, keys,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitListAppend(Register* dst, Register* list, Register* item, const FrameState& fs) {
-    hir_c_tc_emit_list_append(this, dst, list, item,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitLoadGlobal(Register* dst, int name_idx, const FrameState& fs) {
-    hir_c_tc_emit_load_global(this, dst, name_idx,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-
-  // StoreSubscr via C++ bridge (DeoptBase, no output).
-  void emitStoreSubscr(Register* container, Register* sub, Register* value,
-                        const FrameState& fs) {
-    hir_c_tc_emit_store_subscr(this, container, sub, value,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  // InPlaceOp via C++ bridge.
-  void emitInPlaceOp(Register* dst, InPlaceOpKind op, Register* left,
-                      Register* right, const FrameState& fs) {
-    hir_c_tc_emit_in_place_op(this, dst, static_cast<int32_t>(op), left, right,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  // FormatWithSpec via C++ bridge.
-  void emitFormatWithSpec(Register* dst, Register* value, Register* fmt_spec,
-                           const FrameState& fs) {
-    hir_c_tc_emit_format_with_spec(this, dst, value, fmt_spec,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-
-  // Batch 3 wrappers
-  void emitDictMerge(Register* dst, Register* dict, Register* update, Register* func, const FrameState& fs) {
-    hir_c_tc_emit_dict_merge(this, dst, dict, update, func,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitConvertValue(Register* dst, Register* value, int conversion, const FrameState& fs) {
-    hir_c_tc_emit_convert_value(this, dst, value, conversion,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitUnaryOp(Register* dst, UnaryOpKind op, Register* operand, const FrameState& fs) {
-    hir_c_tc_emit_unary_op(this, dst, static_cast<int32_t>(op), operand,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitImportFrom(Register* dst, Register* name, int name_idx, const FrameState& fs) {
-    hir_c_tc_emit_import_from(this, dst, name, name_idx,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitPrimitiveUnbox(Register* dst, Register* src, Type type) {
-    hir_c_tc_emit_primitive_unbox(this, dst, src, to_hir(type));
-  }
-
-  void emitMakeFunction(Register* dst, Register* code, Register* qualname, const FrameState& fs) {
-    hir_c_tc_emit_make_function(this, dst, code, qualname,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitBuildTemplate(Register* strings, Register* interps, Register* dst, const FrameState& fs) {
-    hir_c_tc_emit_build_template(this, strings, interps, dst,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitBuildInterpolation(Register* dst, Register* val, Register* str, Register* fmt, int conv, const FrameState& fs) {
-    hir_c_tc_emit_build_interpolation(this, dst, val, str, fmt, conv,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitLoadAttr2(Register* dst, Register* receiver, int name_idx, const FrameState& fs) {
-    hir_c_tc_emit_load_attr2(this, dst, receiver, name_idx,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-
-  // Batch 6 wrappers
-  void emitStoreField(Register* receiver, const char* name, intptr_t offset, Register* value, Type type, Register* previous) {
-    hir_c_tc_emit_store_field(this, receiver, name, offset, value, to_hir(type), previous);
-  }
-  void emitCallEx(Register* dst, Register* func, Register* pargs, Register* kwargs, CallFlags flags, const FrameState& fs) {
-    hir_c_tc_emit_call_ex(this, dst, func, pargs, kwargs,
-        static_cast<uint32_t>(flags),
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitImportName(Register* dst, int name_idx, Register* fromlist, Register* level, const FrameState& fs) {
-    hir_c_tc_emit_import_name(this, dst, name_idx, fromlist, level,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-
   // emitCallMethod removed (see top-of-class comment).
-
-  Instr* emitCallStaticRetVoid(size_t n, void* addr) {
-    return static_cast<Instr*>(hir_c_tc_emit_call_static_ret_void(this, n, addr));
-  }
-
-
-  // Batch: 1-op HasOutput DeoptBase (dst, src, frame)
-  void emitGetAIter(Register* dst, Register* src, const FrameState& fs) {
-    hir_c_tc_emit_get_a_iter(this, dst, src,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  // Batch 8b wrappers
-  void emitCast(Register* dst, Register* value, PyTypeObject* pytype, bool optional, bool exact, const FrameState& fs) {
-    hir_c_tc_emit_cast(this, dst, value, pytype, optional, exact,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-
-
-
-
-  // CallInd via C factory (variadic, string name)
-  CallInd* emitCallInd(size_t n, Register* dst, const char* name, Type ret_type) {
-    return static_cast<CallInd*>(emitC(static_cast<Instr*>(
-        hir_c_create_call_ind_reg2(n, dst, name, to_hir(ret_type)))));
-  }
-
-
-
-  void emitTpAlloc(Register* dst, PyTypeObject* pytype, const FrameState& fs) {
-    hir_c_tc_emit_tp_alloc(this, dst, pytype,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitLoadMethod(Register* dst, Register* receiver, int name_idx, const FrameState& fs) {
-    hir_c_tc_emit_load_method(this, dst, receiver, name_idx,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitMatchKeys(Register* dst, Register* subj, Register* keys, const FrameState& fs) {
-    hir_c_tc_emit_match_keys(this, dst, subj, keys,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitFormatValue(Register* dst, Register* fmt, Register* val, int conv, const FrameState& fs) {
-    hir_c_tc_emit_format_value(this, dst, fmt, val, conv,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-
-  void emitGetANext(Register* dst, Register* src, const FrameState& fs) {
-    hir_c_tc_emit_get_a_next(this, dst, src,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitIsNegativeAndErrOccurred(Register* dst, Register* src, const FrameState& fs) {
-    hir_c_tc_emit_is_negative_and_err_occurred(this, dst, src,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-  void emitLoadCurrentFunc(Register* dst) {
-    hir_c_tc_emit_load_current_func(this, dst);
-  }
-  void emitLoadEvalBreaker(Register* dst) {
-    hir_c_tc_emit_load_eval_breaker(this, dst);
-  }
-  void emitLoadFrame() {
-    hir_c_tc_emit_load_frame(this);
-  }
-
-
-
-
-  // CheckNeg via C++ bridge (DeoptBase + FrameState).
-  void emitCheckNeg(Register* dst, Register* src, const FrameState& fs) {
-    hir_c_tc_emit_check_neg(this, dst, src,
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-
-
-  // PrimitiveBox via C++ bridge (DeoptBase + FrameState).
-  void emitPrimitiveBox(Register* dst, Register* src, Type type,
-                         const FrameState& fs) {
-    hir_c_tc_emit_primitive_box(this, dst, src, to_hir(type),
-        const_cast<void*>(static_cast<const void*>(&fs)));
-  }
-
-
-
-
-
-
-  // LoadField via C++ bridge (caller-provided register, no FrameState).
-  void emitLoadField(Register* dst, Register* receiver, const char* name,
-                      intptr_t offset, Type type, bool borrowed = false) {
-    hir_c_tc_emit_load_field(this, dst, receiver, name, offset, to_hir(type),
-        borrowed ? 1 : 0);
-  }
-
-  // CallStatic via C++ bridge (returns CallStatic* for operand wiring).
-  CallStatic* emitCallStatic(size_t n_operands, Register* dst, void* addr,
-                              Type ret_type) {
-    return static_cast<CallStatic*>(emitC(static_cast<Instr*>(
-        hir_c_create_call_static_reg(n_operands, dst, addr, to_hir(ret_type)))));
-  }
-
 
   BasicBlock* block{nullptr};
   FrameState frame;
@@ -691,7 +348,7 @@ void HIRBuilder::addInitialYield(TranslationContext& tc) {
   static_assert(offsetof(TranslationContext, frame) == sizeof(void*),
       "TranslationContext::frame must follow block for PhxTranslationContext cast");
   auto out = static_cast<Register*>(hir_c_temps_alloc_non_stack(&state_.temps_phx));
-  tc.emitInitialYield(out, tc.frame);
+  hir_c_tc_emit_initial_yield(&tc, out, &tc.frame);
 }
 
 // Add LoadArg instructions for each function argument. This ensures that the
@@ -708,10 +365,10 @@ void HIRBuilder::addLoadArgs(TranslationContext& tc, int num_args) {
     Register* dst = static_cast<Register*>(tc.frame.localsplus.data[i]);
     JIT_CHECK(dst != nullptr, "No register for argument {}", i);
     if (i == starargs_idx) {
-      tc.emitLoadArg(dst, i, TTupleExact);
+      hir_c_tc_emit_load_arg(&tc, dst, static_cast<int32_t>(i), to_hir(TTupleExact));
     } else {
       Type type = preloader().checkArgType(i);
-      tc.emitLoadArg(dst, i, type);
+      hir_c_tc_emit_load_arg(&tc, dst, static_cast<int32_t>(i), to_hir(type));
     }
   }
 }
@@ -743,7 +400,7 @@ void HIRBuilder::addInitializeCells([[maybe_unused]] TranslationContext& tc) {
           tc.frame.nlocals);
       cell_contents = static_cast<Register*>(tc.frame.localsplus.data[arg]);
     }
-    tc.emitMakeCell(dst, cell_contents, tc.frame);
+    hir_c_tc_emit_make_cell(&tc, dst, cell_contents, &tc.frame);
     if (arg != CO_CELL_NOT_AN_ARG) {
       // Clear the local once we have it in a cell.
       tc.frame.localsplus.data[arg] = null_reg;
@@ -1187,12 +844,12 @@ BasicBlock* HIRBuilder::buildHIRImpl(
   // const instead of using LoadCurrentFunc.
   if (frame_state == nullptr && irfunc->uses_runtime_func) {
     set_func(static_cast<Register*>(hir_c_temps_alloc_non_stack(&state_.temps_phx)));
-    entry_tc.emitLoadCurrentFunc(func());
+    hir_c_tc_emit_load_current_func(&entry_tc, func());
   }
 
 #if PY_VERSION_HEX >= 0x030C0000
   if (frame_state == nullptr) {
-    entry_tc.emitLoadFrame();
+    hir_c_tc_emit_load_frame(&entry_tc);
   }
 #endif
 
@@ -1377,7 +1034,7 @@ void HIRBuilder::translate(
           auto snapshot = static_cast<Snapshot*>(prev_hir_instr);
           snapshot->setFrameState(tc.frame);
         } else {
-          tc.emitSnapshot();
+          hir_c_tc_emit_snapshot(&tc);
         }
       }
       prev_bc_instr = bc_instr;
@@ -1665,14 +1322,14 @@ void HIRBuilder::translate(
           if (target_off <= bc_instr.baseOffset() || opcode != JUMP_ABSOLUTE) {
             loop_headers.emplace(target);
           }
-          tc.emitBranch(target);
+          static_cast<Instr*>(hir_c_tc_emit_branch(&tc, target));
           break;
         }
         case JUMP_BACKWARD_NO_INTERRUPT:
         case JUMP_FORWARD: {
           BCOffset target_off = bc_instr.getJumpTarget();
           BasicBlock* target = getBlockAtOff(target_off);
-          tc.emitBranch(target);
+          static_cast<Instr*>(hir_c_tc_emit_branch(&tc, target));
           break;
         }
         case JUMP_IF_FALSE_OR_POP:
@@ -1727,11 +1384,11 @@ void HIRBuilder::translate(
               "RETURN_CONST index out of bounds");
           Type type = Type::fromObject(
               PyTuple_GET_ITEM(code()->co_consts, bc_instr.oparg()));
-          tc.emitLoadConst(reg, type);
+          hir_c_tc_emit_load_const(&tc, reg, to_hir(type));
           if (jit_get_config()->refine_static_python && type < TObject) {
-            tc.emitRefineType(reg, type, reg);
+            hir_c_tc_emit_refine_type(&tc, reg, to_hir(type), reg);
           }
-          tc.emitReturn(reg, type);
+          hir_c_tc_emit_return(&tc, reg, to_hir(type));
           break;
         }
         case RETURN_PRIMITIVE: {
@@ -1742,7 +1399,7 @@ void HIRBuilder::translate(
               type,
               preloader().returnType());
           Register* reg = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-          tc.emitReturn(reg, type);
+          hir_c_tc_emit_return(&tc, reg, to_hir(type));
           break;
         }
         case RETURN_VALUE: {
@@ -1752,9 +1409,9 @@ void HIRBuilder::translate(
           Register* reg = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
           Type ret_type = preloader().returnType();
           if (jit_get_config()->refine_static_python && ret_type < TObject) {
-            tc.emitRefineType(reg, ret_type, reg);
+            hir_c_tc_emit_refine_type(&tc, reg, to_hir(ret_type), reg);
           }
-          tc.emitReturn(reg, ret_type);
+          hir_c_tc_emit_return(&tc, reg, to_hir(ret_type));
           break;
         }
         case ROT_N: {
@@ -1994,14 +1651,14 @@ void HIRBuilder::translate(
         case DELETE_SUBSCR: {
           Register* sub = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
           Register* container = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-          tc.emitDeleteSubscr(container, sub, tc.frame);
+          hir_c_tc_emit_delete_subscr(&tc, container, sub, &tc.frame);
           break;
         }
         case DELETE_FAST: {
           int var_idx = bc_instr.oparg();
           Register* var = static_cast<Register*>(tc.frame.localsplus.data[var_idx]);
           moveOverwrittenStackRegisters(tc, var);
-          tc.emitLoadConst(var, TNullptr);
+          hir_c_tc_emit_load_const(&tc, var, to_hir(TNullptr));
           break;
         }
         case BEFORE_ASYNC_WITH:
@@ -2059,7 +1716,7 @@ void HIRBuilder::translate(
               PY_VERSION_HEX < 0x030C0000 || PY_VERSION_HEX >= 0x030E0000) {
             advancePastYieldInstr(tc);
           }
-          tc.emitInitialYield(out, tc.frame);
+          hir_c_tc_emit_initial_yield(&tc, out, &tc.frame);
           phx_ptr_arr_push(&tc.frame.stack, out);
           break;
         }
@@ -2130,7 +1787,7 @@ void HIRBuilder::translate(
     auto last_instr = tc.block->GetTerminator();
     if ((last_instr == nullptr) || !last_instr->IsTerminator()) {
       auto off = bc_block.endOffset();
-      last_instr = tc.emitBranch(getBlockAtOff(off));
+      last_instr = static_cast<Instr*>(hir_c_tc_emit_branch(&tc, getBlockAtOff(off)));
     }
 
     // Make sure any values left on the stack are in the registers that we
@@ -2734,13 +2391,13 @@ bool HIRBuilder::tryEmitDirectMethodCall(
     Instr* staticCall;
     Register* out = nullptr;
     if (target.builtin_returns_void) {
-      staticCall = tc.emitCallStaticRetVoid(nargs, target.builtin_c_func);
+      staticCall = static_cast<Instr*>(hir_c_tc_emit_call_static_ret_void(&tc, nargs, target.builtin_c_func));
     } else {
       out = static_cast<Register*>(hir_c_temps_alloc_stack(&state_.temps_phx));
       Type ret_type =
           target.builtin_returns_error_code ? TCInt32 : target.return_type;
       staticCall =
-          tc.emitCallStatic(nargs, out, target.builtin_c_func, ret_type);
+          ([&](){ auto* _i = static_cast<Instr*>(hir_c_create_call_static_reg(nargs, out, target.builtin_c_func, to_hir(ret_type))); hir_c_tc_emit_c(&tc, _i); return static_cast<CallStatic*>(_i); }());
     }
 
     PhxPtrArray& stack = tc.frame.stack;
@@ -2750,12 +2407,12 @@ bool HIRBuilder::tryEmitDirectMethodCall(
     }
 
     if (target.builtin_returns_error_code) {
-      tc.emitCheckNeg(out, out, tc.frame);
+      hir_c_tc_emit_check_neg(&tc, out, out, &tc.frame);
     } else if (out != nullptr) {
       auto ret_ty = target.return_type;
       HirType h_ret = to_hir(ret_ty), h_prim = to_hir(TPrimitive);
       if (!hir_type_could_be(&h_ret, &h_prim)) {
-        tc.emitCheckExc(out, out, tc.frame);
+        hir_c_tc_emit_check_exc_fs(&tc, out, out, &tc.frame);
       }
     }
     if (target.builtin_returns_void || target.builtin_returns_error_code) {
@@ -2764,7 +2421,7 @@ bool HIRBuilder::tryEmitDirectMethodCall(
       // when not used in a void context. For now we just produce None here (and
       // in _PyClassLoader_ConvertRet).
       Register* tmp = static_cast<Register*>(hir_c_temps_alloc_stack(&state_.temps_phx));
-      tc.emitLoadConst(tmp, TNoneType);
+      hir_c_tc_emit_load_const(&tc, tmp, to_hir(TNoneType));
       phx_ptr_arr_push(&stack, tmp);
     } else {
       phx_ptr_arr_push(&stack, out);
@@ -2809,7 +2466,7 @@ void HIRBuilder::fixStaticReturn(
     boxed_ret = boxed_ret.asBoxed();
   }
   if (jit_get_config()->refine_static_python && boxed_ret < TObject) {
-    tc.emitRefineType(ret_val, boxed_ret, ret_val);
+    hir_c_tc_emit_refine_type(&tc, ret_val, to_hir(boxed_ret), ret_val);
   }
 
   // Since we are not doing an x64 call, we will get a boxed value; if the
@@ -2843,7 +2500,7 @@ bool HIRBuilder::tryEmitStaticRandCall(
   Register* out = static_cast<Register*>(hir_c_temps_alloc_stack(&state_.temps_phx));
   Type ret_type = TCInt32;
   // Ci_static_rand() boxes the return value; call rand() directly instead.
-  tc.emitCallStatic(nargs, out, (void*)rand, ret_type);
+  ([&](){ auto* _i = static_cast<Instr*>(hir_c_create_call_static_reg(nargs, out, (void*)rand, to_hir(ret_type))); hir_c_tc_emit_c(&tc, _i); return static_cast<CallStatic*>(_i); }());
   phx_ptr_arr_push(&tc.frame.stack, out);
   return true;
 }
@@ -3340,9 +2997,9 @@ void HIRBuilder::boxPrimitive(
     Register* src,
     Type type) {
   if (type <= TCBool) {
-    tc.emitPrimitiveBoxBool(dst, src);
+    ([&](){ auto* _i = static_cast<Instr*>(hir_c_create_primitive_box_bool(dst, src)); hir_c_tc_emit_c(&tc, _i); }());
   } else {
-    tc.emitPrimitiveBox(dst, src, type, tc.frame);
+    hir_c_tc_emit_primitive_box(&tc, dst, src, to_hir(type), &tc.frame);
   }
 }
 
@@ -3351,10 +3008,10 @@ void HIRBuilder::unboxPrimitive(
     Register* dst,
     Register* src,
     Type type) {
-  tc.emitPrimitiveUnbox(dst, src, type);
+  hir_c_tc_emit_primitive_unbox(&tc, dst, src, to_hir(type));
   if (!(type <= (TCBool | TCDouble))) {
     Register* did_unbox_work = static_cast<Register*>(hir_c_temps_alloc_stack(&state_.temps_phx));
-    tc.emitIsNegativeAndErrOccurred(did_unbox_work, dst, tc.frame);
+    hir_c_tc_emit_is_negative_and_err_occurred(&tc, did_unbox_work, dst, &tc.frame);
   }
 }
 
@@ -3606,7 +3263,7 @@ void HIRBuilder::moveOverwrittenStackRegisters(
     if (static_cast<Register*>(stack.data[i]) == dst) {
       if (tmp == nullptr) {
         tmp = static_cast<Register*>(hir_c_temps_alloc_stack(&state_.temps_phx));
-        tc.emitAssign(tmp, dst);
+        hir_c_tc_emit_assign(&tc, tmp, dst);
       }
       stack.data[i] = tmp;
     }
@@ -4088,16 +3745,16 @@ void HIRBuilder::insertRunPeriodicActivites(
   TranslationContext check(check_block, frame);
   TranslationContext body(cfg.AllocateBlock(), frame);
 #ifdef Py_GIL_DISABLED
-  check.emitAtQuiescentState();
+  hir_c_tc_emit_at_quiescent_state(&check);
 #endif
   // Check if the eval breaker has been set
   Register* eval_breaker = static_cast<Register*>(hir_c_temps_alloc_stack(&state_.temps_phx));
-  check.emitLoadEvalBreaker(eval_breaker);
-  check.emitCondBranch(eval_breaker, body.block, succ);
+  hir_c_tc_emit_load_eval_breaker(&check, eval_breaker);
+  static_cast<Instr*>(hir_c_tc_emit_cond_branch(&check, eval_breaker, body.block, succ));
   // If set, run periodic tasks
-  body.emitSnapshot();
-  body.emitRunPeriodicTasks(static_cast<Register*>(hir_c_temps_alloc_stack(&state_.temps_phx)), body.frame);
-  body.emitBranch(succ);
+  hir_c_tc_emit_snapshot(&body);
+  hir_c_tc_emit_run_periodic_tasks(&body, static_cast<Register*>(hir_c_temps_alloc_stack(&state_.temps_phx)), &body.frame);
+  static_cast<Instr*>(hir_c_tc_emit_branch(&body, succ));
 }
 
 void HIRBuilder::insertRunPeriodicActivitesForLoop(
@@ -4119,7 +3776,7 @@ void HIRBuilder::insertRunPeriodicActivitesForExcept(
     CFG& cfg,
     TranslationContext& tc) {
   TranslationContext succ(cfg.AllocateBlock(), tc.frame);
-  succ.emitSnapshot();
+  hir_c_tc_emit_snapshot(&succ);
   insertRunPeriodicActivites(cfg, tc.block, succ.block, tc.frame);
   tc.block = succ.block;
 }
