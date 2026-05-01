@@ -4086,8 +4086,8 @@ static void verify_phase4d_batch87_d5a_entries() {
      * STL/RAII state; full constructor requires PyCodeObject + globals
      * + builtins + preloader). D5b body migration tests behavior; D5c
      * caller rewire tests end-to-end via 4-bench gate. */
-    volatile void *(*p_make_fn)(const void *) = phx_preloader_make_function;
-    volatile void *(*p_build_fn)(const void *) = phx_hir_build;
+    void *(*p_make_fn)(const void *) = phx_preloader_make_function;
+    void *(*p_build_fn)(const void *) = phx_hir_build;
     assert(p_make_fn != NULL &&
            "Phase 4.D Batch 87 D5a: phx_preloader_make_function symbol");
     assert(p_build_fn != NULL &&
