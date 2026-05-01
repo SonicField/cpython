@@ -35,6 +35,7 @@ extern "C" int hir_remove_unreachable_blocks_c(void *func);
 #include "cinderx/Jit/hir/phx_bc_offset_set.h"  /* X1b createBlocks std::set→C migration */
 #include "cinderx/Jit/hir/phx_ptr_queue.h"      /* X2c translate() std::deque→C migration */
 #include "cinderx/Jit/hir/phx_ptr_set.h"        /* X2c translate() std::unordered_set→C migration */
+#include "cinderx/Jit/hir/phx_frame_state.h"    /* X2d phx_block_stack_* C accessors */
 #include "cinderx/Jit/hir/ssa.h"
 #include "cinderx/Jit/hir/type.h"
 #include "cinderx/StaticPython/checked_dict.h"
@@ -891,10 +892,15 @@ void HIRBuilder::translate(
     }
 
     auto is_in_async_for_header_block = [&tc, &bc_instrs]() {
-      if (tc.frame.block_stack.isEmpty()) {
+      /* X2d (γ) E-7 PARTIAL: chained block_stack methods → C accessors.
+       * FrameState and HirFrameStateLayout are POD-layout-pinned per
+       * verify.cpp:101-123 static_asserts; reinterpret_cast safe. */
+      auto *hfs = reinterpret_cast<HirFrameStateLayout *>(&tc.frame);
+      if (phx_block_stack_is_empty(hfs)) {
         return false;
       }
-      const ExecutionBlock& block_top = tc.frame.block_stack.top();
+      PhxExecBlock pe = phx_block_stack_top(hfs);
+      ExecutionBlock block_top{pe.opcode, BCOffset{pe.handler_off}, pe.stack_level};
       return block_top.isAsyncForHeaderBlock(bc_instrs);
     };
 
@@ -1293,7 +1299,7 @@ void HIRBuilder::translate(
         }
         case RETURN_VALUE: {
           JIT_CHECK(
-              tc.frame.block_stack.isEmpty(),
+              phx_block_stack_is_empty(reinterpret_cast<HirFrameStateLayout *>(&tc.frame)),
               "Returning with non-empty block stack");
           Register* reg = static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
           Type ret_type = preloader().returnType();
@@ -3722,10 +3728,13 @@ void HIRBuilder::insertRunPeriodicActivitesForExcept(
 }
 
 ExecutionBlock HIRBuilder::popBlock(CFG& cfg, TranslationContext& tc) {
-  if (tc.frame.block_stack.top().opcode == SETUP_FINALLY) {
+  /* X2d (γ) E-7 PARTIAL: chained block_stack methods → C accessors. */
+  auto *hfs = reinterpret_cast<HirFrameStateLayout *>(&tc.frame);
+  if (phx_block_stack_top(hfs).opcode == SETUP_FINALLY) {
     insertRunPeriodicActivitesForExcept(cfg, tc);
   }
-  return tc.frame.block_stack.pop();
+  PhxExecBlock pe = phx_block_stack_pop(hfs);
+  return ExecutionBlock{pe.opcode, BCOffset{pe.handler_off}, pe.stack_level};
 }
 
 PyObject* HIRBuilder::constArg(const BytecodeInstruction& bc_instr) {
