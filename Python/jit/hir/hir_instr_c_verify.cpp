@@ -15,6 +15,7 @@
 #include "cinderx/Jit/hir/builder.h"          /* BlockCanonicalizer / HIRBuilder (TempAllocator deleted P3c Batch 77) */
 #include "cinderx/Jit/hir/hir_c_api.h"         /* hir_c_tc_emit_* primitives (Batch 54) */
 #include "cinderx/Jit/hir/typed_argument_c.h"   /* phx_typed_argument_pytype_swap (Batch 76) */
+#include "cinderx/Jit/hir/phx_bc_offset_set.h"  /* Phase 4.X-full X1a (Batch 89) */
 
 #include <cassert>
 #include <cstring>
@@ -4094,6 +4095,78 @@ static void verify_phase4d_batch87_d5a_entries() {
            "Phase 4.D Batch 87 D5a: phx_hir_build symbol");
 }
 
+/* Phase 4.X-full X1a Batch 89 (supervisor 02:36:04Z (α) smallest-first
+ * dispatch): PhxBCOffsetSet substrate falsifier. Per theologian
+ * docs/tier7-phase4x-full-entry-preanalysis-2026-05-01.md §5.1: covers
+ * empty / single / multi / dup / binary-search-edge cases. NO MIGRATION
+ * THIS BATCH (X1b will replace std::set<BCIndex> at builder.cpp:429
+ * createBlocks block_starts; X1a is substrate-only authoring). */
+static void verify_phase4x_full_batch89_bc_offset_set() {
+    PhxBCOffsetSet s;
+    phx_bc_offset_set_init(&s);
+
+    /* (a) empty: size=0, init invariants */
+    assert(phx_bc_offset_set_size(&s) == 0 &&
+           "Phase 4.X-full Batch 89(a): empty size==0");
+    assert(s.data == NULL && s.capacity == 0 &&
+           "Phase 4.X-full Batch 89(a): lazy-alloc invariant");
+
+    /* (b) single insert: count=1, at(0)==key, returns inserted=1 */
+    int r = phx_bc_offset_set_insert(&s, 42);
+    assert(r == 1 && "Phase 4.X-full Batch 89(b): first insert returns 1");
+    assert(phx_bc_offset_set_size(&s) == 1 &&
+           "Phase 4.X-full Batch 89(b): size after first insert");
+    assert(phx_bc_offset_set_at(&s, 0) == 42 &&
+           "Phase 4.X-full Batch 89(b): at(0)==42");
+
+    /* (c) multi out-of-order: insert sorted iteration order */
+    phx_bc_offset_set_insert(&s, 100);
+    phx_bc_offset_set_insert(&s, 7);
+    phx_bc_offset_set_insert(&s, 50);
+    /* Expected sorted order: 7, 42, 50, 100 */
+    assert(phx_bc_offset_set_size(&s) == 4 &&
+           "Phase 4.X-full Batch 89(c): multi-insert size");
+    assert(phx_bc_offset_set_at(&s, 0) == 7 &&
+           phx_bc_offset_set_at(&s, 1) == 42 &&
+           phx_bc_offset_set_at(&s, 2) == 50 &&
+           phx_bc_offset_set_at(&s, 3) == 100 &&
+           "Phase 4.X-full Batch 89(c): sorted iteration order");
+
+    /* (d) duplicate: insert returns 0, size unchanged */
+    int r_dup = phx_bc_offset_set_insert(&s, 42);
+    assert(r_dup == 0 && "Phase 4.X-full Batch 89(d): dup insert returns 0");
+    assert(phx_bc_offset_set_size(&s) == 4 &&
+           "Phase 4.X-full Batch 89(d): size unchanged on dup");
+
+    /* (e) binary-search edges: insert at front, back, exact mid */
+    phx_bc_offset_set_insert(&s, 1);    /* before all */
+    phx_bc_offset_set_insert(&s, 200);  /* after all */
+    phx_bc_offset_set_insert(&s, 25);   /* between 7 and 42 */
+    /* Expected: 1, 7, 25, 42, 50, 100, 200 */
+    assert(phx_bc_offset_set_size(&s) == 7 &&
+           "Phase 4.X-full Batch 89(e): edge inserts size");
+    assert(phx_bc_offset_set_at(&s, 0) == 1 &&
+           phx_bc_offset_set_at(&s, 1) == 7 &&
+           phx_bc_offset_set_at(&s, 2) == 25 &&
+           phx_bc_offset_set_at(&s, 3) == 42 &&
+           phx_bc_offset_set_at(&s, 4) == 50 &&
+           phx_bc_offset_set_at(&s, 5) == 100 &&
+           phx_bc_offset_set_at(&s, 6) == 200 &&
+           "Phase 4.X-full Batch 89(e): binary-search edge ordering");
+
+    /* (f) clear: count=0, data preserved (lazy reset) */
+    phx_bc_offset_set_clear(&s);
+    assert(phx_bc_offset_set_size(&s) == 0 &&
+           "Phase 4.X-full Batch 89(f): clear sets size to 0");
+    /* Re-insert after clear works (capacity preserved) */
+    phx_bc_offset_set_insert(&s, 99);
+    assert(phx_bc_offset_set_size(&s) == 1 &&
+           phx_bc_offset_set_at(&s, 0) == 99 &&
+           "Phase 4.X-full Batch 89(f): post-clear insert works");
+
+    phx_bc_offset_set_destroy(&s);
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -4163,4 +4236,5 @@ static void hir_instr_runtime_check() {
     verify_phase4x_batch80_deopt_find_adjacent_dup_reg();
     verify_phase4d_batch83_frame_state_accessors();
     verify_phase4d_batch87_d5a_entries();
+    verify_phase4x_full_batch89_bc_offset_set();
 }
