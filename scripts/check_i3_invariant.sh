@@ -67,7 +67,7 @@ SEARCH_PATHS="Python/jit/hir"
 #   ': id(' constructor-init form.
 # - test_phx_block_map.c, hir_instr_c_verify.cpp: tests/verify files
 #   exercising read-path. Per W44 ALLOW_LIST precedent.
-ALLOW_LIST_FILES_REGEX='/(test_.*\.c|.*_test\.c|hir_instr_c_verify\.cpp)$'
+ALLOW_LIST_FILES_REGEX='/(test_.*\.c|.*_test\.c|hir_instr_c_verify\.cpp):'
 
 # Allow-list specific symbols whose ".id" or "->id" mutation is
 # unrelated to BasicBlock::id. Add new entries with justification.
