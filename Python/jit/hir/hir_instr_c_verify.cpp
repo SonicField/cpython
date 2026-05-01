@@ -4326,6 +4326,76 @@ static void verify_phase4x_full_batch92_ptr_set() {
            "Phase 4.X-full Batch 92(f): destroy resets all fields");
 }
 
+/* Phase 4.X-full X2c Batch 93 (supervisor 03:31:44Z bundle confirm):
+ * phx_ptr_set_at + phx_ptr_set_capacity iteration helpers verifier.
+ * X2b extension for translate() loop_headers range-for migration; raw
+ * slot accessor returns entries[i] (NULL for empty slot). Coverage:
+ * empty-iter / single-with-collision / multi-with-NULL-gaps / iter
+ * skips NULL slots / capacity accessor correctness. */
+static void verify_phase4x_full_batch93_ptr_set_at() {
+    PhxPtrSet s;
+    phx_ptr_set_init(&s);
+
+    /* (a) empty: capacity 0, at() returns NULL for any idx */
+    assert(phx_ptr_set_capacity(&s) == 0 &&
+           "Phase 4.X-full Batch 93(a): empty capacity==0");
+    assert(phx_ptr_set_at(&s, 0) == NULL &&
+           "Phase 4.X-full Batch 93(a): at(0) on empty == NULL");
+
+    /* (b) single insert: at returns key at hash-slot, NULL elsewhere */
+    int marker_a = 0xA;
+    phx_ptr_set_insert(&s, &marker_a);
+    assert(phx_ptr_set_capacity(&s) > 0 &&
+           "Phase 4.X-full Batch 93(b): capacity grew post-insert");
+    /* Walk all slots; exactly 1 should be non-NULL */
+    size_t cap = phx_ptr_set_capacity(&s);
+    int found_count = 0;
+    for (size_t i = 0; i < cap; i++) {
+        if (phx_ptr_set_at(&s, i) == &marker_a) found_count++;
+    }
+    assert(found_count == 1 &&
+           "Phase 4.X-full Batch 93(b): exactly 1 slot holds key");
+
+    /* (c) multi-with-NULL-gaps: insert 4 distinct keys; iterate; verify
+     * we visit exactly 4 non-NULL slots and capacity-4 NULL slots. */
+    int marker_b = 0xB, marker_c = 0xC, marker_d = 0xD;
+    phx_ptr_set_insert(&s, &marker_b);
+    phx_ptr_set_insert(&s, &marker_c);
+    phx_ptr_set_insert(&s, &marker_d);
+    cap = phx_ptr_set_capacity(&s);
+    int non_null = 0, null_count = 0;
+    for (size_t i = 0; i < cap; i++) {
+        if (phx_ptr_set_at(&s, i) != NULL) non_null++;
+        else null_count++;
+    }
+    assert(non_null == 4 &&
+           "Phase 4.X-full Batch 93(c): 4 non-NULL slots after 4 inserts");
+    assert(null_count + non_null == cap &&
+           "Phase 4.X-full Batch 93(c): NULL+non-NULL == capacity");
+
+    /* (d) iter-skips-NULL-correctly: collect all keys via iteration;
+     * verify all 4 inserted keys are present (order is hash-position-
+     * based, NOT insertion-order, so use contains()-style verification). */
+    int seen_a = 0, seen_b = 0, seen_c = 0, seen_d = 0;
+    for (size_t i = 0; i < cap; i++) {
+        void *blk = phx_ptr_set_at(&s, i);
+        if (blk == &marker_a) seen_a = 1;
+        else if (blk == &marker_b) seen_b = 1;
+        else if (blk == &marker_c) seen_c = 1;
+        else if (blk == &marker_d) seen_d = 1;
+    }
+    assert(seen_a && seen_b && seen_c && seen_d &&
+           "Phase 4.X-full Batch 93(d): iteration visits all 4 keys");
+
+    /* (e) bounds: at(idx >= capacity) returns NULL */
+    assert(phx_ptr_set_at(&s, cap) == NULL &&
+           "Phase 4.X-full Batch 93(e): at(capacity) returns NULL");
+    assert(phx_ptr_set_at(&s, cap + 100) == NULL &&
+           "Phase 4.X-full Batch 93(e): at(capacity+100) returns NULL");
+
+    phx_ptr_set_destroy(&s);
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -4398,4 +4468,5 @@ static void hir_instr_runtime_check() {
     verify_phase4x_full_batch89_bc_offset_set();
     verify_phase4x_full_batch91_ptr_queue();
     verify_phase4x_full_batch92_ptr_set();
+    verify_phase4x_full_batch93_ptr_set_at();
 }

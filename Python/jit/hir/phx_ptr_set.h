@@ -131,6 +131,32 @@ static inline size_t phx_ptr_set_size(const PhxPtrSet *s) {
     return s->count;
 }
 
+/* Raw slot accessor for open-address-hash iteration. Returns entries[i]
+ * which may be NULL (empty slot). Caller iterates 0..capacity-1 and
+ * skips NULL slots:
+ *
+ *   for (size_t i = 0; i < s.capacity; i++) {
+ *       void *key = phx_ptr_set_at(&s, i);
+ *       if (key != NULL) { use(key); }
+ *   }
+ *
+ * O(capacity) walk; load factor 0.7 means up to 30%% wasted iterations.
+ * Order is hash-position-based (NOT insertion order). Phase 4.X-full
+ * X2c (Batch 93) addition for translate() loop_headers range-for
+ * migration. Bounded use case (loop_headers <50 entries / cap <128).
+ */
+static inline void *phx_ptr_set_at(const PhxPtrSet *s, size_t slot_idx) {
+    if (s->entries == NULL || slot_idx >= s->capacity) return NULL;
+    return s->entries[slot_idx];
+}
+
+/* Capacity accessor — needed by callers iterating raw slots via
+ * phx_ptr_set_at. Distinct from size() which returns count of inserted
+ * entries (excluding NULL slots). */
+static inline size_t phx_ptr_set_capacity(const PhxPtrSet *s) {
+    return s->capacity;
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

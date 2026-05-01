@@ -33,6 +33,8 @@ extern "C" int hir_remove_unreachable_blocks_c(void *func);
 #include "cinderx/Jit/iterator_types.h"
 #include "cinderx/Jit/hir/annotation_index_c.h"
 #include "cinderx/Jit/hir/phx_bc_offset_set.h"  /* X1b createBlocks std::set→C migration */
+#include "cinderx/Jit/hir/phx_ptr_queue.h"      /* X2c translate() std::deque→C migration */
+#include "cinderx/Jit/hir/phx_ptr_set.h"        /* X2c translate() std::unordered_set→C migration */
 #include "cinderx/Jit/hir/ssa.h"
 #include "cinderx/Jit/hir/type.h"
 #include "cinderx/StaticPython/checked_dict.h"
@@ -836,17 +838,29 @@ void HIRBuilder::translate(
     const jit::BytecodeInstructionBlock& bc_instrs,
     const TranslationContext& initial_tc) {
   state_.current_func = &irfunc;
-  std::deque<TranslationContext> queue = {initial_tc};
-  std::unordered_set<BasicBlock*> processed;
-  std::unordered_set<BasicBlock*> loop_headers;
+  /* Phase 4.X-full X2c (Batch 93): std::deque<TranslationContext> queue
+   * + std::unordered_set<BasicBlock*> processed/loop_headers replaced with
+   * PhxPtrQueue + PhxPtrSet (X2a/X2b substrates). Discharges E-5 stay-C++
+   * exception. TranslationContext storage seam: (α) heap-alloc per push
+   * (per supervisor 03:31:01Z disposition) — malloc + copy-construct +
+   * push pointer; pop returns pointer, copy-back-to-stack, delete. */
+  PhxPtrQueue queue;
+  phx_ptr_queue_init(&queue);
+  phx_ptr_queue_push(&queue, new TranslationContext(initial_tc));
+  PhxPtrSet processed;
+  phx_ptr_set_init(&processed);
+  PhxPtrSet loop_headers;
+  phx_ptr_set_init(&loop_headers);
 
-  while (!queue.empty()) {
-    auto tc = std::move(queue.front());
-    queue.pop_front();
-    if (processed.contains(tc.block)) {
+  while (!phx_ptr_queue_empty(&queue)) {
+    TranslationContext *tc_heap =
+        static_cast<TranslationContext *>(phx_ptr_queue_pop(&queue));
+    auto tc = std::move(*tc_heap);
+    delete tc_heap;
+    if (phx_ptr_set_contains(&processed, tc.block)) {
       continue;
     }
-    processed.emplace(tc.block);
+    phx_ptr_set_insert(&processed, tc.block);
 
     // Translate remaining instructions into HIR.
     // Tier 8 SECOND-PILOT Phase B: bc_blocks is now state_.bc_block_array_phx
@@ -1195,7 +1209,7 @@ void HIRBuilder::translate(
           BCOffset target_off = bc_instr.getJumpTarget();
           BasicBlock* target = getBlockAtOff(target_off);
           if (target_off <= bc_instr.baseOffset() || opcode != JUMP_ABSOLUTE) {
-            loop_headers.emplace(target);
+            phx_ptr_set_insert(&loop_headers, target);
           }
           static_cast<Instr*>(hir_c_tc_emit_branch(&tc, target));
           break;
@@ -1223,7 +1237,7 @@ void HIRBuilder::translate(
           BCOffset target_off = bc_instr.getJumpTarget();
           BasicBlock* target = getBlockAtOff(target_off);
           if (target_off <= bc_instr.baseOffset()) {
-            loop_headers.emplace(target);
+            phx_ptr_set_insert(&loop_headers, target);
           }
           emitPopJumpIf(tc, bc_instr);
           break;
@@ -1233,7 +1247,7 @@ void HIRBuilder::translate(
           BCOffset target_off = bc_instr.getJumpTarget();
           BasicBlock* target = getBlockAtOff(target_off);
           if (target_off <= bc_instr.baseOffset()) {
-            loop_headers.emplace(target);
+            phx_ptr_set_insert(&loop_headers, target);
           }
           emitPopJumpIfNone(tc, bc_instr);
           break;
@@ -1696,8 +1710,10 @@ void HIRBuilder::translate(
           // and the iterator itself.
           new_frame.stack.count -= (2);
         }
-        queue.emplace_back(condbr->true_bb(), tc.frame);
-        queue.emplace_back(condbr->false_bb(), new_frame);
+        phx_ptr_queue_push(&queue,
+            new TranslationContext(condbr->true_bb(), tc.frame));
+        phx_ptr_queue_push(&queue,
+            new TranslationContext(condbr->false_bb(), new_frame));
         break;
       }
       case JUMP_IF_FALSE_OR_POP:
@@ -1705,8 +1721,10 @@ void HIRBuilder::translate(
         auto condbr = static_cast<CondBranchBase*>(last_instr);
         auto new_frame = tc.frame;
         static_cast<Register*>(phx_ptr_arr_pop(&new_frame.stack));
-        queue.emplace_back(condbr->true_bb(), new_frame);
-        queue.emplace_back(condbr->false_bb(), tc.frame);
+        phx_ptr_queue_push(&queue,
+            new TranslationContext(condbr->true_bb(), new_frame));
+        phx_ptr_queue_push(&queue,
+            new TranslationContext(condbr->false_bb(), tc.frame));
         break;
       }
       case JUMP_IF_NONZERO_OR_POP:
@@ -1714,8 +1732,10 @@ void HIRBuilder::translate(
         auto condbr = static_cast<CondBranchBase*>(last_instr);
         auto new_frame = tc.frame;
         static_cast<Register*>(phx_ptr_arr_pop(&new_frame.stack));
-        queue.emplace_back(condbr->true_bb(), tc.frame);
-        queue.emplace_back(condbr->false_bb(), new_frame);
+        phx_ptr_queue_push(&queue,
+            new TranslationContext(condbr->true_bb(), tc.frame));
+        phx_ptr_queue_push(&queue,
+            new TranslationContext(condbr->false_bb(), new_frame));
         break;
       }
       default: {
@@ -1728,13 +1748,16 @@ void HIRBuilder::translate(
           FrameState new_frame = tc.frame;
           // Pop sentinel value signaling that iteration is complete
           static_cast<Register*>(phx_ptr_arr_pop(&new_frame.stack));
-          queue.emplace_back(condbr->true_bb(), tc.frame);
-          queue.emplace_back(condbr->false_bb(), std::move(new_frame));
+          phx_ptr_queue_push(&queue,
+              new TranslationContext(condbr->true_bb(), tc.frame));
+          phx_ptr_queue_push(&queue,
+              new TranslationContext(condbr->false_bb(), std::move(new_frame)));
           break;
         }
         for (std::size_t i = 0; i < last_instr->numEdges(); i++) {
           auto succ = last_instr->successor(i);
-          queue.emplace_back(succ, tc.frame);
+          phx_ptr_queue_push(&queue,
+              new TranslationContext(succ, tc.frame));
         }
         break;
       }
@@ -1750,9 +1773,26 @@ void HIRBuilder::translate(
       "Stashed a KW_NAMES value for function {} but never consumed it",
       irfunc.fullname);
 
-  for (auto block : loop_headers) {
-    insertRunPeriodicActivitesForLoop(irfunc.cfg, block);
+  /* X2c: phx_ptr_set_at raw-slot iteration replacing range-for. Walks
+   * 0..capacity-1 skipping NULL slots; bounded by load factor 0.7 so
+   * ~30%% wasted iterations max. loop_headers entries fit comfortably
+   * within initial cap=16 for typical compile (typically <50 distinct
+   * jump targets per function). */
+  size_t lh_cap = phx_ptr_set_capacity(&loop_headers);
+  for (size_t i = 0; i < lh_cap; i++) {
+    void *blk = phx_ptr_set_at(&loop_headers, i);
+    if (blk != NULL) {
+      insertRunPeriodicActivitesForLoop(
+          irfunc.cfg, static_cast<BasicBlock *>(blk));
+    }
   }
+
+  /* X2c lifecycle cleanup: queue is empty post-while-loop (drained via
+   * pop+free per iter); destroy frees data array. processed/loop_headers
+   * destroy frees entries arrays. */
+  phx_ptr_queue_destroy(&queue);
+  phx_ptr_set_destroy(&processed);
+  phx_ptr_set_destroy(&loop_headers);
 }
 
 void BlockCanonicalizer::InsertCopies(
