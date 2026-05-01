@@ -17,6 +17,7 @@
 #include "cinderx/Jit/hir/typed_argument_c.h"   /* phx_typed_argument_pytype_swap (Batch 76) */
 #include "cinderx/Jit/hir/phx_bc_offset_set.h"  /* Phase 4.X-full X1a (Batch 89) */
 #include "cinderx/Jit/hir/phx_ptr_queue.h"      /* Phase 4.X-full X2a (Batch 91) */
+#include "cinderx/Jit/hir/phx_ptr_set.h"        /* Phase 4.X-full X2b (Batch 92) */
 
 #include <cassert>
 #include <cstring>
@@ -4237,6 +4238,94 @@ static void verify_phase4x_full_batch91_ptr_queue() {
            "Phase 4.X-full Batch 91(e): destroy resets all fields");
 }
 
+/* Phase 4.X-full X2b Batch 92 (supervisor 03:17:18Z next-up): PhxPtrSet
+ * substrate falsifier. Generic void*-keyed open-address hash set with
+ * linear probing + load-factor-0.7 resize doubling. Discharges X2c E-7
+ * translate() std::unordered_set<BasicBlock*> processed/loop_headers
+ * substrate need. Coverage: empty/single insert+contains/duplicate
+ * insert/multi insert + contains/resize past initial cap/clear+reuse. */
+static void verify_phase4x_full_batch92_ptr_set() {
+    PhxPtrSet s;
+    phx_ptr_set_init(&s);
+
+    /* (a) empty: contains returns 0; size 0; lazy-alloc invariant */
+    int marker_a = 0xA;
+    assert(phx_ptr_set_size(&s) == 0 &&
+           "Phase 4.X-full Batch 92(a): empty size==0");
+    assert(phx_ptr_set_contains(&s, &marker_a) == 0 &&
+           "Phase 4.X-full Batch 92(a): contains on empty returns 0");
+    assert(s.entries == NULL && s.capacity == 0 &&
+           "Phase 4.X-full Batch 92(a): lazy-alloc invariant");
+
+    /* (b) single insert + contains */
+    int r = phx_ptr_set_insert(&s, &marker_a);
+    assert(r == 1 &&
+           "Phase 4.X-full Batch 92(b): first insert returns 1");
+    assert(phx_ptr_set_size(&s) == 1 &&
+           "Phase 4.X-full Batch 92(b): size==1 after insert");
+    assert(phx_ptr_set_contains(&s, &marker_a) == 1 &&
+           "Phase 4.X-full Batch 92(b): contains returns 1 for inserted key");
+
+    /* (c) duplicate insert: returns 0, size unchanged */
+    int r_dup = phx_ptr_set_insert(&s, &marker_a);
+    assert(r_dup == 0 &&
+           "Phase 4.X-full Batch 92(c): dup insert returns 0");
+    assert(phx_ptr_set_size(&s) == 1 &&
+           "Phase 4.X-full Batch 92(c): size unchanged on dup");
+
+    /* (d) multi insert + contains across keys */
+    int marker_b = 0xB;
+    int marker_c = 0xC;
+    phx_ptr_set_insert(&s, &marker_b);
+    phx_ptr_set_insert(&s, &marker_c);
+    assert(phx_ptr_set_size(&s) == 3 &&
+           "Phase 4.X-full Batch 92(d): size==3 after multi-insert");
+    assert(phx_ptr_set_contains(&s, &marker_a) == 1 &&
+           phx_ptr_set_contains(&s, &marker_b) == 1 &&
+           phx_ptr_set_contains(&s, &marker_c) == 1 &&
+           "Phase 4.X-full Batch 92(d): all 3 keys contained");
+    int marker_z = 0xDEAD;
+    assert(phx_ptr_set_contains(&s, &marker_z) == 0 &&
+           "Phase 4.X-full Batch 92(d): non-inserted key not contained");
+
+    /* (e) resize past initial cap (16): insert 20 distinct keys; verify
+     * all original keys still contained post-resize. */
+    int markers[20];
+    for (int i = 0; i < 20; i++) {
+        markers[i] = i;
+        phx_ptr_set_insert(&s, &markers[i]);
+    }
+    /* count = 3 (a/b/c) + 20 (markers[0..19]) = 23 */
+    assert(phx_ptr_set_size(&s) == 23 &&
+           "Phase 4.X-full Batch 92(e): size 23 after 20-key resize");
+    assert(s.capacity >= 32 &&
+           "Phase 4.X-full Batch 92(e): capacity grew past initial 16");
+    /* Original 3 keys + all 20 markers must be contained post-resize */
+    assert(phx_ptr_set_contains(&s, &marker_a) == 1 &&
+           phx_ptr_set_contains(&s, &marker_b) == 1 &&
+           phx_ptr_set_contains(&s, &marker_c) == 1 &&
+           "Phase 4.X-full Batch 92(e): pre-resize keys preserved");
+    for (int i = 0; i < 20; i++) {
+        assert(phx_ptr_set_contains(&s, &markers[i]) == 1 &&
+               "Phase 4.X-full Batch 92(e): post-resize keys all contained");
+    }
+
+    /* (f) clear + reuse: count resets, contains returns 0; subsequent
+     * insert works without re-init */
+    phx_ptr_set_clear(&s);
+    assert(phx_ptr_set_size(&s) == 0 &&
+           "Phase 4.X-full Batch 92(f): clear sets size 0");
+    assert(phx_ptr_set_contains(&s, &marker_a) == 0 &&
+           "Phase 4.X-full Batch 92(f): post-clear contains returns 0");
+    phx_ptr_set_insert(&s, &marker_a);
+    assert(phx_ptr_set_contains(&s, &marker_a) == 1 &&
+           "Phase 4.X-full Batch 92(f): post-clear insert works");
+
+    phx_ptr_set_destroy(&s);
+    assert(s.entries == NULL && s.capacity == 0 && s.count == 0 &&
+           "Phase 4.X-full Batch 92(f): destroy resets all fields");
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -4308,4 +4397,5 @@ static void hir_instr_runtime_check() {
     verify_phase4d_batch87_d5a_entries();
     verify_phase4x_full_batch89_bc_offset_set();
     verify_phase4x_full_batch91_ptr_queue();
+    verify_phase4x_full_batch92_ptr_set();
 }
