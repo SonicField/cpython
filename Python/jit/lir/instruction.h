@@ -449,11 +449,30 @@ class Instruction {
 
   // get the operand associated to a given predecessor in a phi instruction
   // returns nullptr if not found.
-  OperandBase* getOperandByPredecessor(const BasicBlock* pred);
+  OperandBase* getOperandByPredecessor(const BasicBlock* pred) {
+    return reinterpret_cast<OperandBase*>(
+        lir_instruction_get_operand_by_predecessor(
+            reinterpret_cast<const LirInstruction*>(this),
+            reinterpret_cast<const LirBasicBlock*>(pred)));
+  }
 
-  int getOperandIndexByPredecessor(const BasicBlock* pred) const;
+  int getOperandIndexByPredecessor(const BasicBlock* pred) const {
+    auto* result = lir_instruction_get_operand_by_predecessor(
+        reinterpret_cast<const LirInstruction*>(this),
+        reinterpret_cast<const LirBasicBlock*>(pred));
+    if (result == nullptr) return -1;
+    // Find the index of this operand — it's the value after the label
+    for (size_t i = 0; i < num_inputs_; i += 2) {
+      if (inputs_[i]->getBasicBlock() == pred) {
+        return i + 1;
+      }
+    }
+    return -1;
+  }
 
-  const OperandBase* getOperandByPredecessor(const BasicBlock* pred) const;
+  const OperandBase* getOperandByPredecessor(const BasicBlock* pred) const {
+    return const_cast<Instruction*>(this)->getOperandByPredecessor(pred);
+  }
 
   // Accessors for some of the instruction's attributes. See details in the
   // comment above FOREACH_INSTR_TYPE().

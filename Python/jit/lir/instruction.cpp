@@ -77,33 +77,7 @@ static_assert(offsetof(LirBasicBlock, section_) == offsetof(BasicBlock, section_
 static_assert(sizeof(LirFunction) == sizeof(Function),
     "LirFunction and Function size mismatch");
 
-// ---- Destructor + Input management: MOVED to instruction.h (Phase 5.A2 C2-C3) ----
-
-OperandBase* Instruction::getOperandByPredecessor(const BasicBlock* pred) {
-  return reinterpret_cast<OperandBase*>(
-      lir_instruction_get_operand_by_predecessor(
-          reinterpret_cast<const LirInstruction*>(this),
-          reinterpret_cast<const LirBasicBlock*>(pred)));
-}
-
-int Instruction::getOperandIndexByPredecessor(const BasicBlock* pred) const {
-  auto* result = lir_instruction_get_operand_by_predecessor(
-      reinterpret_cast<const LirInstruction*>(this),
-      reinterpret_cast<const LirBasicBlock*>(pred));
-  if (result == nullptr) return -1;
-  // Find the index of this operand — it's the value after the label
-  for (size_t i = 0; i < num_inputs_; i += 2) {
-    if (inputs_[i]->getBasicBlock() == pred) {
-      return i + 1;
-    }
-  }
-  return -1;
-}
-
-const OperandBase* Instruction::getOperandByPredecessor(
-    const BasicBlock* pred) const {
-  return const_cast<Instruction*>(this)->getOperandByPredecessor(pred);
-}
+// ---- Destructor + Input management + getOperand*: MOVED to instruction.h (Phase 5.A2 C2-C4) ----
 
 // ---- InstrProperty (static data — stays in .cpp until C equivalent exists) ----
 
