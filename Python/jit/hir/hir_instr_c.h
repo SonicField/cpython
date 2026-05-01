@@ -371,12 +371,14 @@ static inline HirEnvironment *hir_func_env(void *func) {
     return (HirEnvironment *)((char *)func + 152);
 }
 
+/* X3b cascade: env shrunk -32B; cfg + reifier offsets shift -32. Pinned
+ * by hir_instr_c_verify.cpp:148-149 static_asserts. */
 static inline void *hir_func_cfg_ptr(void *func) {
-    return (void *)((char *)func + 248);
+    return (void *)((char *)func + 216);
 }
 
 static inline void *hir_func_reifier(const void *func) {
-    return *(void **)((const char *)func + 320);
+    return *(void **)((const char *)func + 288);
 }
 
 /* ---- FrameState C struct ---- */
