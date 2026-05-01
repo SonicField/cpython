@@ -8,6 +8,7 @@
 #include "cinderx/Jit/hir/hir_cfg_rpo_c.h"
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_basic_block_c.h"
+#include "cinderx/Jit/hir/phx_ptr_queue.h"  /* X2a: PhxPtrQueue (was file-scoped PhxQueue) */
 #include "cinderx/Common/jit_log_c.h"
 #include "Python.h"
 
@@ -39,38 +40,9 @@ static void bset_insert(PhxBlockSet *s, int id) {
     if (id >= 0 && (size_t)id < s->cap) s->bits[id] = 1;
 }
 
-/* ---- Simple pointer queue ---- */
-
-typedef struct {
-    void **data;
-    size_t head, tail, cap;
-} PhxQueue;
-
-static void queue_init(PhxQueue *q) {
-    q->cap = 16;
-    q->head = q->tail = 0;
-    q->data = (void **)PyMem_RawMalloc(q->cap * sizeof(void *));
-}
-
-static void queue_destroy(PhxQueue *q) {
-    PyMem_RawFree(q->data);
-}
-
-static int queue_empty(const PhxQueue *q) {
-    return q->head == q->tail;
-}
-
-static void queue_push(PhxQueue *q, void *v) {
-    if (q->tail >= q->cap) {
-        q->cap *= 2;
-        q->data = (void **)PyMem_RawRealloc(q->data, q->cap * sizeof(void *));
-    }
-    q->data[q->tail++] = v;
-}
-
-static void *queue_pop(PhxQueue *q) {
-    return q->data[q->head++];
-}
+/* PhxQueue → PhxPtrQueue promoted to phx_ptr_queue.h shared header
+ * (X2a, supervisor 03:06:27Z disposition). Realloc OOM now loud-fails
+ * via JIT_CHECK_C (was silent-skip W2-A1 violation in original). */
 
 /* ---- Pointer array ---- */
 
@@ -159,24 +131,24 @@ static size_t find_loops(HirFunction func, PhxDominatorState *doms,
             loop->preheader = NULL;
 
             if (block != target) {
-                PhxQueue worklist;
-                queue_init(&worklist);
+                PhxPtrQueue worklist;
+                phx_ptr_queue_init(&worklist);
                 bset_insert(&loop->body, block->id);
-                queue_push(&worklist, block);
+                phx_ptr_queue_push(&worklist, block);
 
-                while (!queue_empty(&worklist)) {
-                    HirBasicBlock *cur = (HirBasicBlock *)queue_pop(&worklist);
+                while (!phx_ptr_queue_empty(&worklist)) {
+                    HirBasicBlock *cur = (HirBasicBlock *)phx_ptr_queue_pop(&worklist);
                     size_t n_in = hir_bb_in_edges_count(cur);
                     for (size_t pi = 0; pi < n_in; pi++) {
                         const HirEdge *pred_edge = hir_bb_in_edge(cur, pi);
                         HirBasicBlock *pred = (HirBasicBlock *)pred_edge->from;
                         if (pred != NULL && !bset_contains(&loop->body, pred->id)) {
                             bset_insert(&loop->body, pred->id);
-                            queue_push(&worklist, pred);
+                            phx_ptr_queue_push(&worklist, pred);
                         }
                     }
                 }
-                queue_destroy(&worklist);
+                phx_ptr_queue_destroy(&worklist);
             }
 
             HirBasicBlock *preheader_candidate = NULL;

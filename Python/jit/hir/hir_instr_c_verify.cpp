@@ -16,6 +16,7 @@
 #include "cinderx/Jit/hir/hir_c_api.h"         /* hir_c_tc_emit_* primitives (Batch 54) */
 #include "cinderx/Jit/hir/typed_argument_c.h"   /* phx_typed_argument_pytype_swap (Batch 76) */
 #include "cinderx/Jit/hir/phx_bc_offset_set.h"  /* Phase 4.X-full X1a (Batch 89) */
+#include "cinderx/Jit/hir/phx_ptr_queue.h"      /* Phase 4.X-full X2a (Batch 91) */
 
 #include <cassert>
 #include <cstring>
@@ -4167,6 +4168,75 @@ static void verify_phase4x_full_batch89_bc_offset_set() {
     phx_bc_offset_set_destroy(&s);
 }
 
+/* Phase 4.X-full X2a Batch 91 (supervisor 03:06:27Z (b) PROMOTE):
+ * PhxPtrQueue substrate falsifier. PROMOTED from licm_c.c file-scoped
+ * PhxQueue + W2-A1 silent-skip-on-realloc-OOM retroactively fixed via
+ * JIT_CHECK_C(new_data != NULL) per X1a forward stance #4 precedent.
+ * Coverage: empty/single push-pop/multi push-pop FIFO order/cap-grow/
+ * re-empty after drain. */
+static void verify_phase4x_full_batch91_ptr_queue() {
+    PhxPtrQueue q;
+    phx_ptr_queue_init(&q);
+
+    /* (a) empty: phx_ptr_queue_empty true, lazy-alloc invariant */
+    assert(phx_ptr_queue_empty(&q) &&
+           "Phase 4.X-full Batch 91(a): empty post-init");
+    assert(q.data == NULL && q.capacity == 0 && q.head == 0 && q.tail == 0 &&
+           "Phase 4.X-full Batch 91(a): lazy-alloc invariant");
+
+    /* (b) single push-pop: FIFO of one element */
+    int marker_a = 0xA;
+    int marker_b = 0xB;
+    phx_ptr_queue_push(&q, &marker_a);
+    assert(!phx_ptr_queue_empty(&q) &&
+           "Phase 4.X-full Batch 91(b): non-empty post-push");
+    void *out = phx_ptr_queue_pop(&q);
+    assert(out == &marker_a &&
+           "Phase 4.X-full Batch 91(b): single pop returns pushed value");
+    assert(phx_ptr_queue_empty(&q) &&
+           "Phase 4.X-full Batch 91(b): empty after drain");
+
+    /* (c) multi FIFO order: 3 pushes, 3 pops, order preserved */
+    phx_ptr_queue_push(&q, &marker_a);
+    phx_ptr_queue_push(&q, &marker_b);
+    int marker_c = 0xC;
+    phx_ptr_queue_push(&q, &marker_c);
+    assert(phx_ptr_queue_pop(&q) == &marker_a &&
+           "Phase 4.X-full Batch 91(c): FIFO pop order [0]");
+    assert(phx_ptr_queue_pop(&q) == &marker_b &&
+           "Phase 4.X-full Batch 91(c): FIFO pop order [1]");
+    assert(phx_ptr_queue_pop(&q) == &marker_c &&
+           "Phase 4.X-full Batch 91(c): FIFO pop order [2]");
+    assert(phx_ptr_queue_empty(&q) &&
+           "Phase 4.X-full Batch 91(c): empty after multi-drain");
+
+    /* (d) cap-grow: push beyond initial cap (16); verify count + ordering */
+    int markers[20];
+    for (int i = 0; i < 20; i++) {
+        markers[i] = i;
+        phx_ptr_queue_push(&q, &markers[i]);
+    }
+    assert(q.capacity >= 20 &&
+           "Phase 4.X-full Batch 91(d): capacity grew past initial");
+    for (int i = 0; i < 20; i++) {
+        int *got = (int *)phx_ptr_queue_pop(&q);
+        assert(got == &markers[i] &&
+               "Phase 4.X-full Batch 91(d): FIFO order preserved across grow");
+    }
+    assert(phx_ptr_queue_empty(&q) &&
+           "Phase 4.X-full Batch 91(d): empty after cap-grow drain");
+
+    /* (e) re-empty after drain: data ptr preserved (lazy reset on destroy
+     * only, not on drain); subsequent push works without re-init */
+    phx_ptr_queue_push(&q, &marker_a);
+    assert(phx_ptr_queue_pop(&q) == &marker_a &&
+           "Phase 4.X-full Batch 91(e): post-drain push-pop works");
+
+    phx_ptr_queue_destroy(&q);
+    assert(q.data == NULL && q.capacity == 0 && q.head == 0 && q.tail == 0 &&
+           "Phase 4.X-full Batch 91(e): destroy resets all fields");
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -4237,4 +4307,5 @@ static void hir_instr_runtime_check() {
     verify_phase4d_batch83_frame_state_accessors();
     verify_phase4d_batch87_d5a_entries();
     verify_phase4x_full_batch89_bc_offset_set();
+    verify_phase4x_full_batch91_ptr_queue();
 }
