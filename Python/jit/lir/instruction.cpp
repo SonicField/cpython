@@ -81,25 +81,6 @@ static_assert(sizeof(LirFunction) == sizeof(Function),
 
 // ---- InstrProperty (static data — stays in .cpp until C equivalent exists) ----
 
-bool Instruction::getOutputPhyRegUse() const {
-  return InstrProperty::getProperties(opcode_).output_phy_use;
-}
-
-bool Instruction::getInputPhyRegUse(size_t i) const {
-  if ((isMove() || isMoveRelaxed()) && output_.isInd()) {
-    return true;
-  }
-  auto& uses = InstrProperty::getProperties(opcode_).input_phy_uses;
-  if (i >= uses.size()) {
-    return false;
-  }
-  return uses.at(i);
-}
-
-bool Instruction::inputsLiveAcross() const {
-  return InstrProperty::getProperties(opcode_).inputs_live_across;
-}
-
 InstrProperty::InstrInfo& InstrProperty::getProperties(
     Instruction::Opcode opcode) {
   return prop_map_.at(opcode);

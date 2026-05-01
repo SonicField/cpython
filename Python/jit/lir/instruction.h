@@ -610,5 +610,28 @@ BEGIN_INSTR_PROPERTY_FIELD
 END_INSTR_PROPERTY_FIELD
 // clang-format on
 
+// ---- Out-of-class inline definitions (Phase 5.A2 C5):
+//      defined here because bodies depend on InstrProperty::InstrInfo,
+//      which is only complete after BEGIN/END_INSTR_PROPERTY_FIELD above.
+
+inline bool Instruction::getOutputPhyRegUse() const {
+  return InstrProperty::getProperties(opcode_).output_phy_use;
+}
+
+inline bool Instruction::getInputPhyRegUse(size_t i) const {
+  if ((isMove() || isMoveRelaxed()) && output_.isInd()) {
+    return true;
+  }
+  auto& uses = InstrProperty::getProperties(opcode_).input_phy_uses;
+  if (i >= uses.size()) {
+    return false;
+  }
+  return uses.at(i);
+}
+
+inline bool Instruction::inputsLiveAcross() const {
+  return InstrProperty::getProperties(opcode_).inputs_live_across;
+}
+
 } // namespace lir
 } // namespace jit
