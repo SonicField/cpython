@@ -1,8 +1,14 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 //
-// Phase 3D: Minimal stub — only methods that cannot be inlined
-// (destructor, input management, InstrProperty static data).
-// Simple accessors moved inline to instruction.h.
+// Phase 5.A2 (M3 close): instruction.cpp now contains only:
+//   (i)  Layout-pin static_asserts cross-validating C struct sizes/offsets
+//        against C++ counterparts (LirPhyLocation/LirOperand/LirInstruction/
+//        LirBasicBlock/LirFunction).
+//   (ii) InstrProperty out-of-line getProperties + static prop_map_ vector
+//        built from FOREACH_INSTR_TYPE, plus 3 extern "C" query wrappers.
+// All Instruction:: method bodies (destructor + 20 methods) were moved
+// inline to instruction.h in Phase 5.A2 C2-C5. InstrProperty C-port +
+// class elimination deferred to Phase 5.E bridge dissolution.
 
 #include "cinderx/Jit/lir/instruction.h"
 
