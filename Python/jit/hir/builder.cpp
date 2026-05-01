@@ -313,12 +313,6 @@ bool isBannedName(std::string_view name) {
 // hir_c_temps_alloc_stack / get_or_alloc_stack / alloc_non_stack
 // (&state_.temps_phx) directly per P3a/P3b migration.
 
-void HIRBuilder::allocateLocalsplus(Environment* env, FrameState& state) {
-  hir_c_allocate_localsplus_n(env, &state,
-                              numLocalsplus(code()),
-                              numLocals(code()));
-}
-
 static inline HirType to_hir(Type t) {
   return Type::toHirType(t);
 }
@@ -341,15 +335,6 @@ struct HIRBuilder::TranslationContext {
   BasicBlock* block{nullptr};
   FrameState frame;
 };
-
-void HIRBuilder::addInitialYield(TranslationContext& tc) {
-  static_assert(offsetof(TranslationContext, block) == 0,
-      "TranslationContext::block must be at offset 0 for PhxTranslationContext cast");
-  static_assert(offsetof(TranslationContext, frame) == sizeof(void*),
-      "TranslationContext::frame must follow block for PhxTranslationContext cast");
-  auto out = static_cast<Register*>(hir_c_temps_alloc_non_stack(&state_.temps_phx));
-  hir_c_tc_emit_initial_yield(&tc, out, &tc.frame);
-}
 
 // Add LoadArg instructions for each function argument. This ensures that the
 // corresponding variables are always assigned and allows for a uniform
@@ -699,13 +684,6 @@ std::unique_ptr<Function> HIRBuilder::buildHIR() {
 extern "C" void hir_builder_emit_type_annotation_guards_c(
     void *tc, void *func, void *builder);
 
-void HIRBuilder::emitTypeAnnotationGuards(TranslationContext& tc) {
-  hir_builder_emit_type_annotation_guards_c(
-      static_cast<void*>(&tc),
-      static_cast<void*>(current_func()),
-      static_cast<void*>(this));
-}
-
 BasicBlock* HIRBuilder::buildHIRImpl(
     Function* irfunc,
     FrameState* frame_state) {
@@ -746,7 +724,9 @@ BasicBlock* HIRBuilder::buildHIRImpl(
           preloader().globals(),
           preloader().builtins(),
           /*parent=*/frame_state}};
-  allocateLocalsplus(&irfunc->env, entry_tc.frame);
+  hir_c_allocate_localsplus_n(&irfunc->env, &entry_tc.frame,
+                              numLocalsplus(code()),
+                              numLocals(code()));
 
   addLoadArgs(entry_tc, preloader().numArgs());
 
@@ -764,7 +744,10 @@ BasicBlock* HIRBuilder::buildHIRImpl(
   }
 #endif
 
-  emitTypeAnnotationGuards(entry_tc);
+  hir_builder_emit_type_annotation_guards_c(
+      static_cast<void*>(&entry_tc),
+      static_cast<void*>(current_func()),
+      static_cast<void*>(this));
 
   // In 3.12+ "Initial Yield" has an explicit bytecode instruction in
   // "RETURN_GENERATOR" and so is emitted at the appropriate time.
@@ -773,7 +756,8 @@ BasicBlock* HIRBuilder::buildHIRImpl(
     // the suspendable state. It must also come before anything which can
     // deopt as generator deopt assumes we're running from state stored
     // in a generator object.
-    addInitialYield(entry_tc);
+    auto out = static_cast<Register*>(hir_c_temps_alloc_non_stack(&state_.temps_phx));
+    hir_c_tc_emit_initial_yield(&entry_tc, out, &entry_tc.frame);
   }
 
   BasicBlock* first_block = getBlockAtOff(BCOffset{0});
@@ -851,18 +835,6 @@ InlineResult HIRBuilder::inlineHIR(
   }
 
   return {entry_block, exit_block};
-}
-
-void HIRBuilder::advancePastYieldInstr(TranslationContext& tc) {
-  // A YIELD_VALUE/RETURN_GENERATOR doesn't directly fail, however we may want
-  // to throw into the generator which means we'd deopt. In this case we need
-  // bytecode pointer to the following instruction which is where the
-  // interpreter should pick-up execution.
-  BCOffset next_bc_offs{
-      BytecodeInstruction{code(), tc.frame.cur_instr_offs}.nextInstrOffset()};
-  hir_c_advance_past_yield(&tc.frame, next_bc_offs.value(),
-                           next_bc_offs.asIndex().value(),
-                           countIndices(code()));
 }
 
 void HIRBuilder::translate(
@@ -1623,7 +1595,16 @@ void HIRBuilder::translate(
           auto out = static_cast<Register*>(hir_c_temps_alloc_stack(&state_.temps_phx));
           if constexpr (
               PY_VERSION_HEX < 0x030C0000 || PY_VERSION_HEX >= 0x030E0000) {
-            advancePastYieldInstr(tc);
+            // A YIELD_VALUE/RETURN_GENERATOR doesn't directly fail, however
+            // we may want to throw into the generator which means we'd
+            // deopt. In this case we need bytecode pointer to the following
+            // instruction which is where the interpreter should pick-up
+            // execution.
+            BCOffset next_bc_offs{
+                BytecodeInstruction{code(), tc.frame.cur_instr_offs}.nextInstrOffset()};
+            hir_c_advance_past_yield(&tc.frame, next_bc_offs.value(),
+                                     next_bc_offs.asIndex().value(),
+                                     countIndices(code()));
           }
           hir_c_tc_emit_initial_yield(&tc, out, &tc.frame);
           phx_ptr_arr_push(&tc.frame.stack, out);

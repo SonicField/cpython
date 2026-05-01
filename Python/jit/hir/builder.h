@@ -548,7 +548,6 @@ class HIRBuilder {
       TranslationContext& tc,
       const BytecodeInstruction& bc_instr);
 
-  void emitTypeAnnotationGuards(TranslationContext& tc);
 
   void emitBuildInterpolation(
       TranslationContext& tc,
@@ -582,9 +581,7 @@ class HIRBuilder {
       BasicBlock* check_block,
       BasicBlock* succ,
       const FrameState& frame);
-  void addInitialYield(TranslationContext& tc);
   void addLoadArgs(TranslationContext& tc, int num_args);
-  void allocateLocalsplus(Environment* env, FrameState& state);
   void moveOverwrittenStackRegisters(TranslationContext& tc, Register* dst);
   bool tryEmitDirectMethodCall(
       const InvokeTarget& target,
@@ -631,7 +628,6 @@ class HIRBuilder {
   // Check that a code object can be compiled into HIR.
   void checkTranslate();
 
-  void advancePastYieldInstr(TranslationContext& tc);
 
   // §4.A.5c Pilot 5 2026-04-28: code_ field migrated to state_.code;
   // 46 reads in builder.cpp converted to code() getter.
