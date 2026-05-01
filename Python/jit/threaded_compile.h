@@ -12,6 +12,13 @@
 #include <thread>
 #include <vector>
 
+/* X3a forward decls (global namespace, extern "C" linkage): bridge funcs
+ * declared here so jit::ThreadedRef friend decls below can reference them
+ * by ::name (Phase 4.X-full per supervisor 04:04:50Z Q-X3-3). Must be at
+ * global scope — extern "C" only changes linkage, NOT name lookup. */
+extern "C" void phx_threaded_incref(PyObject *obj);
+extern "C" void phx_threaded_decref(PyObject *obj);
+
 namespace jit {
 
 // Used to punt out of optimizations that require holding the GIL.
@@ -218,11 +225,6 @@ class ThreadedCompileSerialize {
  * Unlike Ref a ThreadedRef cannot be stolen because it would
  * result in an imbalance of the reference count stats.
  */
-
-/* X3a forward decls: extern "C" bridge needs friend access to private
- * static incref/decref (Phase 4.X-full per supervisor 04:04:50Z Q-X3-3). */
-extern "C" void phx_threaded_incref(PyObject *obj);
-extern "C" void phx_threaded_decref(PyObject *obj);
 
 template <typename T = PyObject>
   requires(!std::is_pointer_v<T>)
