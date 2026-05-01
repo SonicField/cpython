@@ -18,6 +18,7 @@
 #include "cinderx/Jit/hir/phx_bc_offset_set.h"  /* Phase 4.X-full X1a (Batch 89) */
 #include "cinderx/Jit/hir/phx_ptr_queue.h"      /* Phase 4.X-full X2a (Batch 91) */
 #include "cinderx/Jit/hir/phx_ptr_set.h"        /* Phase 4.X-full X2b (Batch 92) */
+#include "cinderx/Jit/hir/phx_ptr_map.h"        /* Phase 4.X-full X3a (Batch 95) */
 
 #include <cassert>
 #include <cstring>
@@ -4396,6 +4397,102 @@ static void verify_phase4x_full_batch93_ptr_set_at() {
     phx_ptr_set_destroy(&s);
 }
 
+/* Phase 4.X-full X3a Batch 95 (supervisor 04:04:50Z): PhxPtrMap
+ * substrate falsifier. Generic void*-keyed open-address hash map with
+ * void* values + parallel keys/values entries. Discharges 4-of-7
+ * remaining stay-C++ exceptions when X3b/X3c migrations consume.
+ * Coverage: empty/single insert+lookup/duplicate-update/multi
+ * insert+lookup/contains-vs-NULL-value/iter raw slots/clear+reuse. */
+static void verify_phase4x_full_batch95_ptr_map() {
+    PhxPtrMap m;
+    phx_ptr_map_init(&m);
+
+    /* (a) empty: lookup returns NULL, contains 0, capacity 0 */
+    int marker_a = 0xA;
+    int marker_b = 0xB;
+    assert(phx_ptr_map_size(&m) == 0 &&
+           "Phase 4.X-full Batch 95(a): empty size==0");
+    assert(phx_ptr_map_lookup(&m, &marker_a) == NULL &&
+           "Phase 4.X-full Batch 95(a): lookup on empty == NULL");
+    assert(phx_ptr_map_contains(&m, &marker_a) == 0 &&
+           "Phase 4.X-full Batch 95(a): contains on empty == 0");
+
+    /* (b) single insert: returns 1 (newly inserted); lookup returns value */
+    int r = phx_ptr_map_insert(&m, &marker_a, &marker_b);
+    assert(r == 1 &&
+           "Phase 4.X-full Batch 95(b): first insert returns 1");
+    assert(phx_ptr_map_size(&m) == 1 &&
+           "Phase 4.X-full Batch 95(b): size==1 after first insert");
+    assert(phx_ptr_map_lookup(&m, &marker_a) == &marker_b &&
+           "Phase 4.X-full Batch 95(b): lookup returns inserted value");
+    assert(phx_ptr_map_contains(&m, &marker_a) == 1 &&
+           "Phase 4.X-full Batch 95(b): contains after insert == 1");
+
+    /* (c) duplicate-key update: returns 0 (overwrite); size unchanged */
+    int marker_c = 0xC;
+    int r_upd = phx_ptr_map_insert(&m, &marker_a, &marker_c);
+    assert(r_upd == 0 &&
+           "Phase 4.X-full Batch 95(c): dup-key insert returns 0 (update)");
+    assert(phx_ptr_map_size(&m) == 1 &&
+           "Phase 4.X-full Batch 95(c): size unchanged on update");
+    assert(phx_ptr_map_lookup(&m, &marker_a) == &marker_c &&
+           "Phase 4.X-full Batch 95(c): lookup returns NEW value post-update");
+
+    /* (d) multi insert + lookup across distinct keys */
+    int marker_d = 0xD, marker_e = 0xE, marker_f = 0xF;
+    phx_ptr_map_insert(&m, &marker_b, &marker_d);
+    phx_ptr_map_insert(&m, &marker_c, &marker_e);
+    phx_ptr_map_insert(&m, &marker_d, &marker_f);
+    assert(phx_ptr_map_size(&m) == 4 &&
+           "Phase 4.X-full Batch 95(d): size==4 after multi-insert");
+    assert(phx_ptr_map_lookup(&m, &marker_a) == &marker_c &&
+           phx_ptr_map_lookup(&m, &marker_b) == &marker_d &&
+           phx_ptr_map_lookup(&m, &marker_c) == &marker_e &&
+           phx_ptr_map_lookup(&m, &marker_d) == &marker_f &&
+           "Phase 4.X-full Batch 95(d): all 4 keys lookup correct values");
+
+    /* (e) contains-vs-NULL-value disambiguation: insert key with NULL
+     * value; contains returns 1, lookup returns NULL */
+    int marker_g = 0xC0DE;
+    phx_ptr_map_insert(&m, &marker_g, NULL);
+    assert(phx_ptr_map_contains(&m, &marker_g) == 1 &&
+           "Phase 4.X-full Batch 95(e): contains true for NULL-value key");
+    assert(phx_ptr_map_lookup(&m, &marker_g) == NULL &&
+           "Phase 4.X-full Batch 95(e): lookup returns NULL for NULL-value key");
+    int marker_z = 0xDEAD;
+    assert(phx_ptr_map_contains(&m, &marker_z) == 0 &&
+           "Phase 4.X-full Batch 95(e): contains false for absent key");
+
+    /* (f) iter raw slots: walk capacity collecting non-NULL keys */
+    size_t cap = phx_ptr_map_capacity(&m);
+    int seen_a = 0, seen_b = 0, seen_c = 0, seen_d = 0, seen_g = 0;
+    for (size_t i = 0; i < cap; i++) {
+        void *key = phx_ptr_map_at_key(&m, i);
+        if (key == &marker_a) seen_a = 1;
+        else if (key == &marker_b) seen_b = 1;
+        else if (key == &marker_c) seen_c = 1;
+        else if (key == &marker_d) seen_d = 1;
+        else if (key == &marker_g) seen_g = 1;
+    }
+    assert(seen_a && seen_b && seen_c && seen_d && seen_g &&
+           "Phase 4.X-full Batch 95(f): iter visits all 5 inserted keys");
+
+    /* (g) clear + reuse: count resets, lookup returns NULL; subsequent
+     * insert works without re-init; destroy resets all fields */
+    phx_ptr_map_clear(&m);
+    assert(phx_ptr_map_size(&m) == 0 &&
+           "Phase 4.X-full Batch 95(g): clear sets size 0");
+    assert(phx_ptr_map_lookup(&m, &marker_a) == NULL &&
+           "Phase 4.X-full Batch 95(g): post-clear lookup returns NULL");
+    phx_ptr_map_insert(&m, &marker_a, &marker_b);
+    assert(phx_ptr_map_lookup(&m, &marker_a) == &marker_b &&
+           "Phase 4.X-full Batch 95(g): post-clear insert+lookup works");
+
+    phx_ptr_map_destroy(&m);
+    assert(m.entries == NULL && m.capacity == 0 && m.count == 0 &&
+           "Phase 4.X-full Batch 95(g): destroy resets all fields");
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -4469,4 +4566,5 @@ static void hir_instr_runtime_check() {
     verify_phase4x_full_batch91_ptr_queue();
     verify_phase4x_full_batch92_ptr_set();
     verify_phase4x_full_batch93_ptr_set_at();
+    verify_phase4x_full_batch95_ptr_map();
 }
