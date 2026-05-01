@@ -62,6 +62,24 @@ static inline void phx_frame_state_copy(HirFrameStateLayout *dst,
     }
 }
 
+/* Phase 4.D D1b-prep (Batch 83, slim per supervisor 00:39:12Z OPTION (ii)):
+ * 2 PhxPtrArray*-returning accessors enabling D1b TranslationContext →
+ * PhxTranslationContext rename. Returns the field-pointer for in-place
+ * mutation by C++ caller — matches existing C++ tc.frame.stack/localsplus
+ * reference semantics needed by phx_ptr_arr_push/pop + .data[i] assignment.
+ *
+ * 3 candidate scalar accessors (code/nlocals/cur_instr_offs) NOT added —
+ * already exist as hir_fs_code/nlocals/cur_instr_offs in hir_instr_c.h.
+ * Block_stack ops already exist as phx_block_stack_top/pop/is_empty below. */
+static inline PhxPtrArray *phx_frame_state_stack(HirFrameStateLayout *fs) {
+    return &fs->stack;
+}
+
+static inline PhxPtrArray *phx_frame_state_localsplus(
+    HirFrameStateLayout *fs) {
+    return &fs->localsplus;
+}
+
 static inline void phx_frame_state_destroy(HirFrameStateLayout *fs) {
     phx_ptr_arr_destroy(&fs->localsplus);
     phx_ptr_arr_destroy(&fs->stack);

@@ -4043,6 +4043,34 @@ static void verify_phase4x_batch80_deopt_find_adjacent_dup_reg() {
     (void)r_c; (void)r_d;
 }
 
+/* Phase 4.D D1b-prep Batch 83 (slim per supervisor 00:39:12Z OPTION (ii)):
+ * 2 PhxPtrArray*-returning FrameState accessors enabling D1b
+ * TranslationContext → PhxTranslationContext rename. Pins field-aliasing
+ * semantic — PhxPtrArray pointer-returns must equal &fs->stack /
+ * &fs->localsplus so C++ callers' phx_ptr_arr_push/pop + .data[i]
+ * assignment retain reference semantics across the rename.
+ *
+ * 3 candidate scalar accessors (code/nlocals/cur_instr_offs) NOT verified
+ * here — already exist in hir_instr_c.h as hir_fs_* (round-trip pinned by
+ * existing fixtures). */
+static void verify_phase4d_batch83_frame_state_accessors() {
+    HirFrameStateLayout fs;
+    void *sentinel_code = (void *)(uintptr_t)0xC0DE0001ULL;
+    void *sentinel_globals = (void *)(uintptr_t)0xC0DE0002ULL;
+    void *sentinel_builtins = (void *)(uintptr_t)0xC0DE0003ULL;
+    phx_frame_state_init(&fs, sentinel_code, /*nlocals=*/7,
+                         sentinel_globals, sentinel_builtins);
+
+    PhxPtrArray *stack_ptr = phx_frame_state_stack(&fs);
+    PhxPtrArray *localsplus_ptr = phx_frame_state_localsplus(&fs);
+    assert(stack_ptr == &fs.stack &&
+           "Phase 4.D Batch 83: stack accessor returns field address");
+    assert(localsplus_ptr == &fs.localsplus &&
+           "Phase 4.D Batch 83: localsplus accessor returns field address");
+
+    phx_frame_state_destroy(&fs);
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -4110,4 +4138,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch75_collect_phis_alloc();
     verify_phase4a_batch76_typed_argument_pytype_swap();
     verify_phase4x_batch80_deopt_find_adjacent_dup_reg();
+    verify_phase4d_batch83_frame_state_accessors();
 }
