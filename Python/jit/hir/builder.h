@@ -581,7 +581,6 @@ class HIRBuilder {
       BasicBlock* check_block,
       BasicBlock* succ,
       const FrameState& frame);
-  void addLoadArgs(TranslationContext& tc, int num_args);
   void moveOverwrittenStackRegisters(TranslationContext& tc, Register* dst);
   bool tryEmitDirectMethodCall(
       const InvokeTarget& target,
@@ -653,17 +652,6 @@ class HIRBuilder {
       const ExceptionTableEntry& handler,
       SimpleExceptInfo& info) const;
 
-  // B2: Emit inline exception handler for CALL inside try block.
-  // It takes the FrameState from the call (preventing auto-deopt) and
-  // emits a CondBranch on the call result to inline the exception handler.
-  void emitCallExceptionHandler(
-      CFG& cfg,
-      TranslationContext& tc,
-      const jit::BytecodeInstruction& bc_instr,
-      const ExceptionTableEntry& handler,
-      const SimpleExceptInfo& info,
-      DeoptBase* call_instr,
-      Register* result);
 
   // §4.A.5c PROBE-1 2026-04-27: preloader_ migrated to state_.preloader
   // (smallest >15 single-setter — purest const-after-ctor shape; per-field

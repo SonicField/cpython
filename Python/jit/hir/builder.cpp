@@ -340,24 +340,6 @@ struct HIRBuilder::TranslationContext {
 // corresponding variables are always assigned and allows for a uniform
 // treatment of registers that correspond to arguments (vs locals) during
 // definite assignment analysis.
-void HIRBuilder::addLoadArgs(TranslationContext& tc, int num_args) {
-  PyCodeObject* code = tc.frame.code;
-  int starargs_idx = (code->co_flags & CO_VARARGS)
-      ? code->co_argcount + code->co_kwonlyargcount
-      : -1;
-  for (int i = 0; i < num_args; i++) {
-    // Arguments in CPython are the first N locals.
-    Register* dst = static_cast<Register*>(tc.frame.localsplus.data[i]);
-    JIT_CHECK(dst != nullptr, "No register for argument {}", i);
-    if (i == starargs_idx) {
-      hir_c_tc_emit_load_arg(&tc, dst, static_cast<int32_t>(i), to_hir(TTupleExact));
-    } else {
-      Type type = preloader().checkArgType(i);
-      hir_c_tc_emit_load_arg(&tc, dst, static_cast<int32_t>(i), to_hir(type));
-    }
-  }
-}
-
 static bool should_snapshot(
     const BytecodeInstruction& bci,
     bool is_in_async_for_header_block) {
@@ -607,39 +589,6 @@ extern "C" void hir_builder_emit_call_exception_handler_c(
     void* result,
     void* match_and_clear_fn);
 
-void HIRBuilder::emitCallExceptionHandler(
-    CFG& /*cfg*/,
-    TranslationContext& tc,
-    const jit::BytecodeInstruction& bc_instr,
-    const ExceptionTableEntry& handler,
-    const SimpleExceptInfo& info,
-    DeoptBase* call_instr,
-    Register* result) {
-  // (D1) Pre-amble — must happen on C++ side BEFORE the C body runs:
-  //   1. Suppress the auto null-check deopt in LIR codegen. The C body
-  //      handles exceptions inline via CondBranch. FrameState is
-  //      preserved for Simplify, register allocation, other deopt paths.
-  //   2. Pop the result that emitAnyCall pushed onto the stack — the C
-  //      body's deopt path expects a clean stack at the CALL offset.
-  // W27c #2b: pre-resolve opcode array now built C-side via
-  // build_inline_except_opcode_array_c (shared with W27c #2a
-  // emitInlineExceptionMatch).
-  call_instr->setSuppressExceptionDeopt(true);
-  static_cast<Register*>(phx_ptr_arr_pop(&tc.frame.stack));
-
-  hir_builder_emit_call_exception_handler_c(
-      static_cast<void*>(&tc),
-      static_cast<void*>(current_func()),
-      static_cast<void*>(this),
-      bc_instr.baseOffset().value(),
-      static_cast<int>(handler.depth),
-      static_cast<void*>(info.exc_type),
-      info.except_body.value(),
-      Type::toHirType(preloader().returnType()),
-      static_cast<void*>(result),
-      reinterpret_cast<void*>(JITRT_MatchAndClearException));
-}
-
 BasicBlock* HIRBuilder::getBlockAtOff(BCOffset off) {
   /* Tier 8 SECOND-PILOT Phase A: lookup migrated to PhxBlockMap. */
   void *blk = phx_block_map_lookup(&state_.block_map_phx, off.value());
@@ -728,7 +677,24 @@ BasicBlock* HIRBuilder::buildHIRImpl(
                               numLocalsplus(code()),
                               numLocals(code()));
 
-  addLoadArgs(entry_tc, preloader().numArgs());
+  {
+    int num_args = preloader().numArgs();
+    PyCodeObject* arg_code = entry_tc.frame.code;
+    int starargs_idx = (arg_code->co_flags & CO_VARARGS)
+        ? arg_code->co_argcount + arg_code->co_kwonlyargcount
+        : -1;
+    for (int i = 0; i < num_args; i++) {
+      // Arguments in CPython are the first N locals.
+      Register* dst = static_cast<Register*>(entry_tc.frame.localsplus.data[i]);
+      JIT_CHECK(dst != nullptr, "No register for argument {}", i);
+      if (i == starargs_idx) {
+        hir_c_tc_emit_load_arg(&entry_tc, dst, static_cast<int32_t>(i), to_hir(TTupleExact));
+      } else {
+        Type type = preloader().checkArgType(i);
+        hir_c_tc_emit_load_arg(&entry_tc, dst, static_cast<int32_t>(i), to_hir(type));
+      }
+    }
+  }
 
   // Consider checking if the code object or preloader uses runtime func and
   // drop the frame_state == nullptr check.  Inlined functions should load a
@@ -2036,14 +2002,30 @@ extern "C" void hir_builder_emit_call_method_exception_handler_inline_c(
   if (!self->getSimpleExceptInfo(*handler, info)) {
     return;
   }
-  // Reconstruct BytecodeInstruction from base_offset for the C++ method.
+  // Reconstruct BytecodeInstruction from base_offset for the inline body.
   BytecodeInstruction bc_instr{self->code(), cur_off};
-  self->emitCallExceptionHandler(
-      *static_cast<CFG*>(cfg),
-      *static_cast<HIRBuilder::TranslationContext*>(tc),
-      bc_instr, *handler, info,
-      static_cast<DeoptBase*>(call_instr),
-      static_cast<Register*>(result_reg));
+  auto& tc_ref = *static_cast<HIRBuilder::TranslationContext*>(tc);
+  // (D1) Pre-amble — must happen BEFORE the C body runs:
+  //   1. Suppress the auto null-check deopt in LIR codegen. The C body
+  //      handles exceptions inline via CondBranch. FrameState is
+  //      preserved for Simplify, register allocation, other deopt paths.
+  //   2. Pop the result that emitAnyCall pushed onto the stack — the C
+  //      body's deopt path expects a clean stack at the CALL offset.
+  static_cast<DeoptBase*>(call_instr)->setSuppressExceptionDeopt(true);
+  static_cast<Register*>(phx_ptr_arr_pop(&tc_ref.frame.stack));
+
+  hir_builder_emit_call_exception_handler_c(
+      static_cast<void*>(&tc_ref),
+      static_cast<void*>(self->current_func()),
+      static_cast<void*>(self),
+      bc_instr.baseOffset().value(),
+      static_cast<int>(handler->depth),
+      static_cast<void*>(info.exc_type),
+      info.except_body.value(),
+      Type::toHirType(self->preloader().returnType()),
+      static_cast<void*>(result_reg),
+      reinterpret_cast<void*>(JITRT_MatchAndClearException));
+  (void)cfg;
 }
 
 extern "C" void hir_builder_check_async_with_error_c(
