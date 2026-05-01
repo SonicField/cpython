@@ -406,24 +406,46 @@ class Instruction {
 
   // Set an input by index, deleting the previous input.  Does not resize the
   // inputs list.  Takes ownership of the raw pointer.
-  void setInput(size_t index, OperandBase* input);
+  void setInput(size_t i, OperandBase* input) {
+    lir_instruction_set_input(
+        reinterpret_cast<LirInstruction*>(this), i,
+        reinterpret_cast<LirOperand*>(input));
+  }
 
   // Remove an input by index, shifting all other inputs to the left.
   // Returns the removed operand — caller takes ownership.
-  OperandBase* removeInput(size_t index);
+  OperandBase* removeInput(size_t index) {
+    return reinterpret_cast<OperandBase*>(
+        lir_instruction_remove_input(
+            reinterpret_cast<LirInstruction*>(this), index));
+  }
 
   // Release the input operand at index from the instruction without
   // deallocating it.  The original input slot will be left with a nullptr,
   // which is meant be removed afterwards.  Caller takes ownership.
-  OperandBase* releaseInput(size_t index);
+  OperandBase* releaseInput(size_t index) {
+    return reinterpret_cast<OperandBase*>(
+        lir_instruction_release_input(
+            reinterpret_cast<LirInstruction*>(this), index));
+  }
 
   // Add a new input to the end of this instruction's input list.
   // Takes ownership of the raw pointer.
-  OperandBase* appendInput(OperandBase* operand);
+  OperandBase* appendInput(OperandBase* operand) {
+    return reinterpret_cast<OperandBase*>(
+        lir_instruction_append_input(
+            reinterpret_cast<LirInstruction*>(this),
+            reinterpret_cast<LirOperand*>(operand)));
+  }
 
   // Add a new input to the beginning of this instruction's input list.
   // Takes ownership of the raw pointer.
-  OperandBase* prependInput(OperandBase* operand);
+  OperandBase* prependInput(OperandBase* operand) {
+    return reinterpret_cast<OperandBase*>(
+        lir_instruction_prepend_input(
+            reinterpret_cast<LirInstruction*>(this),
+            reinterpret_cast<LirOperand*>(operand)));
+  }
 
   // get the operand associated to a given predecessor in a phi instruction
   // returns nullptr if not found.

@@ -77,39 +77,7 @@ static_assert(offsetof(LirBasicBlock, section_) == offsetof(BasicBlock, section_
 static_assert(sizeof(LirFunction) == sizeof(Function),
     "LirFunction and Function size mismatch");
 
-// ---- Destructor + Input management: MOVED to instruction.h (Phase 5.A2 C2) ----
-
-void Instruction::setInput(size_t i, OperandBase* input) {
-  lir_instruction_set_input(
-      reinterpret_cast<LirInstruction*>(this), i,
-      reinterpret_cast<LirOperand*>(input));
-}
-
-OperandBase* Instruction::removeInput(size_t index) {
-  return reinterpret_cast<OperandBase*>(
-      lir_instruction_remove_input(
-          reinterpret_cast<LirInstruction*>(this), index));
-}
-
-OperandBase* Instruction::releaseInput(size_t index) {
-  return reinterpret_cast<OperandBase*>(
-      lir_instruction_release_input(
-          reinterpret_cast<LirInstruction*>(this), index));
-}
-
-OperandBase* Instruction::appendInput(OperandBase* operand) {
-  return reinterpret_cast<OperandBase*>(
-      lir_instruction_append_input(
-          reinterpret_cast<LirInstruction*>(this),
-          reinterpret_cast<LirOperand*>(operand)));
-}
-
-OperandBase* Instruction::prependInput(OperandBase* operand) {
-  return reinterpret_cast<OperandBase*>(
-      lir_instruction_prepend_input(
-          reinterpret_cast<LirInstruction*>(this),
-          reinterpret_cast<LirOperand*>(operand)));
-}
+// ---- Destructor + Input management: MOVED to instruction.h (Phase 5.A2 C2-C3) ----
 
 OperandBase* Instruction::getOperandByPredecessor(const BasicBlock* pred) {
   return reinterpret_cast<OperandBase*>(
