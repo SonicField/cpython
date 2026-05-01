@@ -219,9 +219,16 @@ class ThreadedCompileSerialize {
  * result in an imbalance of the reference count stats.
  */
 
+/* X3a forward decls: extern "C" bridge needs friend access to private
+ * static incref/decref (Phase 4.X-full per supervisor 04:04:50Z Q-X3-3). */
+extern "C" void phx_threaded_incref(PyObject *obj);
+extern "C" void phx_threaded_decref(PyObject *obj);
+
 template <typename T = PyObject>
   requires(!std::is_pointer_v<T>)
 class ThreadedRef : public RefBase<T> {
+  friend void ::phx_threaded_incref(PyObject *obj);
+  friend void ::phx_threaded_decref(PyObject *obj);
  public:
   using RefBase<T>::RefBase;
 
