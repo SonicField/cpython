@@ -209,7 +209,10 @@ inline OpcodeCounts count_opcodes(const Function& func) {
 }
 
 #ifndef _LIBCPP_VERSION
-static_assert(sizeof(Function) == 41 * kPointerSize);
+/* X3b: Function shrunk by sizeof(std::unordered_set<ThreadedRef<>>) -
+ * sizeof(PhxPtrSet) = 56-24 = -32 bytes = -4 pointers when Environment::
+ * references_ migrated PhxPtrSet. 41→37 pointers. */
+static_assert(sizeof(Function) == 37 * kPointerSize);
 static_assert(sizeof(CFG) == 5 * kPointerSize);
 /* Edge→C: BasicBlock shrank — unordered_set (7 ptrs each) → PhxEdgePtrArray
  * (3 ptrs each). 20 - (2×7) + (2×3) = 12. Verify after first successful build. */

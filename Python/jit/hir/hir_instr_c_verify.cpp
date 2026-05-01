@@ -3400,12 +3400,14 @@ static void verify_phase4a_batch70_environment_accessors() {
     assert(hir_env_num_load_type_method_caches(&env) == 0 &&
            "Phase 4.A Batch 70(a): empty env num_load_type_method_caches == 0");
 
-    /* (b) references opaque-pointer points into the struct (offset
-     * matches the static_assert pin at verify.cpp:124). */
+    /* (b) references field-pointer points into the struct (offset matches
+     * the static_assert pin at verify.cpp). X3b: references_opaque[56]
+     * → references_entries (void*) + count + capacity = sizeof(PhxPtrSet)
+     * = 24 bytes. Bridge returns &references_entries (start of the field). */
     void *refs_ptr = hir_c_env_references(&env);
-    assert(refs_ptr == (void *)env.references_opaque &&
-           "Phase 4.A Batch 70(b): hir_c_env_references returns "
-           "&references_opaque[0]");
+    assert(refs_ptr == (void *)&env.references_entries &&
+           "Phase 4.A Batch 70(b) [X3b updated]: hir_c_env_references "
+           "returns &references_entries");
     /* The pointer must lie inside the env struct (not a heap allocation). */
     assert((char *)refs_ptr >= (char *)&env &&
            (char *)refs_ptr < (char *)&env + sizeof(env) &&

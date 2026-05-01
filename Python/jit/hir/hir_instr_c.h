@@ -263,13 +263,12 @@ static inline void *hir_c_env_add_register(void *env, void *reg) {
     return reg;
 }
 
-/* Phase 4.A Batch 35: pointer to Environment::references_ opaque blob
- * (std::unordered_set<ThreadedRef<>>). C++ shim reinterpret_cast's
- * back to ReferenceSet&. The opaque storage lives at offset
- * offsetof(HirEnvironment, references_opaque) — pinned by the existing
- * HirEnvironmentLayoutVerifier. */
+/* X3b (Batch 96): Environment::references_ migrated std::unordered_set<
+ * ThreadedRef<>> → PhxPtrSet. Bridge returns pointer to the references_
+ * field address (now PhxPtrSet*-typed in C++); C-side consumers can
+ * cast to PhxPtrSet*. Layout pinned by HirEnvironmentLayoutVerifier. */
 static inline void *hir_c_env_references(void *env) {
-    return ((HirEnvironment *)env)->references_opaque;
+    return &((HirEnvironment *)env)->references_entries;
 }
 
 /* ---- Phase 4.C Pilot 3 step 1 (Batch 42): TempAllocator port ----
@@ -339,7 +338,7 @@ static inline void *hir_c_op_stack_pop(HirOperandStack *s) {
 
 /* ---- Function C struct (opaque blob with offsetof-verified field access) ---- */
 typedef struct HirFunctionLayout {
-    char opaque[328]; /* sizeof(Function) == 41 * kPointerSize */
+    char opaque[296]; /* sizeof(Function) == 37 * kPointerSize (X3b: was 41 pre-Environment-PhxPtrSet) */
 } HirFunctionLayout;
 
 /* ---- Function C accessors (cast into opaque blob at known offsets) ---- */
