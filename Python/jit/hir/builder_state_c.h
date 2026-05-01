@@ -416,6 +416,25 @@ PhxHirBuilderState *phx_hir_builder_state(void *builder);
  * (4 closed via _cpp bridges + this 1 elevated to direct C-state-struct
  * access). Pilot 3 of Phase 4.C complete. */
 
+/* Phase 4.D D5a: NEW C entries for top-level HIR build orchestration.
+ *
+ * phx_preloader_make_function — bridges Preloader::makeFunction()
+ * (returns Function* released from std::unique_ptr; transfers ownership
+ * to caller — caller must wrap in unique_ptr<Function> or delete).
+ *
+ * phx_hir_build — top-level entry mirroring hir::buildHIR() free
+ * function. Constructs HIRBuilder + calls instance buildHIR(); returns
+ * Function* released from std::unique_ptr (transfers ownership).
+ *
+ * BOTH entries co-exist with existing C++ entries this batch — D5a is
+ * NO-OP behaviorally. compiler.cpp:236 still calls hir::buildHIR(); D5c
+ * will rewire to phx_hir_build.
+ *
+ * preloader_handle = const Preloader* cast to const void* for C boundary.
+ */
+void *phx_preloader_make_function(const void *preloader_handle);
+void *phx_hir_build(const void *preloader_handle);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

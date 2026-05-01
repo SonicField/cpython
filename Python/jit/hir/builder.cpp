@@ -604,6 +604,24 @@ std::unique_ptr<Function> buildHIR(const Preloader& preloader) {
   return HIRBuilder{preloader}.buildHIR();
 }
 
+/* Phase 4.D D5a: C entries for top-level HIR build (decls in
+ * builder_state_c.h). NO-OP this batch — co-exist with hir::buildHIR
+ * free function until D5c rewires compiler.cpp:236.
+ *
+ * Ownership: both entries return Function*-from-released-unique_ptr;
+ * caller assumes ownership and must wrap in unique_ptr<Function> or
+ * delete. Matches the C boundary pattern used by other Phx C entries. */
+extern "C" void *phx_preloader_make_function(const void *preloader_handle) {
+  return static_cast<const Preloader *>(preloader_handle)
+      ->makeFunction()
+      .release();
+}
+
+extern "C" void *phx_hir_build(const void *preloader_handle) {
+  const Preloader &p = *static_cast<const Preloader *>(preloader_handle);
+  return hir::buildHIR(p).release();
+}
+
 // This performs an abstract interpretation over the bytecode for func in order
 // to translate it from a stack to register machine. The translation proceeds
 // in two passes over the bytecode. First, basic block boundaries are

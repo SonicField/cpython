@@ -4071,6 +4071,29 @@ static void verify_phase4d_batch83_frame_state_accessors() {
     phx_frame_state_destroy(&fs);
 }
 
+/* Phase 4.D D5a Batch 87 (supervisor 02:02:33Z (α') split): 2 NEW
+ * extern "C" entries enabling D5c compiler.cpp:236 rewire to C-side.
+ * NO-OP behaviorally — both entries co-exist with hir::buildHIR() free
+ * function until D5c. Verifier pins symbol existence + sig at link time
+ * (compile is the primary falsifier; this fixture is the structural
+ * pre-falsification pin per pre-analysis §5 STRUCT-tier classification). */
+extern "C" void *phx_preloader_make_function(const void *preloader_handle);
+extern "C" void *phx_hir_build(const void *preloader_handle);
+
+static void verify_phase4d_batch87_d5a_entries() {
+    /* Symbol-existence + signature pin via volatile fn-pointer cast.
+     * Cannot exercise without a real Preloader (Preloader has heavy
+     * STL/RAII state; full constructor requires PyCodeObject + globals
+     * + builtins + preloader). D5b body migration tests behavior; D5c
+     * caller rewire tests end-to-end via 4-bench gate. */
+    volatile void *(*p_make_fn)(const void *) = phx_preloader_make_function;
+    volatile void *(*p_build_fn)(const void *) = phx_hir_build;
+    assert(p_make_fn != NULL &&
+           "Phase 4.D Batch 87 D5a: phx_preloader_make_function symbol");
+    assert(p_build_fn != NULL &&
+           "Phase 4.D Batch 87 D5a: phx_hir_build symbol");
+}
+
 __attribute__((constructor))
 static void hir_instr_runtime_check() {
     verify_hir_instr_read_through_cast();
@@ -4139,4 +4162,5 @@ static void hir_instr_runtime_check() {
     verify_phase4a_batch76_typed_argument_pytype_swap();
     verify_phase4x_batch80_deopt_find_adjacent_dup_reg();
     verify_phase4d_batch83_frame_state_accessors();
+    verify_phase4d_batch87_d5a_entries();
 }
