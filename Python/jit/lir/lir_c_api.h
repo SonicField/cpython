@@ -174,6 +174,7 @@ void lir_memind_set_linked(LirMemoryIndirect *mi,
 /* Instruction lifecycle and manipulation (lir_instruction.c) */
 LirInstruction *lir_instruction_create(LirBasicBlock *bb, int opcode,
                                         const void *origin);
+void lir_instruction_destroy(LirInstruction *inst);
 void lir_instruction_free(LirInstruction *inst);
 int lir_instruction_id(const LirInstruction *inst);
 int lir_instruction_opcode(const LirInstruction *inst);
@@ -193,6 +194,7 @@ LirOperand *lir_instruction_remove_input(LirInstruction *inst, size_t index);
 LirOperand *lir_instruction_prepend_input(LirInstruction *inst,
                                            LirOperand *operand);
 void lir_instruction_set_num_inputs(LirInstruction *inst, size_t n);
+void lir_instruction_ensure_input_capacity(LirInstruction *inst, size_t needed);
 int lir_instruction_get_num_outputs(const LirInstruction *inst);
 LirOperand *lir_instruction_get_operand_by_predecessor(
     const LirInstruction *inst, const LirBasicBlock *pred);
@@ -210,6 +212,8 @@ LirOperand *lir_instruction_alloc_label_input(LirInstruction *inst,
                                                LirBasicBlock *block);
 LirOperand *lir_instruction_alloc_addr_input(LirInstruction *inst,
                                               void *addr);
+LirOperand *lir_instruction_alloc_phyreg_or_stack_input(LirInstruction *inst,
+                                                         LirPhyLocation loc);
 void lir_instruction_foreach_input(const LirInstruction *inst,
                                     void (*cb)(LirOperand *, void *),
                                     void *ctx);
