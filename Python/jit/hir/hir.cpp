@@ -788,21 +788,12 @@ Environment::~Environment() {
    * phx_threaded_decref each + phx_ptr_set_destroy. Replaces the prior
    * STL-clear-via-~ThreadedRef path. */
   ThreadedCompileSerialize guard;
-  /* X3b OBSERVATIONAL INSTRUMENTATION (supervisor 05:09:00Z (α') auth) */
-  fprintf(stderr, "X3B-DTOR: env=%p cap=%zu count=%zu\n",
-          (void *)this, references_.capacity, references_.count);
-  size_t decref_count = 0;
   for (size_t i = 0; i < phx_ptr_set_capacity(&references_); i++) {
     void *obj = phx_ptr_set_at(&references_, i);
     if (obj != NULL) {
-      fprintf(stderr, "X3B-DTOR-DECREF: env=%p slot=%zu obj=%p rc=%ld\n",
-              (void *)this, i, obj, (long)Py_REFCNT((PyObject *)obj));
       phx_threaded_decref(static_cast<PyObject *>(obj));
-      decref_count++;
     }
   }
-  fprintf(stderr, "X3B-DTOR-DONE: env=%p decref_count=%zu\n",
-          (void *)this, decref_count);
   phx_ptr_set_destroy(&references_);
   for (size_t i = 0; i < reg_count_; i++) {
     delete reg_data_[i];
@@ -824,23 +815,17 @@ Register* Environment::addRegister(std::unique_ptr<Register> reg) {
 }
 
 PyObject* Environment::addReference(PyObject* obj) {
-  /* X3b (Batch 96) E-1+E-2+E-3 DISCHARGE + INSTRUMENTATION trace */
+  /* X3b (Batch 96) E-1+E-2+E-3 DISCHARGE: references_ now PhxPtrSet
+   * (void*-keyed). Dedup semantic preserved via contains-check BEFORE
+   * phx_threaded_incref (theologian 04:25:09Z watchpoint #1: prevent
+   * double-incref on duplicate adds; matches prior unordered_set::emplace
+   * dedup which would discard the new ThreadedRef temporary on dup hit).
+   * Serialize guard retained for ThreadedRef-class refcount safety. */
   ThreadedCompileSerialize guard;
-  int was_present = phx_ptr_set_contains(&references_, obj);
-  size_t cap_before = references_.capacity;
-  size_t count_before = references_.count;
-  long rc_before = obj ? (long)Py_REFCNT(obj) : -1;
-  if (!was_present) {
+  if (!phx_ptr_set_contains(&references_, obj)) {
     phx_threaded_incref(obj);
     phx_ptr_set_insert(&references_, obj);
   }
-  fprintf(stderr,
-          "X3B-ADD: env=%p obj=%p was_present=%d "
-          "cap_before=%zu cap_after=%zu count_before=%zu count_after=%zu "
-          "rc_before=%ld rc_after=%ld\n",
-          (void *)this, (void *)obj, was_present,
-          cap_before, references_.capacity, count_before, references_.count,
-          rc_before, obj ? (long)Py_REFCNT(obj) : -1);
   return obj;
 }
 
