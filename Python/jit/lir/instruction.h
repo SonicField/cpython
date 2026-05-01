@@ -3,6 +3,7 @@
 #pragma once
 
 #include "cinderx/Jit/lir/operand.h"
+#include "cinderx/Jit/lir/lir_c_api.h"
 
 #include <memory>
 #include <string_view>
@@ -246,14 +247,51 @@ class Instruction {
 
   Operand* allocateImmediateInput(
       uint64_t n,
-      DataType data_type = DataType::k64bit);
-  Operand* allocateFPImmediateInput(double n);
-  LinkedOperand* allocateLinkedInput(Instruction* def_instr);
-  Operand* allocatePhyRegisterInput(PhyLocation loc);
-  Operand* allocateStackInput(PhyLocation stack);
-  Operand* allocatePhyRegOrStackInput(PhyLocation loc);
-  Operand* allocateAddressInput(void* address);
-  Operand* allocateLabelInput(BasicBlock* block);
+      DataType data_type = DataType::k64bit) {
+    return reinterpret_cast<Operand*>(
+        lir_instruction_alloc_imm_input(
+            reinterpret_cast<LirInstruction*>(this), n, static_cast<int>(data_type)));
+  }
+  Operand* allocateFPImmediateInput(double n) {
+    return reinterpret_cast<Operand*>(
+        lir_instruction_alloc_fp_imm_input(
+            reinterpret_cast<LirInstruction*>(this), n));
+  }
+  LinkedOperand* allocateLinkedInput(Instruction* def_instr) {
+    return reinterpret_cast<LinkedOperand*>(
+        lir_instruction_alloc_linked_input(
+            reinterpret_cast<LirInstruction*>(this),
+            reinterpret_cast<LirInstruction*>(def_instr)));
+  }
+  Operand* allocatePhyRegisterInput(PhyLocation loc) {
+    return reinterpret_cast<Operand*>(
+        lir_instruction_alloc_phyreg_input(
+            reinterpret_cast<LirInstruction*>(this),
+            *reinterpret_cast<LirPhyLocation*>(&loc)));
+  }
+  Operand* allocateStackInput(PhyLocation stack) {
+    return reinterpret_cast<Operand*>(
+        lir_instruction_alloc_stack_input(
+            reinterpret_cast<LirInstruction*>(this),
+            *reinterpret_cast<LirPhyLocation*>(&stack)));
+  }
+  Operand* allocatePhyRegOrStackInput(PhyLocation loc) {
+    return reinterpret_cast<Operand*>(
+        lir_instruction_alloc_phyreg_or_stack_input(
+            reinterpret_cast<LirInstruction*>(this),
+            *reinterpret_cast<LirPhyLocation*>(&loc)));
+  }
+  Operand* allocateAddressInput(void* address) {
+    return reinterpret_cast<Operand*>(
+        lir_instruction_alloc_addr_input(
+            reinterpret_cast<LirInstruction*>(this), address));
+  }
+  Operand* allocateLabelInput(BasicBlock* block) {
+    return reinterpret_cast<Operand*>(
+        lir_instruction_alloc_label_input(
+            reinterpret_cast<LirInstruction*>(this),
+            reinterpret_cast<LirBasicBlock*>(block)));
+  }
 
   template <typename... Args>
   Operand* allocateMemoryIndirectInput(Args&&... args) {
@@ -427,7 +465,9 @@ class Instruction {
   }
 
  // Phase B3b: Instruction now owns operands via raw pointers.
-  ~Instruction();
+  ~Instruction() {
+    lir_instruction_destroy(reinterpret_cast<LirInstruction*>(this));
+  }
 
   // Phase B4a: All fields public for C struct compatibility.
   // Template helpers remain as methods until callers are converted.
@@ -439,7 +479,10 @@ class Instruction {
     return operand;
   }
 
-  void ensureInputCapacity(size_t needed);
+  void ensureInputCapacity(size_t needed) {
+    lir_instruction_ensure_input_capacity(
+        reinterpret_cast<LirInstruction*>(this), needed);
+  }
 
   int id_;
   Opcode opcode_;

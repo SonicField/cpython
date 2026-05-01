@@ -77,71 +77,7 @@ static_assert(offsetof(LirBasicBlock, section_) == offsetof(BasicBlock, section_
 static_assert(sizeof(LirFunction) == sizeof(Function),
     "LirFunction and Function size mismatch");
 
-// ---- Destructor ----
-
-Instruction::~Instruction() {
-  lir_instruction_destroy(reinterpret_cast<LirInstruction*>(this));
-}
-
-// ---- Input management (wired to lir_instruction.c) ----
-
-Operand* Instruction::allocateImmediateInput(uint64_t n, DataType data_type) {
-  return reinterpret_cast<Operand*>(
-      lir_instruction_alloc_imm_input(
-          reinterpret_cast<LirInstruction*>(this), n, static_cast<int>(data_type)));
-}
-
-Operand* Instruction::allocateFPImmediateInput(double n) {
-  return reinterpret_cast<Operand*>(
-      lir_instruction_alloc_fp_imm_input(
-          reinterpret_cast<LirInstruction*>(this), n));
-}
-
-LinkedOperand* Instruction::allocateLinkedInput(Instruction* def_instr) {
-  return reinterpret_cast<LinkedOperand*>(
-      lir_instruction_alloc_linked_input(
-          reinterpret_cast<LirInstruction*>(this),
-          reinterpret_cast<LirInstruction*>(def_instr)));
-}
-
-void Instruction::ensureInputCapacity(size_t needed) {
-  lir_instruction_ensure_input_capacity(
-      reinterpret_cast<LirInstruction*>(this), needed);
-}
-
-Operand* Instruction::allocatePhyRegisterInput(PhyLocation loc) {
-  return reinterpret_cast<Operand*>(
-      lir_instruction_alloc_phyreg_input(
-          reinterpret_cast<LirInstruction*>(this),
-          *reinterpret_cast<LirPhyLocation*>(&loc)));
-}
-
-Operand* Instruction::allocateStackInput(PhyLocation stack) {
-  return reinterpret_cast<Operand*>(
-      lir_instruction_alloc_stack_input(
-          reinterpret_cast<LirInstruction*>(this),
-          *reinterpret_cast<LirPhyLocation*>(&stack)));
-}
-
-Operand* Instruction::allocatePhyRegOrStackInput(PhyLocation loc) {
-  return reinterpret_cast<Operand*>(
-      lir_instruction_alloc_phyreg_or_stack_input(
-          reinterpret_cast<LirInstruction*>(this),
-          *reinterpret_cast<LirPhyLocation*>(&loc)));
-}
-
-Operand* Instruction::allocateAddressInput(void* address) {
-  return reinterpret_cast<Operand*>(
-      lir_instruction_alloc_addr_input(
-          reinterpret_cast<LirInstruction*>(this), address));
-}
-
-Operand* Instruction::allocateLabelInput(BasicBlock* block) {
-  return reinterpret_cast<Operand*>(
-      lir_instruction_alloc_label_input(
-          reinterpret_cast<LirInstruction*>(this),
-          reinterpret_cast<LirBasicBlock*>(block)));
-}
+// ---- Destructor + Input management: MOVED to instruction.h (Phase 5.A2 C2) ----
 
 void Instruction::setInput(size_t i, OperandBase* input) {
   lir_instruction_set_input(
