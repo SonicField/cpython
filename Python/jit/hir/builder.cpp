@@ -373,46 +373,6 @@ void HIRBuilder::addLoadArgs(TranslationContext& tc, int num_args) {
   }
 }
 
-// Add a MakeCell for each cellvar and load each freevar from closure.
-//
-// Note: This is only necessary for 3.10.  For 3.12 we have the explicit
-// MAKE_CELL and COPY_FREE_VARS instructions.
-void HIRBuilder::addInitializeCells([[maybe_unused]] TranslationContext& tc) {
-#if PY_VERSION_HEX < 0x030C0000
-  int nlocals = tc.frame.nlocals;
-  int ncellvars = numCellvars(code());
-  int nfreevars = numFreevars(code());
-
-  Register* null_reg = ncellvars > 0 ? static_cast<Register*>(hir_c_temps_alloc_non_stack(&state_.temps_phx)) : nullptr;
-  for (int i = 0; i < ncellvars; ++i) {
-    int arg = CO_CELL_NOT_AN_ARG;
-    Register* dst = static_cast<Register*>(tc.frame.localsplus.data[i + nlocals]);
-    JIT_CHECK(dst != nullptr, "No register for cell {}", i);
-    Register* cell_contents = null_reg;
-    if (code()->co_cell2arg != nullptr &&
-        (arg = code()->co_cell2arg[i]) != CO_CELL_NOT_AN_ARG) {
-      // cell is for argument local number `arg`
-      JIT_CHECK(
-          static_cast<unsigned>(arg) < tc.frame.nlocals,
-          "co_cell2arg says cell {} is local {} but locals size is {}",
-          i,
-          arg,
-          tc.frame.nlocals);
-      cell_contents = static_cast<Register*>(tc.frame.localsplus.data[arg]);
-    }
-    hir_c_tc_emit_make_cell(&tc, dst, cell_contents, &tc.frame);
-    if (arg != CO_CELL_NOT_AN_ARG) {
-      // Clear the local once we have it in a cell.
-      tc.frame.localsplus.data[arg] = null_reg;
-    }
-  }
-
-  if (nfreevars != 0) {
-    hir_builder_emit_copy_free_vars_c(&tc, current_func(), this, code(), nfreevars);
-  }
-#endif
-}
-
 static bool should_snapshot(
     const BytecodeInstruction& bci,
     bool is_in_async_for_header_block) {
@@ -652,55 +612,6 @@ bool HIRBuilder::getSimpleExceptInfo(
   return true;
 }
 
-// W27c #2a + #2b: OpcodeArrayEntry C++/C bridge struct eliminated. The
-// pre-resolve loop now runs entirely C-side via
-// build_inline_except_opcode_array_c in builder_emit_c.c, sharing the
-// helper between emitInlineExceptionMatch and emitCallExceptionHandler.
-extern "C" void hir_builder_emit_inline_exception_match_c(
-    void* tc, void* func, void* builder,
-    int bc_base_offset,
-    int handler_depth,
-    void* exc_type_obj,
-    int except_body_offset,
-    HirType return_type,
-    void* left, void* right, void* result,
-    void* getitem_fn,
-    void* match_and_clear_fn);
-
-void HIRBuilder::emitInlineExceptionMatch(
-    CFG& /*cfg*/,
-    TranslationContext& tc,
-    const jit::BytecodeInstruction& bc_instr,
-    const ExceptionTableEntry& handler,
-    const SimpleExceptInfo& info,
-    Register* left,
-    Register* right,
-    Register* result) {
-  // W27c #2a: pre-resolve opcode array now built C-side via
-  // build_inline_except_opcode_array_c. C++ stub keeps only the
-  // getitem_fn pick + JITRT_MatchAndClearException reinterpret_cast
-  // (function pointers C++-mangled in jit_rt.cpp; cleanest to pass through).
-  void* getitem_fn = (bc_instr.opcode() == BINARY_SUBSCR_DICT)
-      ? reinterpret_cast<void*>(JITRT_DictGetItem)
-      : reinterpret_cast<void*>(PyObject_GetItem);
-
-  hir_builder_emit_inline_exception_match_c(
-      static_cast<void*>(&tc),
-      static_cast<void*>(current_func()),
-      static_cast<void*>(this),
-      bc_instr.baseOffset().value(),
-      static_cast<int>(handler.depth),
-      static_cast<void*>(info.exc_type),
-      info.except_body.value(),
-      Type::toHirType(preloader().returnType()),
-      static_cast<void*>(left),
-      static_cast<void*>(right),
-      static_cast<void*>(result),
-      getitem_fn,
-      reinterpret_cast<void*>(JITRT_MatchAndClearException));
-}
-
-
 extern "C" void hir_builder_emit_call_exception_handler_c(
     void* tc, void* func, void* builder,
     int bc_base_offset,
@@ -854,8 +765,6 @@ BasicBlock* HIRBuilder::buildHIRImpl(
 #endif
 
   emitTypeAnnotationGuards(entry_tc);
-
-  addInitializeCells(entry_tc);
 
   // In 3.12+ "Initial Yield" has an explicit bytecode instruction in
   // "RETURN_GENERATOR" and so is emitted at the appropriate time.

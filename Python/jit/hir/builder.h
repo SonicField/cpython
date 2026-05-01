@@ -584,7 +584,6 @@ class HIRBuilder {
       const FrameState& frame);
   void addInitialYield(TranslationContext& tc);
   void addLoadArgs(TranslationContext& tc, int num_args);
-  void addInitializeCells(TranslationContext& tc);
   void allocateLocalsplus(Environment* env, FrameState& state);
   void moveOverwrittenStackRegisters(TranslationContext& tc, Register* dst);
   bool tryEmitDirectMethodCall(
@@ -658,20 +657,7 @@ class HIRBuilder {
       const ExceptionTableEntry& handler,
       SimpleExceptInfo& info) const;
 
-  // B2: Emit inline exception match for subscript inside try block.
-  void emitInlineExceptionMatch(
-      CFG& cfg,
-      TranslationContext& tc,
-      const jit::BytecodeInstruction& bc_instr,
-      const ExceptionTableEntry& handler,
-      const SimpleExceptInfo& info,
-      Register* left,
-      Register* right,
-      Register* result);
-
   // B2: Emit inline exception handler for CALL inside try block.
-  // Unlike emitInlineExceptionMatch (which replaces the operation with a
-  // CallStatic), this works with an already-emitted call instruction.
   // It takes the FrameState from the call (preventing auto-deopt) and
   // emits a CondBranch on the call result to inline the exception handler.
   void emitCallExceptionHandler(
