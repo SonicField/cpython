@@ -126,7 +126,8 @@ struct HirEnvironmentLayoutVerifier {
     static_assert(offsetof(HirEnvironment, reg_data) == offsetof(Environment, reg_data_));
     static_assert(offsetof(HirEnvironment, reg_count) == offsetof(Environment, reg_count_));
     static_assert(offsetof(HirEnvironment, reg_capacity) == offsetof(Environment, reg_capacity_));
-    static_assert(offsetof(HirEnvironment, references_opaque) == offsetof(Environment, references_));
+    static_assert(offsetof(HirEnvironment, references_entries) == offsetof(Environment, references_),
+        "X3b: PhxPtrSet entries field aligns with C++ Environment::references_ start");
     static_assert(offsetof(HirEnvironment, next_register_id) == offsetof(Environment, next_register_id_));
     static_assert(offsetof(HirEnvironment, next_load_type_attr_cache) == offsetof(Environment, next_load_type_attr_cache_));
     static_assert(offsetof(HirEnvironment, next_load_type_method_cache) == offsetof(Environment, next_load_type_method_cache_));

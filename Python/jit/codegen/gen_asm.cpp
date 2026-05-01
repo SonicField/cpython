@@ -1409,8 +1409,16 @@ void* NativeGenerator::getVectorcallEntry() {
   env_.code_rt->setReifier(func->reifier);
 #endif
 
-  for (auto& ref : func->env.references()) {
-    env_.code_rt->addReference(ref);
+  /* X3b: Environment::references() now returns const PhxPtrSet&;
+   * range-for replaced with raw-slot iteration. code_rt->addReference
+   * accepts PyObject* directly per signature at code_runtime.h:112
+   * (X3b §4.4 falsifier verified). */
+  const auto& refs = func->env.references();
+  for (size_t i = 0; i < phx_ptr_set_capacity(&refs); i++) {
+    void *p = phx_ptr_set_at(&refs, i);
+    if (p != nullptr) {
+      env_.code_rt->addReference(static_cast<PyObject *>(p));
+    }
   }
 
   lir::LIRGenerator lirgen(GetFunction(), &env_);

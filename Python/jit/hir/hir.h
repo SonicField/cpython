@@ -8,6 +8,7 @@
 #include "cinderx/Jit/hir/frame_state.h"
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_ops.h"
+#include "cinderx/Jit/hir/phx_ptr_set.h"  /* X3b Environment::references_ migration */
 #include "cinderx/Jit/hir/register.h"
 #include "cinderx/Jit/hir/type.h"
 #include "cinderx/Jit/intrusive_list.h"
@@ -3668,7 +3669,11 @@ class BasicBlock {
 
 class Environment {
  public:
-  using ReferenceSet = std::unordered_set<ThreadedRef<>>;
+  /* X3b: ReferenceSet migrated from std::unordered_set<ThreadedRef<>>
+   * to PhxPtrSet (void*-keyed open-address hash). E-1+E-2+E-3 discharge.
+   * Lifecycle: addReference does contains-check + phx_threaded_incref + insert
+   * (dedup-safe); ~Environment iterates + phx_threaded_decref each + destroys. */
+  using ReferenceSet = PhxPtrSet;
 
   Environment() = default;
   ~Environment();
@@ -3720,7 +3725,9 @@ class Environment {
   Register** reg_data_{nullptr};
   size_t reg_count_{0};
   size_t reg_capacity_{0};
-  ReferenceSet references_;
+  /* X3b: PhxPtrSet zero-init via aggregate-init (POD struct;
+   * matches phx_ptr_set_init(NULL/0/0) semantic). */
+  ReferenceSet references_{};
   int next_register_id_{0};
   int next_load_type_attr_cache_{0};
   int next_load_type_method_cache_{0};

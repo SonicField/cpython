@@ -162,7 +162,13 @@ typedef struct HirEnvironment {
     void **reg_data;               /* Register** flat array */
     size_t reg_count;              /* number of slots (may have NULL gaps) */
     size_t reg_capacity;           /* allocated capacity */
-    char references_opaque[56];    /* opaque: std::unordered_set<ThreadedRef<>> */
+    /* X3b (Batch 96): references_ migrated std::unordered_set<ThreadedRef<>>
+     * → PhxPtrSet. Field is now 3 size_t (entries/count/capacity) =
+     * sizeof(PhxPtrSet) = 24 bytes on 64-bit. Layout pinned by
+     * HirEnvironmentLayoutVerifier static_asserts. */
+    void *references_entries;      /* PhxPtrSet.entries */
+    size_t references_count;       /* PhxPtrSet.count */
+    size_t references_capacity;    /* PhxPtrSet.capacity */
     int next_register_id;
     int next_load_type_attr_cache;
     int next_load_type_method_cache;

@@ -8,6 +8,8 @@
 #include "cinderx/Jit/hir/hir_instr_info_c.h"
 #include "cinderx/Jit/hir/hir_operand_types_c.h"
 #include "cinderx/Jit/hir/typed_argument_c.h"
+#include "cinderx/Jit/hir/phx_ptr_set.h"        /* X3b Environment::references_ */
+#include "cinderx/Jit/hir/phx_threaded_ref.h"   /* X3b incref/decref bridges */
 #include "cinderx/Jit/threaded_compile.h"
 
 #include <algorithm>
@@ -779,15 +781,20 @@ unsigned long TypedArgument::threadSafeTpFlags() const {
 }
 
 Environment::~Environment() {
-  // Phase 4.A W7d Batch 76: STAY C++ per Q-W7-3 stay-C++ exception
-  // (ThreadedCompileSerialize RAII + std::unordered_set::clear + delete
-  // on Register* — all genuinely-can't-port surface). The references_
-  // teardown calls ThreadedRef destructors which run Py_DECREF inside
-  // STL clear; porting requires exposing both the serialize guard +
-  // the ThreadedRef container as C bridges, out of scope for W7d.
-  // Documented as W7d EXCEPTION in commit body.
+  /* X3b (Batch 96) E-1+E-2+E-3 DISCHARGE: references_ migrated from
+   * std::unordered_set<ThreadedRef<>> to PhxPtrSet (X2b void*-keyed
+   * open-address hash). Teardown: serialize guard (ThreadedCompileSerialize
+   * stays C++ per Phoenix concurrency-infra class) + iterate raw slots +
+   * phx_threaded_decref each + phx_ptr_set_destroy. Replaces the prior
+   * STL-clear-via-~ThreadedRef path. */
   ThreadedCompileSerialize guard;
-  references_.clear();
+  for (size_t i = 0; i < phx_ptr_set_capacity(&references_); i++) {
+    void *obj = phx_ptr_set_at(&references_, i);
+    if (obj != NULL) {
+      phx_threaded_decref(static_cast<PyObject *>(obj));
+    }
+  }
+  phx_ptr_set_destroy(&references_);
   for (size_t i = 0; i < reg_count_; i++) {
     delete reg_data_[i];
   }
@@ -808,13 +815,18 @@ Register* Environment::addRegister(std::unique_ptr<Register> reg) {
 }
 
 PyObject* Environment::addReference(PyObject* obj) {
-  // Phase 4.A W7d Batch 76: STAY C++ per Q-W7-3 stay-C++ exception.
-  // ThreadedRef<> + std::unordered_set::emplace are genuinely-can't-port
-  // (RAII + STL container insertion); porting requires exposing both as
-  // C bridges, out of scope for W7d. Serialize as we modify the ref-count
-  // to obj which may be widely accessible. Documented as W7d EXCEPTION.
+  /* X3b (Batch 96) E-1+E-2+E-3 DISCHARGE: references_ now PhxPtrSet
+   * (void*-keyed). Dedup semantic preserved via contains-check BEFORE
+   * phx_threaded_incref (theologian 04:25:09Z watchpoint #1: prevent
+   * double-incref on duplicate adds; matches prior unordered_set::emplace
+   * dedup which would discard the new ThreadedRef temporary on dup hit).
+   * Serialize guard retained for ThreadedRef-class refcount safety. */
   ThreadedCompileSerialize guard;
-  return references_.emplace(ThreadedRef<>::create(obj)).first->get();
+  if (!phx_ptr_set_contains(&references_, obj)) {
+    phx_threaded_incref(obj);
+    phx_ptr_set_insert(&references_, obj);
+  }
+  return obj;
 }
 
 PyObject* Environment::addReference(Ref<> obj) {
@@ -825,8 +837,11 @@ PyObject* Environment::addReference(Ref<> obj) {
 }
 
 const Environment::ReferenceSet& Environment::references() const {
-  return *reinterpret_cast<const ReferenceSet*>(
-      hir_c_env_references(const_cast<Environment*>(this)));
+  /* X3b: ReferenceSet now PhxPtrSet (POD); direct reference return,
+   * no opaque-blob bridge cast needed. hir_c_env_references at
+   * hir_instr_c.h:265 still exposes the field address as void* for
+   * C-side consumers (offset preserved by HirEnvironmentLayoutVerifier). */
+  return references_;
 }
 
 bool usesRuntimeFunc([[maybe_unused]] PyCodeObject* code) {
