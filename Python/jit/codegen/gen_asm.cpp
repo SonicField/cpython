@@ -1411,15 +1411,27 @@ void* NativeGenerator::getVectorcallEntry() {
 
   /* X3b: Environment::references() now returns const PhxPtrSet&;
    * range-for replaced with raw-slot iteration. code_rt->addReference
-   * accepts PyObject* directly per signature at code_runtime.h:112
-   * (X3b §4.4 falsifier verified). */
+   * accepts PyObject* directly per signature at code_runtime.h:112.
+   * X3b OBSERVATIONAL INSTRUMENTATION (supervisor 05:09:00Z (α') auth) */
   const auto& refs = func->env.references();
-  for (size_t i = 0; i < phx_ptr_set_capacity(&refs); i++) {
+  size_t xfer_cap = phx_ptr_set_capacity(&refs);
+  size_t xfer_count = 0;
+  fprintf(stderr,
+          "X3B-XFER: func=%p env=%p code_rt=%p cap=%zu count=%zu\n",
+          (void *)func, (void *)&func->env, (void *)env_.code_rt,
+          xfer_cap, refs.count);
+  for (size_t i = 0; i < xfer_cap; i++) {
     void *p = phx_ptr_set_at(&refs, i);
     if (p != nullptr) {
+      fprintf(stderr,
+              "X3B-XFER-ITEM: env=%p slot=%zu obj=%p rc=%ld\n",
+              (void *)&func->env, i, p, (long)Py_REFCNT((PyObject *)p));
       env_.code_rt->addReference(static_cast<PyObject *>(p));
+      xfer_count++;
     }
   }
+  fprintf(stderr, "X3B-XFER-DONE: env=%p xfer_count=%zu\n",
+          (void *)&func->env, xfer_count);
 
   lir::LIRGenerator lirgen(GetFunction(), &env_);
   std::unique_ptr<lir::Function> lir_func;
