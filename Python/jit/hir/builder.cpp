@@ -32,6 +32,7 @@ extern "C" int hir_remove_unreachable_blocks_c(void *func);
 #include "cinderx/Jit/context.h"
 #include "cinderx/Jit/iterator_types.h"
 #include "cinderx/Jit/hir/annotation_index_c.h"
+#include "cinderx/Jit/hir/phx_bc_offset_set.h"  /* X1b createBlocks std::set→C migration */
 #include "cinderx/Jit/hir/ssa.h"
 #include "cinderx/Jit/hir/type.h"
 #include "cinderx/StaticPython/checked_dict.h"
@@ -425,19 +426,25 @@ void HIRBuilder::createBlocks(
   phx_block_map_clear(&state_.block_map_phx);
   phx_bc_block_array_clear(&state_.bc_block_array_phx);
 
-  // Mark the beginning of each basic block in the bytecode
-  std::set<BCIndex> block_starts = {BCIndex{0}};
+  /* Phase 4.X-full X1b (Batch 90): std::set<BCIndex> block_starts replaced
+   * with PhxBCOffsetSet (sorted-unique-int dynamic array). Discharges E-8
+   * stay-C++ exception. PhxBCOffsetSet provides std::set<int>-equivalent
+   * semantics for the operations needed: sorted iteration via at(i),
+   * insert with dedup, empty-check via size(). */
+  PhxBCOffsetSet block_starts;
+  phx_bc_offset_set_init(&block_starts);
+  phx_bc_offset_set_insert(&block_starts, 0);
   auto maybe_add_next_instr = [&](const BytecodeInstruction& bc_instr) {
     BCIndex next_instr_idx = bc_instr.nextInstrOffset();
     if (next_instr_idx < bc_block.size()) {
-      block_starts.insert(next_instr_idx);
+      phx_bc_offset_set_insert(&block_starts, next_instr_idx.value());
     }
   };
   for (auto bc_instr : bc_block) {
     if (bc_instr.isBranch()) {
       maybe_add_next_instr(bc_instr);
       BCIndex target = bc_instr.getJumpTarget();
-      block_starts.insert(target);
+      phx_bc_offset_set_insert(&block_starts, target.value());
     } else {
       auto opcode = bc_instr.opcode();
       if (
@@ -463,23 +470,25 @@ void HIRBuilder::createBlocks(
        i < n; i++) {
     const ExceptionTableEntry* entry =
         phx_exception_table_at(&state_.exception_table_phx, i);
-    block_starts.insert(BCOffset{entry->target}.asIndex());
+    phx_bc_offset_set_insert(&block_starts,
+                             BCOffset{entry->target}.asIndex().value());
     // B2: Also add except body start so we can branch to it.
     SimpleExceptInfo info;
     if (getSimpleExceptInfo(*entry, info)) {
-      block_starts.insert(info.except_body.asIndex());
+      phx_bc_offset_set_insert(&block_starts, info.except_body.asIndex().value());
     }
   }
 
-  // Allocate blocks
+  // Allocate blocks. Iterate via index into sorted PhxBCOffsetSet; the
+  // end_idx for entry i is the start of entry i+1, or bc_block.size() for
+  // the last entry.
   size_t inserts_this_call = 0;
-  auto it = block_starts.begin();
-  while (it != block_starts.end()) {
-    BCIndex start_idx = *it;
-    ++it;
+  size_t bs_count = phx_bc_offset_set_size(&block_starts);
+  for (size_t i = 0; i < bs_count; i++) {
+    BCIndex start_idx{phx_bc_offset_set_at(&block_starts, i)};
     BCIndex end_idx;
-    if (it != block_starts.end()) {
-      end_idx = *it;
+    if (i + 1 < bs_count) {
+      end_idx = BCIndex{phx_bc_offset_set_at(&block_starts, i + 1)};
     } else {
       end_idx = BCIndex{bc_block.size()};
     }
@@ -497,6 +506,7 @@ void HIRBuilder::createBlocks(
         end_idx.value());
     ++inserts_this_call;
   }
+  phx_bc_offset_set_destroy(&block_starts);
   /* Phase B I1 (γ-rephrase per W-PHASE-B-PYDEBUG, theologian 20:03:59Z):
    * the original bc_block_array.count == block_map_phx.count check
    * conflated semantics — bc_block_array.count is a HIGH-WATER-MARK
