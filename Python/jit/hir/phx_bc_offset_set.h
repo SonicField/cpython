@@ -26,6 +26,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cinderx/Common/jit_log_c.h"  /* JIT_CHECK_C loud-fail on realloc OOM */
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -92,7 +94,11 @@ static inline int phx_bc_offset_set_insert(PhxBCOffsetSet *s, int key) {
     if (s->count + 1 > s->capacity) {
         size_t new_cap = s->capacity ? s->capacity * 2u
                                      : PHX_BC_OFFSET_SET_INITIAL_CAP;
-        s->data = (int *)realloc(s->data, new_cap * sizeof(int));
+        int *new_data = (int *)realloc(s->data, new_cap * sizeof(int));
+        JIT_CHECK_C(new_data != NULL,
+                    "phx_bc_offset_set_insert realloc failed (new_cap=%zu)",
+                    new_cap);
+        s->data = new_data;
         s->capacity = new_cap;
     }
     if (pos < s->count) {
