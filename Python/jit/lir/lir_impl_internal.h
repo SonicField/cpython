@@ -77,6 +77,7 @@ LirBasicBlock *lir_block_split_before(LirBasicBlock *bb,
                                        LirInstruction *instr);
 
 /* From function_impl.c */
+LirFunction *lir_function_new(const void *hir_func);
 void lir_function_destroy(LirFunction *func);
 LirBasicBlock *lir_function_alloc_block(LirFunction *func);
 LirBasicBlock *lir_function_alloc_block_after(LirFunction *func,

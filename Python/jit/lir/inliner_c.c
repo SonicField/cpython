@@ -16,7 +16,11 @@
 #include <string.h>
 
 /* ---- C helper translation lookup (extern C from c_helper_translations.c) ---- */
+/* Phase 5.B PIVOT: text path retired in favor of programmatic
+ * LirFunction* path. The legacy declaration is kept for the in-init
+ * falsifier in c_helper_translations.c; commit 2 deletes both. */
 extern const char* jit_lir_map_c_helper_to_lir(uint64_t addr);
+extern LirFunction *jit_lir_map_c_helper_to_lir_func(uint64_t addr);
 
 /* Use opcode constants from lir_types_c.h (included via lir_impl_internal.h) */
 
@@ -72,19 +76,13 @@ parse_function(uint64_t addr) {
         return cached;
     }
 
-    /* Try to get LIR text for this address */
-    const char *lir_text = jit_lir_map_c_helper_to_lir(addr);
-    if (lir_text == NULL) {
-        pthread_mutex_lock(&s_func_cache_mutex);
-        cache_insert(addr, NULL);
-        pthread_mutex_unlock(&s_func_cache_mutex);
-        return NULL;
-    }
-
-    /* Parse the LIR text */
-    void *parsed = NULL;
-    int rc = lir_parser_parse(lir_text, &parsed);
-    if (rc != 0) {
+    /* Phase 5.B PIVOT: fetch the helper's pre-built LirFunction*
+     * directly. The legacy text+parse path (jit_lir_map_c_helper_to_lir
+     * + lir_parser_parse) is retained in c_helper_translations.c only
+     * to feed the in-init byte-match falsifier; commit 2 deletes it
+     * along with parser.cpp. */
+    LirFunction *func = jit_lir_map_c_helper_to_lir_func(addr);
+    if (func == NULL) {
         pthread_mutex_lock(&s_func_cache_mutex);
         cache_insert(addr, NULL);
         pthread_mutex_unlock(&s_func_cache_mutex);
@@ -92,18 +90,19 @@ parse_function(uint64_t addr) {
     }
 
     pthread_mutex_lock(&s_func_cache_mutex);
-    /* Check again in case another thread parsed it */
+    /* Race re-check: another thread may have inserted the same
+     * singleton. The helper-owned pointer is shared and must NOT be
+     * freed by the inliner — ownership stays with c_helper_translations
+     * for the process lifetime. */
     LirFunction *existing = cache_lookup(addr, &found);
     if (found) {
-        /* Another thread beat us — free our copy and use theirs */
         pthread_mutex_unlock(&s_func_cache_mutex);
-        lir_function_free((LirFunction *)parsed);
         return existing;
     }
-    cache_insert(addr, (LirFunction *)parsed);
+    cache_insert(addr, func);
     pthread_mutex_unlock(&s_func_cache_mutex);
 
-    return (LirFunction *)parsed;
+    return func;
 }
 
 /* ---- findCalleeFunction ---- */
