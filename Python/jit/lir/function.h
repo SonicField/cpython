@@ -11,10 +11,11 @@ class Function;
 namespace jit::lir {
 
 struct Function {
-  struct CopyResult {
-    int begin_bb;
-    int end_bb;
-  };
+  // Phase 5.A3 commit 7: copyFrom + CopyResult removed; the
+  // deep-copy-for-inlining path now lives entirely in C as
+  // lir_function_copy_from_impl (function_impl.c). The C-callable
+  // extern "C" lir_function_copy_from wrapper at the bottom of
+  // function.cpp forwards to it; inliner_c.c is the sole consumer.
 
   explicit Function(const hir::Function* hir_func = nullptr)
       : hir_func_{hir_func} {}
@@ -22,19 +23,6 @@ struct Function {
 
   int allocateId() { return next_id_++; }
   void setNextId(int id) { next_id_ = id; }
-
-  // Deep copy function into dest_func.
-  // Insert the blocks between prev_bb and next_bb.
-  // Assumes that prev_bb and next_bb appear consecutively
-  // in dest_func->basic_blocks_.
-  // Returns the range of inserted blocks in dest_func->basic_blocks_.
-  // The inserted blocks start at (inclusive) dest_func->basic_blocks_[begin_bb]
-  // and end right before (exclusive) dest_func->basic_blocks_[begin_bb].
-  CopyResult copyFrom(
-      const Function* src_func,
-      BasicBlock* prev_bb,
-      BasicBlock* next_bb,
-      const hir::Instr* origin);
 
   // Create a new block and insert it as the last block in the CFG.
   BasicBlock* allocateBasicBlock();
