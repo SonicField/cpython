@@ -477,6 +477,29 @@ for _i in range(150):
 _n294_src += '    return -1\n'
 exec(_n294_src)
 
+# Phase 5.A3 commit 6 wiring gate: lir_function_copy_from sole-path
+# verification. The c5 sole-path FLIP (1cbdd8348d) rewired the C
+# extern wrapper to forward to lir_function_copy_from_impl in
+# function_impl.c. The inliner pass (rewriteInlineHelper in
+# postgen_c.c:52) calls lir_function_copy_from when JIT_LIR_OPTS
+# inliner is enabled (production default). Force-compiling a caller
+# that calls a small inlineable callee exercises the C deep-copy path
+# end-to-end (PhxIntPtrMap + PhxPtrIntMap substrates from c1/c2,
+# lir_copy_indirect/operand/input/connect_linked from c3/c4, and the
+# lir_function_copy_from_impl driver from c5).
+def inline_callee_add(a, b):
+    # Minimal inlineable: single ADD, single RETURN. is_inlineable
+    # in inliner_c.c gates on entry/exit/return + LoadArg
+    # resolvability — this satisfies all three.
+    return a + b
+
+def inline_caller_two_calls(x, y):
+    # Two distinct call sites force the inliner to deep-copy
+    # callee blocks twice into caller, exercising the per-call
+    # lir_function_copy_from invocation + block_index_map +
+    # output_index_map lifecycle (fresh per call).
+    return inline_callee_add(x, y) + inline_callee_add(y, x)
+
 tests = [
     (straight_add, (3, 4), 7),
     (recursive_fib, (10,), 55),
@@ -500,6 +523,11 @@ tests = [
     (block_map_n294_chain, (74,), 74),
     (block_map_n294_chain, (149,), 149),
     (block_map_n294_chain, (200,), -1),
+    # Phase 5.A3 commit 6: inliner wiring. Force-compile callee FIRST
+    # so the inliner sees a compiled callee body when it processes
+    # the caller (matches production warm-up order).
+    (inline_callee_add, (3, 5), 8),
+    (inline_caller_two_calls, (3, 5), 16),  # (3+5) + (5+3) = 16
 ]
 for func, args, expected in tests:
     cinderjit.force_compile(func)
