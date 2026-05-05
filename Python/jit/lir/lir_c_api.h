@@ -174,6 +174,15 @@ void lir_memind_set_linked(LirMemoryIndirect *mi,
 /* Instruction lifecycle and manipulation (lir_instruction.c) */
 LirInstruction *lir_instruction_create(LirBasicBlock *bb, int opcode,
                                         const void *origin);
+/* Copy-construct an instruction: mirrors C++ Instruction(BasicBlock*,
+ * Instruction*, hir::Instr*) ctor at instruction.h:226. Allocates id
+ * via lir_function_allocate_id; copies opcode_ and the simple output_
+ * fields (type_, data_type_) per Operand(parent, src) semantics at
+ * operand.h:255. Inputs are NOT copied — caller (Phase 5.A3 copy_input)
+ * populates them. */
+LirInstruction *lir_instruction_new_copy(LirBasicBlock *bb,
+                                          const LirInstruction *src,
+                                          const void *origin);
 void lir_instruction_destroy(LirInstruction *inst);
 void lir_instruction_free(LirInstruction *inst);
 int lir_instruction_id(const LirInstruction *inst);

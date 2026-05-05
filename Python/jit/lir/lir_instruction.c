@@ -32,6 +32,16 @@ lir_instruction_create(LirBasicBlock *basic_block, int opcode, const void *origi
     return inst;
 }
 
+LirInstruction *
+lir_instruction_new_copy(LirBasicBlock *bb, const LirInstruction *src,
+                         const void *origin) {
+    LirInstruction *inst = lir_instruction_create(bb, src->opcode_, origin);
+    inst->id_ = lir_function_allocate_id(bb->func_);
+    inst->output_.type_ = src->output_.type_;
+    inst->output_.data_type_ = src->output_.data_type_;
+    return inst;
+}
+
 void
 lir_instruction_destroy(LirInstruction *inst) {
     if (inst == NULL) return;
