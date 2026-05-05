@@ -377,6 +377,66 @@ lir_deep_copy_basic_blocks(LirBasicBlock *const *src_blocks, size_t src_count,
     phx_int_ptr_map_destroy(&output_index_map);
 }
 
+int
+lir_function_copy_from_impl(LirFunction *caller,
+                            const LirFunction *callee,
+                            LirBasicBlock *prev_bb,
+                            LirBasicBlock *next_bb,
+                            const void *origin,
+                            int *out_begin, int *out_end) {
+    /* I-15 precondition: prev_bb must have exactly one successor and
+     * that successor must be next_bb. */
+    JIT_CHECK_C(
+        prev_bb->num_succs_ == 1 && prev_bb->successors_[0] == next_bb,
+        "lir_function_copy_from_impl: prev_bb should only have 1 "
+        "successor which should be next_bb (num_succs=%zu)",
+        prev_bb->num_succs_);
+
+    PhxIntPtrMap block_index_map;
+    phx_int_ptr_map_init(&block_index_map);
+    size_t src_count = callee->num_blocks_;
+
+    /* I-16 per-src-bb new-bb allocation + block_index_map population +
+     * blocks_ tail-shift insertion. The tail-shift preserves the
+     * "last block is exit block" invariant by inserting bb_copy
+     * immediately before the current last entry on each iteration. */
+    for (size_t i = 0; i < callee->num_blocks_; i++) {
+        LirBasicBlock *bb = callee->blocks_[i];
+        int new_id = lir_function_allocate_id(caller);
+        LirBasicBlock *bb_copy = lir_block_new(caller, new_id);
+        phx_int_ptr_map_insert(&block_index_map, bb->id_, bb_copy);
+        lir_function_ensure_block_capacity(caller, caller->num_blocks_ + 1);
+        caller->blocks_[caller->num_blocks_] =
+            caller->blocks_[caller->num_blocks_ - 1];
+        caller->blocks_[caller->num_blocks_ - 1] = bb_copy;
+        caller->num_blocks_++;
+    }
+
+    /* I-17 deep_copy AFTER all bb_copy allocations are in
+     * block_index_map (so successor / label resolution can see all
+     * source-id → dest-bb mappings). */
+    lir_deep_copy_basic_blocks(
+        callee->blocks_, src_count, &block_index_map, origin);
+
+    /* I-18 post-copy stitching. */
+    int end = (int)caller->num_blocks_ - 1;
+    int start = end - (int)src_count;
+    lir_block_set_successor(prev_bb, 0, caller->blocks_[start]);
+    JIT_CHECK_C(
+        caller->blocks_[end - 1]->num_succs_ == 0,
+        "lir_function_copy_from_impl: last block of inlined function "
+        "should have no successors (num_succs=%zu)",
+        caller->blocks_[end - 1]->num_succs_);
+    lir_block_add_successor(caller->blocks_[end - 1], next_bb);
+
+    /* I-19 return CopyResult{start, end} via out-params. */
+    *out_begin = start;
+    *out_end = end;
+
+    phx_int_ptr_map_destroy(&block_index_map);
+    return 0;
+}
+
 void
 lir_function_sort_blocks(LirFunction *func) {
     size_t out_count = 0;

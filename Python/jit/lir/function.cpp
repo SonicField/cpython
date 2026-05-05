@@ -202,19 +202,30 @@ void Function::sortBasicBlocks() {
 
 } // namespace jit::lir
 
-/* C-callable wrapper for Function::copyFrom */
+/* C-callable wrapper for the deep-copy-for-inlining path.
+ *
+ * Phase 5.A3 commit 5 sole-path flip: forwards to
+ * lir_function_copy_from_impl (function_impl.c) instead of the C++
+ * Function::copyFrom method. The C++ method body remains in this file
+ * for the moment as residue; it has no live caller after this commit
+ * lands. Commit 7 deletes it along with the rest of the C++ residue.
+ */
+extern "C" int lir_function_copy_from_impl(
+    LirFunction *caller, const LirFunction *callee,
+    LirBasicBlock *prev_bb, LirBasicBlock *next_bb,
+    const void *origin,
+    int *out_begin, int *out_end);
+
 extern "C" int lir_function_copy_from(
     void* caller, const void* callee,
     void* prev_bb, void* next_bb,
     const void* origin,
     int* out_begin, int* out_end) {
-  auto* c = static_cast<jit::lir::Function*>(caller);
-  auto result = c->copyFrom(
-      static_cast<const jit::lir::Function*>(callee),
-      static_cast<jit::lir::BasicBlock*>(prev_bb),
-      static_cast<jit::lir::BasicBlock*>(next_bb),
-      static_cast<const jit::hir::Instr*>(origin));
-  *out_begin = result.begin_bb;
-  *out_end = result.end_bb;
-  return 0;
+  return lir_function_copy_from_impl(
+      reinterpret_cast<LirFunction*>(caller),
+      reinterpret_cast<const LirFunction*>(callee),
+      reinterpret_cast<LirBasicBlock*>(prev_bb),
+      reinterpret_cast<LirBasicBlock*>(next_bb),
+      origin,
+      out_begin, out_end);
 }
