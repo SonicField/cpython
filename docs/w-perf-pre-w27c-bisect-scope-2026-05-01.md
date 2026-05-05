@@ -26,7 +26,7 @@ ARM64 + x86 dual-arch ABBA at Cfinal 0d7d31c450 (testkeeper 11:36:57Z x86, 13:01
 - 3 PROVISIONAL arch-asymmetric carriers (nn_module_forward, try_except_callee, nbody) — x86-only or x86-severe pattern.
 - 1 DROPPED (list_comp recovered).
 
-**Arch-asymmetry as evidence-class:** the consistent x86-severe / ARM64-mild pattern across nn_module_forward + try_except_callee + nbody is structural evidence for x86-codegen-specific perturbation (inlining-heuristic-boundary / register-allocation / i-cache-layout class per pythia #282 mechanism). Same mechanism class as the F3 bit-identical-codegen-perturbation lesson (feedback_bit_identical_not_innocence_proof.md). gen_simple's dual-arch consistency suggests a different (algorithmic / data-layout) class, not codegen-perturbation.
+**Arch-asymmetry as evidence-class:** the consistent x86-severe / ARM64-mild pattern across nn_module_forward + try_except_callee + nbody is structural evidence for x86-codegen-specific perturbation (inlining-heuristic-boundary / register-allocation / i-cache-layout class per feedback_bit_identical_not_innocence_proof.md). Same mechanism class as the F3 bit-identical-codegen-perturbation lesson. gen_simple's dual-arch consistency suggests a different (algorithmic / data-layout) class, not codegen-perturbation.
 
 ---
 
@@ -76,7 +76,7 @@ Until then: per-cycle ABBA records the per-bench data; cap-check fires per 20-co
 
 ## §3b — Class-rule for upcoming M3-class waves (5.A3 / 5.D / 5.E)
 
-**Risk:** 5.A2's same-session-falsifier-gap will recur at 3-5x surface in 5.A3 (function.cpp), 5.D (generator.cpp), 5.E (bridge-delete). Each touches >20 caller sites with the same inline-relocation / register-allocation / i-cache-layout perturbation class (pythia #282 mechanism). Without scope-doc-level methodology fix, each wave will (a) defer carriers to W-PERF on cross-session match grounds, and (b) cumulative perf debt will distribute invisibly until the eventual Phase-3D-close geomean ABBA against 91f1702c8a baseline surfaces it all at once with no per-batch attribution chain.
+**Risk:** 5.A2's same-session-falsifier-gap will recur at 3-5x surface in 5.A3 (function.cpp), 5.D (generator.cpp), 5.E (bridge-delete). Each touches >20 caller sites with the same inline-relocation / register-allocation / i-cache-layout perturbation class (per feedback_bit_identical_not_innocence_proof.md). Without scope-doc-level methodology fix, each wave will (a) defer carriers to W-PERF on cross-session match grounds, and (b) cumulative perf debt will distribute invisibly until the eventual Phase-3D-close geomean ABBA against 91f1702c8a baseline surfaces it all at once with no per-batch attribution chain.
 
 **Class-rule (theologian 2026-05-05 post-Cfinal-push):** for any M3-class wave (>20 caller-site inline-relocation), the gate falsifier-set MUST include either:
 - (a) **Same-session F3-strict at wave-close:** rebuild canonical baseline (91f1702c8a) + first-wave-commit + last-wave-commit in single ABBA window. Cost ~2hr. OR
