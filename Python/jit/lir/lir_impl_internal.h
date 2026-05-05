@@ -85,6 +85,20 @@ int lir_function_allocate_id(LirFunction *func);
 void lir_function_ensure_block_capacity(LirFunction *func, size_t needed);
 void lir_function_sort_blocks(LirFunction *func);
 
+/* Phase 5.A3 commit 3: deep-copy helpers (parallel C ports of
+ * function.cpp anonymous-namespace copyIndirect + copyOperand).
+ * Forward decls below come from phx_*_map.h which lir_impl_internal.h
+ * does not include — declared as opaque struct pointers here. */
+struct PhxIntPtrMap;
+struct PhxPtrIntMap;
+void lir_copy_indirect(struct PhxPtrIntMap *instr_refs,
+                       LirOperand *dest_op,
+                       LirMemoryIndirect *source_op);
+void lir_copy_operand(struct PhxIntPtrMap *block_index_map,
+                      struct PhxPtrIntMap *instr_refs,
+                      LirOperand *operand,
+                      LirOperand *operand_copy);
+
 /* From regalloc.cpp (extern C wrappers) */
 void *lir_regalloc_create(void *func, int reserved_stack_space);
 void lir_regalloc_run(void *handle);
