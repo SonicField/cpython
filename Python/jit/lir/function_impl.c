@@ -283,6 +283,101 @@ lir_copy_operand(PhxIntPtrMap *block_index_map,
 }
 
 void
+lir_copy_input(PhxIntPtrMap *block_index_map,
+               PhxPtrIntMap *instr_refs,
+               LirOperand *input,
+               LirInstruction *instr_copy) {
+    if (input->is_linked_) {
+        /* I-8 linked path: allocate placeholder linked input + record
+         * source-instruction id in instr_refs for later resolution by
+         * lir_connect_linked_operands. */
+        LirOperand *linked_opnd =
+            lir_instruction_alloc_linked_input(instr_copy, NULL);
+        int src_id = lir_operand_get_linked_instr(input)->id_;
+        phx_ptr_int_map_insert(instr_refs, linked_opnd, src_id);
+    } else {
+        /* I-8 immediate path: allocate immediate input + structural
+         * field copy via lir_copy_operand. setDataType called AFTER
+         * (matches C++ source order at function.cpp:104). */
+        LirOperand *input_copy =
+            lir_instruction_alloc_imm_input(instr_copy, 0, JIT_LIR_DT_64BIT);
+        lir_copy_operand(block_index_map, instr_refs, input, input_copy);
+        lir_operand_set_data_type(input_copy, input->data_type_);
+    }
+}
+
+void
+lir_connect_linked_operands(PhxIntPtrMap *output_index_map,
+                            PhxPtrIntMap *instr_refs) {
+    /* I-10 raw-slot iteration: skip empty slots (key==NULL).
+     * I-11 per-pair effect: setLinkedInstr to the destination
+     * instruction looked up by source instruction id; loud-fail via
+     * phx_int_ptr_map_get_strict if id is absent in output_index_map. */
+    size_t cap = phx_ptr_int_map_capacity(instr_refs);
+    for (size_t i = 0; i < cap; i++) {
+        LirOperand *operand =
+            (LirOperand *)phx_ptr_int_map_at_key(instr_refs, i);
+        if (operand == NULL) continue;
+        int src_instr_id = phx_ptr_int_map_at_value(instr_refs, i);
+        LirInstruction *def =
+            (LirInstruction *)phx_int_ptr_map_get_strict(
+                output_index_map, src_instr_id);
+        lir_operand_set_linked_instr(operand, def);
+    }
+}
+
+void
+lir_deep_copy_basic_blocks(LirBasicBlock *const *src_blocks, size_t src_count,
+                           PhxIntPtrMap *block_index_map,
+                           const void *origin) {
+    /* I-12 stack-local maps: lifecycle bound to this function's frame;
+     * both init/destroy must pair. */
+    PhxIntPtrMap output_index_map;
+    PhxPtrIntMap instr_refs;
+    phx_int_ptr_map_init(&output_index_map);
+    phx_ptr_int_map_init(&instr_refs);
+
+    for (size_t bi = 0; bi < src_count; bi++) {
+        LirBasicBlock *bb = src_blocks[bi];
+        LirBasicBlock *bb_copy =
+            (LirBasicBlock *)phx_int_ptr_map_get_strict(
+                block_index_map, bb->id_);
+        /* I-13 successor mapping. */
+        for (size_t si = 0; si < bb->num_succs_; si++) {
+            LirBasicBlock *succ = bb->successors_[si];
+            LirBasicBlock *succ_copy =
+                (LirBasicBlock *)phx_int_ptr_map_get_strict(
+                    block_index_map, succ->id_);
+            lir_block_add_successor(bb_copy, succ_copy);
+        }
+        /* I-13 per-instruction processing: iterate intrusive list,
+         * allocate copy via the commit-0 bridge, append, register in
+         * output_index_map keyed by source id, copy output operand,
+         * copy each input operand. */
+        for (LirInstruction *instr = bb->instr_head_;
+             instr != NULL;
+             instr = instr->next_) {
+            LirInstruction *instr_copy =
+                lir_instruction_new_copy(bb_copy, instr, origin);
+            lir_block_append_instr(bb_copy, instr_copy);
+            phx_int_ptr_map_insert(&output_index_map, instr->id_, instr_copy);
+            lir_copy_operand(block_index_map, &instr_refs,
+                             &instr->output_, &instr_copy->output_);
+            for (size_t ii = 0; ii < instr->num_inputs_; ii++) {
+                lir_copy_input(block_index_map, &instr_refs,
+                               instr->inputs_[ii], instr_copy);
+            }
+        }
+    }
+    /* I-14 link resolution: AFTER all output instructions are in
+     * output_index_map. */
+    lir_connect_linked_operands(&output_index_map, &instr_refs);
+
+    phx_ptr_int_map_destroy(&instr_refs);
+    phx_int_ptr_map_destroy(&output_index_map);
+}
+
+void
 lir_function_sort_blocks(LirFunction *func) {
     size_t out_count = 0;
     JitLirBlock *sorted = jit_lir_sort_blocks_rpo(
