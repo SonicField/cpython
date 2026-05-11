@@ -118,9 +118,6 @@ uint64_t lir_regalloc_get_changed_regs(void *handle);
 int lir_regalloc_initial_yield_spill_size(void *handle);
 void lir_regalloc_free(void *handle);
 
-/* From parser.cpp (extern C wrapper) */
-int lir_parser_parse(const char *text, void **out_func);
-
 /* From function.cpp (extern C wrapper) */
 int lir_function_copy_from(void *caller, const void *callee,
                             void *prev_bb, void *next_bb,

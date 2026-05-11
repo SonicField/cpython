@@ -7,33 +7,23 @@
  * The JITRT_Cast address is set from C++ via jit_lir_set_cast_addr()
  * because JITRT_Cast has C++ linkage (name-mangled).
  *
- * Phase 5.B commit 1 (parser.cpp ELIMINATE PIVOT): adds
- * init_cast_lir_function + jit_lir_map_c_helper_to_lir_func that
- * construct the JITRT_Cast LirFunction* programmatically via existing
- * C bridges. The legacy snprintf-text path (init_cast_lir +
- * jit_lir_map_c_helper_to_lir + cast_lir_buf) is RETAINED in commit 1
- * for the byte-match equivalence falsifier; commit 2 deletes it along
- * with parser.cpp.
+ * Phase 5.B PIVOT (commits 1+2): the JITRT_Cast LirFunction* is built
+ * programmatically via existing C bridges in build_cast_lir_function()
+ * and exposed via jit_lir_map_c_helper_to_lir_func(). The legacy
+ * snprintf-text + parser.cpp path was retained in commit 1 alongside a
+ * byte-match equivalence falsifier and removed in commit 2.
  */
 
 #include "Python.h"
 
-#include "cinderx/Common/jit_log_c.h"
 #include "cinderx/Jit/lir/lir_c_api.h"
 #include "cinderx/Jit/lir/lir_impl_internal.h"
-#include "cinderx/Jit/lir/printer_c.h"
 
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <string.h>
 
 /* JITRT_Cast address, set from C++ at init time */
 static uint64_t jitrt_cast_addr = 0;
-
-/* Buffer for the formatted JITRT_Cast LIR string */
-static char cast_lir_buf[2048];
-static int cast_lir_initialized = 0;
 
 /* Phase 5.B PIVOT: programmatic JITRT_Cast LirFunction* singleton. */
 static LirFunction *cast_lir_func = NULL;
@@ -50,53 +40,9 @@ extern int PyType_IsSubtype(PyTypeObject *a, PyTypeObject *b);
 extern PyObject *PyErr_Format(PyObject *exception, const char *format, ...);
 /* PyExc_TypeError is an extern PyObject* declared in pyerrors.h */
 
-static void
-init_cast_lir(void) {
-    snprintf(cast_lir_buf, sizeof(cast_lir_buf),
-        "Function:\n"
-        "BB %%0 - succs: %%2 %%1\n"
-        "       %%5:Object = LoadArg 0(0x0):Object\n"
-        "       %%6:Object = LoadArg 1(0x1):Object\n"
-        "       %%7:Object = Move [%%5:Object + %#zx]:Object\n"
-        "       %%8:Object = Equal %%7:Object, %%6:Object\n"
-        "                   CondBranch %%8:Object\n"
-        "\n"
-        "BB %%1 - preds: %%0 - succs: %%2 %%3\n"
-        "      %%10:Object = Call PyType_IsSubtype, %%7:Object, %%6:Object\n"
-        "                   CondBranch %%10:Object\n"
-        "\n"
-        "BB %%2 - preds: %%0 %%1 - succs: %%4\n"
-        "                   Return %%5:Object\n"
-        "\n"
-        "BB %%3 - preds: %%1 - succs: %%4\n"
-        "      %%13:Object = Move [%%7:Object + %#zx]:Object\n"
-        "      %%14:Object = Move [%%6:Object + %#zx]:Object\n"
-        "                   Call PyErr_Format, PyExc_TypeError, "
-            "\"expected '%%s', got '%%s'\", %%14:Object, %%13:Object\n"
-        "      %%16:Object = Move 0(0x0):Object\n"
-        "                   Return %%16:Object\n"
-        "\n"
-        "BB %%4 - preds: %%2 %%3\n",
-        offsetof(PyObject, ob_type),
-        offsetof(PyTypeObject, tp_name),
-        offsetof(PyTypeObject, tp_name));
-    cast_lir_initialized = 1;
-}
-
 void
 jit_lir_set_cast_addr(uint64_t addr) {
     jitrt_cast_addr = addr;
-}
-
-const char*
-jit_lir_map_c_helper_to_lir(uint64_t addr) {
-    if (!cast_lir_initialized) {
-        init_cast_lir();
-    }
-    if (jitrt_cast_addr != 0 && addr == jitrt_cast_addr) {
-        return cast_lir_buf;
-    }
-    return NULL;
 }
 
 /* ====================================================================
@@ -138,21 +84,18 @@ cast_emit_move_const(LirBasicBlock *bb, uint64_t val)
 }
 
 /* Build the JITRT_Cast LirFunction* programmatically — equivalent to
- * the snprintf-text shape in init_cast_lir. Per spec §1 + theologian
- * 16:07:45Z Q1-Q3 confirmations:
+ * the legacy snprintf-text shape (deleted in commit 2 along with
+ * parser.cpp). Per spec §1 + theologian 16:07:45Z Q1-Q3 confirmations:
  *   Q1 CondBranch successor order: [0]=true, [1]=false. BB0/BB1 wired
  *      bb2 then bb1 / bb2 then bb3 to match.
  *   Q2 Call function-pointer input position: FIRST input.
  *   Q3 Move memory-indirect: kInd lives on the input operand.
  *
- * Instruction-id assignment mirrors parser.cpp's two-pass scheme
- * (parser.cpp:575-583): output-bearing instructions take their explicit
- * text id (5, 6, 7, 8, 10, 13, 14, 16); control-flow instructions
- * without an explicit id (CondBranch / Call-no-output / Return) get
- * auto-assigned at end via next_id_ counter, in BB iteration order:
- * 17, 18, 19, 20, 21. The byte-match equivalence falsifier below
- * catches any divergence (id misorder, operand-shape mismatch, etc.)
- * from the parsed text path. */
+ * Instruction-id assignment mirrors the legacy parser's two-pass scheme:
+ * output-bearing instructions take their explicit text id (5, 6, 7, 8,
+ * 10, 13, 14, 16); control-flow instructions without an explicit id
+ * (CondBranch / Call-no-output / Return) get auto-assigned at end via
+ * next_id_ counter, in BB iteration order: 17, 18, 19, 20, 21. */
 static LirFunction *
 build_cast_lir_function(void)
 {
@@ -218,7 +161,7 @@ build_cast_lir_function(void)
 
     /* ---- BB 4: empty exit ---- */
 
-    /* Match parser's two-pass id assignment (parser.cpp:575-583):
+    /* Mirror the legacy parser's two-pass id assignment:
      * (1) explicit text ids on output-bearing instructions; (2) auto-
      * assign control-flow instructions in BB iteration order from
      * largest_id+1 = 17. */
@@ -240,63 +183,10 @@ build_cast_lir_function(void)
     return func;
 }
 
-/* Falsifier (commit 1 only — deleted alongside legacy text path in
- * commit 2): build BOTH paths at first init, serialize via printer_c
- * into char buffers, JIT_CHECK_C strcmp byte-match. Aborts on any
- * divergence. Cost: one parse + two serializations + one strcmp at
- * Phoenix process startup (lazy, on first JITRT_Cast inline lookup).
- *
- * On c2 deletion, the legacy snprintf+parse path goes away and so
- * does this falsifier; the only remaining caller-facing function is
- * jit_lir_map_c_helper_to_lir_func returning the singleton built via
- * build_cast_lir_function. */
-static void
-falsifier_assert_pivot_matches_parsed(LirFunction *pivot_func)
-{
-    /* Build reference via legacy text+parse path. Requires
-     * cast_lir_initialized (trips init_cast_lir if needed) — caller
-     * is expected to have set jitrt_cast_addr already; without it the
-     * snprintf path is still valid (offsets baked from offsetof). */
-    if (!cast_lir_initialized) {
-        init_cast_lir();
-    }
-    void *parsed = NULL;
-    int rc = lir_parser_parse(cast_lir_buf, &parsed);
-    JIT_CHECK_C(rc == 0 && parsed != NULL,
-                "falsifier_assert_pivot_matches_parsed: "
-                "lir_parser_parse failed (rc=%d)", rc);
-    LirFunction *ref_func = (LirFunction *)parsed;
-
-    /* Serialize both via printer_c into in-memory char buffers. */
-    char pivot_buf[8192];
-    char ref_buf[8192];
-    FILE *pf = fmemopen(pivot_buf, sizeof(pivot_buf), "w");
-    JIT_CHECK_C(pf != NULL, "fmemopen pivot_buf");
-    lir_print_function(pf, pivot_func);
-    fclose(pf);
-    FILE *rf = fmemopen(ref_buf, sizeof(ref_buf), "w");
-    JIT_CHECK_C(rf != NULL, "fmemopen ref_buf");
-    lir_print_function(rf, ref_func);
-    fclose(rf);
-
-    /* Byte-match — strcmp tolerates the implicit NUL terminator written
-     * by fmemopen-backed FILE close. */
-    int eq = strcmp(pivot_buf, ref_buf);
-    JIT_CHECK_C(eq == 0,
-                "Phase 5.B falsifier: programmatic JITRT_Cast LirFunction* "
-                "diverges from text+parse reference\n"
-                "--- pivot ---\n%s\n"
-                "--- ref ---\n%s\n",
-                pivot_buf, ref_buf);
-
-    lir_function_free(ref_func);
-}
-
 static void
 init_cast_lir_function(void)
 {
     LirFunction *pivot = build_cast_lir_function();
-    falsifier_assert_pivot_matches_parsed(pivot);
     cast_lir_func = pivot;
     cast_lir_function_initialized = 1;
 }

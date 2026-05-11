@@ -16,10 +16,9 @@
 #include <string.h>
 
 /* ---- C helper translation lookup (extern C from c_helper_translations.c) ---- */
-/* Phase 5.B PIVOT: text path retired in favor of programmatic
- * LirFunction* path. The legacy declaration is kept for the in-init
- * falsifier in c_helper_translations.c; commit 2 deletes both. */
-extern const char* jit_lir_map_c_helper_to_lir(uint64_t addr);
+/* Phase 5.B PIVOT: programmatic LirFunction* path (commits 1+2).
+ * The legacy text+parse path was deleted in commit 2 along with
+ * parser.cpp. */
 extern LirFunction *jit_lir_map_c_helper_to_lir_func(uint64_t addr);
 
 /* Use opcode constants from lir_types_c.h (included via lir_impl_internal.h) */
@@ -77,9 +76,7 @@ parse_function(uint64_t addr) {
     }
 
     /* Phase 5.B PIVOT: fetch the helper's pre-built LirFunction*
-     * directly. The legacy text+parse path (jit_lir_map_c_helper_to_lir
-     * + lir_parser_parse) is retained in c_helper_translations.c only
-     * to feed the in-init byte-match falsifier; commit 2 deletes it
+     * directly. The legacy text+parse path was deleted in commit 2
      * along with parser.cpp. */
     LirFunction *func = jit_lir_map_c_helper_to_lir_func(addr);
     if (func == NULL) {
