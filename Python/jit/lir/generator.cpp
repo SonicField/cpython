@@ -109,22 +109,13 @@ void finishYield(
   instr->addOperands(Imm{bbb.makeDeoptMetadata()});
 }
 
-// Checks if a type has reasonable == semantics, that is that
-// object identity implies equality when compared by Python.  This
-// is true for most types, but not true for floats where nan is
-// not equal to nan.  But it is true for container types containing
-// those floats where PyObject_RichCompareBool is used and it short
-// circuits on object identity.
-bool isTypeWithReasonablePointerEq(Type t) {
-  return t <= TArray || t <= TBytesExact || t <= TDictExact ||
-      t <= TListExact || t <= TSetExact || t <= TTupleExact ||
-      t <= TTypeExact || t <= TLongExact || t <= TBool || t <= TFunc ||
-      t <= TGen || t <= TNoneType || t <= TSlice;
-}
-
 // Phase 5.B c12: bytes_from_cint_type ported to phx_bytes_from_cint_type
 // in generator_helpers_c.c. Caller sites updated to wrap with
 // Type::toHirType() conversion.
+//
+// Phase 5.B c13: isTypeWithReasonablePointerEq ported to
+// phx_is_type_with_reasonable_pointer_eq in generator_helpers_c.c.
+// Caller sites updated to wrap with Type::toHirType() conversion.
 
 #define FOREACH_FAST_BUILTIN(V) \
   V(Long)                       \
@@ -1857,8 +1848,8 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         } else if (
             (instr->op() == CompareOp::kEqual ||
              instr->op() == CompareOp::kNotEqual) &&
-            (isTypeWithReasonablePointerEq(instr->left()->type()) ||
-             isTypeWithReasonablePointerEq(instr->right()->type()))) {
+            (phx_is_type_with_reasonable_pointer_eq(Type::toHirType(instr->left()->type())) ||
+             phx_is_type_with_reasonable_pointer_eq(Type::toHirType(instr->right()->type())))) {
           call_instr = bbb.appendCallInstruction(
               instr->output(),
               PyObject_RichCompareBool,

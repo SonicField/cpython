@@ -21,6 +21,13 @@ extern "C" {
  * generator.cpp:124-138 (DELETED in c12). */
 int phx_bytes_from_cint_type(HirType type);
 
+/* Phase 5.B c13: predicate for "type with reasonable Python == semantics"
+ * (object identity implies equality). True for most types but NOT for
+ * floats (NaN != NaN). True for container types containing those floats
+ * because PyObject_RichCompareBool short-circuits on identity. Original
+ * C++ at generator.cpp:118-123 (DELETED in c13). Returns 1/0. */
+int phx_is_type_with_reasonable_pointer_eq(HirType t);
+
 #ifdef __cplusplus
 }
 #endif

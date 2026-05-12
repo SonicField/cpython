@@ -38,3 +38,42 @@ int phx_bytes_from_cint_type(HirType type) {
                 (unsigned long long)type.bits_and_flags);
     return 0; /* NOTREACHED */
 }
+
+/* Phase 5.B c13: port of generator.cpp:118-123
+ * isTypeWithReasonablePointerEq(Type t). Tests t against 13 type
+ * constants — returns 1 if t has reasonable Python == semantics
+ * (object identity implies equality), 0 otherwise. Floats excluded
+ * because NaN != NaN; containers of floats included because
+ * PyObject_RichCompareBool short-circuits on identity.
+ *
+ * Uses HIR_TYPE_TYPEEXACT (Phase 5.B c13 new constant) + 12 other
+ * constants verified by hir_type_c_verify.cpp. */
+int phx_is_type_with_reasonable_pointer_eq(HirType t) {
+    HirType array       = HIR_TYPE_ARRAY;
+    HirType bytesexact  = HIR_TYPE_BYTESEXACT;
+    HirType dictexact   = HIR_TYPE_DICTEXACT;
+    HirType listexact   = HIR_TYPE_LISTEXACT;
+    HirType setexact    = HIR_TYPE_SETEXACT;
+    HirType tupleexact  = HIR_TYPE_TUPLEEXACT;
+    HirType typeexact   = HIR_TYPE_TYPEEXACT;
+    HirType longexact   = HIR_TYPE_LONGEXACT;
+    HirType bool_       = HIR_TYPE_BOOL;
+    HirType func        = HIR_TYPE_FUNC;
+    HirType gen         = HIR_TYPE_GEN;
+    HirType nonetype    = HIR_TYPE_NONETYPE;
+    HirType slice       = HIR_TYPE_SLICE;
+
+    return hir_type_is_subtype(t, array)
+        || hir_type_is_subtype(t, bytesexact)
+        || hir_type_is_subtype(t, dictexact)
+        || hir_type_is_subtype(t, listexact)
+        || hir_type_is_subtype(t, setexact)
+        || hir_type_is_subtype(t, tupleexact)
+        || hir_type_is_subtype(t, typeexact)
+        || hir_type_is_subtype(t, longexact)
+        || hir_type_is_subtype(t, bool_)
+        || hir_type_is_subtype(t, func)
+        || hir_type_is_subtype(t, gen)
+        || hir_type_is_subtype(t, nonetype)
+        || hir_type_is_subtype(t, slice);
+}

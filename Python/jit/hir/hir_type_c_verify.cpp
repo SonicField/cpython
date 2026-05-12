@@ -92,6 +92,13 @@ static_assert(k_c_longexact.bits_and_flags ==
     hir_type_pack(Type::kLongExact, Type::kLifetimeTop),
     "HIR_TYPE_LONGEXACT must match C++ TLongExact bit-pattern");
 
+// Phase 5.B c13: HIR_TYPE_TYPEEXACT added for c13
+// phx_is_type_with_reasonable_pointer_eq port.
+static constexpr HirType k_c_typeexact = HIR_TYPE_TYPEEXACT;
+static_assert(k_c_typeexact.bits_and_flags ==
+    hir_type_pack(Type::kTypeExact, Type::kLifetimeTop),
+    "HIR_TYPE_TYPEEXACT must match C++ TTypeExact bit-pattern");
+
 // ---- Primitive C-int types (LifetimeBottom, no spec) ----
 // Used by bytes_from_cint_type (generator.cpp:124) — c12 port target.
 
