@@ -77,7 +77,8 @@ VANILLA_PYTHON=../cpython-vanilla/python JIT_ENABLE=1 ./python_bench Tools/bench
 - Mode: --compile=auto --reps=3 (3-rep ABBA, ~10 min)
 - BLOCK threshold: geo-mean drop >5% vs prior commit = BLOCK push
 - Alert threshold: any single benchmark drop >10% = manual review (NOT auto-block)
-- Vanilla: ../cpython-vanilla/python (md5 fcb1dddcbf5d1edbf54c478e705deccc)
+- Vanilla (x86_64): ../cpython-vanilla/python (md5 fcb1dddcbf5d1edbf54c478e705deccc)
+- Vanilla (ARM64): /home/alexturner/local/vanilla-cpython/python (md5 5e0438fe1a7ddf2b9aec6acd0c6d8192) — devgpu004 absolute path; the relative `../cpython-vanilla/python` does not resolve from `/home/alexturner/local/phoenix/cpython` on devgpu004 (testkeeper 11:53:47Z gap, codified 2026-05-12)
 - Report: raw per-benchmark ratios + geo-mean posted to chat
 
 Calibrated 2026-04-13: 5 identical runs showed per-benchmark noise of 2.6-10.2% spread.
