@@ -53,29 +53,10 @@ using jit::lir::OperandBase;
  * field offsets match. */
 
 /* ---- Instruction accessors ---- */
-/* Phase 5.B c7: field-getters (jit_lir_instr_opcode, get_input, output)
- * inlined in lir_c_api.h. Branch/property tests (is_branch, is_branch_cc,
- * is_any_branch, is_terminator) deferred to c8. */
-
-extern "C" int
-jit_lir_instr_is_branch(JitLirInstr instr) {
-  return static_cast<Instruction*>(instr)->isBranch();
-}
-
-extern "C" int
-jit_lir_instr_is_branch_cc(JitLirInstr instr) {
-  return static_cast<Instruction*>(instr)->isBranchCC();
-}
-
-extern "C" int
-jit_lir_instr_is_any_branch(JitLirInstr instr) {
-  return static_cast<Instruction*>(instr)->isAnyBranch();
-}
-
-extern "C" int
-jit_lir_instr_is_terminator(JitLirInstr instr) {
-  return static_cast<Instruction*>(instr)->isTerminator();
-}
+/* Phase 5.B c7: field-getters (jit_lir_instr_opcode, get_input, output) +
+ * Phase 5.B c8: branch/property tests (is_branch, is_branch_cc,
+ * is_any_branch, is_terminator) all inlined as static inline in
+ * lir_c_api.h. */
 
 /* ---- Operand accessors ---- */
 

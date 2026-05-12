@@ -128,10 +128,37 @@ jit_lir_instr_opcode(JitLirInstr instr) {
     return ((const LirInstruction *)instr)->opcode_;
 }
 
-int jit_lir_instr_is_branch(JitLirInstr instr);
-int jit_lir_instr_is_branch_cc(JitLirInstr instr);
-int jit_lir_instr_is_any_branch(JitLirInstr instr);
-int jit_lir_instr_is_terminator(JitLirInstr instr);
+/* Branch / property tests — Phase 5.B c8: inlined as static inline.
+ * is_branch tests opcode == JIT_LIR_OP_BRANCH directly; the other three
+ * delegate to lir_instruction_is_X(opcode_) defined in instruction_impl.c.
+ * Forward-declared here (canonical decls remain below at line ~425 in the
+ * "Opcode query functions" section) so the inline bodies parse cleanly. */
+int lir_instruction_is_branch_cc(int opcode);
+int lir_instruction_is_any_branch(int opcode);
+int lir_instruction_is_terminator(int opcode);
+
+static inline int
+jit_lir_instr_is_branch(JitLirInstr instr) {
+    return ((const LirInstruction *)instr)->opcode_ == JIT_LIR_OP_BRANCH;
+}
+
+static inline int
+jit_lir_instr_is_branch_cc(JitLirInstr instr) {
+    return lir_instruction_is_branch_cc(
+        ((const LirInstruction *)instr)->opcode_);
+}
+
+static inline int
+jit_lir_instr_is_any_branch(JitLirInstr instr) {
+    return lir_instruction_is_any_branch(
+        ((const LirInstruction *)instr)->opcode_);
+}
+
+static inline int
+jit_lir_instr_is_terminator(JitLirInstr instr) {
+    return lir_instruction_is_terminator(
+        ((const LirInstruction *)instr)->opcode_);
+}
 
 static inline JitLirOperand
 jit_lir_instr_get_input(JitLirInstr instr, size_t index) {
