@@ -41,22 +41,8 @@ using jit::lir::Instruction;
 using jit::lir::OperandBase;
 
 /* ---- Function accessors ---- */
-
-extern "C" size_t
-jit_lir_func_num_blocks(JitLirFunc func) {
-  return static_cast<Function*>(func)->basicblocks().size();
-}
-
-extern "C" JitLirBlock
-jit_lir_func_get_block(JitLirFunc func, size_t index) {
-  return static_cast<Function*>(func)->basicblocks()[index];
-}
-
-extern "C" JitLirBlock
-jit_lir_func_entry_block(JitLirFunc func) {
-  auto* f = static_cast<Function*>(func);
-  return f->num_blocks_ > 0 ? f->blocks_[0] : nullptr;
-}
+/* Phase 5.B c7: 3 Function accessor wrappers (jit_lir_func_num_blocks,
+ * get_block, entry_block) inlined as static inline in lir_c_api.h. */
 
 /* ---- BasicBlock accessors ---- */
 /* Phase 5.B c6: 12 BasicBlock accessor wrappers (jit_lir_block_num_preds,
@@ -67,11 +53,9 @@ jit_lir_func_entry_block(JitLirFunc func) {
  * field offsets match. */
 
 /* ---- Instruction accessors ---- */
-
-extern "C" int
-jit_lir_instr_opcode(JitLirInstr instr) {
-  return static_cast<int>(static_cast<Instruction*>(instr)->opcode_);
-}
+/* Phase 5.B c7: field-getters (jit_lir_instr_opcode, get_input, output)
+ * inlined in lir_c_api.h. Branch/property tests (is_branch, is_branch_cc,
+ * is_any_branch, is_terminator) deferred to c8. */
 
 extern "C" int
 jit_lir_instr_is_branch(JitLirInstr instr) {
@@ -93,16 +77,6 @@ jit_lir_instr_is_terminator(JitLirInstr instr) {
   return static_cast<Instruction*>(instr)->isTerminator();
 }
 
-extern "C" JitLirOperand
-jit_lir_instr_get_input(JitLirInstr instr, size_t index) {
-  return static_cast<Instruction*>(instr)->inputs_[index];
-}
-
-extern "C" JitLirOperand
-jit_lir_instr_output(JitLirInstr instr) {
-  return &static_cast<Instruction*>(instr)->output_;
-}
-
 /* ---- Operand accessors ---- */
 
 extern "C" JitLirBlock
@@ -118,11 +92,7 @@ jit_lir_opcode_guard(void) {
 }
 
 /* ---- DCE instruction accessors ---- */
-
-extern "C" int
-jit_lir_instr_id(JitLirInstr instr) {
-  return static_cast<Instruction*>(instr)->id();
-}
+/* Phase 5.B c7: jit_lir_instr_id inlined in lir_c_api.h. */
 
 extern "C" int
 jit_lir_instr_is_essential(JitLirInstr instr) {

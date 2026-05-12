@@ -31,10 +31,24 @@ typedef void* JitLirOperand;
 
 /* ---- Opaque pointer API (functions with active .c callers) ---- */
 
-/* Function accessors */
-size_t jit_lir_func_num_blocks(JitLirFunc func);
-JitLirBlock jit_lir_func_get_block(JitLirFunc func, size_t index);
-JitLirBlock jit_lir_func_entry_block(JitLirFunc func);
+/* Function accessors — Phase 5.B c7: inlined as static inline.
+ * Same layout-pin guarantee as c6 BasicBlock batch. */
+
+static inline size_t
+jit_lir_func_num_blocks(JitLirFunc func) {
+    return ((const LirFunction *)func)->num_blocks_;
+}
+
+static inline JitLirBlock
+jit_lir_func_get_block(JitLirFunc func, size_t index) {
+    return ((const LirFunction *)func)->blocks_[index];
+}
+
+static inline JitLirBlock
+jit_lir_func_entry_block(JitLirFunc func) {
+    const LirFunction *f = (const LirFunction *)func;
+    return f->num_blocks_ > 0 ? f->blocks_[0] : NULL;
+}
 
 /* BasicBlock accessors — Phase 5.B c6: inlined as static inline,
  * implementation moved here from lir_c_api.cpp. Layout-pin
@@ -106,14 +120,28 @@ jit_lir_block_get_instr_at(JitLirBlock block, size_t index) {
     return cur;
 }
 
-/* Instruction accessors */
-int jit_lir_instr_opcode(JitLirInstr instr);
+/* Instruction accessors — Phase 5.B c7 inlined the field-getters
+ * (opcode, get_input, output, id); branch/property tests deferred to c8. */
+
+static inline int
+jit_lir_instr_opcode(JitLirInstr instr) {
+    return ((const LirInstruction *)instr)->opcode_;
+}
+
 int jit_lir_instr_is_branch(JitLirInstr instr);
 int jit_lir_instr_is_branch_cc(JitLirInstr instr);
 int jit_lir_instr_is_any_branch(JitLirInstr instr);
 int jit_lir_instr_is_terminator(JitLirInstr instr);
-JitLirOperand jit_lir_instr_get_input(JitLirInstr instr, size_t index);
-JitLirOperand jit_lir_instr_output(JitLirInstr instr);
+
+static inline JitLirOperand
+jit_lir_instr_get_input(JitLirInstr instr, size_t index) {
+    return ((const LirInstruction *)instr)->inputs_[index];
+}
+
+static inline JitLirOperand
+jit_lir_instr_output(JitLirInstr instr) {
+    return &((LirInstruction *)instr)->output_;
+}
 
 /* Operand accessors */
 JitLirBlock jit_lir_operand_get_basic_block(JitLirOperand op);
@@ -122,7 +150,11 @@ JitLirBlock jit_lir_operand_get_basic_block(JitLirOperand op);
 int jit_lir_opcode_guard(void);
 
 /* DCE instruction accessors */
-int jit_lir_instr_id(JitLirInstr instr);
+static inline int
+jit_lir_instr_id(JitLirInstr instr) {
+    return ((const LirInstruction *)instr)->id_;
+}
+
 int jit_lir_instr_is_essential(JitLirInstr instr);
 int jit_lir_instr_flag_effects(JitLirInstr instr);
 
