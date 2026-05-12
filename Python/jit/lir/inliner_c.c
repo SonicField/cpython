@@ -2,9 +2,10 @@
  * inliner_c.c -- C implementation of LIR inliner
  *
  * Phase 3D: Full C rewrite of inliner.cpp (377 lines).
- * Uses extern C wrappers for Parser::parse and Function::copyFrom.
- * The parsed function cache uses a simple fixed-size array with
- * pthread_mutex protection.
+ * Phase 5.B: pivoted to programmatic LirFunction* path; the legacy
+ * text+parse helpers (Parser::parse, parser.cpp) were deleted in c2.
+ * The function cache (singletons keyed by helper address) uses a simple
+ * fixed-size array with pthread_mutex protection.
  */
 
 #include "cinderx/Jit/lir/lir_impl_internal.h"
@@ -29,7 +30,7 @@ extern LirFunction *jit_lir_map_c_helper_to_lir_func(uint64_t addr);
 
 typedef struct {
     uint64_t addr;
-    LirFunction *func;  /* NULL = parse failed or no LIR text */
+    LirFunction *func;  /* NULL = no LirFunction* mapping for this addr */
     int valid;
 } CachedFunction;
 
@@ -58,7 +59,7 @@ cache_insert(uint64_t addr, LirFunction *func) {
         s_func_cache_count++;
     }
     /* If cache is full, silently don't cache — inlining will just
-     * re-parse each time, which is acceptable for a small number of helpers */
+     * re-look-up each time, which is acceptable for a small number of helpers */
 }
 
 /* ---- parseFunction ---- */

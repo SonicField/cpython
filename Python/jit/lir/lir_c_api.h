@@ -306,7 +306,7 @@ static inline int jit_is_frame_mode_lightweight(void) {
     return jit_get_config()->frame_mode == JIT_FRAME_LIGHTWEIGHT ? 1 : 0;
 }
 
-/* LIR inliner (C wrapper around C++ LIRInliner::inlineCalls) */
+/* LIR inliner (pure-C entry point; implementation in inliner_c.c) */
 int lir_inliner_inline_calls(void *func);
 
 /* Opcode query functions (take opcode int, not LirInstruction*) */
