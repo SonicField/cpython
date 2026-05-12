@@ -325,14 +325,28 @@ int lir_instruction_compare_to_branch_cc(int opcode);
 /* BasicBlock lifecycle (block_impl.c) */
 LirBasicBlock *lir_block_create(void *function, int id);
 void lir_block_free(LirBasicBlock *bb);
+/* lir_block_destroy: cleanup children only; caller frees bb (used by
+ * BasicBlock::~BasicBlock C++ dtor — operator delete handles PyMem_RawFree
+ * per destroy-vs-free pattern, see D-1776379922). */
+void lir_block_destroy(LirBasicBlock *bb);
 void lir_block_add_successor(LirBasicBlock *bb, LirBasicBlock *succ);
+void lir_block_append_instr(LirBasicBlock *bb, LirInstruction *instr);
+void lir_block_insert_instr_before(LirBasicBlock *bb, LirInstruction *before,
+                                   LirInstruction *instr);
+LirInstruction *lir_block_remove_instr(LirBasicBlock *bb, LirInstruction *instr);
+LirBasicBlock *lir_block_insert_between(LirBasicBlock *bb,
+                                         LirBasicBlock *succ_block);
 LirInstruction *lir_block_alloc_instr(LirBasicBlock *bb, int opcode,
                                        const void *origin);
 
 /* Function lifecycle (function_impl.c) */
 LirFunction *lir_function_create(const void *hir_func);
 void lir_function_free(LirFunction *func);
+/* lir_function_destroy: cleanup children only; caller frees func (used by
+ * Function::~Function C++ dtor — destroy-vs-free pattern). */
+void lir_function_destroy(LirFunction *func);
 LirBasicBlock *lir_function_alloc_block(LirFunction *func);
+void lir_function_sort_blocks(LirFunction *func);
 
 /* ---- LIR printer support ---- */
 

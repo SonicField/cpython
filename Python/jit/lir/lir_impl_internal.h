@@ -60,31 +60,34 @@ LirOperand *lir_instruction_get_operand_by_predecessor(
     const LirInstruction *inst, const LirBasicBlock *pred);
 
 /* From block_impl.c */
+/* lir_block_destroy + lir_block_append_instr + lir_block_insert_instr_before
+ * + lir_block_remove_instr + lir_block_insert_between now declared in
+ * lir_c_api.h (Phase 5.B c4) — visible here via include chain. */
 LirBasicBlock *lir_block_new(void *function, int id);
-void lir_block_destroy(LirBasicBlock *bb);
 void lir_block_free(LirBasicBlock *bb);
 void lir_block_set_successor(LirBasicBlock *bb, size_t index,
                               LirBasicBlock *new_succ);
 void lir_block_fixup_phis(LirBasicBlock *bb,
                           LirBasicBlock *old_pred, LirBasicBlock *new_pred);
-void lir_block_append_instr(LirBasicBlock *bb, LirInstruction *instr);
-void lir_block_insert_instr_before(LirBasicBlock *bb, LirInstruction *before,
-                                   LirInstruction *instr);
-LirInstruction *lir_block_remove_instr(LirBasicBlock *bb, LirInstruction *instr);
-LirBasicBlock *lir_block_insert_between(LirBasicBlock *bb,
-                                         LirBasicBlock *succ_block);
 LirBasicBlock *lir_block_split_before(LirBasicBlock *bb,
                                        LirInstruction *instr);
 
 /* From function_impl.c */
+/* lir_function_destroy + lir_function_sort_blocks now declared in
+ * lir_c_api.h (Phase 5.B c4) — visible here via include chain. */
 LirFunction *lir_function_new(const void *hir_func);
-void lir_function_destroy(LirFunction *func);
-LirBasicBlock *lir_function_alloc_block(LirFunction *func);
 LirBasicBlock *lir_function_alloc_block_after(LirFunction *func,
                                                LirBasicBlock *after);
 int lir_function_allocate_id(LirFunction *func);
 void lir_function_ensure_block_capacity(LirFunction *func, size_t needed);
-void lir_function_sort_blocks(LirFunction *func);
+/* lir_function_copy_from_impl: deep-copy entry point; sole consumer is
+ * inliner_c.c. The void* extern C wrapper from function.cpp was removed
+ * in Phase 5.B c4 (block.cpp + function.cpp deletion). */
+int lir_function_copy_from_impl(
+    LirFunction *caller, const LirFunction *callee,
+    LirBasicBlock *prev_bb, LirBasicBlock *next_bb,
+    const void *origin,
+    int *out_begin, int *out_end);
 
 /* Phase 5.A3 commits 3+4: deep-copy helpers (parallel C ports of
  * function.cpp anonymous-namespace helpers). Forward decls below come
@@ -117,12 +120,6 @@ int lir_regalloc_get_frame_size(void *handle);
 uint64_t lir_regalloc_get_changed_regs(void *handle);
 int lir_regalloc_initial_yield_spill_size(void *handle);
 void lir_regalloc_free(void *handle);
-
-/* From function.cpp (extern C wrapper) */
-int lir_function_copy_from(void *caller, const void *callee,
-                            void *prev_bb, void *next_bb,
-                            const void *origin,
-                            int *out_begin, int *out_end);
 
 /* From lir_c_api.h (blocksorter) */
 JitLirBlock *jit_lir_sort_blocks_rpo(

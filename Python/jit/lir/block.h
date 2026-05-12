@@ -57,15 +57,25 @@ struct BasicBlock {
       : id_(lir_function_allocate_id(
             reinterpret_cast<LirFunction*>(func))),
         func_(func) {}
-  ~BasicBlock();
+  // Phase 5.B c4: dtor inlined; calls lir_block_destroy (cleanup children
+  // only — operator delete handles PyMem_RawFree per destroy-vs-free
+  // pattern, see D-1776379922).
+  ~BasicBlock() {
+    lir_block_destroy(reinterpret_cast<LirBasicBlock*>(this));
+  }
 
   int id() const { return id_; }
   void setId(int id) { id_ = id; }
   Function* function() { return func_; }
   const Function* function() const { return func_; }
 
-  void addSuccessor(BasicBlock* bb);
-  void setSuccessor(size_t index, BasicBlock* bb);
+  // Phase 5.B c4: inlined; setSuccessor C++ wrapper deleted (was unused;
+  // C-side lir_block_set_successor remains, called from function_impl.c).
+  void addSuccessor(BasicBlock* bb) {
+    lir_block_add_successor(
+        reinterpret_cast<LirBasicBlock*>(this),
+        reinterpret_cast<LirBasicBlock*>(bb));
+  }
 
   BlockSpan successors() { return {successors_, num_succs_}; }
   ConstBlockSpan successors() const { return {successors_, num_succs_}; }
@@ -120,14 +130,36 @@ struct BasicBlock {
   }
 
   // Append an instruction to the end of this block. Takes ownership.
-  void appendInstr(Instruction* instr);
+  // Phase 5.B c4: inlined.
+  void appendInstr(Instruction* instr) {
+    lir_block_append_instr(
+        reinterpret_cast<LirBasicBlock*>(this),
+        reinterpret_cast<LirInstruction*>(instr));
+  }
 
   // Insert an instruction before pos in the linked list. Takes ownership.
-  void insertInstrBefore(Instruction* pos, Instruction* instr);
+  // Phase 5.B c4: inlined; pos==nullptr falls back to appendInstr per
+  // prior block.cpp::insertInstrBefore semantics.
+  void insertInstrBefore(Instruction* pos, Instruction* instr) {
+    if (pos == nullptr) {
+      appendInstr(instr);
+      return;
+    }
+    lir_block_insert_instr_before(
+        reinterpret_cast<LirBasicBlock*>(this),
+        reinterpret_cast<LirInstruction*>(pos),
+        reinterpret_cast<LirInstruction*>(instr));
+  }
 
   // Remove an instruction from this block. Caller takes ownership of the
   // returned pointer (must delete it or transfer elsewhere).
-  Instruction* removeInstr(instr_iter_t pos);
+  // Phase 5.B c4: inlined.
+  Instruction* removeInstr(instr_iter_t pos) {
+    return reinterpret_cast<Instruction*>(
+        lir_block_remove_instr(
+            reinterpret_cast<LirBasicBlock*>(this),
+            reinterpret_cast<LirInstruction*>(pos)));
+  }
 
   InstrRange instructions() { return {instr_head_, instr_tail_, num_instrs_}; }
   InstrRange instructions() const { return {instr_head_, instr_tail_, num_instrs_}; }
@@ -154,15 +186,17 @@ struct BasicBlock {
 
   // insert a basic block on the edge between the current basic
   // block and another basic block specified by block.
-  BasicBlock* insertBasicBlockBetween(BasicBlock* block);
+  // Phase 5.B c4: inlined.
+  BasicBlock* insertBasicBlockBetween(BasicBlock* block) {
+    return reinterpret_cast<BasicBlock*>(
+        lir_block_insert_between(
+            reinterpret_cast<LirBasicBlock*>(this),
+            reinterpret_cast<LirBasicBlock*>(block)));
+  }
 
-  // Split this block before instr.
-  // Current basic block contains all instructions up to (but excluding) instr.
-  // Return a new block with all instructions (including and) after instr.
-  BasicBlock* splitBefore(Instruction* instr);
-
-  // Replace any references to old_pred in this block's Phis with new_pred.
-  void fixupPhis(BasicBlock* old_pred, BasicBlock* new_pred);
+  // Phase 5.B c4: splitBefore + fixupPhis C++ wrappers deleted (0 callers
+  // tree-wide; C-side lir_block_split_before + lir_block_fixup_phis remain
+  // alive in lir_impl_internal.h for cross-impl-file use).
 
   codegen::CodeSection section() const { return section_; }
   void setSection(codegen::CodeSection section) { section_ = section; }

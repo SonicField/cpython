@@ -409,10 +409,12 @@ inline_call(LirFunction *caller, LirInstruction *call_instr) {
     LirBasicBlock *block1 = call_instr->basic_block_;
     LirBasicBlock *block2 = lir_block_split_before(block1, call_instr);
 
-    /* Copy callee into caller */
+    /* Copy callee into caller — Phase 5.B c4: direct C-to-C call to
+     * lir_function_copy_from_impl (removed redundant void* extern C
+     * wrapper from function.cpp; both files speak LirFunction*). */
     int callee_start, callee_end;
-    lir_function_copy_from(caller, callee, block1, block2,
-                           call_instr->origin_, &callee_start, &callee_end);
+    lir_function_copy_from_impl(caller, callee, block1, block2,
+                                call_instr->origin_, &callee_start, &callee_end);
 
     /* Resolve arguments */
     resolve_arguments(caller, callee_start, callee_end,
