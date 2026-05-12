@@ -42,6 +42,7 @@
 #include "cinderx/StaticPython/checked_dict.h"
 #include "cinderx/StaticPython/checked_list.h"
 #include "cinderx/UpstreamBorrow/borrowed.h"
+#include "cinderx/Jit/lir/generator_helpers_c.h"  /* phx_bytes_from_cint_type (Phase 5.B c12) */
 #include "cinderx/module_state.h"
 
 #include <fmt/format.h>
@@ -121,19 +122,9 @@ bool isTypeWithReasonablePointerEq(Type t) {
       t <= TGen || t <= TNoneType || t <= TSlice;
 }
 
-int bytes_from_cint_type(Type type) {
-  if (type <= TCInt8 || type <= TCUInt8) {
-    return 1;
-  } else if (type <= TCInt16 || type <= TCUInt16) {
-    return 2;
-  } else if (type <= TCInt32 || type <= TCUInt32) {
-    return 3;
-  } else if (type <= TCInt64 || type <= TCUInt64) {
-    return 4;
-  }
-  JIT_ABORT("Bad primitive int type: ({})", type);
-  // NOTREACHED
-}
+// Phase 5.B c12: bytes_from_cint_type ported to phx_bytes_from_cint_type
+// in generator_helpers_c.c. Caller sites updated to wrap with
+// Type::toHirType() conversion.
 
 #define FOREACH_FAST_BUILTIN(V) \
   V(Long)                       \
@@ -889,7 +880,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
             op = Instruction::kMul;
             break;
           case BinaryOpKind::kLShift:
-            switch (bytes_from_cint_type(instr->GetOperand(0)->type())) {
+            switch (phx_bytes_from_cint_type(Type::toHirType(instr->GetOperand(0)->type()))) {
               case 1:
               case 2:
                 extend = Instruction::kSext;
@@ -903,7 +894,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
             }
             break;
           case BinaryOpKind::kRShift:
-            switch (bytes_from_cint_type(instr->GetOperand(0)->type())) {
+            switch (phx_bytes_from_cint_type(Type::toHirType(instr->GetOperand(0)->type()))) {
               case 1:
               case 2:
                 extend = Instruction::kSext;
@@ -917,7 +908,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
             }
             break;
           case BinaryOpKind::kRShiftUnsigned:
-            switch (bytes_from_cint_type(instr->GetOperand(0)->type())) {
+            switch (phx_bytes_from_cint_type(Type::toHirType(instr->GetOperand(0)->type()))) {
               case 1:
               case 2:
                 extend = Instruction::kZext;
@@ -937,7 +928,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
             op = Instruction::kDivUn;
             break;
           case BinaryOpKind::kModulo:
-            switch (bytes_from_cint_type(instr->GetOperand(0)->type())) {
+            switch (phx_bytes_from_cint_type(Type::toHirType(instr->GetOperand(0)->type()))) {
               case 1:
               case 2:
                 extend = Instruction::kSext;
@@ -951,7 +942,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
             }
             break;
           case BinaryOpKind::kModuloUnsigned:
-            switch (bytes_from_cint_type(instr->GetOperand(0)->type())) {
+            switch (phx_bytes_from_cint_type(Type::toHirType(instr->GetOperand(0)->type()))) {
               case 1:
               case 2:
                 extend = Instruction::kZext;
@@ -965,7 +956,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
             }
             break;
           case BinaryOpKind::kPower:
-            switch (bytes_from_cint_type(instr->GetOperand(0)->type())) {
+            switch (phx_bytes_from_cint_type(Type::toHirType(instr->GetOperand(0)->type()))) {
               case 1:
               case 2:
                 extend = Instruction::kSext;
@@ -979,7 +970,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
             };
             break;
           case BinaryOpKind::kPowerUnsigned:
-            switch (bytes_from_cint_type(instr->GetOperand(0)->type())) {
+            switch (phx_bytes_from_cint_type(Type::toHirType(instr->GetOperand(0)->type()))) {
               case 1:
               case 2:
                 extend = Instruction::kZext;
