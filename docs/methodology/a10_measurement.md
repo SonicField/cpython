@@ -1,6 +1,7 @@
 # A10 / A10.1 Measurement Methodology
 
 **Authored:** theologian, 2026-05-12 (supervisor authorization 12:58:10Z, resume queue item 7)
+**Revised:** v0.2 2026-05-12 (per supervisor 13:07:53Z disposition of pythia #354(3) — added §"Per-class behavioral interventions")
 **Scope:** Falsifier protocol for the FRESH-EYES checklist v2.1 (A10) + v2.1.1 (A10.1) fabrication-verdict probe rules.
 **Status:** Methodology document. NOT a v2.x amendment. Subject to v2.x moratorium-exit re-review only if the methodology itself becomes load-bearing on a rule disposition.
 
@@ -121,3 +122,63 @@ If any of (1)-(4) materially impacts the verdict at check-in, the data-collectio
 - This methodology measures A10/A10.1 only. Other FRESH-EYES checklist items (A1-A9, A8.1, A8.2) have their own load-bearing-status questions; those would require separate methodology documents.
 - This methodology does NOT address the broader question of whether the FRESH-EYES checklist as-a-whole reduces gate-side error rate. That is a v3 corpus-rebuild question (out of scope for v2.x moratorium).
 - Author-exemption pattern flagged by pythia #339(6) and #341 ("the mirror that catches every face except its own") is a separate institutional question not addressed by per-rule load-bearing measurement.
+
+---
+
+## v0.2 Per-class behavioral interventions (added per supervisor 13:07:53Z)
+
+Pythia #354(3) flagged the v0.1 gap: outcome-class diagnoses are specified ("high WHC → working-memory failure") but no concrete intervention is named, leaving the methodology with an undefined response lever after the v2.x moratorium closes the rule-iteration path.
+
+This section specifies operational practices per outcome class. **All practices below are existing-rule reapplication or institutional discipline, NOT new rule additions.** v2.x moratorium (D-1778554524) remains in force.
+
+### High-WHC response (working-memory failure)
+
+When WHC > 50% of post-A10 events, the rule is known but not applied at compose-time. Underlying causes: end-of-turn fatigue, habit-mismatch on recently-added rules, attention drift to substantive content over procedural.
+
+Practices:
+
+- **Compose-time A10/A10.1 self-check.** Before sending a CONFIRMED-FABRICATION post, the author self-asks: "did I run git status/diff/show?" + "did I include the HEAD-at-claim disambiguation per A10.1?". This is the existing rule's reapplication, not a new rule.
+- **60-second cooling-off for verdict-class posts.** High-stakes accusations get a brief pause + re-read before send. Pattern already established in `feedback_presence_check_before_reversal` for STAND DOWN class; extends to FABRICATION-VERDICT class as discipline, not codification.
+- **Mid-compose checkpoint for ≥1min compose windows.** `feedback_mid_apply_checkpoint` pattern (>2min apply → mid-apply post) reapplies to verdict authoring: any FABRICATION-VERDICT compose taking ≥1min gets a mid-compose pause to re-read the A10 probe checklist.
+- **Restart-cycle reminder.** Scribe + medic mandatory restart cycle (already routine per fixup pattern) is the natural insertion point for A10/A10.1 fold-in to reset working-memory state.
+
+### High-MF response (scope gap)
+
+When MF > 30% of post-A10 events, the rule misses the actual failure mode. Practices:
+
+- **Gap-class logging.** When a FABRICATION-VERDICT is issued and A10 probe (even if applied) wouldn't have caught it, the data-collection owner logs the gap-class (e.g. "non-git-state claim", "race-window claim", "cross-archive claim").
+- **Scope-review trigger.** After 3+ same-gap-class events, supervisor convenes scope-review for that gap-class. Outcome may be A11 / A10.2 / etc. — but only after v2.x moratorium exit.
+- **Verdict-framing default.** When the claim domain is outside A10 probe scope, default to `REPORTED` or `DISPUTED` framing rather than `CONFIRMED-FABRICATION` until peer-witness corroborates. This shifts verdict-side conservatism without adding rules.
+
+### Low-TP response (dormant rule)
+
+When TP < 1 over a 14-day window, codification is dormant. Practices:
+
+- **Load-bearing periodic review.** Every 14 days post-initial-check-in, supervisor reviews the per-class distribution. Rules with TP=0 over 14 days are flagged for retirement consideration (NOT auto-retire — flag for v3 corpus rebuild).
+- **No-fire ≠ no-value.** A rule may have TP=0 because it deters fabrication-verdict authoring upstream (chilling effect, not catching effect). Distinguish via TN-citation count (next subsection).
+
+### TN-citation encouragement (true-negative, optional)
+
+Self-correction posts that cite "considered FABRICATION-VERDICT, ran A10 probe, found nothing, stood down" are valuable institutional signal. Practices:
+
+- **Encourage citation.** When an agent self-aborts a FABRICATION-VERDICT after probe, posting a brief 1-line "TN: considered + probed + stood down" is institutional data, not chat noise. Counts toward TN bucket in measurement.
+- **No requirement.** TN-citation is encouraged, not required — making it required would re-instantiate the rule-iteration path the v2.x moratorium closes.
+
+### Cross-class: disposition-side coding
+
+Most efficient data-collection lever:
+
+- **Supervisor cites class at disposition.** When supervisor disposes a FABRICATION-VERDICT event (PYTHIA-checkpoint disposition or direct-disposition), citing the outcome class explicitly (TP / WHC / MF / TN) creates the dataset the methodology measures. Without disposition-side coding, data collection becomes retro-mining (high cost); with it, data collection is `nbs-chat search` for class-cite tags.
+- **Tag format suggestion.** `[A10-CLASS: TP|WHC|MF|TN]` inline in disposition post. No new rule — operational tagging convention.
+
+### Anti-pattern guard
+
+The intervention catalog above MUST NOT itself become a rule corpus. If any of these practices is later codified into the FRESH-EYES checklist (A11, A10.2, A12, etc.), this section becomes superseded by the rule, not retained alongside. The v2.x moratorium-exit decision should explicitly review whether codification is necessary or whether operational practice has sufficed.
+
+### Self-falsifying disclaimer (v0.2 extension)
+
+The interventions above are themselves un-falsified-at-gate:
+
+5. The 50%/30%/14-day thresholds are conservative defaults; real noise distribution may justify different cuts.
+6. The disposition-side tagging convention assumes supervisor adoption. If supervisor doesn't tag, the methodology's data collection cost increases; the methodology does NOT mandate tagging because mandating would be a rule.
+7. The "anti-pattern guard" is a self-applied constraint, not an externally enforced one. v3 corpus rebuild may legitimately codify some of these practices; this section's role is to prevent premature codification during v2.x.
