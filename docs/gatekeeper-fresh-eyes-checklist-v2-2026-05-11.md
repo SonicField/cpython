@@ -182,6 +182,17 @@ When accusing FABRICATION (HALLUCINATION-class verdict on another agent's grep /
 
 **Rationale:** 5 instances of feedback_fabrication_detector_verify class-violation in 5-day window (medic dangling-commit miss 09:01:48Z, medic md5sum 2026-05-08, medic compound-Bash 2026-05-08, medic folded-PTY 2026-05-08, supervisor temporal-window 18:21:22Z propagating through librarian 18:21:45Z). Common pattern: grep on current state misses in-flight modifications, dangling-commit, or reflog scope. `git status / diff / stat` is the canonical pre-verdict probe; raw working-tree grep alone is insufficient.
 
+### A10.1 Application-trace requirement (v2.1.1 — supervisor 22:39Z + 01:05:42Z 2026-05-12)
+
+A10's verdict-side probe is self-attested; an additional application-trace requirement applies SOLELY to FABRICATION-VERDICT-class accusations against another agent (not routine verification posts). When issuing a CONFIRMED-FABRICATION verdict, the verdict post MUST inline:
+
+  (a) **Verbatim git command output snippet** supporting the accusation — file paths + 1-3 line excerpt, sufficient for any reader to reproduce. This implements peer-checkable application-trace per pythia #336(3) + #340(1)+(3).
+  (b) **Explicit HEAD-at-claim disambiguation** — state which HEAD/commit/working-tree-state the original (allegedly fabricated) claim was about, e.g. `claim-time HEAD = X` vs `current HEAD = Y` if they differ. Closes the #340(2) grep-scope-mismatch gap that produced both POST-A10 incidents (librarian 21:26Z + supervisor 22:36Z self-violation).
+
+**Explicit non-coverage:** routine verification claims — gate posts, state reports, ABBA results, build-status, push-verify — remain governed by feedback_no_tool_execution_citation (Alex 2026-04-29 directive: plain assertions, gate-side verifies). A10.1 verbatim-snippet requirement is FABRICATION-VERDICT-CLASS-ONLY, not generic. The two rules coexist via claim-class distinction.
+
+**Rationale:** 7 instances of feedback_fabrication_detector_verify class-violation in 5-day window (5 pre-A10 + 2 POST-A10-codification: librarian 21:26Z, supervisor self 22:36Z). Common pattern of POST-A10 incidents: A10's `git status/diff/stat` probe ran against current working tree but the original claim referenced a different reference frame (pre-c2 HEAD), and the probe-result confirmed "absent now" without surfacing the temporal mismatch. A10.1's HEAD-at-claim disambiguation makes the temporal frame inspectable; the verbatim-snippet requirement makes the probe-result peer-verifiable. Authored under structural escalation from pythia #335(c) (POST-A10 empirical class-repeat trigger fired at supervisor 22:39Z).
+
 ## Open caveats (post-ratify codification queue)
 
 - §3a methodology arch-portability: EXECUTION-CLEAN ≠ VALIDATION-CLEAN (sub-case A may be vacuous-correct, not validating-correct)
@@ -200,4 +211,5 @@ When accusing FABRICATION (HALLUCINATION-class verdict on another agent's grep /
 - v2 adoption authorized supervisor 17:39:46Z 2026-05-11 per D-1778492262 cadence + Stage A (Stage 6 PASS-path Step 2 fd0fff739e) + Stage B (Step 6 PASS-path Step 3 56fed762a5) both closed on SonicField/cpython
 - 9 amendments (A1-A9) consolidated from POST-RATIFY-ITEMs 1-7 + 2 recurrence-class items per generalist 11:23Z draft + gatekeeper 11:28:21Z review + A9 EMPIRICAL UPDATE
 - Prep-commit by generalist on top of 56fed762a5 per supervisor 17:39:46Z
-- v2.1 A10 amendment authorized supervisor 18:42:34Z 2026-05-11 per shepard 18:41:46Z this-cycle dispatch (5th feedback_fabrication_detector_verify violation in 5-day window). Prep-commit by generalist on top of 5.B c2 commit 63718ca58b.
+- v2.1 A10 amendment authorized supervisor 18:42:34Z 2026-05-11 per shepard 18:41:46Z this-cycle dispatch (5th feedback_fabrication_detector_verify violation in 5-day window). Prep-commit by generalist on top of 5.B c2 commit 63718ca58b, then pivot-rebased onto v2 docs 2da1b31d2d per supervisor 22:36:12Z PIVOT (pythia #336(1) chain-decouple). Canonical-pushed at 352cc1f9 22:40Z.
+- v2.1.1 A10.1 amendment authorized supervisor 01:05:42Z 2026-05-12 per pythia #341 independent-push-window observation + structural escalation from supervisor 22:39Z (7th feedback_fabrication_detector_verify instance, 1st POST-A10-codification). Prep-commit by generalist on top of v2.1 352cc1f9.
