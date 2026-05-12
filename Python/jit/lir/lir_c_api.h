@@ -183,8 +183,12 @@ jit_lir_operand_get_basic_block(JitLirOperand op) {
     return o->value_.block;
 }
 
-/* Opcode constants */
-int jit_lir_opcode_guard(void);
+/* Opcode constants — Phase 5.B c10: inlined as static inline. */
+
+static inline int
+jit_lir_opcode_guard(void) {
+    return JIT_LIR_OP_GUARD;
+}
 
 /* DCE instruction accessors */
 static inline int

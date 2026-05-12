@@ -65,11 +65,8 @@ using jit::lir::OperandBase;
  * inlined as static inline in lir_c_api.h. */
 
 /* ---- Opcode constants ---- */
-
-extern "C" int
-jit_lir_opcode_guard(void) {
-  return static_cast<int>(Instruction::kGuard);
-}
+/* Phase 5.B c10: jit_lir_opcode_guard inlined in lir_c_api.h
+ * (returns JIT_LIR_OP_GUARD constant from lir_types_c.h:192). */
 
 /* ---- DCE instruction accessors ---- */
 /* Phase 5.B c7: jit_lir_instr_id inlined in lir_c_api.h. */
