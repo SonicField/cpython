@@ -59,11 +59,10 @@ using jit::lir::OperandBase;
  * lir_c_api.h. */
 
 /* ---- Operand accessors ---- */
-
-extern "C" JitLirBlock
-jit_lir_operand_get_basic_block(JitLirOperand op) {
-  return static_cast<OperandBase*>(op)->getBasicBlock();
-}
+/* Phase 5.B c9: jit_lir_operand_get_basic_block + Extended operand
+ * accessors (is_reg/stack/mem/ind/linked, get_linked_instr, get_indirect)
+ * + MemoryIndirect accessors (indirect_base_reg, indirect_index_reg) all
+ * inlined as static inline in lir_c_api.h. */
 
 /* ---- Opcode constants ---- */
 
@@ -99,54 +98,10 @@ jit_lir_instr_foreach_input(
   }
 }
 
-/* ---- Extended operand accessors ---- */
-
-extern "C" int
-jit_lir_operand_is_reg(JitLirOperand op) {
-  return static_cast<OperandBase*>(op)->isReg() ? 1 : 0;
-}
-
-extern "C" int
-jit_lir_operand_is_stack(JitLirOperand op) {
-  return static_cast<OperandBase*>(op)->isStack() ? 1 : 0;
-}
-
-extern "C" int
-jit_lir_operand_is_mem(JitLirOperand op) {
-  return static_cast<OperandBase*>(op)->isMem() ? 1 : 0;
-}
-
-extern "C" int
-jit_lir_operand_is_ind(JitLirOperand op) {
-  return static_cast<OperandBase*>(op)->isInd() ? 1 : 0;
-}
-
-extern "C" int
-jit_lir_operand_is_linked(JitLirOperand op) {
-  return static_cast<OperandBase*>(op)->isLinked() ? 1 : 0;
-}
-
-extern "C" JitLirInstr
-jit_lir_operand_get_linked_instr(JitLirOperand op) {
-  auto* linked = static_cast<jit::lir::LinkedOperand*>(
-      static_cast<OperandBase*>(op));
-  return linked->getLinkedInstr();
-}
-
-extern "C" JitLirIndirect
-jit_lir_operand_get_indirect(JitLirOperand op) {
-  return static_cast<OperandBase*>(op)->getMemoryIndirect();
-}
-
-extern "C" JitLirOperand
-jit_lir_indirect_base_reg(JitLirIndirect ind) {
-  return static_cast<jit::lir::MemoryIndirect*>(ind)->getBaseRegOperand();
-}
-
-extern "C" JitLirOperand
-jit_lir_indirect_index_reg(JitLirIndirect ind) {
-  return static_cast<jit::lir::MemoryIndirect*>(ind)->getIndexRegOperand();
-}
+/* ---- Extended operand accessors + MemoryIndirect accessors ---- */
+/* Phase 5.B c9: 9 wrappers (is_reg/stack/mem/ind/linked, get_linked_instr,
+ * get_indirect, indirect_base_reg, indirect_index_reg) inlined in
+ * lir_c_api.h. */
 
 /* ---- Block instruction removal ---- */
 

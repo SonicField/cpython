@@ -170,8 +170,18 @@ jit_lir_instr_output(JitLirInstr instr) {
     return &((LirInstruction *)instr)->output_;
 }
 
-/* Operand accessors */
-JitLirBlock jit_lir_operand_get_basic_block(JitLirOperand op);
+/* Operand accessors — Phase 5.B c9: inlined as static inline.
+ * is_linked-chain dispatch handled via iterative pointer chase
+ * (matches C++ OperandBase::getBasicBlock recursive delegate). */
+
+static inline JitLirBlock
+jit_lir_operand_get_basic_block(JitLirOperand op) {
+    const LirOperand *o = (const LirOperand *)op;
+    while (o->is_linked_) {
+        o = o->def_opnd_;
+    }
+    return o->value_.block;
+}
 
 /* Opcode constants */
 int jit_lir_opcode_guard(void);
@@ -191,21 +201,65 @@ void jit_lir_instr_foreach_input(
     void (*cb)(JitLirOperand operand, void *ctx),
     void *ctx);
 
-/* Extended operand accessors */
-int jit_lir_operand_is_reg(JitLirOperand op);
-int jit_lir_operand_is_stack(JitLirOperand op);
-int jit_lir_operand_is_mem(JitLirOperand op);
-int jit_lir_operand_is_ind(JitLirOperand op);
-int jit_lir_operand_is_linked(JitLirOperand op);
+/* Extended operand accessors — Phase 5.B c9: inlined.
+ * type_ field tested against JIT_LIR_OPTYPE_* (lir_types_c.h:166-173). */
 
-/* Get the defining instruction of a LinkedOperand. */
-JitLirInstr jit_lir_operand_get_linked_instr(JitLirOperand op);
+static inline int
+jit_lir_operand_is_reg(JitLirOperand op) {
+    return ((const LirOperand *)op)->type_ == JIT_LIR_OPTYPE_REG ? 1 : 0;
+}
 
-/* MemoryIndirect accessors */
+static inline int
+jit_lir_operand_is_stack(JitLirOperand op) {
+    return ((const LirOperand *)op)->type_ == JIT_LIR_OPTYPE_STACK ? 1 : 0;
+}
+
+static inline int
+jit_lir_operand_is_mem(JitLirOperand op) {
+    return ((const LirOperand *)op)->type_ == JIT_LIR_OPTYPE_MEM ? 1 : 0;
+}
+
+static inline int
+jit_lir_operand_is_ind(JitLirOperand op) {
+    return ((const LirOperand *)op)->type_ == JIT_LIR_OPTYPE_IND ? 1 : 0;
+}
+
+static inline int
+jit_lir_operand_is_linked(JitLirOperand op) {
+    return ((const LirOperand *)op)->is_linked_ ? 1 : 0;
+}
+
+/* Get the defining instruction of a LinkedOperand.
+ * Phase 5.B c9: inlined. C++ uses LinkedOperand::getLinkedInstr() ->
+ * def_opnd_->instr() = def_opnd_->parent_instr_. */
+static inline JitLirInstr
+jit_lir_operand_get_linked_instr(JitLirOperand op) {
+    return ((const LirOperand *)op)->def_opnd_->parent_instr_;
+}
+
+/* MemoryIndirect accessors — Phase 5.B c9: inlined.
+ * get_indirect uses is_linked-chain (matches C++ getMemoryIndirect dispatch);
+ * base_reg/index_reg are direct field reads. */
 typedef void* JitLirIndirect;
-JitLirIndirect jit_lir_operand_get_indirect(JitLirOperand op);
-JitLirOperand jit_lir_indirect_base_reg(JitLirIndirect ind);
-JitLirOperand jit_lir_indirect_index_reg(JitLirIndirect ind);
+
+static inline JitLirIndirect
+jit_lir_operand_get_indirect(JitLirOperand op) {
+    const LirOperand *o = (const LirOperand *)op;
+    while (o->is_linked_) {
+        o = o->def_opnd_;
+    }
+    return o->value_.indirect;
+}
+
+static inline JitLirOperand
+jit_lir_indirect_base_reg(JitLirIndirect ind) {
+    return ((const LirMemoryIndirect *)ind)->base_reg_;
+}
+
+static inline JitLirOperand
+jit_lir_indirect_index_reg(JitLirIndirect ind) {
+    return ((const LirMemoryIndirect *)ind)->index_reg_;
+}
 
 /* Block instruction removal.
  * Remove all instructions for which is_live(instr, ctx) returns 0.
