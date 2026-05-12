@@ -36,19 +36,75 @@ size_t jit_lir_func_num_blocks(JitLirFunc func);
 JitLirBlock jit_lir_func_get_block(JitLirFunc func, size_t index);
 JitLirBlock jit_lir_func_entry_block(JitLirFunc func);
 
-/* BasicBlock accessors */
-size_t jit_lir_block_num_preds(JitLirBlock block);
-JitLirBlock jit_lir_block_get_pred(JitLirBlock block, size_t index);
-size_t jit_lir_block_num_succs(JitLirBlock block);
-JitLirBlock jit_lir_block_get_succ(JitLirBlock block, size_t index);
-JitLirInstr jit_lir_block_get_last_instr(JitLirBlock block);
-JitLirInstr jit_lir_block_get_first_instr(JitLirBlock block);
-size_t jit_lir_block_num_instrs(JitLirBlock block);
-JitLirBlock jit_lir_block_get_false_succ(JitLirBlock block);
-int jit_lir_block_get_section(JitLirBlock block);
-void jit_lir_block_set_section(JitLirBlock block, int section);
-int jit_lir_block_get_id(JitLirBlock block);
-JitLirInstr jit_lir_block_get_instr_at(JitLirBlock block, size_t index);
+/* BasicBlock accessors — Phase 5.B c6: inlined as static inline,
+ * implementation moved here from lir_c_api.cpp. Layout-pin
+ * static_asserts in lir_instr_c_verify.cpp guarantee struct field
+ * offsets match between LirBasicBlock (C) and BasicBlock (C++),
+ * making direct field access safe across both languages. */
+
+static inline size_t
+jit_lir_block_num_preds(JitLirBlock block) {
+    return ((const LirBasicBlock *)block)->num_preds_;
+}
+
+static inline JitLirBlock
+jit_lir_block_get_pred(JitLirBlock block, size_t index) {
+    return ((const LirBasicBlock *)block)->predecessors_[index];
+}
+
+static inline size_t
+jit_lir_block_num_succs(JitLirBlock block) {
+    return ((const LirBasicBlock *)block)->num_succs_;
+}
+
+static inline JitLirBlock
+jit_lir_block_get_succ(JitLirBlock block, size_t index) {
+    return ((const LirBasicBlock *)block)->successors_[index];
+}
+
+static inline JitLirInstr
+jit_lir_block_get_last_instr(JitLirBlock block) {
+    return ((const LirBasicBlock *)block)->instr_tail_;
+}
+
+static inline JitLirInstr
+jit_lir_block_get_first_instr(JitLirBlock block) {
+    return ((const LirBasicBlock *)block)->instr_head_;
+}
+
+static inline size_t
+jit_lir_block_num_instrs(JitLirBlock block) {
+    return ((const LirBasicBlock *)block)->num_instrs_;
+}
+
+static inline JitLirBlock
+jit_lir_block_get_false_succ(JitLirBlock block) {
+    return ((const LirBasicBlock *)block)->successors_[1];
+}
+
+static inline int
+jit_lir_block_get_section(JitLirBlock block) {
+    return (int)((const LirBasicBlock *)block)->section_;
+}
+
+static inline void
+jit_lir_block_set_section(JitLirBlock block, int section) {
+    ((LirBasicBlock *)block)->section_ = (LirCodeSection)section;
+}
+
+static inline int
+jit_lir_block_get_id(JitLirBlock block) {
+    return ((const LirBasicBlock *)block)->id_;
+}
+
+static inline JitLirInstr
+jit_lir_block_get_instr_at(JitLirBlock block, size_t index) {
+    LirInstruction *cur = ((const LirBasicBlock *)block)->instr_head_;
+    for (size_t i = 0; i < index && cur; i++) {
+        cur = cur->next_;
+    }
+    return cur;
+}
 
 /* Instruction accessors */
 int jit_lir_instr_opcode(JitLirInstr instr);

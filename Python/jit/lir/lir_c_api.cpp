@@ -59,74 +59,12 @@ jit_lir_func_entry_block(JitLirFunc func) {
 }
 
 /* ---- BasicBlock accessors ---- */
-
-extern "C" size_t
-jit_lir_block_num_preds(JitLirBlock block) {
-  return static_cast<BasicBlock*>(block)->predecessors().size();
-}
-
-extern "C" JitLirBlock
-jit_lir_block_get_pred(JitLirBlock block, size_t index) {
-  return static_cast<BasicBlock*>(block)->predecessors()[index];
-}
-
-extern "C" size_t
-jit_lir_block_num_succs(JitLirBlock block) {
-  return static_cast<BasicBlock*>(block)->successors().size();
-}
-
-extern "C" JitLirBlock
-jit_lir_block_get_succ(JitLirBlock block, size_t index) {
-  return static_cast<BasicBlock*>(block)->successors()[index];
-}
-
-extern "C" JitLirInstr
-jit_lir_block_get_last_instr(JitLirBlock block) {
-  return const_cast<Instruction*>(
-      static_cast<BasicBlock*>(block)->instr_tail_);
-}
-
-extern "C" JitLirInstr
-jit_lir_block_get_first_instr(JitLirBlock block) {
-  return const_cast<Instruction*>(
-      static_cast<BasicBlock*>(block)->instr_head_);
-}
-
-extern "C" size_t
-jit_lir_block_num_instrs(JitLirBlock block) {
-  return static_cast<BasicBlock*>(block)->num_instrs_;
-}
-
-extern "C" JitLirBlock
-jit_lir_block_get_false_succ(JitLirBlock block) {
-  return static_cast<BasicBlock*>(block)->successors_[1];
-}
-
-extern "C" int
-jit_lir_block_get_section(JitLirBlock block) {
-  return static_cast<int>(static_cast<BasicBlock*>(block)->section_);
-}
-
-extern "C" void
-jit_lir_block_set_section(JitLirBlock block, int section) {
-  static_cast<BasicBlock*>(block)->setSection(
-      static_cast<CodeSection>(section));
-}
-
-extern "C" int
-jit_lir_block_get_id(JitLirBlock block) {
-  return static_cast<BasicBlock*>(block)->id_;
-}
-
-extern "C" JitLirInstr
-jit_lir_block_get_instr_at(JitLirBlock block, size_t index) {
-  auto instrs = static_cast<BasicBlock*>(block)->instructions();
-  Instruction* cur = instrs.front();
-  for (size_t i = 0; i < index && cur; i++) {
-    cur = cur->next_;
-  }
-  return cur;
-}
+/* Phase 5.B c6: 12 BasicBlock accessor wrappers (jit_lir_block_num_preds,
+ * get_pred, num_succs, get_succ, get_last_instr, get_first_instr,
+ * num_instrs, get_false_succ, get_section, set_section, get_id,
+ * get_instr_at) inlined as static inline definitions in lir_c_api.h.
+ * Layout-pin static_asserts in lir_instr_c_verify.cpp guarantee struct
+ * field offsets match. */
 
 /* ---- Instruction accessors ---- */
 
