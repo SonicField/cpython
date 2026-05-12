@@ -94,14 +94,14 @@ START_TS="$(date +%s)"
 echo "[pre-commit-build-check] running scripts/build_phoenix.sh (incremental)"
 echo "[pre-commit-build-check] log: $LOG_FILE"
 
-if "$BUILD_SCRIPT" > "$LOG_FILE" 2>&1; then
-    DURATION=$(( $(date +%s) - START_TS ))
+"$BUILD_SCRIPT" > "$LOG_FILE" 2>&1
+EXIT=$?
+DURATION=$(( $(date +%s) - START_TS ))
+
+if [ "$EXIT" -eq 0 ]; then
     echo "[pre-commit-build-check] PASS (${DURATION}s); commit proceeds"
     exit 0
 fi
-
-EXIT=$?
-DURATION=$(( $(date +%s) - START_TS ))
 
 echo ""
 echo "[pre-commit-build-check] BUILD FAILED (exit=$EXIT, ${DURATION}s)"
