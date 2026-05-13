@@ -49,7 +49,8 @@ if [ -n "$SELFTEST" ]; then
         i4)   exec "$SCRIPT_DIR/test_preflight_i4_negative.sh" ;;
         i5g1) exec "$SCRIPT_DIR/test_preflight_i5_negative.sh" ;;
         i5g2) exec "$SCRIPT_DIR/test_preflight_i5g2_negative.sh" ;;
-        *)    echo "Unknown --selftest value: $SELFTEST (use i1, i2, i3, i4, i5g1, or i5g2)"; exit 1 ;;
+        b6)   exec "$SCRIPT_DIR/test_b6_wiring_class_negative.sh" ;;
+        *)    echo "Unknown --selftest value: $SELFTEST (use i1, i2, i3, i4, i5g1, i5g2, or b6)"; exit 1 ;;
     esac
 fi
 
