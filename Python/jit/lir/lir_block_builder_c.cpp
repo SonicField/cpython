@@ -15,6 +15,8 @@
 #include "cinderx/Jit/lir/block_builder.h"
 #include "cinderx/Jit/hir/hir.h"
 
+#include <cstdio>  /* H2 instrumentation fprintf — supervisor 17:10:23Z */
+
 using jit::lir::BasicBlock;
 using jit::lir::BasicBlockBuilder;
 
@@ -194,6 +196,18 @@ lir_bbb_append_invoke(LirBasicBlockBuilder *bbb,
         dispatch_descriptor(builder, shadow, &args[i]);
 #endif
     }
+
+    /* Theologian H2 instrumentation per supervisor 17:10:23Z disposition:
+     * print real/shadow input counts to stderr immediately before JIT_CHECK
+     * to disambiguate H1/H2/H3 root causes for JIT_CHECK silence on
+     * JIT_TEST_VARIADIC_BRIDGE bad-path. Outputs:
+     *   real=N shadow=M (n_args=K) shadow-emit-marker
+     * Marker string is greppable via `strings python | grep
+     * shadow-emit-marker` to verify TU compilation (H3 disambiguation).
+     * Output volume bounded by counter-delta scope (typically 5/run). */
+    fprintf(stderr,
+            "shadow-emit-marker real=%zu shadow=%zu (n_args=%d)\n",
+            instr->getNumInputs(), shadow->getNumInputs(), n_args);
 
     JIT_CHECK(
         instr->getNumInputs() == shadow->getNumInputs(),
