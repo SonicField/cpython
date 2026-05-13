@@ -158,26 +158,10 @@ emitSubclassCheck(BasicBlockBuilder& bbb, hir::Register* obj, Type type) {
 
 #undef FOREACH_FAST_BUILTIN
 
-Py_ssize_t frameOffsetBefore(const BeginInlinedFunction* instr) {
-#if PY_VERSION_HEX < 0x030C0000
-  return -instr->inlineDepth() * Py_ssize_t{kJITShadowFrameSize};
-#else
-  Py_ssize_t depth = 0;
-  for (auto frame = instr->callerFrameState(); frame != nullptr;
-       frame = frame->parent) {
-    depth -= frameHeaderSize(frame->code);
-  }
-  return depth;
-#endif
-}
-
-Py_ssize_t frameOffsetOf(const BeginInlinedFunction* instr) {
-#if PY_VERSION_HEX < 0x030C0000
-  return frameOffsetBefore(instr) - Py_ssize_t{kJITShadowFrameSize};
-#else
-  return frameOffsetBefore(instr) - frameHeaderSize(instr->code());
-#endif
-}
+// Phase 5.B c14: frameOffsetBefore + frameOffsetOf ported to
+// phx_frame_offset_{before,of} in generator_helpers_c.c. Caller sites
+// updated to wrap with reinterpret_cast<const HirBeginInlinedFunction*>.
+// 3.12+ branch only; 3.11 not ported (kJITShadowFrameSize lacks C-side).
 
 // Update the global ref count total after an Inc or Dec operation.
 void updateRefTotal(BasicBlockBuilder& bbb, Instruction::Opcode op) {
@@ -2932,12 +2916,12 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         Instruction* caller_shadow_frame = bbb.appendInstr(
             OutVReg{},
             Instruction::kLea,
-            Stk{PhyLocation(static_cast<int32_t>(frameOffsetBefore(instr)))});
+            Stk{PhyLocation(static_cast<int32_t>(phx_frame_offset_before(reinterpret_cast<const HirBeginInlinedFunction*>(instr))))});
         // There is already a shadow frame for the caller function.
         Instruction* callee_shadow_frame = bbb.appendInstr(
             OutVReg{},
             Instruction::kLea,
-            Stk{PhyLocation(static_cast<int32_t>(frameOffsetOf(instr)))});
+            Stk{PhyLocation(static_cast<int32_t>(phx_frame_offset_of(reinterpret_cast<const HirBeginInlinedFunction*>(instr))))});
 
         bbb.appendInstr(
             OutInd{callee_shadow_frame, SHADOW_FRAME_FIELD_OFF(prev)},
@@ -2978,7 +2962,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
             Instruction::kLea,
             Stk{PhyLocation(
                 static_cast<int32_t>(
-                    frameOffsetBefore(instr) + sizeof(FrameHeader)))});
+                    phx_frame_offset_before(reinterpret_cast<const HirBeginInlinedFunction*>(instr)) + sizeof(FrameHeader)))});
 
         // There is already an interpreter frame for the caller function.
         Instruction* callee_frame = getInlinedFrame(bbb, instr);
@@ -3043,7 +3027,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
             Instruction::kLea,
             Stk{PhyLocation(
                 static_cast<int32_t>(
-                    frameOffsetOf(instr) +
+                    phx_frame_offset_of(reinterpret_cast<const HirBeginInlinedFunction*>(instr)) +
                     offsetof(_PyInterpreterFrame, localsplus)))});
 
         bbb.appendInstr(
@@ -3209,7 +3193,7 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
             Instruction::kLea,
             Stk{PhyLocation(
                 static_cast<int32_t>(
-                    frameOffsetBefore(instr.matchingBegin()) +
+                    phx_frame_offset_before(reinterpret_cast<const HirBeginInlinedFunction*>(instr.matchingBegin())) +
                     sizeof(FrameHeader)))});
 #if PY_VERSION_HEX >= 0x030D0000
         bbb.appendInstr(
@@ -3690,7 +3674,7 @@ Instruction* LIRGenerator::getInlinedFrame(
                      OutVReg{},
                      Instruction::kLea,
                      Stk{PhyLocation(
-                         static_cast<int32_t>(frameOffsetOf(instr)))}))
+                         static_cast<int32_t>(phx_frame_offset_of(reinterpret_cast<const HirBeginInlinedFunction*>(instr))))}))
              .first;
   }
 

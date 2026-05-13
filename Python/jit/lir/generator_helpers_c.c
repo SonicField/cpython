@@ -14,6 +14,8 @@
 
 #include "cinderx/Jit/lir/generator_helpers_c.h"
 #include "cinderx/Common/jit_log_c.h"  /* JIT_ABORT_C */
+#include "cinderx/Jit/frame_header.h"   /* jit_frame_header_size (Phase 5.B c14 amend) */
+#include "cinderx/Jit/lir/lir_c_api.h"  /* jit_is_frame_mode_lightweight */
 
 int phx_bytes_from_cint_type(HirType type) {
     HirType cint8   = HIR_TYPE_CINT8;
@@ -76,4 +78,59 @@ int phx_is_type_with_reasonable_pointer_eq(HirType t) {
         || hir_type_is_subtype(t, gen)
         || hir_type_is_subtype(t, nonetype)
         || hir_type_is_subtype(t, slice);
+}
+
+/* Phase 5.B c14: port of generator.cpp:161-179 frameOffsetBefore +
+ * frameOffsetOf. Both compute byte offsets into the inlined-function
+ * frame header chain via the FrameState linked-list (caller_state_ptr).
+ *
+ * NOTE: Python 3.11 branch (PY_VERSION_HEX < 0x030C0000) NOT ported.
+ * Original C++ used kJITShadowFrameSize + inlineDepth() — kJITShadowFrameSize
+ * has no C-side equivalent (defined in cinder/exports.h, only included on
+ * 3.11). Phoenix targets Python 3.12.13 (CLAUDE.md); 3.11 branch is dead
+ * code at compile time. If 3.11 is ever revived, c14 must be revisited
+ * to expose kJITShadowFrameSize as C-side constant.
+ *
+ * AMEND (2026-05-13 00:31Z): replaced frame_asm_c_frame_header_size with
+ * direct jit_frame_header_size call to match C++ frameHeaderSize semantics
+ * exactly. frame_asm_c_frame_header_size (frame_asm_c.c:351) adds
+ * +sizeof(void*) when ENABLE_SHADOW_FRAMES undef — used during code
+ * emission, NOT during LIR-generation. Original C++ frameHeaderSize
+ * (frame_header.h:67) does NOT add the offset. Initial port called the
+ * asm-helper variant by mistake → +8-byte offsets in LIR → SIGSEGV in
+ * test_phoenix_benchmark_correctness::test_fibonacci (recursive _fib
+ * triggers BeginInlinedFunction codegen path).
+ *
+ * Direct call pattern matches C++ frameHeaderSize:
+ *   jit_frame_header_size(code, lightweight, sizeof(FrameHeader),
+ *                         sizeof(PyObject*))
+ * On 3.12+, FrameHeader = union { PyFunctionObject*; uintptr_t rtfs; }
+ * = sizeof(void*) (per frame_header.h note). */
+
+/* Helper: matches C++ frameHeaderSize exactly. */
+static inline int phx_frame_header_size(PyCodeObject *code) {
+    return jit_frame_header_size(code,
+                                 jit_is_frame_mode_lightweight(),
+                                 (int)sizeof(void *) /* FrameHeader 3.12+ */,
+                                 (int)sizeof(PyObject *));
+}
+
+Py_ssize_t phx_frame_offset_before(const HirBeginInlinedFunction *instr) {
+    Py_ssize_t depth = 0;
+    for (HirFrameStateLayout *frame =
+             (HirFrameStateLayout *)instr->caller_state_ptr;
+         frame != NULL;
+         frame = frame->parent) {
+        depth -= phx_frame_header_size((PyCodeObject *)frame->code);
+    }
+    return depth;
+}
+
+Py_ssize_t phx_frame_offset_of(const HirBeginInlinedFunction *instr) {
+    /* HirBeginInlinedFunction.func corresponds to C++ instr->func_, a
+     * PyFunctionObject*. C++ instr->code() returns
+     * (PyCodeObject*)func_->func_code (hir.h:1663). */
+    PyFunctionObject *func = (PyFunctionObject *)instr->func;
+    PyCodeObject *code = (PyCodeObject *)func->func_code;
+    return phx_frame_offset_before(instr) - phx_frame_header_size(code);
 }
