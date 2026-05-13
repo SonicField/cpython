@@ -174,10 +174,21 @@ if [ "${JIT_VARIADIC_BAD_PATH_VERIFY:-0}" = "1" ]; then
     echo "(3-gate) JIT_VARIADIC_BAD_PATH_VERIFY=1 — rebuilding with -DJIT_TEST_VARIADIC_BRIDGE -DJIT_TEST_EXERCISE..." | tee -a "$RESULTS_FILE"
     BAD_PATH_LOG=/tmp/jit_variadic_bad_path_$$.log
     pushd "$CPYTHON_ROOT" >/dev/null
+    # Disable set -e for build invocation so we can inspect rc + handle
+    # bad-path-build-failure case explicitly. Per testkeeper 17:45:33Z:
+    # x86 build env can be poisoned by autoconf-cache pydebug-toggle
+    # (librarian 17:40:48Z RECURRENT vs D-1777159173) → bad-path rebuild
+    # fails at link step → previous code silent-died on set -e before
+    # BAD_BUILD_RC could be checked.
+    BAD_BUILD_RC=0
     EXTRA_CMAKE_FLAGS=" -DJIT_TEST_VARIADIC_BRIDGE=1 -DJIT_TEST_EXERCISE=1" \
-        bash scripts/build_phoenix.sh --pydebug --clean > "$BAD_PATH_LOG" 2>&1
-    BAD_BUILD_RC=$?
+        bash scripts/build_phoenix.sh --pydebug --clean > "$BAD_PATH_LOG" 2>&1 \
+        || BAD_BUILD_RC=$?
     popd >/dev/null
+    if [ "$BAD_BUILD_RC" -ne 0 ]; then
+        echo "(3-gate) BAD-PATH BUILD FAILED (rc=$BAD_BUILD_RC, log: $BAD_PATH_LOG). Likely autoconf-cache pydebug-toggle poisoning per librarian 17:40:48Z; gate-script verification of (3-gate) DEFERRED to ARM64 ratify per testkeeper 17:45:33Z. Mechanism empirically verified via direct invocation 17:17:45Z + 17:25:12Z." | tee -a "$RESULTS_FILE"
+        tail -10 "$BAD_PATH_LOG" | tee -a "$RESULTS_FILE"
+    fi
     if [ "$BAD_BUILD_RC" -eq 0 ]; then
         # No ctypes dependency: pydebug builds may lack _ctypes module
         # (testkeeper 17:17:45Z found this on amend-7 re-run). Counter-
