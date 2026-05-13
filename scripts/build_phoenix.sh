@@ -149,7 +149,17 @@ fi
 # removed BUILD_DIR but pyconfig.h survived; re-run without --pydebug
 # inherited stale '#define Py_DEBUG 1', JIT_DCHECK fired in 'release'
 # code, Phase B I1 invariant tripped → spurious gate FAIL on push-45.
+#
+# I5 quick-fix (theologian 18:35:26Z + supervisor 18:35:52Z): autoconf-
+# cache file removal alone insufficient when --pydebug ↔ release
+# transition leaves stale Modules/*.o + generated headers + python
+# binary that were built against the prior config. ARM64 v3 gate FAIL
+# 18:13:17Z empirical anchor: --clean alone left _testembed link with
+# stale Py_DEBUG-built objects. `make distclean` is the load-bearing
+# step (CPython tree artifact cleanup); rm -rf Python/jit_build/build
+# is already covered above (line 110).
 if [ "$CLEAN" -eq 1 ]; then
+    make distclean 2>/dev/null || true
     rm -f pyconfig.h config.status config.cache
 fi
 if [ -f pyconfig.h ] && grep -q '#define SIZEOF_VOID_P' pyconfig.h && [ "$CLEAN" -eq 0 ]; then
