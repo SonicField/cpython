@@ -44,8 +44,9 @@ done
 if [ -n "$SELFTEST" ]; then
     case "$SELFTEST" in
         i1) exec "$SCRIPT_DIR/test_preflight_i1_negative.sh" ;;
+        i2) exec "$SCRIPT_DIR/test_preflight_i2_negative.sh" ;;
         i4) exec "$SCRIPT_DIR/test_preflight_i4_negative.sh" ;;
-        *)  echo "Unknown --selftest value: $SELFTEST (use i1 or i4)"; exit 1 ;;
+        *)  echo "Unknown --selftest value: $SELFTEST (use i1, i2, or i4)"; exit 1 ;;
     esac
 fi
 

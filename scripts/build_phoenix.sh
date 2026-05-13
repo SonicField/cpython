@@ -15,6 +15,14 @@ CPYTHON_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$CPYTHON_ROOT/Python/jit_build/build"
 ARCH="$(uname -m)"
 
+# I2 ENV-FLAG READ-BACK preflight: snapshot EXTRA_CMAKE_FLAGS as received
+# from the environment BEFORE any internal mutation (--asan augments it,
+# line ~228; B1 hard-reset at line 219 was the bug being closed). Sourcing
+# lib_preflight.sh defines preflight_check_env_flag for use post-cmake.
+# (theologian 21:21:28Z + gatekeeper 21:22:00Z + supervisor 21:22:52Z)
+SCRIPT_RECEIVED_EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS:-}"
+. "$(dirname "$0")/lib_preflight.sh"
+
 # W26 gate-hardening: track previous build exit so we can force --clean
 # after a recent compile-fail. Stale .o / LTO bitcode from a failed iter
 # can produce a binary that builds clean but crashes at runtime — this
@@ -223,16 +231,29 @@ fi
 if [ "$ASAN" -eq 1 ]; then
     EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -fsanitize=address -fno-omit-frame-pointer"
 fi
-if ! cmake .. \
+# I2 ENV-FLAG READ-BACK: tee cmake invocation through log so
+# preflight_check_env_flag can verify caller-supplied -D tokens reached
+# cmake. CMAKE_LOG_PATH lives in $BUILD_DIR (just mkdir'd line 208) so
+# writability is guaranteed (gatekeeper 21:22:00Z (b)). PIPESTATUS[0]
+# captures cmake rc independently of tee rc.
+CMAKE_LOG_PATH="$BUILD_DIR/cmake-invocation.log"
+cmake .. \
     -DPHOENIX_ASM=ON \
     -DCMAKE_CXX_FLAGS="-DPHOENIX_ASM ${GCC_INSTALL_FLAG}${EXTRA_CMAKE_FLAGS}" \
     -DCMAKE_C_FLAGS="-DPHOENIX_ASM ${GCC_INSTALL_FLAG}${EXTRA_CMAKE_FLAGS}" \
     -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
     -DCMAKE_C_COMPILER="$PHOENIX_CC" \
-    -DCMAKE_CXX_COMPILER="$PHOENIX_CXX"; then
-    echo "FAIL: cmake configuration failed"
+    -DCMAKE_CXX_COMPILER="$PHOENIX_CXX" 2>&1 | tee "$CMAKE_LOG_PATH"
+CMAKE_RC=${PIPESTATUS[0]}
+if [ "$CMAKE_RC" -ne 0 ]; then
+    echo "FAIL: cmake configuration failed (rc=$CMAKE_RC; log: $CMAKE_LOG_PATH)"
     exit 1
 fi
+# I2 verify ONLY when caller passed flags (gatekeeper 21:22:00Z (c) edge
+# case): empty SCRIPT_RECEIVED is no-op (intentionally-empty caller); only
+# non-empty -> require all tokens grep-present in log (B1 regression
+# detector). Helper logs OK on PASS, FAILs loudly on missing tokens.
+preflight_check_env_flag "$SCRIPT_RECEIVED_EXTRA_CMAKE_FLAGS" "$CMAKE_LOG_PATH"
 
 # Step 4: Build JIT library
 echo "--- Building JIT library ---"

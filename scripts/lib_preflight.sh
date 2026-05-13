@@ -125,3 +125,58 @@ preflight_check_freshness() {
     fi
     _preflight_log "I4 BUILD-PRODUCT FRESHNESS OK — gate binary $PYTHON is newer than all tracked sources"
 }
+
+# preflight_check_env_flag <expected_flag_string> <cmake_log_path>: assert
+# every -D token in expected_flag_string appears in cmake-invocation log.
+# Closes B1 EXTRA_CMAKE_FLAGS:189 hard-reset class — proves caller-supplied
+# flags actually reached cmake (not silently dropped by env-passthrough).
+#
+# expected_flag_string: typically the script-received EXTRA_CMAKE_FLAGS
+# (snapshot taken BEFORE any internal mutation like ASAN augmentation).
+# Per-flag iteration (gatekeeper 21:22:00Z (a)): split on -D, grep each
+# -DKEY=VAL token in log. Tolerates whitespace/ordering variation that
+# canonical-string match would miss.
+#
+# Caller responsibility: only invoke when expected_flag_string is non-empty
+# (gatekeeper 21:22:00Z (c) edge case — empty vs forgotten-set distinction
+# is at caller layer; helper is no-op-on-empty defensive).
+preflight_check_env_flag() {
+    local expected="${1:-}"
+    local log_path="${2:-}"
+    if [ -z "$expected" ]; then
+        return 0
+    fi
+    if [ -z "$log_path" ] || [ ! -f "$log_path" ]; then
+        _preflight_log "I2 ENV-FLAG READ-BACK FAIL — cmake log path missing or unreadable (log_path=$log_path)"
+        exit 1
+    fi
+    # Per-flag iteration: split expected into -D tokens. Each token is one
+    # -DKEY=VAL or -DKEY (without =). Strip leading whitespace then split
+    # on ' -' boundary (preserving leading -D on each token via re-prepend).
+    local missing=()
+    local token
+    # Use awk to split on ' -' boundary; produces one token per line
+    while IFS= read -r token; do
+        token="${token# }"  # trim leading space
+        [ -z "$token" ] && continue
+        # Re-prepend '-' since awk split consumed the leading dash
+        local probe="-$token"
+        # Skip if not a -D flag (e.g., empty after trim)
+        [[ "$probe" =~ ^-D ]] || continue
+        if ! grep -q -- "$probe" "$log_path"; then
+            missing+=("$probe")
+        fi
+    done < <(echo "$expected" | awk '{n=split($0, a, " -"); for (i=1;i<=n;i++) print a[i]}')
+    if [ "${#missing[@]}" -ne 0 ]; then
+        _preflight_log "I2 ENV-FLAG READ-BACK FAIL — expected flag(s) absent from cmake invocation log"
+        _preflight_log "  expected_flag_string='$expected'"
+        _preflight_log "  log_path=$log_path"
+        _preflight_log "  missing_tokens: ${missing[*]}"
+        _preflight_log "  cmake-invocation log tail (last 20 lines):"
+        tail -20 "$log_path" | while IFS= read -r line; do
+            _preflight_log "    $line"
+        done
+        exit 1
+    fi
+    _preflight_log "I2 ENV-FLAG READ-BACK OK — all -D tokens from EXTRA_CMAKE_FLAGS=' $expected' verified in $log_path"
+}
