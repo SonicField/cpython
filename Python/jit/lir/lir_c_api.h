@@ -542,6 +542,45 @@ void lir_hir_print_instr(FILE *out, const void *hir_instr);
 /* Get the HIR origin instruction of an LIR instruction (opaque). */
 const void* lir_instruction_get_origin(const LirInstruction *inst);
 
+/* ---- Phase 5.B c22a: variadic operand-descriptor schema ----
+ *
+ * Tagged union for passing typed operands across the C/C++ ABI to
+ * lir_bbb_append_invoke (c22b) without the C++ AppendArgs variadic
+ * template. Each kind dispatches to a corresponding branch of
+ * BasicBlockBuilder::genericCreateInstrInput<T> (block_builder.h:373).
+ *
+ * Layout pinned by lir_invoke_bridge_c_verify.cpp (sizeof + offsetof +
+ * per-variant + round-trip ABI test_lir_invoke_bridge.c).
+ *
+ * Covers the 5 operand types observed in the 16 generator.cpp
+ * appendInvokeInstruction sites: Instruction*, integer literal, bool
+ * literal, hir::Register*, memory-immediate.
+ */
+typedef enum {
+    JIT_LIR_OPDESC_INSTR = 1,    /* JitLirInstr (Instruction*) */
+    JIT_LIR_OPDESC_IMM_INT = 2,  /* int64_t value + bit-width */
+    JIT_LIR_OPDESC_IMM_BOOL = 3, /* bool */
+    JIT_LIR_OPDESC_REG_REF = 4,  /* hir::Register* (env-routed) */
+    JIT_LIR_OPDESC_MEM_IMM = 5,  /* memory-immediate (addr + width) */
+} JitLirOperandDescKind;
+
+typedef struct {
+    JitLirOperandDescKind kind;
+    union {
+        JitLirInstr instr;            /* INSTR */
+        struct {                       /* IMM_INT */
+            int64_t value;
+            int width_bits;
+        } imm_int;
+        int imm_bool;                  /* IMM_BOOL (0/1) */
+        void *reg;                     /* REG_REF (hir::Register*) */
+        struct {                       /* MEM_IMM */
+            uint64_t addr;
+            int width_bits;
+        } mem_imm;
+    } data;
+} JitLirOperandDesc;
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
