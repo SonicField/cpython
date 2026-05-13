@@ -183,7 +183,12 @@ if [ "${JIT_VARIADIC_BAD_PATH_VERIFY:-0}" = "1" ]; then
         # (testkeeper 17:17:45Z found this on amend-7 re-run). Counter-
         # delta diagnostic was nice-to-have; criterion 3 verification
         # only needs JIT_CHECK abort message in stderr.
-        BAD_RUN=$("$PYTHON" -c "
+        #
+        # CRITICAL: invoke the just-rebuilt CPYTHON_ROOT/python directly,
+        # NOT $PYTHON (line 85 aliases $PYTHON to ${PYTHON}_gate which is
+        # the OLD pre-rebuild copy from line 85's `cp $PYTHON ${PYTHON}_gate`).
+        # Per testkeeper 17:25:12Z amend-8 binary-alias bug diagnosis.
+        BAD_RUN=$("$CPYTHON_ROOT/python" -c "
 import _cinderx, cinderjit
 def add(x, y): return x + y
 def mul(x, y): return x * y
