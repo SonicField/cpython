@@ -180,3 +180,32 @@ preflight_check_env_flag() {
     fi
     _preflight_log "I2 ENV-FLAG READ-BACK OK — all -D tokens from EXTRA_CMAKE_FLAGS=' $expected' verified in $log_path"
 }
+
+# i3_pipe_grep_count <var-name> <input-string> <grep-args...>: pipe-grep -c
+# with rc-safe handling per I3 SUBSHELL ERROR-VISIBILITY (theologian 21:44:42Z
+# + gatekeeper 21:45:16Z + supervisor 21:48:29Z). Sets named variable to count
+# (0 on no-match; grep -c rc=1 is OK = no-match); WARNs to stderr on grep
+# internal error (rc>1) — surfaces silent grep-broken-by-corrupt-input class
+# that bare 'grep -c X || true' would mask as 'no matches'.
+#
+# WARN-class severity (per gatekeeper 21:45:16Z (b)): grep failure is a
+# best-effort parse, downstream may use default; CALLER decides if the count
+# matters and applies FAIL action if needed.
+i3_pipe_grep_count() {
+    local var="$1"
+    local input="$2"
+    shift 2
+    local count rc
+    # PIPESTATUS doesn't survive command-substitution boundary, so use a
+    # subshell with pipefail to make the substitution's rc reflect the
+    # pipeline's overall rc (last non-zero command). 0 = matches found,
+    # 1 = no match (legitimate count=0), >1 = grep internal error (WARN).
+    set +e
+    count=$(set -o pipefail; printf '%s' "$input" | grep -c "$@")
+    rc=$?
+    set -e
+    if [ "$rc" -gt 1 ]; then
+        echo "WARNING: i3_pipe_grep_count: grep -c rc=$rc (internal error, NOT no-match); args=$*; pattern may be malformed or input encoding broken" >&2
+    fi
+    eval "$var=${count:-0}"
+}

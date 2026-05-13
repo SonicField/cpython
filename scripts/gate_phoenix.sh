@@ -45,8 +45,9 @@ if [ -n "$SELFTEST" ]; then
     case "$SELFTEST" in
         i1) exec "$SCRIPT_DIR/test_preflight_i1_negative.sh" ;;
         i2) exec "$SCRIPT_DIR/test_preflight_i2_negative.sh" ;;
+        i3) exec "$SCRIPT_DIR/test_preflight_i3_negative.sh" ;;
         i4) exec "$SCRIPT_DIR/test_preflight_i4_negative.sh" ;;
-        *)  echo "Unknown --selftest value: $SELFTEST (use i1, i2, or i4)"; exit 1 ;;
+        *)  echo "Unknown --selftest value: $SELFTEST (use i1, i2, i3, or i4)"; exit 1 ;;
     esac
 fi
 
@@ -227,6 +228,12 @@ if [ "${JIT_VARIADIC_BAD_PATH_VERIFY:-0}" = "1" ]; then
         # NOT $PYTHON (line 85 aliases $PYTHON to ${PYTHON}_gate which is
         # the OLD pre-rebuild copy from line 85's `cp $PYTHON ${PYTHON}_gate`).
         # Per testkeeper 17:25:12Z amend-8 binary-alias bug diagnosis.
+        # I3 CLASS-F refactor (supervisor 21:48:29Z): explicit-rc-capture
+        # gold-standard pattern (matches L365/380/398 W44/W45/W-I3). Non-zero
+        # rc here is EXPECTED — bad-path build's purpose is to abort via
+        # JIT_CHECK; rc captured for downstream WARN if shadow-emit message
+        # is somehow absent despite abort.
+        set +e
         BAD_RUN=$("$CPYTHON_ROOT/python" -c "
 import _cinderx, cinderjit
 def add(x, y): return x + y
@@ -238,7 +245,9 @@ def fib(n):
 for f in [add, mul, fib]:
     cinderjit.force_compile(f)
 add(3, 4); mul(6, 7); fib(10)
-" 2>&1 || true)
+" 2>&1)
+        BAD_RUN_RC=$?
+        set -e
         echo "$BAD_RUN" | tee -a "$RESULTS_FILE"
         if echo "$BAD_RUN" | grep -q "shadow-emit"; then
             echo "(3-gate) PASS: JIT_CHECK fired with shadow-emit message (negative-test gate-verified)" | tee -a "$RESULTS_FILE"
@@ -268,8 +277,18 @@ if [ -f "$TEST_UNLINKED_SRC" ]; then
         -I"$CPYTHON_ROOT/Python/jit_build/build/generated/cinderx" \
         "$TEST_UNLINKED_SRC" -o "$TEST_UNLINKED_BIN" \
         -L"$CPYTHON_ROOT" -lpython3.12 -lpthread -ldl -lm > "$COMPILE_LOG" 2>&1; then
-        TEST_OUT=$("$TEST_UNLINKED_BIN" 2>&1 || true)
+        # I3 CLASS-F refactor (supervisor 21:48:29Z): explicit-rc-capture.
+        # Non-zero rc may indicate test crash (different from "X pass, Y fail"
+        # output); rc captured for downstream WARN distinguishing crash-class
+        # from test-fail-class.
+        set +e
+        TEST_OUT=$("$TEST_UNLINKED_BIN" 2>&1)
+        TEST_RC=$?
+        set -e
         echo "$TEST_OUT" | tee -a "$RESULTS_FILE"
+        if [ "$TEST_RC" -gt 1 ]; then
+            echo "WARNING: (carry-forward-counter) test_unlinked_instr crashed (rc=$TEST_RC); output above" | tee -a "$RESULTS_FILE"
+        fi
         if echo "$TEST_OUT" | grep -q "^4 pass, 0 fail$"; then
             echo "(carry-forward-counter) PASS: 4 tests (3 base + 1 negative-leak detection)" | tee -a "$RESULTS_FILE"
         else
@@ -367,7 +386,10 @@ echo "$W44_OUTPUT" | tee -a "$RESULTS_FILE"
 if [ "$W44_EXIT" -ne 0 ]; then
     echo "GATE FAIL — W44 DO-NOT-USE caller gate detected production callers" | tee -a "$RESULTS_FILE"
     GATE_PASS=0
-    W44_VIOLATIONS=$(echo "$W44_OUTPUT" | grep -c "VIOLATION" || true)
+    # I3 CLASS-E refactor: replace 'grep -c X || true' with rc-safe helper
+    # (per supervisor 21:48:29Z disposition) — surfaces grep internal errors
+    # via WARN to stderr; default count=0 on no-match (rc=1) is intentional.
+    i3_pipe_grep_count W44_VIOLATIONS "$W44_OUTPUT" "VIOLATION"
     FAILURES="$FAILURES w44_do_not_use:$W44_VIOLATIONS"
 else
     echo "W44 DO-NOT-USE caller gate: PASS" | tee -a "$RESULTS_FILE"
@@ -382,7 +404,8 @@ echo "$W45_35_OUTPUT" | tee -a "$RESULTS_FILE"
 if [ "$W45_35_EXIT" -ne 0 ]; then
     echo "GATE FAIL — W45 §3.5 derivation-drift falsifier detected unprotected derivation surface" | tee -a "$RESULTS_FILE"
     GATE_PASS=0
-    W45_35_FAILURES=$(echo "$W45_35_OUTPUT" | grep -c "\[FAIL\]" || true)
+    # I3 CLASS-E refactor (supervisor 21:48:29Z disposition).
+    i3_pipe_grep_count W45_35_FAILURES "$W45_35_OUTPUT" "\[FAIL\]"
     FAILURES="$FAILURES w45_section_3_5:$W45_35_FAILURES"
 else
     echo "W45 §3.5 derivation-drift falsifier: PASS" | tee -a "$RESULTS_FILE"
@@ -400,7 +423,8 @@ echo "$I3_OUTPUT" | tee -a "$RESULTS_FILE"
 if [ "$I3_EXIT" -ne 0 ]; then
     echo "GATE FAIL — W-I3 invariant gate detected BasicBlock::id mutation" | tee -a "$RESULTS_FILE"
     GATE_PASS=0
-    I3_VIOLATIONS=$(echo "$I3_OUTPUT" | grep -c "candidate I3 violation" || true)
+    # I3 CLASS-E refactor (supervisor 21:48:29Z disposition).
+    i3_pipe_grep_count I3_VIOLATIONS "$I3_OUTPUT" "candidate I3 violation"
     FAILURES="$FAILURES w_i3:$I3_VIOLATIONS"
 else
     echo "W-I3 invariant gate: PASS" | tee -a "$RESULTS_FILE"
@@ -501,8 +525,10 @@ if [ "$PHOENIX_RESULT" != "SUCCESS" ]; then
     GATE_PASS=0
     FAILURES="$FAILURES Phoenix:$PHOENIX_RESULT"
     echo "Phoenix FAILURES:" | tee -a "$RESULTS_FILE"
-    # W32 Option A: tolerate grep-no-match (pipefail would otherwise kill
-    # the script before Step 4-6 ran).
+    # I3 RC-DISCARD-OK (CLASS-E annotation per supervisor 21:48:29Z): the
+    # 'grep ... || true' here is INTENTIONAL display-loop semantics — when
+    # grep finds no matches (rc=1) we still want tee to consume an empty
+    # input rather than triggering pipefail. Original W32 Option A.
     { echo "$PHOENIX_OUTPUT" | grep -E "FAIL|ERROR|CRASH|Assertion failed" || true; } | tee -a "$RESULTS_FILE"
 fi
 
@@ -510,7 +536,14 @@ fi
 preflight_check_binary "step-4-cpython"
 echo "" | tee -a "$RESULTS_FILE"
 echo "--- Step 4: CPython Tests ---" | tee -a "$RESULTS_FILE"
-CPYTHON_OUTPUT=$(JIT_ENABLE=1 ASAN_OPTIONS=detect_leaks=0 "$PYTHON" -m test -j8 --timeout=120 2>&1 || true)
+# I3 CLASS-F refactor (supervisor 21:48:29Z): explicit-rc-capture matches
+# CLASS-B gold-standard pattern. -m test returns non-zero on test failures
+# BY DESIGN; rc is captured for downstream parse but parse uses the
+# Result: SUCCESS/FAILURE marker (more authoritative than rc alone).
+set +e
+CPYTHON_OUTPUT=$(JIT_ENABLE=1 ASAN_OPTIONS=detect_leaks=0 "$PYTHON" -m test -j8 --timeout=120 2>&1)
+CPYTHON_TEST_RC=$?
+set -e
 
 CPYTHON_RESULT=$(echo "$CPYTHON_OUTPUT" | grep -oP 'Result: \K\w+' || echo "UNKNOWN")
 CPYTHON_TOTAL_TESTS=$(echo "$CPYTHON_OUTPUT" | grep -oP 'Total tests: run=\K[0-9,]+' | tr -d ',' || echo 0)
@@ -521,9 +554,11 @@ CPYTHON_SUMMARY=$(echo "$CPYTHON_OUTPUT" | tail -10)
 echo "CPython: $CPYTHON_TOTAL_TESTS tests, $CPYTHON_FILES_RUN/$CPYTHON_FILES_TOTAL modules, Result: $CPYTHON_RESULT" | tee -a "$RESULTS_FILE"
 echo "$CPYTHON_SUMMARY" | tee -a "$RESULTS_FILE"
 
-# Check for crashes (hard failures)
-CPYTHON_CRASHES=$(echo "$CPYTHON_OUTPUT" | grep -c -wE "CRASH|Segmentation fault|Aborted" || true)
-CPYTHON_CRASHES=${CPYTHON_CRASHES:-0}
+# Check for crashes (hard failures).
+# I3 CLASS-E refactor (supervisor 21:48:29Z disposition): use rc-safe helper
+# so a malformed regex / corrupt $CPYTHON_OUTPUT surfaces as WARN rather than
+# silently masking real crashes via 'grep -c X || true' rc-discard.
+i3_pipe_grep_count CPYTHON_CRASHES "$CPYTHON_OUTPUT" -wE "CRASH|Segmentation fault|Aborted"
 if [ "$CPYTHON_CRASHES" -gt 0 ]; then
     GATE_PASS=0
     FAILURES="$FAILURES CPython:${CPYTHON_CRASHES}crash"
@@ -533,6 +568,10 @@ fi
 preflight_check_binary "step-5-nbody"
 echo "" | tee -a "$RESULTS_FILE"
 echo "--- Step 5: nbody Crash Check ---" | tee -a "$RESULTS_FILE"
+# I3 CLASS-F refactor (supervisor 21:48:29Z): explicit-rc-capture. Pre-I3
+# code captured `NBODY_EXIT=$?` AFTER `|| true` so EXIT was always 0 (bug —
+# EXIT was misleading). Now NBODY_EXIT actually reflects bench_nbody rc.
+set +e
 NBODY_OUTPUT=$(JIT_ENABLE=1 "$PYTHON" -c "
 import _cinderx, cinderjit
 cinderjit.auto()
@@ -542,8 +581,9 @@ for i in range(3):
     r = bench_nbody(10000)
     print(f'nbody iter {i}: {r}')
 print('nbody: PASS')
-" 2>&1 || true)
+" 2>&1)
 NBODY_EXIT=$?
+set -e
 echo "$NBODY_OUTPUT" | tee -a "$RESULTS_FILE"
 if ! echo "$NBODY_OUTPUT" | grep -q "nbody: PASS"; then
     GATE_PASS=0
@@ -557,6 +597,10 @@ fi
 if [ "$WIRING" -eq 1 ]; then
     echo "" | tee -a "$RESULTS_FILE"
     echo "--- Step 6: Wiring Smoke Test ---" | tee -a "$RESULTS_FILE"
+    # I3 CLASS-F refactor (supervisor 21:48:29Z): explicit-rc-capture for
+    # wiring smoke. WIRING_EXIT post-`|| true` was always 0 pre-I3; now
+    # captures real rc.
+    set +e
     WIRING_OUTPUT=$(ASAN_OPTIONS=detect_leaks=0 "$PYTHON" -c "
 import _cinderx, cinderjit, sys
 
@@ -753,8 +797,9 @@ assert _inner() == 2 and _inner(5) == 6, f'make_function_with_defaults inner: {_
 print('make_function_with_defaults: PASS')
 
 print('Wiring smoke: PASS')
-" 2>&1 || true)
+" 2>&1)
     WIRING_EXIT=$?
+    set -e
     echo "$WIRING_OUTPUT" | tee -a "$RESULTS_FILE"
     if ! echo "$WIRING_OUTPUT" | grep -q "Wiring smoke: PASS"; then
         GATE_PASS=0
@@ -767,6 +812,8 @@ print('Wiring smoke: PASS')
     # Step 6b: emitCond wiring test (auto-compilation — exercises block bridges)
     echo "" | tee -a "$RESULTS_FILE"
     echo "--- Step 6b: emitCond Auto-Compile Wiring ---" | tee -a "$RESULTS_FILE"
+    # I3 CLASS-F refactor (supervisor 21:48:29Z): explicit-rc-capture.
+    set +e
     EMITCOND_OUTPUT=$(ASAN_OPTIONS=detect_leaks=0 JIT_ENABLE=1 "$PYTHON" -c "
 import _cinderx, cinderjit
 cinderjit.auto()
@@ -857,8 +904,13 @@ assert result_cm == expected_cm, f'combined_method_attr_test: {result_cm} != {ex
 print(f'combined_method_attr_test: PASS (result={result_cm})')
 
 print('emitCond wiring: PASS')
-" 2>&1 || true)
+" 2>&1)
+    EMITCOND_RC=$?
+    set -e
     echo "$EMITCOND_OUTPUT" | tee -a "$RESULTS_FILE"
+    if [ "$EMITCOND_RC" -gt 1 ]; then
+        echo "WARNING: Step 6b emitCond runner crashed (rc=$EMITCOND_RC); output above" | tee -a "$RESULTS_FILE"
+    fi
     if ! echo "$EMITCOND_OUTPUT" | grep -q "emitCond wiring: PASS"; then
         GATE_PASS=0
         FAILURES="$FAILURES emitCond:FAIL"
@@ -873,10 +925,18 @@ if [ "$BENCHMARK" -eq 1 ]; then
     echo "" | tee -a "$RESULTS_FILE"
     echo "--- Step 7: Benchmark ---" | tee -a "$RESULTS_FILE"
     cp "$PYTHON" "${PYTHON}_bench"
+    # I3 CLASS-F refactor (supervisor 21:48:29Z): explicit-rc-capture for
+    # benchmark runner.
+    set +e
     BENCH_OUTPUT=$(VANILLA_PYTHON="$CPYTHON_ROOT/../cpython-vanilla/python" JIT_ENABLE=1 "${PYTHON}_bench" \
         "$CPYTHON_ROOT/Tools/benchmark_phoenix.py" jit \
-        --compile=auto --reps=3 --only=fibonacci,nqueens,gen_simple,func_calls 2>&1 || true)
+        --compile=auto --reps=3 --only=fibonacci,nqueens,gen_simple,func_calls 2>&1)
+    BENCH_RC=$?
+    set -e
     echo "$BENCH_OUTPUT" | tee -a "$RESULTS_FILE"
+    if [ "$BENCH_RC" -ne 0 ]; then
+        echo "WARNING: Step 7 benchmark runner exited rc=$BENCH_RC; geo-mean parse may be unreliable" | tee -a "$RESULTS_FILE"
+    fi
 
     # Check geo-mean > 1.0x (hard floor).
     # F2/M2 fix (M-slate, supervisor D-1777572112): regex was 'geo-mean:\s*\K[0-9.]+'
@@ -1030,8 +1090,28 @@ if [ "$ARM64" -eq 1 ]; then
     # 'git stash push -u' below does not stash it as an untracked file
     # — which would leave 'git fetch' with no bundle to read.
     REMOTE_BUNDLE="/tmp/arm64-gate-bundle.bundle"
-    (cd "$CPYTHON_ROOT" && git bundle create "$BUNDLE_FILE" HEAD~200..HEAD 2>/dev/null)
-    nbs-local-run "scp $BUNDLE_FILE $ARM64_HOST:$REMOTE_BUNDLE" 2>/dev/null
+    # I3 CLASS-G refactor (supervisor 21:48:29Z): pre-I3 swallowed errors
+    # silently — bundle/scp failure cascaded into useless remote-fetch fail
+    # downstream. Now: WARN-class (best-effort sync; remote-fetch error will
+    # explicitly fail the gate if bundle/scp didn't land).
+    set +e
+    BUNDLE_LOG=/tmp/arm64-gate-bundle-create-$$.log
+    (cd "$CPYTHON_ROOT" && git bundle create "$BUNDLE_FILE" HEAD~200..HEAD) >"$BUNDLE_LOG" 2>&1
+    BUNDLE_RC=$?
+    set -e
+    if [ "$BUNDLE_RC" -ne 0 ]; then
+        echo "WARNING: arm64 git bundle create rc=$BUNDLE_RC; downstream remote-fetch will surface the failure" | tee -a "$RESULTS_FILE"
+        tail -3 "$BUNDLE_LOG" | sed 's/^/  /' | tee -a "$RESULTS_FILE"
+    fi
+    set +e
+    SCP_LOG=/tmp/arm64-gate-scp-$$.log
+    nbs-local-run "scp $BUNDLE_FILE $ARM64_HOST:$REMOTE_BUNDLE" >"$SCP_LOG" 2>&1
+    SCP_RC=$?
+    set -e
+    if [ "$SCP_RC" -ne 0 ]; then
+        echo "WARNING: arm64 scp bundle rc=$SCP_RC; downstream remote-fetch will surface the failure" | tee -a "$RESULTS_FILE"
+        tail -3 "$SCP_LOG" | sed 's/^/  /' | tee -a "$RESULTS_FILE"
+    fi
 
     # Working-tree contamination guard: stash any uncommitted devgpu004 changes
     # BEFORE the gate so 'git checkout --detach HEAD' cannot fail and stale edits

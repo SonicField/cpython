@@ -35,7 +35,7 @@ write_build_state() {
     {
         date +%s
         echo "$exit_code"
-    } > "$STATE_FILE" 2>/dev/null || true
+    } > "$STATE_FILE" 2>/dev/null || true  # I3 IDEMPOTENCE: best-effort state-file write in EXIT trap; failure must not mask the original $exit_code which is what the trap propagates (return "$exit_code" below). Permitted exception per I3-1.
     return "$exit_code"
 }
 trap write_build_state EXIT
@@ -100,7 +100,8 @@ echo "Jobs: $JOBS"
 cd "$CPYTHON_ROOT"
 if git remote get-url origin >/dev/null 2>&1; then
     echo "--- Checking remote sync ---"
-    git fetch origin 2>/dev/null || true
+    git fetch origin 2>/dev/null || true  # I3 IDEMPOTENCE: best-effort remote-staleness probe; offline / proxy-down / auth-fail must not block local build. Subsequent rev-list naturally degrades to BEHIND=0 (legit fallback).
+    # I3 RC-DISCARD-OK: git rev-list returns non-zero when origin/phoenix-asm-integration ref is absent (no fetch happened or new branch); BEHIND=0 default is sane (treat as up-to-date if we can't tell).
     BEHIND=$(git rev-list HEAD..origin/phoenix-asm-integration --count 2>/dev/null || echo 0)
     if [ "$BEHIND" -gt 0 ]; then
         echo "WARNING: local is $BEHIND commit(s) behind remote!"
