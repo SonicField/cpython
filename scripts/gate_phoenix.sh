@@ -209,7 +209,7 @@ if pre >= 0:
         if echo "$BAD_RUN" | grep -q "shadow-emit"; then
             echo "(3-gate) PASS: JIT_CHECK fired with shadow-emit message (negative-test gate-verified)" | tee -a "$RESULTS_FILE"
         elif echo "$BAD_RUN" | grep -qE "JIT_TEST_EXERCISE counter delta: 0$"; then
-            echo "(3-gate) FAIL-DIAGNOSTIC: counter == 0 — stress fixture did not reach site 600. site re-selection required for c23+ (theologian fib-traversal inference falsified)" | tee -a "$RESULTS_FILE"
+            echo "(3-gate) FAIL-DIAGNOSTIC: counter == 0 in BAD-PATH BUILD — this stress fixture did not reach site 600. NOT site-re-selection signal: site 600 traversal is independently confirmed by JIT smoke (Step 2) counter delta > 0 in default build (testkeeper 16:31:45Z empirical evidence). Realign (3-gate) fixture to a confirmed-traversal pattern." | tee -a "$RESULTS_FILE"
         else
             echo "(3-gate) FAIL: bad-path build did not fire JIT_CHECK on stress fixture" | tee -a "$RESULTS_FILE"
         fi
