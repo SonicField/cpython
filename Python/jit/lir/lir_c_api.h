@@ -233,6 +233,13 @@ jit_lir_operand_is_linked(JitLirOperand op) {
     return ((const LirOperand *)op)->is_linked_ ? 1 : 0;
 }
 
+/* Phase 5.B c15: vreg type test (parallel to is_reg/stack/mem/ind c9
+ * pattern). Used by phx_should_replace_operand (regalloc_helpers_c.c). */
+static inline int
+jit_lir_operand_is_vreg(JitLirOperand op) {
+    return ((const LirOperand *)op)->type_ == JIT_LIR_OPTYPE_VREG ? 1 : 0;
+}
+
 /* Get the defining instruction of a LinkedOperand.
  * Phase 5.B c9: inlined. C++ uses LinkedOperand::getLinkedInstr() ->
  * def_opnd_->instr() = def_opnd_->parent_instr_. */

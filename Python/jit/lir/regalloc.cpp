@@ -5,6 +5,7 @@
 #include "cinderx/Common/log.h"
 #include "cinderx/Jit/jit_config_c.h"
 #include "cinderx/Jit/lir/printer.h"
+#include "cinderx/Jit/lir/regalloc_helpers_c.h"  /* phx_should_replace_operand (Phase 5.B c15) */
 
 #include <algorithm>
 #include <iterator>
@@ -41,12 +42,9 @@ void markDisallowedRegisters(std::vector<LIRLocation>& locs) {
   }
 }
 
-// Check if an operand should be replaced with a new one by the register
-// allocator.
-bool shouldReplaceOperand(const OperandBase& operand) {
-  // Linked operands are always replaced with new Operand instances.
-  return operand.isVreg() || operand.isLinked();
-}
+// Phase 5.B c15: shouldReplaceOperand ported to phx_should_replace_operand
+// in regalloc_helpers_c.c. Caller sites updated to wrap with
+// reinterpret_cast<JitLirOperand>(&operand).
 
 } // namespace
 
@@ -1192,7 +1190,7 @@ void LinearScanAllocator::rewriteInstrOneInput(
     return;
   }
 
-  if (!shouldReplaceOperand(*input) || input->isNone()) {
+  if (!phx_should_replace_operand(reinterpret_cast<JitLirOperand>(input)) || input->isNone()) {
     return;
   }
 
@@ -1224,7 +1222,7 @@ void LinearScanAllocator::rewriteInstrOneIndirectOperand(
     const UnorderedMap<const Operand*, const LiveInterval*>& mapping,
     const UnorderedSet<const LinkedOperand*>* last_use_vregs) {
   auto base = indirect->getBaseRegOperand();
-  PhyLocation base_phy_reg = shouldReplaceOperand(*base)
+  PhyLocation base_phy_reg = phx_should_replace_operand(reinterpret_cast<JitLirOperand>(base))
       ? map_get(mapping, base->getDefine())->allocated_loc
       : PhyLocation(base->getPhyRegister());
 
@@ -1235,7 +1233,7 @@ void LinearScanAllocator::rewriteInstrOneIndirectOperand(
   PhyLocation index_phy_reg = PhyLocation::REG_INVALID;
   bool index_last_use = false;
   if (index != nullptr) {
-    index_phy_reg = shouldReplaceOperand(*index)
+    index_phy_reg = phx_should_replace_operand(reinterpret_cast<JitLirOperand>(index))
         ? map_get(mapping, index->getDefine())->allocated_loc
         : PhyLocation(index->getPhyRegister());
 
