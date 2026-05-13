@@ -19,6 +19,7 @@
 #include "cinderx/Jit/hir/phx_ptr_queue.h"      /* Phase 4.X-full X2a (Batch 91) */
 #include "cinderx/Jit/hir/phx_ptr_set.h"        /* Phase 4.X-full X2b (Batch 92) */
 #include "cinderx/Jit/hir/phx_ptr_map.h"        /* Phase 4.X-full X3a (Batch 95) */
+#include "cinderx/Jit/frame_header.h"           /* Phase 5.B c14-followup-A: jit::FrameHeader sizeof guard */
 
 #include <cassert>
 #include <cstring>
@@ -27,6 +28,22 @@
 using namespace jit::hir;
 
 /* ---- Compile-time size checks ---- */
+
+/* Phase 5.B c14-followup-A: guard against silent breakage of
+ * generator_helpers_c.c::phx_frame_header_size, which hardcodes
+ * sizeof(void*) for the FrameHeader argument matching C++
+ * frameHeaderSize semantics (frame_header.h:67). On 3.12+, FrameHeader
+ * = union { PyFunctionObject*; uintptr_t rtfs; } = sizeof(void*). If the
+ * union grows in a future Python version, this static_assert fires AT
+ * COMPILE TIME, before the c14 port produces wrong offsets at runtime
+ * (the c14 SIGSEGV class). 3.11 branch is dead code per CLAUDE.md. */
+#if PY_VERSION_HEX >= 0x030C0000
+static_assert(sizeof(jit::FrameHeader) == sizeof(void*),
+    "jit::FrameHeader size assumption broken — c14 phx_frame_header_size "
+    "would produce wrong offsets; revisit hardcoded sizeof(void*) in "
+    "generator_helpers_c.c::phx_frame_header_size.");
+#endif
+
 static_assert(sizeof(HirInstrLayout) == sizeof(Instr),
     "HirInstr size must match C++ Instr");
 static_assert(sizeof(HirCondBranchInstr) == sizeof(CondBranchBase),
