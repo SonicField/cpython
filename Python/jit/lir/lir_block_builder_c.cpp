@@ -34,3 +34,25 @@ lir_bbb_switch_block(LirBasicBlockBuilder *bbb, JitLirBlock block) {
     reinterpret_cast<BasicBlockBuilder *>(bbb)->switchBlock(
         reinterpret_cast<BasicBlock *>(block));
 }
+
+/* Phase 5.B c18: BBB wrappers batch 2. */
+
+extern "C" void
+lir_bbb_append_block(LirBasicBlockBuilder *bbb, JitLirBlock block) {
+    reinterpret_cast<BasicBlockBuilder *>(bbb)->appendBlock(
+        reinterpret_cast<BasicBlock *>(block));
+}
+
+extern "C" JitLirInstr
+lir_bbb_get_def_instr(LirBasicBlockBuilder *bbb, const void *hir_reg) {
+    return reinterpret_cast<BasicBlockBuilder *>(bbb)->getDefInstr(
+        reinterpret_cast<const jit::hir::Register *>(hir_reg));
+}
+
+extern "C" void
+lir_bbb_create_instr_input(LirBasicBlockBuilder *bbb,
+                            JitLirInstr instr, void *hir_reg) {
+    reinterpret_cast<BasicBlockBuilder *>(bbb)->createInstrInput(
+        reinterpret_cast<jit::lir::Instruction *>(instr),
+        reinterpret_cast<jit::hir::Register *>(hir_reg));
+}

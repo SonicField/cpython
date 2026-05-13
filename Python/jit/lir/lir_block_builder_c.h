@@ -32,6 +32,24 @@ JitLirBlock lir_bbb_allocate_block(LirBasicBlockBuilder *bbb);
  * side: bbb->switchBlock(block). */
 void lir_bbb_switch_block(LirBasicBlockBuilder *bbb, JitLirBlock block);
 
+/* Phase 5.B c18: BBB wrappers batch 2. */
+
+/* appendBlock(BasicBlock*) — add successor edge from cur_bb_ + switch
+ * to block. C++ side: bbb->appendBlock(block). */
+void lir_bbb_append_block(LirBasicBlockBuilder *bbb, JitLirBlock block);
+
+/* getDefInstr(const hir::Register*) — find the LIR instruction that
+ * defined a HIR register (chase env_->copy_propagation_map). C++ side:
+ * bbb->getDefInstr(reg). */
+JitLirInstr lir_bbb_get_def_instr(LirBasicBlockBuilder *bbb,
+                                   const void *hir_reg);
+
+/* createInstrInput(Instruction*, hir::Register*) — allocate a linked
+ * input on instr pointing at the def-instruction of reg. C++ side:
+ * bbb->createInstrInput(instr, reg). */
+void lir_bbb_create_instr_input(LirBasicBlockBuilder *bbb,
+                                 JitLirInstr instr, void *hir_reg);
+
 #ifdef __cplusplus
 }
 #endif
