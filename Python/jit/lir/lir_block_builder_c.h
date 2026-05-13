@@ -72,6 +72,36 @@ size_t lir_bbb_make_deopt_metadata(LirBasicBlockBuilder *bbb);
 JitLirInstr lir_bbb_append_branch_unary(LirBasicBlockBuilder *bbb,
                                          int opcode, JitLirBlock true_bb);
 
+/* Phase 5.B c22b-mech: variadic operand-descriptor bridge pilot.
+ *
+ * Wraps appendInvokeInstruction (16 sites in generator.cpp) via the
+ * JitLirOperandDesc tagged-union schema (c22a) + Block::allocateInstrUnlinked
+ * (c22b-api). c22b-mech ships site 600 (_Py_Dealloc) rewire as the EXERCISE
+ * PATH (criterion 5); remaining 15 sites defer to c23+.
+ *
+ * Schema dispatch (kind -> genericCreateInstrInput equivalent):
+ *   JIT_LIR_OPDESC_INSTR    -> allocateLinkedInput((Instruction*)data.instr)
+ *   JIT_LIR_OPDESC_IMM_INT  -> allocateImmediateInput(data.imm_int.value, width)
+ *   JIT_LIR_OPDESC_IMM_BOOL -> allocateImmediateInput(0/1, k8bit)
+ *   JIT_LIR_OPDESC_REG_REF  -> createInstrInput((hir::Register*)data.reg)
+ *   JIT_LIR_OPDESC_MEM_IMM  -> allocateImmediateInput(data.mem_imm.addr, width)
+ *
+ * Shadow-emit DCHECK (criterion 2 SYMMETRY): under Py_DEBUG OR
+ * JIT_DCHECK_OVERRIDE the wrapper builds a discardable shadow Instruction
+ * via allocateInstrUnlinked + same descriptor dispatch, compares operand
+ * lists element-wise, JIT_DCHECK on mismatch, deletes shadow.
+ *
+ * Negative test (criterion 3): see test_lir_invoke_bridge.c — deliberately-
+ * divergent descriptor exercises DCHECK fire path under JIT_TEST_VARIADIC_BRIDGE.
+ *
+ * Production: shadow-emit COMPILED OUT (no perf overhead) unless
+ * Py_DEBUG / JIT_DCHECK_OVERRIDE.
+ */
+JitLirInstr lir_bbb_append_invoke(LirBasicBlockBuilder *bbb,
+                                    void *func_ptr,
+                                    int n_args,
+                                    const JitLirOperandDesc *args);
+
 #ifdef __cplusplus
 }
 #endif

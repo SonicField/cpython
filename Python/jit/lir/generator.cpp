@@ -38,6 +38,7 @@
 #include "cinderx/Jit/inline_cache.h"
 #include "cinderx/Jit/jit_rt.h"
 #include "cinderx/Jit/lir/block_builder.h"
+#include "cinderx/Jit/lir/lir_block_builder_c.h"
 #include "cinderx/Jit/threaded_compile.h"
 #include "cinderx/StaticPython/checked_dict.h"
 #include "cinderx/StaticPython/checked_list.h"
@@ -597,7 +598,19 @@ void LIRGenerator::MakeDecref(
 
     bbb.appendInvokeInstruction(destructor.value(), instr);
   } else {
-    bbb.appendInvokeInstruction(_Py_Dealloc, instr);
+    /* Phase 5.B c22b-mech: site 600 — first generator.cpp call site
+     * routed through the variadic operand-descriptor bridge wrapper
+     * (criterion 5 EXERCISE PATH for force_compile fib MakeDecref ->
+     * default tp_dealloc fallthrough). Remaining 15 appendInvokeInstruction
+     * sites defer to c23+. */
+    JitLirOperandDesc dealloc_args[1] = {};
+    dealloc_args[0].kind = JIT_LIR_OPDESC_INSTR;
+    dealloc_args[0].data.instr = reinterpret_cast<JitLirInstr>(instr);
+    lir_bbb_append_invoke(
+        reinterpret_cast<LirBasicBlockBuilder *>(&bbb),
+        reinterpret_cast<void *>(_Py_Dealloc),
+        1,
+        dealloc_args);
   }
 #endif
 

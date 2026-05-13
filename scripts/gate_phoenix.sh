@@ -135,6 +135,27 @@ if [ "${RC_ORACLE_LEAK:-0}" -ne 0 ]; then
 fi
 echo "BINARY_RC_ORACLE_OK: production binary clean (0 rc_oracle symbols)" | tee -a "$RESULTS_FILE"
 
+# Step 1a-3: c22b-mech BUILD CLASS criterion 6 — nm-grep DCHECK marker.
+# Per supervisor 14:42:25Z + gatekeeper 14:54:13Z carry-forward: the
+# variadic-bridge wrapper's shadow-emit JIT_CHECK is only compiled in
+# under Py_DEBUG OR -DJIT_DCHECK_OVERRIDE. The marker symbol
+# `lir_bbb_append_invoke_dcheck_marker` is a static-storage const-char
+# array in lir_block_builder_c.cpp, gated by the same #if. nm-greppable.
+# - pydebug build (ARM64 gate): symbol MUST be present (BUILD-CLASS PASS)
+# - release build (x86 gate): symbol absent OK; INFO-only since gate's
+#   test-build is pydebug on ARM64 per criterion 6 wording
+DCHECK_MARKER_PRESENT=$(nm "$PYTHON" 2>/dev/null | grep -c 'lir_bbb_append_invoke_dcheck_marker' || echo 0)
+DCHECK_MARKER_PRESENT=$(echo "$DCHECK_MARKER_PRESENT" | tr -d '[:space:]')
+PY_DEBUG_BUILD=$("$PYTHON" -c "import sysconfig; print(sysconfig.get_config_var('Py_DEBUG'))" 2>/dev/null || echo "?")
+if [ "${DCHECK_MARKER_PRESENT:-0}" -ne 0 ]; then
+    echo "BINARY_VARIADIC_BRIDGE_DCHECK_OK: marker symbol present (Py_DEBUG=$PY_DEBUG_BUILD; criterion 6 BUILD-CLASS satisfied)" | tee -a "$RESULTS_FILE"
+elif [ "$PY_DEBUG_BUILD" = "1" ]; then
+    echo "GATE FAIL — c22b-mech criterion 6 BUILD-CLASS: lir_bbb_append_invoke_dcheck_marker missing from pydebug binary" | tee -a "$RESULTS_FILE"
+    exit 1
+else
+    echo "BINARY_VARIADIC_BRIDGE_DCHECK_INFO: marker absent in release build (Py_DEBUG=$PY_DEBUG_BUILD, JIT_DCHECK_OVERRIDE undefined). Criterion 6 verified on pydebug arm64 gate." | tee -a "$RESULTS_FILE"
+fi
+
 # Step 1b: _reg usage policy gate (no-FS DeoptBase factories banned in simplify_c.c)
 echo "" | tee -a "$RESULTS_FILE"
 echo "--- Step 1b: _reg Usage Policy ---" | tee -a "$RESULTS_FILE"
