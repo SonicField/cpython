@@ -23,6 +23,7 @@ CLEAN=0
 WIRING=0
 ARM64=0
 EXPECT_COMMIT=""
+SELFTEST=""
 for arg in "$@"; do
     case "$arg" in
         --pydebug)   PYDEBUG=1 ;;
@@ -31,9 +32,26 @@ for arg in "$@"; do
         --wiring)    WIRING=1 ;;
         --arm64)     ARM64=1 ;;
         --commit=*)  EXPECT_COMMIT="${arg#--commit=}" ;;
-        *)           echo "Unknown flag: $arg"; echo "Usage: $0 [--pydebug] [--benchmark] [--clean] [--wiring] [--arm64] [--commit=HASH]"; exit 1 ;;
+        --selftest=*) SELFTEST="${arg#--selftest=}" ;;
+        *)           echo "Unknown flag: $arg"; echo "Usage: $0 [--pydebug] [--benchmark] [--clean] [--wiring] [--arm64] [--commit=HASH] [--selftest=i1|i4]"; exit 1 ;;
     esac
 done
+
+# I1+I4 preflight self-test dispatch (theologian 20:30:40Z (I1-3, I4-3) +
+# gatekeeper 20:31:18Z spec under supervisor 20:18:04Z RESEQUENCE
+# D-1778705500). Runs the I1/I4 negative-test scripts inline; does NOT
+# enter the full gate flow.
+if [ -n "$SELFTEST" ]; then
+    case "$SELFTEST" in
+        i1) exec "$SCRIPT_DIR/test_preflight_i1_negative.sh" ;;
+        i4) exec "$SCRIPT_DIR/test_preflight_i4_negative.sh" ;;
+        *)  echo "Unknown --selftest value: $SELFTEST (use i1 or i4)"; exit 1 ;;
+    esac
+fi
+
+# Source preflight invariant library (I1+I4). Must come AFTER flag parsing
+# (so SELFTEST dispatch can short-circuit) and BEFORE any gate stage.
+. "$SCRIPT_DIR/lib_preflight.sh"
 
 ARCH="$(uname -m)"
 COMMIT_HASH="$(cd "$CPYTHON_ROOT" && git rev-parse --short HEAD)"
@@ -83,6 +101,15 @@ echo "Build: PASS" | tee -a "$RESULTS_FILE"
 rm -f "${PYTHON}_gate"
 cp "$PYTHON" "${PYTHON}_gate"
 PYTHON="${PYTHON}_gate"
+
+# I1+I4 preflight (theologian 20:30:40Z + gatekeeper 20:31:18Z spec under
+# supervisor 20:18:04Z RESEQUENCE). I1 captures md5+mtime baseline of the
+# gate binary so each downstream stage can assert no mid-run drift; I4
+# asserts gate binary mtime > newest tracked source mtime (catches stale
+# build / forgotten rebuild). Both run AFTER cp so $PYTHON is the gate
+# binary, not the live build target. Closes B3 alias-class (D-1778698980).
+preflight_capture_binary
+preflight_check_freshness
 
 # Step 1a: Binary identity verification (per theologian 2026-04-22 00:43:35Z).
 # Even with the cp-without-||-true fix, downstream failure modes can still
@@ -379,6 +406,7 @@ else
 fi
 
 # Step 2: Verify JIT compiles and executes
+preflight_check_binary "step-2-jit-smoke"
 echo "" | tee -a "$RESULTS_FILE"
 echo "--- Step 2: JIT Smoke Test ---" | tee -a "$RESULTS_FILE"
 SMOKE_OUTPUT=$(ASAN_OPTIONS=detect_leaks=0 "$PYTHON" -c "
@@ -444,6 +472,7 @@ fi
 echo "JIT Smoke: PASS" | tee -a "$RESULTS_FILE"
 
 # Step 3: Phoenix test suite
+preflight_check_binary "step-3-phoenix"
 echo "" | tee -a "$RESULTS_FILE"
 echo "--- Step 3: Phoenix Tests ---" | tee -a "$RESULTS_FILE"
 PHOENIX_MODULES="test_phoenix_jit_arithmetic test_phoenix_jit_autocompile test_phoenix_jit_comparisons test_phoenix_jit_containers test_phoenix_jit_controlflow test_phoenix_jit_coverage test_phoenix_jit_functions test_phoenix_jit_generators test_phoenix_jit_inline_except_closure test_phoenix_jit_loadattr_golden test_phoenix_float test_phoenix_hir_type test_phoenix_profiling_hooks test_phoenix_deferred_compile test_phoenix_benchmark_correctness test_phoenix_usetype_float"
@@ -477,6 +506,7 @@ if [ "$PHOENIX_RESULT" != "SUCCESS" ]; then
 fi
 
 # Step 4: CPython test suite (parallel, JIT enabled)
+preflight_check_binary "step-4-cpython"
 echo "" | tee -a "$RESULTS_FILE"
 echo "--- Step 4: CPython Tests ---" | tee -a "$RESULTS_FILE"
 CPYTHON_OUTPUT=$(JIT_ENABLE=1 ASAN_OPTIONS=detect_leaks=0 "$PYTHON" -m test -j8 --timeout=120 2>&1 || true)
@@ -499,6 +529,7 @@ if [ "$CPYTHON_CRASHES" -gt 0 ]; then
 fi
 
 # Step 5: nbody crash check (auto-compilation path)
+preflight_check_binary "step-5-nbody"
 echo "" | tee -a "$RESULTS_FILE"
 echo "--- Step 5: nbody Crash Check ---" | tee -a "$RESULTS_FILE"
 NBODY_OUTPUT=$(JIT_ENABLE=1 "$PYTHON" -c "
