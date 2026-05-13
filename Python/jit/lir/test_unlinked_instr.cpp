@@ -1,86 +1,73 @@
-/* test_unlinked_instr.cpp - c22b-api Block::allocateInstrUnlinked tests.
- * Pre-spec criteria API-1 (caller delete), API-3 (BB list unchanged),
- * API-6 (operand cleanup cascade via dtor).
- *
- * Standalone, not auto-built. Manual compile:
- *   c++ -I. -I../../../Include test_unlinked_instr.cpp -lpython3
+/* test_unlinked_instr.cpp - c22b-api tests for Block::allocateInstrUnlinked.
+ * API-1 + API-3 + API-6 (with -DJIT_TEST_COUNTER per supervisor 14:49:03Z iii).
+ * Standalone manual compile (with counter):
+ *   c++ -DJIT_TEST_COUNTER -I. -I../../../Include test_unlinked_instr.cpp
  */
 #include <cstdio>
 #include "Python.h"
 #include "cinderx/Jit/lir/function.h"
 #include "cinderx/Jit/lir/block.h"
 #include "cinderx/Jit/lir/instruction.h"
+#include "cinderx/Jit/lir/operand.h"
 
 using jit::lir::Function;
 using jit::lir::BasicBlock;
 using jit::lir::Instruction;
-
-static int g_pass = 0, g_fail = 0;
-#define A(c, m) do { if(!(c)){ printf("FAIL %s: %s\n", __func__, m); g_fail++; return; } } while(0)
-#define P() do { printf("PASS %s\n", __func__); g_pass++; } while(0)
-
-/* API-3: alloc + delete leaves BB instr list unchanged */
-static void test_no_bb_pollution(void) {
-    Function func;
-    BasicBlock* bb = func.allocateBasicBlock();
-    Instruction* head_pre = bb->getFirstInstr();
-    size_t n_pre = bb->getNumInstrs();
-
-    Instruction* shadow = bb->allocateInstrUnlinked(
-        Instruction::kCall, nullptr);
-    A(shadow != nullptr, "alloc returned null");
-    A(bb->getFirstInstr() == head_pre, "BB head changed");
-    A(bb->getNumInstrs() == n_pre, "BB size changed");
-
-    delete shadow;
-    A(bb->getFirstInstr() == head_pre, "BB head changed post-delete");
-    A(bb->getNumInstrs() == n_pre, "BB size changed post-delete");
-    P();
-}
-
-/* API-1: canonical alloc + delete pattern */
-static void test_alloc_delete(void) {
-    Function func;
-    BasicBlock* bb = func.allocateBasicBlock();
-    Instruction* shadow = bb->allocateInstrUnlinked(
-        Instruction::kMove, nullptr);
-    A(shadow != nullptr, "alloc null");
-    A(shadow->basicblock() == bb, "parent mismatch");
-    delete shadow;
-    P();
-}
-
-/* API-6: operand cleanup cascade. Each cycle allocates an unlinked
- * instr WITH actual operands (Imm immediate inputs) so addOperands
- * is invoked with a non-empty pack. Then delete cascades cleanup via
- * Instruction dtor -> lir_instruction_destroy -> lir_operand_free
- * per input. Without operand cleanup cascade, repeated cycles would
- * leak monotonically; standalone-run inspection (or valgrind/ASAN
- * external) detects. Counter-instrumentation deferred per Option A
- * zero-compile-flag-change discipline. */
-#include "cinderx/Jit/lir/operand.h"
 using jit::lir::Imm;
 using jit::lir::OperandBase;
-static void test_operand_cleanup(void) {
-    Function func;
-    BasicBlock* bb = func.allocateBasicBlock();
-    for (int i = 0; i < 10; i++) {
-        Instruction* shadow = bb->allocateInstrUnlinked(
+
+#ifdef JIT_TEST_COUNTER
+extern "C" int g_jit_test_operand_free_count;
+#endif
+
+static int gp = 0, gf = 0;
+#define A(c, m) do { if(!(c)){ printf("FAIL %s: %s\n", __func__, m); gf++; return; } } while(0)
+#define P() do { printf("PASS %s\n", __func__); gp++; } while(0)
+
+static void t_no_bb_pollution(void) {
+    Function f; BasicBlock* bb = f.allocateBasicBlock();
+    auto head = bb->getFirstInstr();
+    size_t n = bb->getNumInstrs();
+    Instruction* s = bb->allocateInstrUnlinked(Instruction::kCall, nullptr);
+    A(s != nullptr, "null"); A(bb->getFirstInstr()==head, "head"); A(bb->getNumInstrs()==n, "size");
+    delete s;
+    A(bb->getFirstInstr()==head, "head post"); A(bb->getNumInstrs()==n, "size post");
+    P();
+}
+static void t_alloc_delete(void) {
+    Function f; BasicBlock* bb = f.allocateBasicBlock();
+    Instruction* s = bb->allocateInstrUnlinked(Instruction::kMove, nullptr);
+    A(s != nullptr, "null"); A(s->basicblock()==bb, "parent");
+    delete s; P();
+}
+static void t_operand_cleanup(void) {
+    Function f; BasicBlock* bb = f.allocateBasicBlock();
+#ifdef JIT_TEST_COUNTER
+    int pre = g_jit_test_operand_free_count;
+#endif
+    const int N = 10;
+    for (int i = 0; i < N; i++) {
+        Instruction* s = bb->allocateInstrUnlinked(
             Instruction::kMove, nullptr,
-            Imm{(uint64_t)(i + 1), OperandBase::k64bit},
-            Imm{(uint64_t)(i + 100), OperandBase::k32bit});
-        A(shadow != nullptr, "alloc null in cycle");
-        A(shadow->getNumInputs() == 2, "operand count != 2");
-        delete shadow;
+            Imm{(uint64_t)(i+1), OperandBase::k64bit},
+            Imm{(uint64_t)(i+100), OperandBase::k32bit});
+        A(s != nullptr, "alloc null");
+        A(s->getNumInputs() == 2, "n_inputs != 2");
+        delete s;
     }
-    A(bb->getNumInstrs() == 0, "BB polluted after 10 cycles");
+    A(bb->getNumInstrs() == 0, "BB polluted");
+#ifdef JIT_TEST_COUNTER
+    int delta = g_jit_test_operand_free_count - pre;
+    if (delta != 2 * N) {
+        printf("FAIL %s: counter delta %d != %d (leak)\n", __func__, delta, 2*N);
+        gf++; return;
+    }
+#endif
     P();
 }
 
 int main(void) {
-    test_no_bb_pollution();
-    test_alloc_delete();
-    test_operand_cleanup();
-    printf("\n%d pass, %d fail\n", g_pass, g_fail);
-    return g_fail == 0 ? 0 : 1;
+    t_no_bb_pollution(); t_alloc_delete(); t_operand_cleanup();
+    printf("\n%d pass, %d fail\n", gp, gf);
+    return gf == 0 ? 0 : 1;
 }

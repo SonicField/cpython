@@ -38,9 +38,21 @@ lir_operand_new_linked(LirInstruction *parent, LirInstruction *def_instr) {
     return op;
 }
 
+/* Phase 5.B c22b-api: test-build-only counter for API-6 NO OPERAND-LEAK
+ * verifier (option iii, supervisor 14:49:03Z + gatekeeper 14:47:45Z).
+ * Compiled out under production builds; only test_unlinked_instr.cpp
+ * compiled with -DJIT_TEST_COUNTER sees the increment. Preserves Option
+ * A zero-compile-flag-change attestation (counter is opt-in test-time). */
+#ifdef JIT_TEST_COUNTER
+int g_jit_test_operand_free_count = 0;
+#endif
+
 void
 lir_operand_free(LirOperand *op) {
     if (op == NULL) return;
+#ifdef JIT_TEST_COUNTER
+    g_jit_test_operand_free_count++;
+#endif
     if (!op->is_linked_ && op->type_ == JIT_LIR_OPTYPE_IND) {
         lir_memind_free(op->value_.indirect);
     }
