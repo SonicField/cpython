@@ -50,17 +50,27 @@ static void test_alloc_delete(void) {
     P();
 }
 
-/* API-6: operand cleanup cascade. Two unlinked instrs in sequence;
- * if dtor leaks operands or unlinked allocation leaks state, second
- * alloc + delete cycle would observe corruption. Compile-time
- * assertion supplements valgrind/ASAN if available. */
+/* API-6: operand cleanup cascade. Each cycle allocates an unlinked
+ * instr WITH actual operands (Imm immediate inputs) so addOperands
+ * is invoked with a non-empty pack. Then delete cascades cleanup via
+ * Instruction dtor -> lir_instruction_destroy -> lir_operand_free
+ * per input. Without operand cleanup cascade, repeated cycles would
+ * leak monotonically; standalone-run inspection (or valgrind/ASAN
+ * external) detects. Counter-instrumentation deferred per Option A
+ * zero-compile-flag-change discipline. */
+#include "cinderx/Jit/lir/operand.h"
+using jit::lir::Imm;
+using jit::lir::OperandBase;
 static void test_operand_cleanup(void) {
     Function func;
     BasicBlock* bb = func.allocateBasicBlock();
     for (int i = 0; i < 10; i++) {
         Instruction* shadow = bb->allocateInstrUnlinked(
-            Instruction::kCall, nullptr);
+            Instruction::kMove, nullptr,
+            Imm{(uint64_t)(i + 1), OperandBase::k64bit},
+            Imm{(uint64_t)(i + 100), OperandBase::k32bit});
         A(shadow != nullptr, "alloc null in cycle");
+        A(shadow->getNumInputs() == 2, "operand count != 2");
         delete shadow;
     }
     A(bb->getNumInstrs() == 0, "BB polluted after 10 cycles");
