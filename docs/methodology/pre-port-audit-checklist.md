@@ -106,3 +106,83 @@ These remain the author's responsibility to verify via runtime tests (gate Tier 
 ## Self-falsifying disclaimer
 
 If a future port commit cites the 3 categories at this level of detail and STILL produces a runtime bug at gate, this checklist is incomplete and needs extension. The c14 retrospective example above is the calibration anchor: any pre-port audit that would NOT have caught c14's frame_asm_c asymmetry given this checklist is a checklist failure, not an author failure.
+
+---
+
+## Addendum: Opaque-blob pass-through-only constraint (Phase 5.B c16 follow-up)
+
+**Authored:** theologian, 2026-05-13 02:06Z (per supervisor 02:06:12Z disposition of pythia #370)
+
+**Scope:** Any C-side struct that uses opaque-byte-array storage for C++ stdlib types (std::optional, std::vector, std::string, std::unique_ptr, etc.) — pattern established in `hir_instr_c.h:725+` for HirInstr opaque storage and adopted at c16 5338c5ef24 for `LirBasicBlockBuilder.cur_deopt_metadata_storage[16]` + `bbs_storage[24]`.
+
+### Motivation
+
+Pythia #370 flagged that the c16 cascade-audit (a)+(b)+(c) catches:
+- (a) outer struct sizeof drift
+- (b) field offset drift
+- (c) outer-blob hardcoded-size drift via `sizeof(std::optional<size_t>) == 16` static_assert
+
+But does NOT catch:
+- libstdc++ minor version reordering `std::vector` member layout while preserving total `sizeof(24)`. A wrapper that `dereferences` the blob interior (e.g., reads `bbs_storage[8]` expecting `std::vector::end_pointer`) gets garbage; outer-size assertions still pass.
+
+This is a real failure class for any wrapper that needs to inspect blob contents from C-side.
+
+### Constraint
+
+For any C-side struct with opaque-byte-array storage:
+
+**Opaque blobs are PASS-THROUGH ONLY.** C-side wrappers MUST NOT read into the blob interior at any offset. The blob may be:
+
+1. Held by C-side as part of a larger struct (storage allocation only).
+2. Passed back to a C++ wrapper as `void*` for the C++ side to interpret.
+3. Memcpy'd as a unit if the entire blob is moved/copied.
+
+C-side wrappers MUST NOT:
+
+1. Cast a pointer into the blob to a C-side struct (`((MyStruct*)blob)->field`).
+2. Read individual bytes from the blob assuming a known layout.
+3. Construct or modify the blob's interior — let the C++ side do it via the wrapper.
+
+### Decision tree for c17+ (and any future bridge wrapper authoring)
+
+When designing a C-side wrapper for a C++ class with opaque-blob members:
+
+| Wrapper need | Safe approach |
+|---|---|
+| Construct the C++ object | Call C++ constructor via extern "C" wrapper that does placement-new in pre-allocated storage |
+| Read a non-blob field | Use offsetof + C-side accessor (covered by (b) of the 3-category audit) |
+| Read a blob-interior field (e.g., `std::vector::data()`) | DO NOT do this — call a C++ accessor wrapper that returns the field as a raw type |
+| Modify a blob-interior field | DO NOT do this — call a C++ mutator wrapper |
+| Copy the entire blob | OK via memcpy IF the C++ type is trivially_copyable (assert via static_assert) |
+| Destroy the C++ object | Call C++ destructor via extern "C" wrapper |
+
+If a wrapper requires interior blob access AND the C++ accessor approach is too expensive (e.g., hot-path performance issue), the resolution is to **replace the blob with a proper C-side type**:
+
+- `std::vector<T*>` blob → custom `PhxPtrArray` (already used in HIR layer, e.g., `phx_frame_state.h:74`)
+- `std::optional<T>` blob → struct with explicit `bool has_value` + `T value` fields
+- `std::string` blob → char* pointer + size_t length
+
+Replacing the blob with a structured type is a structural commit (its own scope, separate audit) — NOT a quick fix in the wrapper authoring commit.
+
+### Enforcement
+
+- **Author-side:** every wrapper-authoring commit on a C-side struct with opaque blobs MUST cite this constraint in the commit body (state explicitly that no blob-interior access is performed).
+- **Gatekeeper:** APPROVE checklist for wrapper-authoring commits on opaque-blob structs MUST verify the citation is present and the diff doesn't show blob-interior dereferences.
+- **Medic:** [MEDIC-WARNING] on any wrapper commit that dereferences blob interior without prior structural-replacement commit.
+- **Supervisor:** disposes flags from medic.
+
+### Out-of-scope
+
+- C-side structs without opaque blobs (covered by base 3-category audit only).
+- C++-internal blob access (the C++ side owns the blob — only the C/C++ boundary is restricted).
+- Documentation-only or test-only commits.
+
+### Self-falsifying disclaimer
+
+This constraint catches the silent-corruption class pythia #370 named (interior layout drift). It does NOT catch:
+
+- Total struct size drift IF outer sizeof static_assert is updated to match (no signal that interior changed).
+- Race conditions on shared blob storage.
+- Lifetime mismatches (C-side holds pointer past C++ destroy).
+
+If a c17+ wrapper commit fully cites this constraint and STILL produces a runtime corruption, the constraint is incomplete and needs further extension.
