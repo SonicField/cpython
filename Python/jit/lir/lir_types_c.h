@@ -140,6 +140,22 @@ typedef struct LirFunction {
     /* 4 bytes padding */
 } LirFunction;
 
+/* ---- BasicBlockBuilder C struct (Phase 5.B c16) ----
+ * Matches lir::BasicBlockBuilder (block_builder.h:41 + private members
+ * at 256-262). Opaque blobs for std::optional<size_t> and
+ * std::vector<BasicBlock*> are stdlib-version-dependent — sizes locked
+ * via static_asserts in lir_block_builder_c_verify.cpp. C-side does NOT
+ * read into these blobs directly; future c17+ wrappers go through
+ * extern "C" bridges that operate on the C++ side. */
+typedef struct LirBasicBlockBuilder {
+    void *cur_hir_instr;                   /* const hir::Instr* */
+    char  cur_deopt_metadata_storage[16];  /* std::optional<size_t> opaque blob */
+    void *cur_bb;                          /* BasicBlock* */
+    char  bbs_storage[24];                 /* std::vector<BasicBlock*> opaque blob */
+    void *env;                             /* jit::codegen::Environ* */
+    void *func;                            /* Function* */
+} LirBasicBlockBuilder;
+
 /* ---- Static size assertions ----
  * Compile-time check that C struct sizes match expectations.
  * These sizes MUST match the corresponding C++ struct sizes.
@@ -151,6 +167,10 @@ static_assert(sizeof(LirOperand) == 32, "LirOperand size mismatch with OperandBa
 static_assert(sizeof(LirInstruction) == 96, "LirInstruction size mismatch with Instruction");
 static_assert(sizeof(LirBasicBlock) == 96, "LirBasicBlock size mismatch with BasicBlock");
 static_assert(sizeof(LirFunction) == 40, "LirFunction size mismatch with Function");
+/* LirBasicBlockBuilder size cross-validation against C++ BasicBlockBuilder
+ * lives in lir_block_builder_c_verify.cpp (needs block_builder.h include
+ * which pulls codegen + hir; verifier-file isolates that dependency
+ * cone from the lir_types_c.h public C header). */
 #else
 _Static_assert(sizeof(LirPhyLocation) == 8, "LirPhyLocation size mismatch with PhyLocation");
 _Static_assert(sizeof(LirMemoryIndirect) == 32, "LirMemoryIndirect size mismatch");

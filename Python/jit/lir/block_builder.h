@@ -254,6 +254,10 @@ class BasicBlockBuilder {
   }
 
  private:
+  /* Phase 5.B c16: friend struct for offsetof verification of private
+   * members in lir_block_builder_c_verify.cpp. */
+  friend struct LirBasicBlockBuilderLayoutVerifier;
+
   const hir::Instr* cur_hir_instr_{nullptr};
   std::optional<std::size_t> cur_deopt_metadata_;
   BasicBlock* cur_bb_{nullptr};
