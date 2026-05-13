@@ -186,12 +186,18 @@ cd "$BUILD_DIR"
 # CRITICAL: --pydebug requires CMAKE_BUILD_TYPE=Debug so JIT_DCHECK is active.
 # RelWithDebInfo compiles out JIT_DCHECK even with configure --with-pydebug.
 CMAKE_BUILD_TYPE="RelWithDebInfo"
-EXTRA_CMAKE_FLAGS=""
+# Preserve externally-set EXTRA_CMAKE_FLAGS so callers (e.g.,
+# gate_phoenix.sh JIT_VARIADIC_BAD_PATH_VERIFY mode) can inject extra
+# -D flags. Bug landed empirically when the flag was hard-reset to ""
+# on every invocation, silently dropping caller-supplied -DJIT_TEST_*
+# and producing a binary without the bad-path mechanism (testkeeper
+# 17:03:02Z + generalist diagnosis).
+EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS:-}"
 if [ "$PYDEBUG" -eq 1 ]; then
     CMAKE_BUILD_TYPE="Debug"
 fi
 if [ "$ASAN" -eq 1 ]; then
-    EXTRA_CMAKE_FLAGS=" -fsanitize=address -fno-omit-frame-pointer"
+    EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -fsanitize=address -fno-omit-frame-pointer"
 fi
 if ! cmake .. \
     -DPHOENIX_ASM=ON \
