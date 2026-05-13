@@ -61,6 +61,17 @@ void lir_bbb_create_instr_input(LirBasicBlockBuilder *bbb,
  * c19). C++ side: bbb->makeDeoptMetadata(). */
 size_t lir_bbb_make_deopt_metadata(LirBasicBlockBuilder *bbb);
 
+/* Phase 5.B c21: BBB wrappers batch 4. */
+
+/* appendBranch(Opcode, BasicBlock*) -> Instruction* — non-template
+ * unary overload. Appends a branching instruction taking no value
+ * argument and adds true_bb as a successor of cur_bb_. Disambiguated
+ * from the templated 4-arg appendBranch overload via _unary suffix.
+ * 7 call sites in generator.cpp (lines 511, 513, 578, 587, 3144,
+ * 3178, 3184). C++ side: bbb->appendBranch(opcode, true_bb). */
+JitLirInstr lir_bbb_append_branch_unary(LirBasicBlockBuilder *bbb,
+                                         int opcode, JitLirBlock true_bb);
+
 #ifdef __cplusplus
 }
 #endif

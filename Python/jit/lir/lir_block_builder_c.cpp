@@ -63,3 +63,13 @@ extern "C" size_t
 lir_bbb_make_deopt_metadata(LirBasicBlockBuilder *bbb) {
     return reinterpret_cast<BasicBlockBuilder *>(bbb)->makeDeoptMetadata();
 }
+
+/* Phase 5.B c21: BBB wrappers batch 4. */
+
+extern "C" JitLirInstr
+lir_bbb_append_branch_unary(LirBasicBlockBuilder *bbb, int opcode,
+                             JitLirBlock true_bb) {
+    return reinterpret_cast<BasicBlockBuilder *>(bbb)->appendBranch(
+        static_cast<jit::lir::Instruction::Opcode>(opcode),
+        reinterpret_cast<BasicBlock *>(true_bb));
+}
