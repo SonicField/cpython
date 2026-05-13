@@ -390,13 +390,16 @@ import _cinderx, cinderjit
 # and MUST tick > 0 after force_compile fib (proves site 600 traversal).
 # On release builds (x86 gate) without JIT_TEST_EXERCISE, ctypes lookup
 # fails silently → INFO-only.
-import ctypes
 try:
+    import ctypes
     libpy = ctypes.CDLL(None)
     cnt = ctypes.c_int.in_dll(libpy, 'g_lir_bbb_append_invoke_call_count')
     pre_count = cnt.value
     counter_present = True
-except (AttributeError, ValueError):
+except (ImportError, ModuleNotFoundError, AttributeError, ValueError):
+    # _ctypes missing in pydebug builds (testkeeper 17:55:14Z ARM64 gate
+    # silent-die at Step 2 JIT smoke); AttributeError/ValueError = symbol
+    # not in binary (release w/o JIT_TEST_EXERCISE).
     counter_present = False
     pre_count = 0
 
