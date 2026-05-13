@@ -181,21 +181,27 @@ if [ "${JIT_VARIADIC_BAD_PATH_VERIFY:-0}" = "1" ]; then
     if [ "$BAD_BUILD_RC" -eq 0 ]; then
         BAD_RUN=$("$PYTHON" -c "
 import _cinderx, cinderjit, ctypes
-# Stress fixture: non-interned object decref reliably reaches _Py_Dealloc
-# (site 600). fib(10) only uses interned small ints which never decref to
-# zero; need actual deallocs.
-def stress():
-    for _ in range(1000):
-        x = [None] * 100  # list dealloc each iter; non-interned
-    return 1
-cinderjit.force_compile(stress)
+# Use the SAME JIT smoke pattern that empirically reaches site 600
+# (testkeeper 16:31:45Z confirmed counter delta = 5 from add+mul+fib
+# force_compile sequence). Site 600 is reached during JIT compilation
+# of these functions (force_compile internals create non-interned
+# objects that flow through _Py_Dealloc). Fixture choice based on
+# empirical traversal evidence, not structural inference.
+def add(x, y): return x + y
+def mul(x, y): return x * y
+def fib(n):
+    a, b = 0, 1
+    for _ in range(n): a, b = b, a + b
+    return a
 try:
     libpy = ctypes.CDLL(None)
     cnt = ctypes.c_int.in_dll(libpy, 'g_lir_bbb_append_invoke_call_count')
     pre = cnt.value
 except (AttributeError, ValueError):
     pre = -1
-stress()
+for f in [add, mul, fib]:
+    cinderjit.force_compile(f)
+add(3, 4); mul(6, 7); fib(10)
 if pre >= 0:
     print(f'JIT_TEST_EXERCISE counter delta: {cnt.value - pre}')
 " 2>&1 || true)
