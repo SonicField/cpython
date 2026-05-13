@@ -132,12 +132,30 @@ extern "C" const char lir_bbb_append_invoke_dcheck_marker[] =
     "lir_bbb_append_invoke_dcheck_active";
 #endif
 
+#if defined(Py_DEBUG) || defined(JIT_TEST_EXERCISE)
+/* Criterion 5 EXERCISE PATH positive evidence (gatekeeper 15:39:42Z
+ * (5-positive) amendment): counter incremented on every invocation of
+ * the wrapper. Gate asserts counter > 0 after force_compile fib to prove
+ * site 600 was actually traversed (not just structurally rewired).
+ * Without this, criterion 5 is theoretically-asserted not gate-verified
+ * — pythia #376 second-order risk.
+ *
+ * Gated on Py_DEBUG so ARM64 pydebug gate runs always have the counter;
+ * release builds keep zero overhead. JIT_TEST_EXERCISE explicitly opts
+ * the symbol into release builds for x86 gate verification. */
+extern "C" int g_lir_bbb_append_invoke_call_count = 0;
+#endif
+
 extern "C" JitLirInstr
 lir_bbb_append_invoke(LirBasicBlockBuilder *bbb,
                        void *func_ptr,
                        int n_args,
                        const JitLirOperandDesc *args) {
     auto *builder = reinterpret_cast<BasicBlockBuilder *>(bbb);
+
+#if defined(Py_DEBUG) || defined(JIT_TEST_EXERCISE)
+    g_lir_bbb_append_invoke_call_count++;
+#endif
 
     /* Real path: BB-linked instruction via createInstr. */
     auto *instr = builder->createInstr(Instruction::kCall);

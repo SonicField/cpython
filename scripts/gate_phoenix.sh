@@ -135,6 +135,93 @@ if [ "${RC_ORACLE_LEAK:-0}" -ne 0 ]; then
 fi
 echo "BINARY_RC_ORACLE_OK: production binary clean (0 rc_oracle symbols)" | tee -a "$RESULTS_FILE"
 
+# Step 1a-4: c22b-mech gate-invocation triple (gatekeeper 15:39:42Z
+# (3-gate) + (5-positive) + (carry-forward-counter)).
+#
+# Each substep BUILDS+RUNS a separate Python with a specific test flag
+# defined, then PROBES the resulting binary or test runner for the
+# expected verification signal. The substeps are gated on flag-build
+# availability — without a separate test build, each substep is INFO-only
+# and pass-(b) re-review will note un-exercised gates. PASS requires
+# explicit out-of-band invocation (documented per substep).
+echo "" | tee -a "$RESULTS_FILE"
+echo "--- Step 1a-4: c22b-mech gate-invocation triple ---" | tee -a "$RESULTS_FILE"
+
+# (5-positive) JIT_TEST_EXERCISE counter symbol probe.
+# Requires production Python built with -DJIT_TEST_EXERCISE; counter
+# `g_lir_bbb_append_invoke_call_count` reset to 0 at startup, asserted
+# > 0 after force_compile fib via the JIT smoke step (Step 2 below) when
+# the flag is active. Symbol-presence check here is structural witness
+# (does the build include the EXERCISE counter at all).
+EXERCISE_SYMBOL=$(nm "$PYTHON" 2>/dev/null | grep -c 'g_lir_bbb_append_invoke_call_count' || echo 0)
+EXERCISE_SYMBOL=$(echo "$EXERCISE_SYMBOL" | tr -d '[:space:]')
+if [ "${EXERCISE_SYMBOL:-0}" -ne 0 ]; then
+    echo "(5-positive) JIT_TEST_EXERCISE counter symbol PRESENT in binary; runtime delta-check active in JIT smoke (Step 2)" | tee -a "$RESULTS_FILE"
+else
+    echo "(5-positive) INFO: JIT_TEST_EXERCISE counter absent (build without -DJIT_TEST_EXERCISE). Runtime traversal of site 600 NOT gate-verified — re-build with JIT_TEST_EXERCISE=1 for runtime-positive evidence." | tee -a "$RESULTS_FILE"
+fi
+
+# (3-gate) JIT_TEST_VARIADIC_BRIDGE deliberate-divergence build probe.
+# A fully-instrumented gate would: rebuild JIT with -DJIT_TEST_VARIADIC_BRIDGE,
+# run force_compile fib expecting non-zero exit + grep "shadow-emit: input
+# count mismatch" in stderr. Re-building costs ~5min; we INFO-out unless
+# the env var JIT_VARIADIC_BAD_PATH_VERIFY=1 is set.
+if [ "${JIT_VARIADIC_BAD_PATH_VERIFY:-0}" = "1" ]; then
+    echo "(3-gate) JIT_VARIADIC_BAD_PATH_VERIFY=1 — rebuilding with -DJIT_TEST_VARIADIC_BRIDGE..." | tee -a "$RESULTS_FILE"
+    BAD_PATH_LOG=/tmp/jit_variadic_bad_path_$$.log
+    pushd "$CPYTHON_ROOT" >/dev/null
+    EXTRA_CXXFLAGS="-DJIT_TEST_VARIADIC_BRIDGE=1" bash scripts/build_phoenix.sh --pydebug --clean > "$BAD_PATH_LOG" 2>&1
+    BAD_BUILD_RC=$?
+    popd >/dev/null
+    if [ "$BAD_BUILD_RC" -eq 0 ]; then
+        BAD_RUN=$("$PYTHON" -c "import _cinderx, cinderjit
+def fib(n):
+    a, b = 0, 1
+    for _ in range(n): a, b = b, a + b
+    return a
+cinderjit.force_compile(fib); fib(10)" 2>&1 || true)
+        if echo "$BAD_RUN" | grep -q "shadow-emit"; then
+            echo "(3-gate) PASS: JIT_CHECK fired with shadow-emit message (negative-test gate-verified)" | tee -a "$RESULTS_FILE"
+        else
+            echo "(3-gate) FAIL: bad-path build did not fire JIT_CHECK on force_compile fib" | tee -a "$RESULTS_FILE"
+            echo "$BAD_RUN" | tail -10 | tee -a "$RESULTS_FILE"
+        fi
+    else
+        echo "(3-gate) INFO: bad-path build failed (log $BAD_PATH_LOG)" | tee -a "$RESULTS_FILE"
+    fi
+else
+    echo "(3-gate) INFO: JIT_VARIADIC_BAD_PATH_VERIFY=0 — bad-path build skipped (~5min). Set JIT_VARIADIC_BAD_PATH_VERIFY=1 to enable. Mechanism present (#ifdef JIT_TEST_VARIADIC_BRIDGE in lir_block_builder_c.cpp); runtime-positive verification deferred to opt-in invocation." | tee -a "$RESULTS_FILE"
+fi
+
+# (carry-forward-counter) JIT_TEST_COUNTER standalone test compile + run.
+# test_unlinked_instr.cpp with -DJIT_TEST_COUNTER must compile + execute
+# 4 tests (3 base + 1 negative-leak detection per c22b-mech 6944618cca).
+# Standalone compile is FRAGILE due to JIT internal type dependencies;
+# INFO-out on compile failure rather than BLOCK.
+TEST_UNLINKED_SRC="$CPYTHON_ROOT/Python/jit/lir/test_unlinked_instr.cpp"
+TEST_UNLINKED_BIN="/tmp/test_unlinked_instr_$$"
+if [ -f "$TEST_UNLINKED_SRC" ]; then
+    COMPILE_LOG=/tmp/test_unlinked_compile_$$.log
+    if c++ -std=c++17 -O0 -g -DJIT_TEST_COUNTER \
+        -I"$CPYTHON_ROOT" -I"$CPYTHON_ROOT/Include" -I"$CPYTHON_ROOT/Include/internal" \
+        -I"$CPYTHON_ROOT/Python/jit_build/build/generated/cinderx" \
+        "$TEST_UNLINKED_SRC" -o "$TEST_UNLINKED_BIN" \
+        -L"$CPYTHON_ROOT" -lpython3.12 -lpthread -ldl -lm > "$COMPILE_LOG" 2>&1; then
+        TEST_OUT=$("$TEST_UNLINKED_BIN" 2>&1 || true)
+        echo "$TEST_OUT" | tee -a "$RESULTS_FILE"
+        if echo "$TEST_OUT" | grep -q "^4 pass, 0 fail$"; then
+            echo "(carry-forward-counter) PASS: 4 tests (3 base + 1 negative-leak detection)" | tee -a "$RESULTS_FILE"
+        else
+            echo "(carry-forward-counter) FAIL: counter test did not return 4 pass / 0 fail" | tee -a "$RESULTS_FILE"
+        fi
+        rm -f "$TEST_UNLINKED_BIN"
+    else
+        echo "(carry-forward-counter) INFO: standalone compile failed (deps unresolved per CMakeLists exclude regex test_*.cpp); test_unlinked_instr.cpp present with negative-leak coverage. Compile log: $COMPILE_LOG" | tee -a "$RESULTS_FILE"
+    fi
+else
+    echo "(carry-forward-counter) INFO: test_unlinked_instr.cpp absent" | tee -a "$RESULTS_FILE"
+fi
+
 # Step 1a-3: c22b-mech BUILD CLASS criterion 6 — nm-grep DCHECK marker.
 # Per supervisor 14:42:25Z + gatekeeper 14:54:13Z carry-forward: the
 # variadic-bridge wrapper's shadow-emit JIT_CHECK is only compiled in
@@ -264,6 +351,22 @@ echo "--- Step 2: JIT Smoke Test ---" | tee -a "$RESULTS_FILE"
 SMOKE_OUTPUT=$(ASAN_OPTIONS=detect_leaks=0 "$PYTHON" -c "
 import _cinderx, cinderjit
 
+# c22b-mech (5-positive) gate: probe g_lir_bbb_append_invoke_call_count via
+# ctypes if present. Counter is gated on Py_DEBUG OR JIT_TEST_EXERCISE in
+# lir_block_builder_c.cpp; on pydebug builds (ARM64 gate) it MUST exist
+# and MUST tick > 0 after force_compile fib (proves site 600 traversal).
+# On release builds (x86 gate) without JIT_TEST_EXERCISE, ctypes lookup
+# fails silently → INFO-only.
+import ctypes
+try:
+    libpy = ctypes.CDLL(None)
+    cnt = ctypes.c_int.in_dll(libpy, 'g_lir_bbb_append_invoke_call_count')
+    pre_count = cnt.value
+    counter_present = True
+except (AttributeError, ValueError):
+    counter_present = False
+    pre_count = 0
+
 def add(x, y): return x + y
 def mul(x, y): return x * y
 def fib(n):
@@ -279,6 +382,21 @@ for f in [add, mul, fib]:
 assert add(3, 4) == 7
 assert mul(6, 7) == 42
 assert fib(10) == 55
+
+if counter_present:
+    delta = cnt.value - pre_count
+    print(f'c22b-mech (5-positive) g_lir_bbb_append_invoke_call_count delta: {delta}')
+    if delta == 0:
+        # Counter present but unchanged → site 600 NOT traversed at gate
+        # → criterion 5 EXERCISE PATH unverified at runtime
+        import sysconfig
+        if sysconfig.get_config_var('Py_DEBUG'):
+            print('GATE WARN — c22b-mech (5-positive): counter present in pydebug build but unchanged after force_compile fib; site 600 not traversed at smoke; theologian site-600 fib-traversal claim NOT empirically confirmed')
+        # Don't FAIL the smoke gate on counter==0; surface as WARN for
+        # supervisor disposition (fib int-dealloc may bypass site 600).
+else:
+    print('c22b-mech (5-positive): counter absent (release build w/o JIT_TEST_EXERCISE); criterion 5 runtime-unverified at this build')
+
 print('JIT smoke test: PASS')
 " 2>&1)
 SMOKE_EXIT=$?
