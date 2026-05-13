@@ -159,7 +159,21 @@ fi
 # step (CPython tree artifact cleanup); rm -rf Python/jit_build/build
 # is already covered above (line 110).
 if [ "$CLEAN" -eq 1 ]; then
-    make distclean 2>/dev/null || true
+    # I5 amend-1 (theologian 19:54:21Z negative-control + supervisor
+    # 19:54:48Z disposition β): I3-compliant make distclean call.
+    # Was '2>/dev/null || true' which silently swallowed errors —
+    # exactly the silent-fail-under-set-euo-pipefail pattern that I3
+    # SUBSHELL VISIBILITY invariant catalogues as bug-class B4.
+    # Negative-control 19:54:21Z: load-bearing-vs-no-op gap — recovery
+    # passed with line reverted under simple --pydebug→release toggle,
+    # but poison may not have reached the cross-toggle Modules/*.o
+    # staleness that ARM64 v3 18:13:17Z exhibited. Disambiguation
+    # deferred to full I5 self-test stage with stronger poison.
+    if [ -f Makefile ]; then
+        if ! make distclean >/dev/null 2>&1; then
+            echo "WARNING: make distclean failed under --clean; downstream rm may be insufficient"
+        fi
+    fi
     rm -f pyconfig.h config.status config.cache
 fi
 if [ -f pyconfig.h ] && grep -q '#define SIZEOF_VOID_P' pyconfig.h && [ "$CLEAN" -eq 0 ]; then
