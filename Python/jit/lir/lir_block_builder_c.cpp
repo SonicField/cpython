@@ -1,0 +1,36 @@
+/*
+ * lir_block_builder_c.cpp -- extern "C" wrapper bodies for
+ * jit::lir::BasicBlockBuilder, FIRST batch of c17 BBB-bridge construction
+ * per supervisor 02:18:39Z auth.
+ *
+ * All wrappers cast LirBasicBlockBuilder* to C++ BasicBlockBuilder*
+ * (sizeof + offsetof + blob-size cross-validated by
+ * lir_block_builder_c_verify.cpp via 9 static_asserts) and call C++
+ * methods. Blob interior is NOT accessed from C side per
+ * docs/methodology/pre-port-audit-checklist.md addendum 072c3f08f3
+ * pass-through-only constraint.
+ */
+
+#include "cinderx/Jit/lir/lir_block_builder_c.h"
+#include "cinderx/Jit/lir/block_builder.h"
+#include "cinderx/Jit/hir/hir.h"
+
+using jit::lir::BasicBlock;
+using jit::lir::BasicBlockBuilder;
+
+extern "C" void
+lir_bbb_set_current_instr(LirBasicBlockBuilder *bbb, const void *hir_instr) {
+    reinterpret_cast<BasicBlockBuilder *>(bbb)->setCurrentInstr(
+        reinterpret_cast<const jit::hir::Instr *>(hir_instr));
+}
+
+extern "C" JitLirBlock
+lir_bbb_allocate_block(LirBasicBlockBuilder *bbb) {
+    return reinterpret_cast<BasicBlockBuilder *>(bbb)->allocateBlock();
+}
+
+extern "C" void
+lir_bbb_switch_block(LirBasicBlockBuilder *bbb, JitLirBlock block) {
+    reinterpret_cast<BasicBlockBuilder *>(bbb)->switchBlock(
+        reinterpret_cast<BasicBlock *>(block));
+}
