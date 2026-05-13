@@ -15,25 +15,44 @@
 //
 // (a) sizeof: static_assert for full struct + each std-type opaque blob
 // (b) offsetof: static_assert per field cross-validating field positions
-// (c) hardcoded literal-offset substitutes: blob sizes (16, 24) hardcoded
-//     in C struct — locked at compile-time by stdlib-size static_asserts
-//     to fail-fast if libstdc++/libc++ changes std::optional/std::vector
-//     layout in a future toolchain.
+// (c) hardcoded literal-offset substitutes: bbs_storage[24] blob size
+//     locked via std::vector<BasicBlock*> sizeof; cur_deopt_metadata's
+//     16-byte region locked via sizeof+alignof(std::size_t) (after c19
+//     blob→explicit-pair replacement, layout depends on size_t/bool
+//     alignment, not std::optional internals).
+//
+// Phase 5.B c19 (cur_deopt_metadata blob → explicit pair):
+// std::optional<std::size_t> cur_deopt_metadata_ replaced with
+// (bool cur_deopt_metadata_has_value_, std::size_t cur_deopt_metadata_value_)
+// on both C++ + C sides. Removes opaque-blob pass-through-only constraint
+// from this field (bbs_storage still opaque). std::optional<size_t> stdlib
+// size lock removed — no longer the layout primitive.
 
 #include "cinderx/Jit/lir/lir_types_c.h"
 #include "cinderx/Jit/lir/block_builder.h"
 
 #include <cstddef>
-#include <optional>
 #include <vector>
 
 namespace jit::lir {
 
-// ---- (c) Stdlib-blob-size locks (fail-fast on stdlib drift) ----
-static_assert(sizeof(std::optional<std::size_t>) == 16,
-    "std::optional<size_t> size != 16 — LirBasicBlockBuilder."
-    "cur_deopt_metadata_storage[16] opaque blob would mismatch C++ layout. "
-    "Investigate libstdc++/libc++ change before adjusting blob size.");
+// ---- (c) Hardcoded literal-offset / stdlib-blob-size locks ----
+// Phase 5.B c19: cur_deopt_metadata is no longer an opaque blob —
+// replaced with explicit (bool has_value, size_t value) pair on both
+// C++ + C sides. The 16-byte deopt region is preserved by natural
+// alignment: bool(1) + 7 pad + size_t(8) = 16 bytes. Pin the
+// alignment+size primitives that govern that layout so a future
+// toolchain change to size_t (eg ILP32) fail-fasts here instead of
+// silently shifting downstream offsets.
+static_assert(sizeof(std::size_t) == 8,
+    "sizeof(std::size_t) != 8 — LirBasicBlockBuilder."
+    "cur_deopt_metadata_value would not fill the 16-byte deopt region "
+    "(bool + 7 pad + size_t), shifting cur_bb/bbs/env/func offsets.");
+
+static_assert(alignof(std::size_t) == 8,
+    "alignof(std::size_t) != 8 — LirBasicBlockBuilder."
+    "cur_deopt_metadata_value would not align at offset 16, shifting "
+    "downstream field offsets.");
 
 static_assert(sizeof(std::vector<BasicBlock*>) == 24,
     "std::vector<BasicBlock*> size != 24 — LirBasicBlockBuilder."
@@ -54,9 +73,14 @@ struct LirBasicBlockBuilderLayoutVerifier {
         static_assert(offsetof(LirBasicBlockBuilder, cur_hir_instr)
             == offsetof(BasicBlockBuilder, cur_hir_instr_),
             "LirBasicBlockBuilder.cur_hir_instr offset mismatch");
-        static_assert(offsetof(LirBasicBlockBuilder, cur_deopt_metadata_storage)
-            == offsetof(BasicBlockBuilder, cur_deopt_metadata_),
-            "LirBasicBlockBuilder.cur_deopt_metadata_storage offset mismatch");
+        static_assert(offsetof(LirBasicBlockBuilder,
+                               cur_deopt_metadata_has_value)
+            == offsetof(BasicBlockBuilder, cur_deopt_metadata_has_value_),
+            "LirBasicBlockBuilder.cur_deopt_metadata_has_value offset "
+            "mismatch");
+        static_assert(offsetof(LirBasicBlockBuilder, cur_deopt_metadata_value)
+            == offsetof(BasicBlockBuilder, cur_deopt_metadata_value_),
+            "LirBasicBlockBuilder.cur_deopt_metadata_value offset mismatch");
         static_assert(offsetof(LirBasicBlockBuilder, cur_bb)
             == offsetof(BasicBlockBuilder, cur_bb_),
             "LirBasicBlockBuilder.cur_bb offset mismatch");

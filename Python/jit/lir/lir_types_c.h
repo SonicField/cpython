@@ -140,16 +140,21 @@ typedef struct LirFunction {
     /* 4 bytes padding */
 } LirFunction;
 
-/* ---- BasicBlockBuilder C struct (Phase 5.B c16) ----
- * Matches lir::BasicBlockBuilder (block_builder.h:41 + private members
- * at 256-262). Opaque blobs for std::optional<size_t> and
- * std::vector<BasicBlock*> are stdlib-version-dependent — sizes locked
- * via static_asserts in lir_block_builder_c_verify.cpp. C-side does NOT
- * read into these blobs directly; future c17+ wrappers go through
- * extern "C" bridges that operate on the C++ side. */
+/* ---- BasicBlockBuilder C struct (Phase 5.B c16, deopt fields c19) ----
+ * Matches lir::BasicBlockBuilder (block_builder.h:41 + private members).
+ * Phase 5.B c19: cur_deopt_metadata replaced from
+ * std::optional<size_t> opaque blob to explicit (has_value, value)
+ * pair, mirroring the C++ class structural change (pythia #372 (1)/(3)
+ * compliant-selection-bias exit). Layout: bool(1) + 7 pad + size_t(8)
+ * = 16 bytes, matches former std::optional outer size — downstream
+ * field offsets unchanged.
+ * bbs_storage[24] remains an opaque std::vector<BasicBlock*> blob;
+ * pass-through-only constraint (072c3f08f3) still applies to bbs_. */
 typedef struct LirBasicBlockBuilder {
     void *cur_hir_instr;                   /* const hir::Instr* */
-    char  cur_deopt_metadata_storage[16];  /* std::optional<size_t> opaque blob */
+    uint8_t cur_deopt_metadata_has_value;  /* offset 8, 1 byte (C++: bool) */
+    /* 7 bytes auto-pad to align size_t at offset 16 */
+    size_t cur_deopt_metadata_value;       /* offset 16, 8 bytes */
     void *cur_bb;                          /* BasicBlock* */
     char  bbs_storage[24];                 /* std::vector<BasicBlock*> opaque blob */
     void *env;                             /* jit::codegen::Environ* */

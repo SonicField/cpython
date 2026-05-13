@@ -45,7 +45,7 @@ class BasicBlockBuilder {
 
   void setCurrentInstr(const hir::Instr* inst) {
     cur_hir_instr_ = inst;
-    cur_deopt_metadata_ = std::nullopt;
+    cur_deopt_metadata_has_value_ = false;
   }
 
   // Return the id of a DeoptMetadata for the current instruction, returning
@@ -56,11 +56,12 @@ class BasicBlockBuilder {
         "Can't make DeoptMetadata with a nullptr HIR instruction");
     auto deopt_base = cur_hir_instr_->asDeoptBase();
     JIT_CHECK(deopt_base != nullptr, "Current HIR instruction can't deopt");
-    if (!cur_deopt_metadata_.has_value()) {
-      cur_deopt_metadata_ =
+    if (!cur_deopt_metadata_has_value_) {
+      cur_deopt_metadata_value_ =
           env_->code_rt->addDeoptMetadata(DeoptMetadata::fromInstr(*deopt_base));
+      cur_deopt_metadata_has_value_ = true;
     }
-    return cur_deopt_metadata_.value();
+    return cur_deopt_metadata_value_;
   }
 
   // Allocate a new block, not yet attached anywhere in the current CFG.
@@ -259,7 +260,13 @@ class BasicBlockBuilder {
   friend struct LirBasicBlockBuilderLayoutVerifier;
 
   const hir::Instr* cur_hir_instr_{nullptr};
-  std::optional<std::size_t> cur_deopt_metadata_;
+  /* Phase 5.B c19: explicit (has_value, value) pair replaces
+   * std::optional<std::size_t> so the C-side mirror in lir_types_c.h
+   * can use named fields instead of an opaque blob (per pythia #372
+   * (1)/(3) compliant-selection-bias exit). Layout: bool(1) + 7 pad +
+   * size_t(8) = 16 bytes, matches former std::optional outer size. */
+  bool cur_deopt_metadata_has_value_{false};
+  std::size_t cur_deopt_metadata_value_{0};
   BasicBlock* cur_bb_{nullptr};
   std::vector<BasicBlock*> bbs_;
   jit::codegen::Environ* env_;
