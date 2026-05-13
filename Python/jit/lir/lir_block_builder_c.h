@@ -50,6 +50,17 @@ JitLirInstr lir_bbb_get_def_instr(LirBasicBlockBuilder *bbb,
 void lir_bbb_create_instr_input(LirBasicBlockBuilder *bbb,
                                  JitLirInstr instr, void *hir_reg);
 
+/* Phase 5.B c20: BBB wrappers batch 3. Validates the c19 structural
+ * pivot — cur_deopt_metadata pair (post-blob-replacement) is now
+ * actually used by an extern C wrapper. */
+
+/* makeDeoptMetadata() -> size_t — return the id of a DeoptMetadata
+ * for the current HIR instruction, memoized across repeated calls
+ * within the same setCurrentInstr scope via the explicit
+ * cur_deopt_metadata_has_value/value pair (replaced std::optional in
+ * c19). C++ side: bbb->makeDeoptMetadata(). */
+size_t lir_bbb_make_deopt_metadata(LirBasicBlockBuilder *bbb);
+
 #ifdef __cplusplus
 }
 #endif

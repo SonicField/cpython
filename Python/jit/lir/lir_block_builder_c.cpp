@@ -56,3 +56,10 @@ lir_bbb_create_instr_input(LirBasicBlockBuilder *bbb,
         reinterpret_cast<jit::lir::Instruction *>(instr),
         reinterpret_cast<jit::hir::Register *>(hir_reg));
 }
+
+/* Phase 5.B c20: BBB wrappers batch 3. */
+
+extern "C" size_t
+lir_bbb_make_deopt_metadata(LirBasicBlockBuilder *bbb) {
+    return reinterpret_cast<BasicBlockBuilder *>(bbb)->makeDeoptMetadata();
+}
