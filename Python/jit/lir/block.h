@@ -129,6 +129,39 @@ struct BasicBlock {
     return instr;
   }
 
+  // Phase 5.B c22b-api: Allocate an instruction NOT linked into any
+  // basic block's instruction list. Caller owns the returned pointer
+  // and MUST `delete` it when done.
+  //
+  // Lifetime contract (per c22b-api 5-criterion pre-spec ratified by
+  // gatekeeper 14:04:49Z):
+  //   API-1 NO LEAK: caller-owned raw ptr, must `delete` after use
+  //   API-2 NO DOUBLE-FREE: DO NOT pass the returned ptr to
+  //         appendInstr() / insertInstrBefore() — those assume
+  //         ownership via list linkage
+  //   API-3 NO BB-LIST POLLUTION: instr is NOT in parent->instr_head_
+  //         chain; getFirstInstr / instructions() iteration will not
+  //         yield it
+  //   API-5 INVARIANT-PRESERVING: lifetime contract = "alloc + populate
+  //         + use + delete in single function scope, never iterated by
+  //         Block". No setBlock / removeFromBlock / list-cascade calls
+  //   API-6 NO OPERAND-LEAK: `delete instr` cascades operand cleanup
+  //         via Instruction dtor → lir_instruction_destroy
+  //
+  // Intended use: c22b-mech shadow-emit (criterion 2 SYMMETRY) — build
+  // a shadow Instruction, compare its operand list against the wrapper-
+  // emitted instr, then delete the shadow. Single-scope discipline
+  // enforced by audit.
+  template <typename... T>
+  Instruction* allocateInstrUnlinked(
+      Instruction::Opcode opcode,
+      const hir::Instr* origin,
+      T&&... args) {
+    auto* instr = new Instruction(this, opcode, origin);
+    instr->addOperands(std::forward<T>(args)...);
+    return instr;
+  }
+
   // Append an instruction to the end of this block. Takes ownership.
   // Phase 5.B c4: inlined.
   void appendInstr(Instruction* instr) {
