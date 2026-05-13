@@ -179,31 +179,21 @@ if [ "${JIT_VARIADIC_BAD_PATH_VERIFY:-0}" = "1" ]; then
     BAD_BUILD_RC=$?
     popd >/dev/null
     if [ "$BAD_BUILD_RC" -eq 0 ]; then
+        # No ctypes dependency: pydebug builds may lack _ctypes module
+        # (testkeeper 17:17:45Z found this on amend-7 re-run). Counter-
+        # delta diagnostic was nice-to-have; criterion 3 verification
+        # only needs JIT_CHECK abort message in stderr.
         BAD_RUN=$("$PYTHON" -c "
-import _cinderx, cinderjit, ctypes
-# Use the SAME JIT smoke pattern that empirically reaches site 600
-# (testkeeper 16:31:45Z confirmed counter delta = 5 from add+mul+fib
-# force_compile sequence). Site 600 is reached during JIT compilation
-# of these functions (force_compile internals create non-interned
-# objects that flow through _Py_Dealloc). Fixture choice based on
-# empirical traversal evidence, not structural inference.
+import _cinderx, cinderjit
 def add(x, y): return x + y
 def mul(x, y): return x * y
 def fib(n):
     a, b = 0, 1
     for _ in range(n): a, b = b, a + b
     return a
-try:
-    libpy = ctypes.CDLL(None)
-    cnt = ctypes.c_int.in_dll(libpy, 'g_lir_bbb_append_invoke_call_count')
-    pre = cnt.value
-except (AttributeError, ValueError):
-    pre = -1
 for f in [add, mul, fib]:
     cinderjit.force_compile(f)
 add(3, 4); mul(6, 7); fib(10)
-if pre >= 0:
-    print(f'JIT_TEST_EXERCISE counter delta: {cnt.value - pre}')
 " 2>&1 || true)
         echo "$BAD_RUN" | tee -a "$RESULTS_FILE"
         if echo "$BAD_RUN" | grep -q "shadow-emit"; then
