@@ -43,17 +43,24 @@ done
 # enter the full gate flow.
 if [ -n "$SELFTEST" ]; then
     case "$SELFTEST" in
-        i1) exec "$SCRIPT_DIR/test_preflight_i1_negative.sh" ;;
-        i2) exec "$SCRIPT_DIR/test_preflight_i2_negative.sh" ;;
-        i3) exec "$SCRIPT_DIR/test_preflight_i3_negative.sh" ;;
-        i4) exec "$SCRIPT_DIR/test_preflight_i4_negative.sh" ;;
-        *)  echo "Unknown --selftest value: $SELFTEST (use i1, i2, i3, or i4)"; exit 1 ;;
+        i1)   exec "$SCRIPT_DIR/test_preflight_i1_negative.sh" ;;
+        i2)   exec "$SCRIPT_DIR/test_preflight_i2_negative.sh" ;;
+        i3)   exec "$SCRIPT_DIR/test_preflight_i3_negative.sh" ;;
+        i4)   exec "$SCRIPT_DIR/test_preflight_i4_negative.sh" ;;
+        i5g1) exec "$SCRIPT_DIR/test_preflight_i5_negative.sh" ;;
+        i5g2) exec "$SCRIPT_DIR/test_preflight_i5g2_negative.sh" ;;
+        *)    echo "Unknown --selftest value: $SELFTEST (use i1, i2, i3, i4, i5g1, or i5g2)"; exit 1 ;;
     esac
 fi
 
 # Source preflight invariant library (I1+I4). Must come AFTER flag parsing
 # (so SELFTEST dispatch can short-circuit) and BEFORE any gate stage.
 . "$SCRIPT_DIR/lib_preflight.sh"
+
+# I5γ γ-2 ENV-READINESS PREFLIGHT (theologian 22:14:12Z + gatekeeper
+# 22:15:07Z). Fails fast with diagnostic when build tools missing; closes
+# wlei-cmake brittleness operational risk.
+preflight_check_env_readiness
 
 ARCH="$(uname -m)"
 COMMIT_HASH="$(cd "$CPYTHON_ROOT" && git rev-parse --short HEAD)"

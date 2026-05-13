@@ -23,6 +23,12 @@ ARCH="$(uname -m)"
 SCRIPT_RECEIVED_EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS:-}"
 . "$(dirname "$0")/lib_preflight.sh"
 
+# I5γ γ-2 ENV-READINESS PREFLIGHT (theologian 22:14:12Z + gatekeeper
+# 22:15:07Z + supervisor 22:17:44Z). Fails fast with diagnostic + install
+# hint when cmake/clang/clang++/python3 missing — closes wlei-cmake
+# brittleness surfaced at I1+I4 ARM64 ratify (generalist 21:12:10Z).
+preflight_check_env_readiness
+
 # W26 gate-hardening: track previous build exit so we can force --clean
 # after a recent compile-fail. Stale .o / LTO bitcode from a failed iter
 # can produce a binary that builds clean but crashes at runtime — this

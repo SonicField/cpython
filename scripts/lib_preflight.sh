@@ -209,3 +209,38 @@ i3_pipe_grep_count() {
     fi
     eval "$var=${count:-0}"
 }
+
+# preflight_check_env_readiness: I5γ γ-2 ENV-READINESS PREFLIGHT
+# (theologian 22:14:12Z + gatekeeper 22:15:07Z + supervisor 22:17:44Z).
+#
+# Verifies critical build tools are available in $PATH at script-start;
+# fails loudly with diagnostic + install hint when missing. Closes the
+# wlei-cmake brittleness operational risk surfaced at I1+I4 ARM64 ratify
+# (generalist 21:12:10Z + supervisor 21:03:41Z) — script bails fast with
+# actionable message rather than running half a configure step before
+# cmake-not-found error at line 226.
+#
+# Tool list per gatekeeper 22:15:07Z (c) audit recommendation: minimal
+# toolchain explicitly checked (cmake/clang/clang++/python3); ar/ld/m4/
+# autoconf rely on default PATH-resolution from /usr/bin (system-default,
+# rarely missing). Augment list at impl-time if those classes go missing.
+#
+# I3-COMPLIANT: explicit if-then under set -euo pipefail; exit 1 on fail.
+preflight_check_env_readiness() {
+    local missing=()
+    local tool
+    for tool in cmake clang clang++ python3; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            missing+=("$tool")
+        fi
+    done
+    if [ "${#missing[@]}" -ne 0 ]; then
+        echo "FAIL: γ-2 ENV-READINESS — required build tool(s) not in PATH"
+        echo "  missing: ${missing[*]}"
+        echo "  current PATH: $PATH"
+        echo "  install hint: dnf install cmake clang OR augment PATH (e.g.,"
+        echo "    export PATH=/data/users/wlei/miniconda3-arm/bin:\$PATH"
+        echo "    on devgpu004 ARM64 where wlei has miniconda3-arm cmake)"
+        exit 1
+    fi
+}
