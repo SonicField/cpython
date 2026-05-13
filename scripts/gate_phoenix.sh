@@ -162,29 +162,50 @@ else
 fi
 
 # (3-gate) JIT_TEST_VARIADIC_BRIDGE deliberate-divergence build probe.
-# A fully-instrumented gate would: rebuild JIT with -DJIT_TEST_VARIADIC_BRIDGE,
-# run force_compile fib expecting non-zero exit + grep "shadow-emit: input
-# count mismatch" in stderr. Re-building costs ~5min; we INFO-out unless
-# the env var JIT_VARIADIC_BAD_PATH_VERIFY=1 is set.
+# A fully-instrumented gate would: rebuild JIT with -DJIT_TEST_VARIADIC_BRIDGE
+# (via EXTRA_CMAKE_FLAGS — build_phoenix.sh propagates to CMAKE_CXX_FLAGS),
+# also -DJIT_TEST_EXERCISE so we can verify the wrapper IS reached, then run
+# a stress fixture that forces JIT-compiled code through _Py_Dealloc on
+# non-interned objects (small-int interning means fib(10) doesn't trigger
+# site 600 at runtime; lists/tuples of large objects do). Expected: counter
+# > 0 AND JIT_CHECK fires with "shadow-emit: input count mismatch".
+# Re-building costs ~5min; INFO-out unless JIT_VARIADIC_BAD_PATH_VERIFY=1.
 if [ "${JIT_VARIADIC_BAD_PATH_VERIFY:-0}" = "1" ]; then
-    echo "(3-gate) JIT_VARIADIC_BAD_PATH_VERIFY=1 — rebuilding with -DJIT_TEST_VARIADIC_BRIDGE..." | tee -a "$RESULTS_FILE"
+    echo "(3-gate) JIT_VARIADIC_BAD_PATH_VERIFY=1 — rebuilding with -DJIT_TEST_VARIADIC_BRIDGE -DJIT_TEST_EXERCISE..." | tee -a "$RESULTS_FILE"
     BAD_PATH_LOG=/tmp/jit_variadic_bad_path_$$.log
     pushd "$CPYTHON_ROOT" >/dev/null
-    EXTRA_CXXFLAGS="-DJIT_TEST_VARIADIC_BRIDGE=1" bash scripts/build_phoenix.sh --pydebug --clean > "$BAD_PATH_LOG" 2>&1
+    EXTRA_CMAKE_FLAGS=" -DJIT_TEST_VARIADIC_BRIDGE=1 -DJIT_TEST_EXERCISE=1" \
+        bash scripts/build_phoenix.sh --pydebug --clean > "$BAD_PATH_LOG" 2>&1
     BAD_BUILD_RC=$?
     popd >/dev/null
     if [ "$BAD_BUILD_RC" -eq 0 ]; then
-        BAD_RUN=$("$PYTHON" -c "import _cinderx, cinderjit
-def fib(n):
-    a, b = 0, 1
-    for _ in range(n): a, b = b, a + b
-    return a
-cinderjit.force_compile(fib); fib(10)" 2>&1 || true)
+        BAD_RUN=$("$PYTHON" -c "
+import _cinderx, cinderjit, ctypes
+# Stress fixture: non-interned object decref reliably reaches _Py_Dealloc
+# (site 600). fib(10) only uses interned small ints which never decref to
+# zero; need actual deallocs.
+def stress():
+    for _ in range(1000):
+        x = [None] * 100  # list dealloc each iter; non-interned
+    return 1
+cinderjit.force_compile(stress)
+try:
+    libpy = ctypes.CDLL(None)
+    cnt = ctypes.c_int.in_dll(libpy, 'g_lir_bbb_append_invoke_call_count')
+    pre = cnt.value
+except (AttributeError, ValueError):
+    pre = -1
+stress()
+if pre >= 0:
+    print(f'JIT_TEST_EXERCISE counter delta: {cnt.value - pre}')
+" 2>&1 || true)
+        echo "$BAD_RUN" | tee -a "$RESULTS_FILE"
         if echo "$BAD_RUN" | grep -q "shadow-emit"; then
             echo "(3-gate) PASS: JIT_CHECK fired with shadow-emit message (negative-test gate-verified)" | tee -a "$RESULTS_FILE"
+        elif echo "$BAD_RUN" | grep -qE "JIT_TEST_EXERCISE counter delta: 0$"; then
+            echo "(3-gate) FAIL-DIAGNOSTIC: counter == 0 — stress fixture did not reach site 600. site re-selection required for c23+ (theologian fib-traversal inference falsified)" | tee -a "$RESULTS_FILE"
         else
-            echo "(3-gate) FAIL: bad-path build did not fire JIT_CHECK on force_compile fib" | tee -a "$RESULTS_FILE"
-            echo "$BAD_RUN" | tail -10 | tee -a "$RESULTS_FILE"
+            echo "(3-gate) FAIL: bad-path build did not fire JIT_CHECK on stress fixture" | tee -a "$RESULTS_FILE"
         fi
     else
         echo "(3-gate) INFO: bad-path build failed (log $BAD_PATH_LOG)" | tee -a "$RESULTS_FILE"
