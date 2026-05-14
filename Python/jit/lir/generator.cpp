@@ -618,9 +618,48 @@ void LIRGenerator::MakeDecref(
     /* Phase 5.B c22b-mech: site 600 — first generator.cpp call site
      * routed through the variadic operand-descriptor bridge wrapper
      * (criterion 5 EXERCISE PATH for force_compile fib MakeDecref ->
-     * default tp_dealloc fallthrough). Phase 5.B c23 ports the if-branch
-     * (typed destructor) above; remaining 14 appendInvokeInstruction sites
-     * defer to c24+. */
+     * default tp_dealloc fallthrough).
+     *
+     * Phase 5.B c-series 16-site audit (theologian 13:29:55Z + supervisor
+     * 19:13:18Z artefact request — durable per [arch_completeness_disclaimer]):
+     *
+     *   ACTIVE-REWIRED (6, c-counter 6/16):
+     *     site 611 c22b-mech: _Py_Dealloc (default tp_dealloc fallthrough)
+     *     site 599 c23: destructor.value() (typed-destructor decref above)
+     *     case kSetCurrentAwaiter c26: JITRT_SetCurrentAwaiter [SP-only,
+     *                       provisional disposition C]
+     *     case kRaiseAwaitableError c24: JITRT_FormatAwaitableError
+     *     case kInitFrameCellVars c25: JITRT_InitFrameCellVars
+     *     case kStoreArrayItem c27: JITRT_Set*_InArray [SP-only,
+     *                       provisional disposition C]
+     *
+     *   DEAD-OR-CONDITIONAL (10, audit-class accounted, no rewire):
+     *     site 499  Py_IncRef         #ifdef Py_GIL_DISABLED (DEAD in GIL build)
+     *     site 571  Py_DecRef         #ifdef Py_GIL_DISABLED
+     *     site 596  _Py_ForgetReference #ifdef Py_TRACE_REFS (DEAD in default)
+     *     case kAtQuiescentState (~2967) JITRT_AtQuiescentState
+     *                              opcode emitter gated #ifdef Py_GIL_DISABLED
+     *                              (insertRunPeriodicActivites @ builder.cpp:3694)
+     *     kBeginInlinedFunction kPyDebug branch (~3024, ~3065)
+     *                              assertShadowCallStackConsistent
+     *                              #if PY_VERSION_HEX < 0x030C0000 (DEAD in 3.12+)
+     *     kEndInlinedFunction kPyDebug branches (~3222, ~3263)
+     *                              assertShadowCallStackConsistent
+     *                              #if PY_VERSION_HEX < 0x030C0000 (DEAD in 3.12+)
+     *     kEndInlinedFunction (~3260) JITRT_UnlinkPyFrame
+     *                              #if PY_VERSION_HEX < 0x030C0000 (DEAD in 3.12+)
+     *     kEndInlinedFunction (~3294) JITRT_UnlinkFrame
+     *                              #elif defined(ENABLE_LIGHTWEIGHT_FRAMES)
+     *                              (active only with that build option)
+     *
+     *   Phoenix targets 3.12 GIL build by default; 5 of the 10 dead sites
+     *   are version-conditional (3.12+ removes the inlined-function shadow-
+     *   frame path), 3 are GIL-disabled-only, 1 is Py_TRACE_REFS-only, 1
+     *   is ENABLE_LIGHTWEIGHT_FRAMES-only. Re-port required if Phoenix
+     *   adopts any of those build configs OR upstream restores 3.10/3.11
+     *   compat OR adds free-threaded build. SP-only c26+c27 disposition C
+     *   is provisional pending Option B C-API direct-HIR test harness
+     *   (Alex-resume queue). */
     JitLirOperandDesc dealloc_args[1] = {};
     dealloc_args[0].kind = JIT_LIR_OPDESC_INSTR;
     dealloc_args[0].data.instr = reinterpret_cast<JitLirInstr>(instr);
