@@ -501,6 +501,36 @@ frame_asm_c_generate_unlink_frame(
      * TPIDR_EL0 (ARM64).  The new 2-arg signature is
      * JITRT_UnlinkFrame(PyThreadState* tstate, bool unlink_shadow_frame). */
 
+    /* W-PERF Class A full-inline scope-expansion Phase A scaffolding
+     * (per supervisor 21:45:28Z phased A→B→C disposition + theologian
+     * 21:39:20Z DRAFT + 21:43:23Z clarifications).
+     *
+     * Compute the codegen-time gate that controls the future inline
+     * body emission.  Gate strengthened per theologian 21:43:23Z to
+     * include numCellvars==0 (Q2: cellvar slot clearing not handled
+     * by the inline-target body) in addition to numFreevars==0,
+     * lightweight frame_mode, and non-generator.
+     *
+     * Phase A: no asm change.  Both gate-passes and gate-fails paths
+     * emit the existing JITRT_UnlinkFrame call.  This commit
+     * validates the query-API surface (jit_hir_func_is_gen,
+     * jit_hir_func_get_frame_mode, PyCodeObject->co_nfreevars,
+     * PyCodeObject->co_ncellvars) and gate boolean composition
+     * before the asm-class change in Phase B (inline body for the
+     * !INITIALIZED && hasRtfsFunction common path) and Phase C
+     * (!hasRtfsFunction extension; hasRtfsFunction is runtime-dynamic
+     * per frame.cpp:518-520).
+     *
+     * Phase B will use this boolean to gate the runtime test of the
+     * rtfs JIT_FRAME_INITIALIZED bit at frame-8 and the inline-body
+     * emission. */
+    const int gate_passes_full_inline =
+        !jit_hir_func_is_gen(hir_func)
+        && jit_hir_func_get_frame_mode(hir_func) == FRAME_MODE_LIGHTWEIGHT
+        && code->co_nfreevars == 0
+        && code->co_ncellvars == 0;
+    (void)gate_passes_full_inline;  /* used in Phase B+ */
+
 #if defined(CINDER_X86_64)
     PhxGp rax = {0, 8};
     PhxGp rdi = {7, 8};
