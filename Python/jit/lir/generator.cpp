@@ -596,13 +596,31 @@ void LIRGenerator::MakeDecref(
     bbb.appendInvokeInstruction(_Py_ForgetReference, obj);
 #endif
 
-    bbb.appendInvokeInstruction(destructor.value(), instr);
+    /* Phase 5.B c23: rewire site 599 to lir_bbb_append_invoke C-bridge per
+     * c22b-mech site 600/611 pattern. destructor.value() is a
+     * void(*)(PyObject*) function pointer; LIR treats it identically to
+     * c22b-mech's _Py_Dealloc (both compile-time-known void* operand,
+     * same calling convention). Indirect-dispatch differs only at HIR
+     * runtimePyTypeDestructor (type→tp_dealloc resolution), not LIR.
+     * EXERCISE PATH: TestC23TypedDestructorDecref test_list_literal_drop
+     * + test_dict_literal_drop (force_compile typed temp Decref;
+     * list_dealloc + dict_dealloc invoke confirmed via nm-resolved
+     * PYTHONJITDUMPLIR per testkeeper 14:41:18Z). */
+    JitLirOperandDesc typed_dealloc_args[1] = {};
+    typed_dealloc_args[0].kind = JIT_LIR_OPDESC_INSTR;
+    typed_dealloc_args[0].data.instr = reinterpret_cast<JitLirInstr>(instr);
+    lir_bbb_append_invoke(
+        reinterpret_cast<LirBasicBlockBuilder *>(&bbb),
+        reinterpret_cast<void *>(destructor.value()),
+        1,
+        typed_dealloc_args);
   } else {
     /* Phase 5.B c22b-mech: site 600 — first generator.cpp call site
      * routed through the variadic operand-descriptor bridge wrapper
      * (criterion 5 EXERCISE PATH for force_compile fib MakeDecref ->
-     * default tp_dealloc fallthrough). Remaining 15 appendInvokeInstruction
-     * sites defer to c23+. */
+     * default tp_dealloc fallthrough). Phase 5.B c23 ports the if-branch
+     * (typed destructor) above; remaining 14 appendInvokeInstruction sites
+     * defer to c24+. */
     JitLirOperandDesc dealloc_args[1] = {};
     dealloc_args[0].kind = JIT_LIR_OPDESC_INSTR;
     dealloc_args[0].data.instr = reinterpret_cast<JitLirInstr>(instr);
