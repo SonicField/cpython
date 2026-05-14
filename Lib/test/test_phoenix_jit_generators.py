@@ -1550,5 +1550,58 @@ class TestC24RaiseAwaitableError(unittest.TestCase):
         self.assertIn("__aexit__", msg)
 
 
+@unittest.skipUnless(HAS_JIT, "Phoenix JIT not available")
+class TestC25InitFrameCellVars(unittest.TestCase):
+    """c25 fixture v2: exercise lir/generator.cpp case kInitFrameCellVars
+    (3.12+ only), 3-arg invoke
+    JITRT_InitFrameCellVars(func, num_cell_vars, asm_tstate). First IMM_INT
+    operand kind in c-series — substrate-DRAFT methodology n=2→3 stress.
+
+    Trigger (per testkeeper 17:23:58Z HIR-traced empirical correction of
+    fixture v1 0c09925bd1 false-target): kInitFrameCellVars HIR opcode is
+    emitted by emitCopyFreeVars (builder_emit_c.c COPY_FREE_VARS bytecode
+    handler) for INNER closures with FREEVARS, NOT outer functions with
+    cellvars. The opcode name is misleading: it initializes the
+    inner-scope frame's freevar slots from the captured cell pointers.
+
+    Fixture force_compiles INNER closures with distinct freevar counts:
+    - 1 freevar  → HIR emits 'InitFrameCellVars<1>'
+    - 3 freevars → HIR emits 'InitFrameCellVars<3>'
+
+    Falsifier composition (3 layers, per supervisor 17:25:12Z APPROVE
+    after disassembly-class infra crash + LIR-truncation gap):
+    1. HIR-grep: PYTHONJITDUMPHIR=1 + grep 'InitFrameCellVars<N>' in
+       inner closure dump; N value visible in HIR opcode template
+       parameter, verifies emit + IMM_INT pre-LIR.
+    2. Functional: closures must return correct sums — wrong IMM_INT
+       marshalling at LIR seam → uninitialized freevars → wrong/crash.
+       Indirect IMM_INT marshalling proof.
+    3. (deferred infra) PYTHONJITDUMPASM disassembly crash tracked as
+       separate parallel concern; not blocking c25.
+    """
+
+    def test_force_compile_inner_one_freevar(self):
+        def factory():
+            x = 42
+            def inner():
+                return x  # 1 freevar
+            return inner
+        inner = factory()
+        compiled = _force_compile(inner)
+        self.assertTrue(compiled, "Failed to JIT-compile inner")
+        self.assertEqual(inner(), 42)
+
+    def test_force_compile_inner_three_freevars(self):
+        def factory():
+            a, b, c = 1, 2, 3
+            def inner():
+                return a + b + c  # 3 freevars
+            return inner
+        inner = factory()
+        compiled = _force_compile(inner)
+        self.assertTrue(compiled, "Failed to JIT-compile inner")
+        self.assertEqual(inner(), 6)
+
+
 if __name__ == "__main__":
     unittest.main()
