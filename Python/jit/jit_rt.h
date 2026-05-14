@@ -90,7 +90,16 @@ void JITRT_UnlinkPyFrame(PyThreadState* tstate);
  * Designed to be used in tandem with JITRT_AllocateAndLinkFrame. This checks
  * if the frame has escaped (> 1 refcount) and tracks it if so.
  */
-void JITRT_UnlinkFrame(bool unlink_shadow_frame);
+/*
+ * tstate is passed by the caller (JIT epilogue + LIR site at
+ * generator.cpp:3333) so the runtime helper does not redo the
+ * PyThreadState_GET TLS lookup on every JIT function exit.  W-PERF
+ * Class A subset fix: the JIT call-exit path already has tstate
+ * available via FS:offset (x86) / TPIDR_EL0 (ARM64) one-instruction
+ * load through frame_asm_c_load_tstate(), making the in-runtime
+ * TLS lookup redundant.
+ */
+void JITRT_UnlinkFrame(PyThreadState* tstate, bool unlink_shadow_frame);
 
 /*
  * Handles a call that includes kw arguments or excess tuple arguments

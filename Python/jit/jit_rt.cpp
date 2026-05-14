@@ -867,8 +867,9 @@ void JITRT_UnlinkPyFrame(PyThreadState* tstate) {
 }
 #endif
 
-void JITRT_UnlinkFrame([[maybe_unused]] bool unlink_shadow_frame) {
-  PyThreadState* tstate = PyThreadState_GET();
+void JITRT_UnlinkFrame(
+    PyThreadState* tstate,
+    [[maybe_unused]] bool unlink_shadow_frame) {
 #if PY_VERSION_HEX < 0x030C0000
   _PyShadowFrame* frame = tstate->shadow_frame;
 

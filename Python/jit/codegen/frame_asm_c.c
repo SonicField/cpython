@@ -494,12 +494,18 @@ frame_asm_c_generate_unlink_frame(
     int header_size = frame_asm_c_frame_header_size(code);
     void *unlink_addr = jit_rt_get_unlink_frame_addr();
 
+    /* W-PERF Class A subset fix (per theologian 2026-05-14T21:02 design,
+     * supervisor 21:03 APPROVE): pass tstate to JITRT_UnlinkFrame so the
+     * runtime helper does not redo the PyThreadState_GET TLS lookup that
+     * frame_asm_c_load_tstate() can supply directly via FS:offset (x86) /
+     * TPIDR_EL0 (ARM64).  The new 2-arg signature is
+     * JITRT_UnlinkFrame(PyThreadState* tstate, bool unlink_shadow_frame). */
+
 #if defined(CINDER_X86_64)
     PhxGp rax = {0, 8};
+    PhxGp rdi = {7, 8};
 
 #ifdef ENABLE_SHADOW_FRAMES
-    int is_gen = jit_hir_func_is_gen(hir_func);
-    phx_x86_mov_ri(pb, PHX_RDI, (int64_t)(is_gen ? 0 : 1));
     PhxMem saved_rax_ptr = phx_qword_ptr((PhxGp){5, 8}, -8);  /* rbp - 8 */
 #else
     PhxGp rbp = {5, 8};
@@ -513,6 +519,25 @@ frame_asm_c_generate_unlink_frame(
         } else {
             phx_x86_mov_mr(pb, saved_rax_ptr, rax);
         }
+
+        /* Load tstate into RDI (1st arg) AFTER saving the return value:
+         * the slow path inside frame_asm_c_load_tstate calls
+         * _PyThreadState_GetCurrent which clobbers caller-saved regs.  The
+         * fast path is a single FS-segment mov with no clobber, but we
+         * order conservatively for correctness. */
+        frame_asm_c_load_tstate(env, rdi);
+
+#ifdef ENABLE_SHADOW_FRAMES
+        int is_gen = jit_hir_func_is_gen(hir_func);
+        phx_x86_mov_ri(pb, PHX_RSI, (int64_t)(is_gen ? 0 : 1));
+#else
+        /* unlink_shadow_frame is [[maybe_unused]] on PY_VERSION_HEX
+         * >= 0x030C0000 but we set RSI = 0 explicitly to keep the
+         * calling convention well-defined regardless of how the C
+         * compiler chooses to materialise the parameter. */
+        phx_x86_mov_ri(pb, PHX_RSI, 0);
+#endif
+
         phx_x86_mov_ri(pb, PHX_R11, (int64_t)(uintptr_t)unlink_addr);
         phx_x86_call_r(pb, PHX_R11);
         if (returns_double) {
@@ -540,6 +565,18 @@ frame_asm_c_generate_unlink_frame(
         } else {
             phx_a64_str(pb, x0, saved_x0_ptr);
         }
+
+        /* Load tstate into X0 (1st arg) after saving return value.  Same
+         * conservative ordering rationale as the x86 path above. */
+        frame_asm_c_load_tstate(env, x0);
+
+        /* Zero X1 (2nd arg unlink_shadow_frame): ENABLE_SHADOW_FRAMES is
+         * unsupported on ARM64 (asserted above) so the value is always
+         * false; set explicitly to keep the calling convention
+         * well-defined regardless of how the C side materialises the
+         * [[maybe_unused]] parameter. */
+        PhxGp x1 = {1, 8};
+        phx_a64_mov_ri(pb, x1, 0);
 
         phx_a64_mov_ri(pb, scratch_br, (uint64_t)(uintptr_t)unlink_addr);
         phx_a64_blr(pb, scratch_br);

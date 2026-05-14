@@ -3329,8 +3329,13 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         bbb.appendBlock(bbb.allocateBlock());
 
         // The frame was materialized, let's use the unlink helper to clean
-        // things up.
-        bbb.appendInvokeInstruction(JITRT_UnlinkFrame, false);
+        // things up.  tstate passed as the new 1st arg to skip the
+        // PyThreadState_GET TLS lookup inside the helper (W-PERF Class A
+        // subset fix).  This block is dead in the default Phoenix build
+        // (kEndInlinedFunction is gated by ENABLE_LIGHTWEIGHT_FRAMES, which
+        // is unused) but kept signature-aligned with jit_rt.h.
+        bbb.appendInvokeInstruction(
+            JITRT_UnlinkFrame, env_->asm_tstate, false);
         bbb.appendBranch(Instruction::kBranch, done_block);
 
         // The frame was not materialized, we just need to update thread state
