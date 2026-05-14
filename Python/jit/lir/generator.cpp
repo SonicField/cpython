@@ -792,11 +792,33 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
       case Opcode::kInitFrameCellVars: {
 #if PY_VERSION_HEX >= 0x030C0000
         auto& hir_instr = static_cast<const InitFrameCellVars&>(i);
-        bbb.appendInvokeInstruction(
-            JITRT_InitFrameCellVars,
-            bbb.getDefInstr(hir_instr.func()),
-            hir_instr.num_cell_vars(),
-            env_->asm_tstate);
+        /* Phase 5.B c25: rewire site to lir_bbb_append_invoke C-bridge.
+         * 3-arg invoke INSTR + IMM_INT(k32bit) + INSTR. First IMM_INT
+         * operand kind in c-series (substrate-DRAFT n=2→3 stress per
+         * shepard 16:57:35Z + supervisor 17:49:12Z). num_cell_vars is
+         * int32_t (HirInitFrameCellVars.cells per hir_instr_c.h:620);
+         * width_bits=32 maps to DataType::k32bit via dispatch_descriptor
+         * width_to_dt at lir_block_builder_c.cpp:107.
+         * EXERCISE PATH: TestC25InitFrameCellVars (testkeeper 17:46:16Z
+         * HIR-grep verified InitFrameCellVars<1> + <3>; functional
+         * closures return 42 + 6 — wrong int marshalling at LIR seam
+         * would corrupt freevars and break test). */
+        JitLirOperandDesc init_args[3] = {};
+        init_args[0].kind = JIT_LIR_OPDESC_INSTR;
+        init_args[0].data.instr =
+            reinterpret_cast<JitLirInstr>(bbb.getDefInstr(hir_instr.func()));
+        init_args[1].kind = JIT_LIR_OPDESC_IMM_INT;
+        init_args[1].data.imm_int.value =
+            static_cast<int64_t>(hir_instr.num_cell_vars());
+        init_args[1].data.imm_int.width_bits = 32;
+        init_args[2].kind = JIT_LIR_OPDESC_INSTR;
+        init_args[2].data.instr =
+            reinterpret_cast<JitLirInstr>(env_->asm_tstate);
+        lir_bbb_append_invoke(
+            reinterpret_cast<LirBasicBlockBuilder*>(&bbb),
+            reinterpret_cast<void*>(JITRT_InitFrameCellVars),
+            3,
+            init_args);
 #else
         JIT_CHECK(false, "kInitFrameCellVars is only 3.12 and later");
 #endif
