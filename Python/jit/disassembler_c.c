@@ -35,8 +35,31 @@ const char *jit_disasm_cursor(const JitDisassembler *d) {
 
 #ifndef ENABLE_DISASSEMBLER
 
-void jit_disasm_one(JitDisassembler *d, FILE *out) { (void)d; (void)out; }
-void jit_disasm_all(JitDisassembler *d, FILE *out) { (void)d; (void)out; }
+/* When ENABLE_DISASSEMBLER is not defined (current Phoenix build —
+ * capstone-devel headers not installed; queued for sudo install), the
+ * capstone-based disassembly path under #else below is dead code.
+ *
+ * Pre-fix these were true no-ops, leaving d->start unchanged. The
+ * disassembleSection loop in codegen/annotations.cpp called jit_disasm_one
+ * via the C++ Disassembler wrapper, observed cursor() return the same
+ * pointer, and tripped the cursor-advance JIT_CHECK on the first
+ * iteration when PYTHONJITDUMPASM=1 was set.
+ *
+ * Defensive fix: emit a single informative message and advance d->start
+ * to d->size so the loop terminates cleanly on the next iteration.
+ */
+void jit_disasm_one(JitDisassembler *d, FILE *out) {
+    if (d->start < d->size) {
+        fprintf(out,
+                "<disassembler unavailable: built without "
+                "ENABLE_DISASSEMBLER + libcapstone>");
+        d->start = d->size;
+    }
+}
+
+void jit_disasm_all(JitDisassembler *d, FILE *out) {
+    jit_disasm_one(d, out);
+}
 
 #else /* ENABLE_DISASSEMBLER */
 
