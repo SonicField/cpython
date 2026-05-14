@@ -1421,68 +1421,68 @@ class TestJitIterationEdgeCases(unittest.TestCase):
         self._jit_test(wrapper)
 
 
+def _c23_jit_run(test_case, func, *args):
+    interp_result = func(*args)
+    compiled = _force_compile(func)
+    test_case.assertTrue(compiled, f"Failed to JIT-compile {func.__name__}")
+    jit_result = func(*args)
+    test_case.assertEqual(interp_result, jit_result)
+    return jit_result
+
+
 @unittest.skipUnless(HAS_JIT, "Phoenix JIT not available")
 class TestC23TypedDestructorDecref(unittest.TestCase):
-    """c23 fixture: exercise lir/generator.cpp:599
-    `bbb.appendInvokeInstruction(destructor.value(), instr);`
-    inside MakeDecref's `if (destructor.has_value())` typed-dealloc branch.
+    """c23 fixture: exercise lir/generator.cpp:599 typed-destructor branch
+    of MakeDecref (after c23 rewire to lir_bbb_append_invoke).
 
-    Trigger condition (per type_inl.h:214-225 Type::runtimePyTypeDestructor):
-    operand of the Decref must have HirType narrowing to a single concrete
-    runtime PyTypeObject (not Py_None). At a Decref site, when
-    refcount_insertion + type inference produce a typed operand, the typed
-    tp_dealloc is invoked directly here; otherwise the path falls through
-    to the c22b-mech-rewired _Py_Dealloc generic dispatch (site ~611).
+    Trigger (per type_inl.h:214-225 Type::runtimePyTypeDestructor): the
+    Decref operand's HirType must narrow to a single concrete runtime
+    PyTypeObject (not Py_None). list/dict literal-drop patterns reach
+    the typed dispatch; the LIR Call address resolves to list_dealloc /
+    dict_dealloc respectively (verified via PYTHONJITDUMPLIR + nm at
+    fixture v2 push 8870472873).
 
-    fib (c22b-mech site 600 EXERCISE PATH) hits the generic dispatch.
-    Site 599 needs a workload where decref'd temps have narrow types.
-
-    Empirical-discovery approach (per supervisor 13:35:31Z): 4 candidate
-    workloads with different type-narrowing patterns. Falsifier:
-        PYTHONJITDUMPLIR=1 ./python -m test test_phoenix_jit_generators \\
-            -v -k TestC23TypedDestructorDecref 2>&1 | tee /tmp/c23.log
-        grep -E 'tuple_dealloc|list_dealloc|dict_dealloc|unicode_dealloc' \\
-            /tmp/c23.log
-    Whichever candidate(s) emit a typed tp_dealloc symbol (vs _Py_Dealloc)
-    exercise site 599 and become the c23 fixture; the rest can stay as
-    coverage or drop if irrelevant.
+    Both list and dict variants confirmed exercising the rewired path
+    after c23 substrate landed at 5fbb09dc63 (testkeeper 15:37:16Z:
+    bit-identical Call addresses pre/post c23, verifying operand-
+    semantic-delta-note prediction).
     """
-
-    def _jit_run(self, func, *args):
-        interp_result = func(*args)
-        compiled = _force_compile(func)
-        self.assertTrue(compiled, f"Failed to JIT-compile {func.__name__}")
-        jit_result = func(*args)
-        self.assertEqual(interp_result, jit_result)
-        return jit_result
-
-    def test_tuple_concat_drop(self):
-        def wrapper():
-            x = (1, 2) + (3, 4)
-            del x
-            return 1
-        self._jit_run(wrapper)
-
-    def test_string_format_drop(self):
-        def wrapper():
-            x = "%d" % 42
-            del x
-            return 1
-        self._jit_run(wrapper)
 
     def test_list_literal_drop(self):
         def wrapper():
             x = [1, 2, 3]
             del x
             return 1
-        self._jit_run(wrapper)
+        _c23_jit_run(self, wrapper)
 
     def test_dict_literal_drop(self):
         def wrapper():
             x = {"a": 1, "b": 2}
             del x
             return 1
-        self._jit_run(wrapper)
+        _c23_jit_run(self, wrapper)
+
+
+@unittest.skipUnless(HAS_JIT, "Phoenix JIT not available")
+class TestC22bMechGenericDealloc(unittest.TestCase):
+    """c22b-mech regression cover: exercise lir/generator.cpp:611
+    `lir_bbb_append_invoke(_Py_Dealloc, ...)` (the else-branch of
+    MakeDecref's `if (destructor.has_value())`, ported by c22b-mech at
+    push f47e4bf7fd).
+
+    String %-format temp drops to _Py_Dealloc generic dispatch (verified
+    via PYTHONJITDUMPLIR address resolution at fixture push 8870472873:
+    Call → 0x55bfe0 = _Py_Dealloc, distinct from typed list_dealloc /
+    dict_dealloc dispatch). fib hits the same path implicitly; this is
+    an explicit single-Python-construct cover for the rewired site.
+    """
+
+    def test_string_format_drop(self):
+        def wrapper():
+            x = "%d" % 42
+            del x
+            return 1
+        _c23_jit_run(self, wrapper)
 
 
 if __name__ == "__main__":
