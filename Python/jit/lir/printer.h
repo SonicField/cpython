@@ -62,12 +62,24 @@ class Printer {
  private:
   template <typename Fn>
   void printToStream(std::ostream& out, Fn&& fn) {
-    char buf[4096];
-    FILE* f = fmemopen(buf, sizeof(buf), "w");
-    if (!f) return;
+    /* open_memstream auto-grows so whole-Function dumps with hundreds of
+     * BBs and instructions are not silently truncated.  The previous
+     * 4 KiB stack buffer with fmemopen cut LIR phase dumps at ~150 lines
+     * (~BB %56 in the testkeeper c24 fixture v2 grep at 16:41:36Z),
+     * blocking direct LIR-Call grep as a falsifier layer for c-series
+     * operand-kind probes.  Pattern matches HIR's run_via_c_side in
+     * Python/jit/hir/printer.cpp:41-59 (the printer_c.h:9-11 header
+     * comment already flagged the LIR side as still broken). */
+    char* buf = nullptr;
+    size_t size = 0;
+    FILE* f = open_memstream(&buf, &size);
+    if (f == nullptr) return;
     fn(f);
     fclose(f);
-    out << buf;
+    if (buf != nullptr) {
+      out.write(buf, static_cast<std::streamsize>(size));
+      free(buf);
+    }
   }
 };
 
