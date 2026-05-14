@@ -1337,8 +1337,29 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
         break;
       }
       case Opcode::kSetCurrentAwaiter: {
-        bbb.appendInvokeInstruction(
-            JITRT_SetCurrentAwaiter, i.GetOperand(0), env_->asm_tstate);
+        /* Phase 5.B c26: rewire site to lir_bbb_append_invoke C-bridge.
+         * 2-arg invoke REG_REF + INSTR (combination already validated by
+         * c24 site 1923, no new operand kind). Disposition C: SP-only
+         * site, unreachable from any Python source in Phoenix at HEAD per
+         * SP-support pre-check rounds 1+2 (theologian 13:35:07Z + 18:14Z;
+         * Phoenix has SP-runtime cinderx/StaticPython/* but NO SP-compiler
+         * emitting INVOKE_*+GET_AWAITABLE+YIELD_FROM bytecode pattern).
+         * Falsifier: code inspection + nm-grep marker per c22b-mech
+         * BUILD-CLASS criterion 6 (lir_bbb_append_invoke wrapper marker
+         * already gated; no per-site marker needed). Per supervisor
+         * 18:16:03Z combine-c26+c27 disposition + Option B C-API HIR
+         * harness queued as Alex-resume infra item. */
+        JitLirOperandDesc sca_args[2] = {};
+        sca_args[0].kind = JIT_LIR_OPDESC_REG_REF;
+        sca_args[0].data.reg = reinterpret_cast<void*>(i.GetOperand(0));
+        sca_args[1].kind = JIT_LIR_OPDESC_INSTR;
+        sca_args[1].data.instr =
+            reinterpret_cast<JitLirInstr>(env_->asm_tstate);
+        lir_bbb_append_invoke(
+            reinterpret_cast<LirBasicBlockBuilder*>(&bbb),
+            reinterpret_cast<void*>(JITRT_SetCurrentAwaiter),
+            2,
+            sca_args);
         break;
       }
       case Opcode::kYieldValue: {
@@ -2571,8 +2592,27 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
           JIT_ABORT("Unknown array type {}", type.toString());
         }
 
-        bbb.appendInvokeInstruction(
-            func, instr->ob_item(), instr->value(), instr->idx());
+        /* Phase 5.B c27: rewire site to lir_bbb_append_invoke C-bridge.
+         * 3-arg invoke 3x REG_REF (ob_item + value + idx, all
+         * hir::Register*). Disposition C: SP-only site, unreachable
+         * from Python source per SP-support pre-check rounds 1+2 (no
+         * SP-compiler emitting SEQUENCE_SET bytecode in Phoenix at
+         * HEAD). Falsifier: code inspection + c22b-mech BUILD-CLASS
+         * marker. Combined commit with c26 per supervisor 18:16:03Z
+         * (both SP-only, both disposition C, mechanically identical
+         * to bridge call pattern). */
+        JitLirOperandDesc sai_args[3] = {};
+        sai_args[0].kind = JIT_LIR_OPDESC_REG_REF;
+        sai_args[0].data.reg = reinterpret_cast<void*>(instr->ob_item());
+        sai_args[1].kind = JIT_LIR_OPDESC_REG_REF;
+        sai_args[1].data.reg = reinterpret_cast<void*>(instr->value());
+        sai_args[2].kind = JIT_LIR_OPDESC_REG_REF;
+        sai_args[2].data.reg = reinterpret_cast<void*>(instr->idx());
+        lir_bbb_append_invoke(
+            reinterpret_cast<LirBasicBlockBuilder*>(&bbb),
+            reinterpret_cast<void*>(func),
+            3,
+            sai_args);
         break;
       }
       case Opcode::kLoadSplitDictItem: {
