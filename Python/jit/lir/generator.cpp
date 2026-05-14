@@ -1938,11 +1938,29 @@ LIRGenerator::TranslatedBlock LIRGenerator::TranslateOneBasicBlock(
       }
       case Opcode::kRaiseAwaitableError: {
         const auto& instr = static_cast<const RaiseAwaitableError&>(i);
-        bbb.appendInvokeInstruction(
-            JITRT_FormatAwaitableError,
-            env_->asm_tstate,
-            instr.GetOperand(0),
-            instr.isAEnter());
+        /* Phase 5.B c24: rewire site to lir_bbb_append_invoke C-bridge.
+         * First c-series multi-kind exercise (3 distinct operand kinds in
+         * one site): INSTR (asm_tstate via bindVReg) + REG_REF
+         * (GetOperand(0) hir::Register*, env-routed createInstrInput) +
+         * IMM_BOOL (isAEnter() bool, 0/1 k8bit immediate). substrate-DRAFT
+         * methodology n=1→2 stress per shepard 15:54:15Z. EXERCISE PATH:
+         * TestC24RaiseAwaitableError aenter+aexit variants (testkeeper
+         * 16:41:36Z runtime IMM_BOOL parity proof: bit-identical-except-
+         * bool-token error messages, "__aenter__" vs "__aexit__"). */
+        JitLirOperandDesc raw_args[3] = {};
+        raw_args[0].kind = JIT_LIR_OPDESC_INSTR;
+        raw_args[0].data.instr =
+            reinterpret_cast<JitLirInstr>(env_->asm_tstate);
+        raw_args[1].kind = JIT_LIR_OPDESC_REG_REF;
+        raw_args[1].data.reg =
+            reinterpret_cast<void*>(instr.GetOperand(0));
+        raw_args[2].kind = JIT_LIR_OPDESC_IMM_BOOL;
+        raw_args[2].data.imm_bool = instr.isAEnter() ? 1 : 0;
+        lir_bbb_append_invoke(
+            reinterpret_cast<LirBasicBlockBuilder*>(&bbb),
+            reinterpret_cast<void*>(JITRT_FormatAwaitableError),
+            3,
+            raw_args);
         appendGuardAlwaysFail(bbb, instr);
         break;
       }
