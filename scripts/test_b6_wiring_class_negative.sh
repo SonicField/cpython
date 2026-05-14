@@ -51,29 +51,40 @@ fi
 # Pre-W32 Option A: bare `echo $OUT | grep -E "FAIL|ERROR|CRASH..." | tee`
 # returned rc=1 on no-match → pipefail killed script.
 # Post-W32: brace-group `{ ... || true; }` neutralizes no-match exit.
+#
+# METHODOLOGY NOTE (B6-amend per supervisor 01:07:41Z + generalist 01:07:06Z
+# reverse-test catch): set -e is silently DISABLED inside a subshell that is
+# the LHS of && or || per bash docs ('the shell does not exist if the command
+# that fails is part of any command executed in a && or || list'). Original
+# B6 (ii) wrapped the test in `( set -euo pipefail; ... ) || handler` —
+# vacuous: bash never exits the subshell on pipeline failure, so reverse-test
+# (revert W32 Option A → bare grep) couldn't surface the regression.
+#
+# B6-amend uses `bash -c '...'` to run the pattern at the TOP LEVEL of a
+# fresh bash process, where set -euo pipefail behaves normally. The amend's
+# rc reflects whether the W32 Option A pattern actually neutralized the
+# no-match exit. Reverse-test (revert pattern in PATTERN_SH) yields a
+# top-level bash that exits non-zero on pipeline failure — non-vacuously
+# detects the regression.
 echo "B6 scenario (ii): brace-group grep with no matches must NOT pipefail-kill"
 
 # Synthesize a 'clean' output (no FAIL/ERROR/CRASH/Assertion) — grep -E should
 # return rc=1, but the brace-group with || true should swallow it.
-CLEAN_OUTPUT="$(printf 'All tests OK\nNo issues to report\n')"
-SCENARIO_II_PASSED=1
+SCENARIO_II_LOG=$(mktemp /tmp/b6_scenario_ii_XXXXXX.log)
+PATTERN_SH='set -euo pipefail
+CLEAN_OUTPUT="$(printf "All tests OK\nNo issues to report\n")"
+{ echo "$CLEAN_OUTPUT" | grep -E "FAIL|ERROR|CRASH|Assertion failed" || true; } | cat >/dev/null
+echo "REACHED post-pipeline (W32 Option A neutralized no-match exit)"
+'
+bash -c "$PATTERN_SH" > "$SCENARIO_II_LOG" 2>&1
+SCENARIO_II_RC=$?
 
-# Subshell with strict pipefail to mimic gate_phoenix.sh top-level set -euo
-# pipefail context. Inside, exercise the W32 Option A pattern verbatim.
-(
-    set -euo pipefail
-    # This line MUST NOT cause the subshell to exit non-zero, even though
-    # grep returns 1 (no match) and the pipeline runs under pipefail.
-    { echo "$CLEAN_OUTPUT" | grep -E "FAIL|ERROR|CRASH|Assertion failed" || true; } | cat >/dev/null
-    # If we reach here, brace-group + || true neutralized the no-match rc.
-    exit 0
-) || SCENARIO_II_PASSED=0
-
-if [ "$SCENARIO_II_PASSED" -eq 1 ]; then
+if [ "$SCENARIO_II_RC" -eq 0 ] && grep -q "REACHED post-pipeline" "$SCENARIO_II_LOG"; then
     report_pass "(ii) Brace-group + || true: no-match grep does NOT pipefail-kill. W32 Option A intact."
 else
-    report_fail "(ii) Brace-group + || true regression: no-match grep DID pipefail-kill subshell. W32 Option A broken."
+    report_fail "(ii) Brace-group + || true regression: top-level bash exited rc=$SCENARIO_II_RC; pipeline pipefail-killed before REACHED. W32 Option A broken."
 fi
+rm -f "$SCENARIO_II_LOG"
 
 echo ""
 echo "B6 NEG-TEST SUMMARY: $PASS pass, $FAIL fail"
