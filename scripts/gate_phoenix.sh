@@ -936,7 +936,7 @@ if [ "$BENCHMARK" -eq 1 ]; then
     # I3 CLASS-F refactor (supervisor 21:48:29Z): explicit-rc-capture for
     # benchmark runner.
     set +e
-    BENCH_OUTPUT=$(VANILLA_PYTHON="$CPYTHON_ROOT/../cpython-vanilla/python" JIT_ENABLE=1 "${PYTHON}_bench" \
+    BENCH_OUTPUT=$(VANILLA_PYTHON="${VANILLA_PYTHON:-$CPYTHON_ROOT/../cpython-vanilla/python}" JIT_ENABLE=1 "${PYTHON}_bench" \
         "$CPYTHON_ROOT/Tools/benchmark_phoenix.py" jit \
         --compile=auto --reps=3 --only=fibonacci,nqueens,gen_simple,func_calls 2>&1)
     BENCH_RC=$?
