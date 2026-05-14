@@ -1485,5 +1485,70 @@ class TestC22bMechGenericDealloc(unittest.TestCase):
         _c23_jit_run(self, wrapper)
 
 
+@unittest.skipUnless(HAS_JIT, "Phoenix JIT not available")
+class TestC24RaiseAwaitableError(unittest.TestCase):
+    """c24 fixture: exercise lir/generator.cpp:1923
+    case kRaiseAwaitableError, which lowers
+    `bbb.appendInvokeInstruction(JITRT_FormatAwaitableError, asm_tstate,
+    instr.GetOperand(0), instr.isAEnter())` — the first c-series site
+    with an IMM_BOOL operand kind (substrate-DRAFT n=1→2 stress test
+    per shepard 15:54:15Z).
+
+    Trigger (per builder_emit_c.c:2845-2858): RaiseAwaitableError HIR
+    emitted only when emitGetAwaitable receives error_aenter ||
+    error_aexit non-zero — i.e., GET_AWAITABLE bytecode under
+    `async with` (NOT regular `await x` which uses CheckExc-only path).
+
+    IMM_BOOL operand-semantic-parity probe: each test catches the
+    runtime TypeError and asserts the error message matches the
+    expected text. The error message text differs based on isAEnter
+    (bool operand): "__aenter__" vs "__aexit__" wording. Bit-identical
+    text under both bool variants confirms IMM_BOOL marshals correctly
+    through the c-bridge dispatch path (when c24 substrate lands).
+    Pre-substrate (current state, C++ direct invoke), tests assert the
+    expected text as the baseline reference.
+    """
+
+    def _drive_expecting_typeerror(self, coro_factory):
+        coro_obj = coro_factory()
+        try:
+            coro_obj.send(None)
+        except TypeError as e:
+            return str(e)
+        self.fail("coroutine did not raise TypeError")
+
+    def test_async_with_aenter_not_awaitable(self):
+        class BadAenterCtx:
+            def __aenter__(self):
+                return 42  # bare int — not awaitable
+            async def __aexit__(self, *args):
+                return None
+
+        async def coro():
+            async with BadAenterCtx():
+                pass
+
+        compiled = _force_compile(coro)
+        self.assertTrue(compiled, "Failed to JIT-compile coro")
+        msg = self._drive_expecting_typeerror(coro)
+        self.assertIn("__aenter__", msg)
+
+    def test_async_with_aexit_not_awaitable(self):
+        class BadAexitCtx:
+            async def __aenter__(self):
+                return None
+            def __aexit__(self, *args):
+                return 42  # bare int — not awaitable
+
+        async def coro():
+            async with BadAexitCtx():
+                pass
+
+        compiled = _force_compile(coro)
+        self.assertTrue(compiled, "Failed to JIT-compile coro")
+        msg = self._drive_expecting_typeerror(coro)
+        self.assertIn("__aexit__", msg)
+
+
 if __name__ == "__main__":
     unittest.main()
