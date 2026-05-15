@@ -887,6 +887,50 @@ void JITRT_UnlinkFrame(
   _PyInterpreterFrame* frame = currentFrame(tstate);
   setCurrentFrame(tstate, frame->previous);
 
+  // F-0 behavior-time hasRtfsFunction-rate measurement per theologian
+  // 2026-05-15T21:34:01Z + supervisor 21:34:24Z spec.  Distinct from
+  // F-1 codegen-time gate-correctness instrumentation (frame_asm_c.c
+  // PYTHONJITGATESTATS): F-0 measures the runtime distribution of
+  // hasRtfsFunction(frame) at JIT'd lightweight non-generator function
+  // exit, validating that the W-PERF Class A Phase B inline-body
+  // forecast (~3-5pp recovery) is anchored on a real branch-rate
+  // distribution rather than design intuition.  Read BEFORE
+  // jitFrameClearExceptCode because that helper may mutate the rtfs
+  // field (clears JIT_FRAME_RTFS bit at frame.cpp:720 in the
+  // !hasRtfsFunction + initialise-on-clear path).  Env-gated
+  // PYTHONJITHASRTFSCHECK=1; production zero overhead (cached static
+  // gate defaults to 0; instrumented branch is dead-code-eliminated
+  // by the compiler when env unset).
+  {
+    static int hasrtfs_check_enabled = -1;
+    if (hasrtfs_check_enabled == -1) {
+      const char* env = getenv("PYTHONJITHASRTFSCHECK");
+      hasrtfs_check_enabled =
+          (env != nullptr && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+    }
+    if (hasrtfs_check_enabled) {
+      static long hasrtfs_check_total = 0;
+      static long hasrtfs_check_true = 0;
+      bool has_rtfs = jit::hasRtfsFunction(frame);
+      hasrtfs_check_total += 1;
+      if (has_rtfs) {
+        hasrtfs_check_true += 1;
+      }
+      PyCodeObject* code = frameCode(frame);
+      const char* qualname = (code != nullptr && code->co_qualname != nullptr)
+          ? PyUnicode_AsUTF8(code->co_qualname)
+          : "<no-code>";
+      fprintf(stderr,
+              "[PHXJIT_HASRTFS_CHECK] verdict=%s "
+              "(running total=%ld true=%ld false=%ld) func=%s\n",
+              has_rtfs ? "true" : "false",
+              hasrtfs_check_total,
+              hasrtfs_check_true,
+              hasrtfs_check_total - hasrtfs_check_true,
+              qualname);
+    }
+  }
+
   // This is needed particularly because it handles the work of copying
   // data to a PyFrameObject if one has escaped the function.
   jit::jitFrameClearExceptCode(frame);
