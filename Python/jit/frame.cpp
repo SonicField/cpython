@@ -118,6 +118,7 @@ uintptr_t getIP(_PyInterpreterFrame* frame, int frame_size) {
       // miss, non-generator cells PASS — read/write address divergence
       // is generator-path-specific).
       uintptr_t saved_ip = footer->savedIP;
+      bool fallback_fired = false;
       if (saved_ip == 0) {
         // No call has happened yet (slot still zero from generator
         // entry), fall back to the saved LR slot used by the
@@ -125,6 +126,53 @@ uintptr_t getIP(_PyInterpreterFrame* frame, int frame_size) {
         auto saved_lr = reinterpret_cast<uintptr_t*>(
             reinterpret_cast<uintptr_t>(footer) + kPointerSize);
         memcpy(&saved_ip, saved_lr, kPointerSize);
+        fallback_fired = true;
+      }
+      // F-S5.fix.e behavior-time addr-equality instrumentation per
+      // theologian 2026-05-15T20:56:13Z + supervisor 21:13:26Z spec.
+      // Logs (1) the offsetof slot read addr, (2) the formula addr the
+      // pre-fix code would have used (frame_base + frame_size),
+      // (3) the savedIP value, (4) which branch fired (offsetof slot
+      // vs LR-fallback), and (5) running totals.  Gate condition for
+      // the falsifier: cells (c)+(d) PASS AND grep "branch=LR_FALLBACK"
+      // in the captured stderr returns ZERO occurrences across the
+      // running-generator code paths exercised by the cells (the
+      // fallback firing while cells PASS would mean the fix's primary
+      // defense — write/read coordination on footer->savedIP — was not
+      // exercised, and PASS is via the LR fallback masking layer).
+      // Address-equality between offsetof slot and formula addr
+      // empirically confirms the read/write divergence the fix
+      // targets: when they differ, the pre-fix formula addr was
+      // pointing into stack-frame-layout space disjoint from the
+      // footer slot.
+      static int gen_addr_check_enabled = -1;
+      if (gen_addr_check_enabled == -1) {
+        const char* env = getenv("PYTHONJITGENADDRCHECK");
+        gen_addr_check_enabled =
+            (env != nullptr && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+      }
+      if (gen_addr_check_enabled) {
+        static int gen_addr_check_total = 0;
+        static int gen_addr_check_fallback = 0;
+        gen_addr_check_total += 1;
+        if (fallback_fired) {
+          gen_addr_check_fallback += 1;
+        }
+        uintptr_t offsetof_addr =
+            reinterpret_cast<uintptr_t>(footer) +
+            offsetof(jit::GenDataFooter, savedIP);
+        uintptr_t formula_addr =
+            reinterpret_cast<uintptr_t>(footer) + frame_size;
+        fprintf(stderr,
+                "[PHXJIT_GEN_ADDR_CHECK] footer=%p offsetof_addr=0x%lx "
+                "formula_addr=0x%lx savedIP=0x%lx branch=%s "
+                "(running total=%d fallback=%d)\n",
+                static_cast<void*>(footer),
+                static_cast<unsigned long>(offsetof_addr),
+                static_cast<unsigned long>(formula_addr),
+                static_cast<unsigned long>(saved_ip),
+                fallback_fired ? "LR_FALLBACK" : "OFFSETOF_SLOT",
+                gen_addr_check_total, gen_addr_check_fallback);
       }
       return saved_ip;
 #endif
