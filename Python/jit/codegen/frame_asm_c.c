@@ -16,6 +16,10 @@
 
 #include "cinderx/Common/py-portability.h"
 #include "cinderx/Jit/jit_config_c.h"
+#include "cinderx/Jit/codegen/frame_asm_c_oracle.h"  /* F-1 gate oracle */
+
+#include <assert.h>
+#include <stdlib.h>
 
 #include "jit/phoenix_asm/phoenix_asm.h"
 #include "cinderx/Jit/codegen/register_preserver_c.h"
@@ -529,6 +533,55 @@ frame_asm_c_generate_unlink_frame(
         && jit_hir_func_get_frame_mode(hir_func) == FRAME_MODE_LIGHTWEIGHT
         && code->co_nfreevars == 0
         && code->co_ncellvars == 0;
+
+    /* F-1 codegen-time gate-correctness instrumentation per supervisor
+     * 06:27:29Z dispatch + theologian 06:28:41Z + 06:29:45Z design.
+     *
+     * F-1.a (oracle agreement): pydebug-only assert that the production
+     * gate boolean above matches an independently-derived oracle.
+     * Divergence catches Phase A inert-scaffolding-class regressions
+     * (per librarian 00:04:37Z grep that exposed gate_passes_full_inline
+     * was (void)-cast at the prior commit).  Production builds compile
+     * out the assert so the oracle call is dead-code-eliminated.
+     *
+     * F-1.b (population coverage): env-gated PYTHONJITGATESTATS=1 prints
+     * per-JIT-compile gate verdict + running totals + each input field,
+     * so a single test run produces a population distribution that
+     * verifies >0 functions take each branch and shows which input
+     * decided each false case. */
+    assert(gate_passes_full_inline
+           == frame_asm_c_full_inline_gate_oracle(hir_func));
+
+    {
+        static int phxjit_gate_stats_enabled = -1;
+        if (phxjit_gate_stats_enabled == -1) {
+            const char* env = getenv("PYTHONJITGATESTATS");
+            phxjit_gate_stats_enabled =
+                (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+        }
+        if (phxjit_gate_stats_enabled) {
+            static int true_count = 0;
+            static int false_count = 0;
+            if (gate_passes_full_inline) {
+                true_count += 1;
+            } else {
+                false_count += 1;
+            }
+            const char* qualname = PyUnicode_AsUTF8(code->co_qualname);
+            fprintf(stderr,
+                    "[PHXJIT_GATE_STATS] full_inline gate=%s "
+                    "(running true=%d false=%d total=%d) "
+                    "lightweight=%d non_gen=%d cellvars=%d freevars=%d "
+                    "func=%s\n",
+                    gate_passes_full_inline ? "true" : "false",
+                    true_count, false_count, true_count + false_count,
+                    jit_get_config()->frame_mode == JIT_FRAME_LIGHTWEIGHT,
+                    !jit_hir_func_is_gen(hir_func),
+                    (int)code->co_ncellvars,
+                    (int)code->co_nfreevars,
+                    qualname != NULL ? qualname : "<?>");
+        }
+    }
     (void)gate_passes_full_inline;  /* used in Phase B+ */
 
 #if defined(CINDER_X86_64)
