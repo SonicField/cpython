@@ -105,11 +105,28 @@ uintptr_t getIP(_PyInterpreterFrame* frame, int frame_size) {
       // stack relative to the resume function's RBP.
       frame_base = footer->originalFramePointer;
 #elif defined(__aarch64__)
-      // On ARM64, we walk the frame pointer chain to find the JIT frame.
-      // During generator execution, FP is set to the GenDataFooter pointer
-      // (gi_jit_data), so that's what callees save as their frame pointer
-      // and what we need to match against in the chain.
-      frame_base = reinterpret_cast<uintptr_t>(footer);
+      // On ARM64, the JIT writes the return address into footer->savedIP
+      // directly before each call (see gen_data_footer.h:75-82 + the
+      // emitCall is_generator branch in codegen/gen_asm_utils.h that
+      // stores via [x29 + offsetof(GenDataFooter, savedIP)]).  Read it
+      // back from the same slot rather than from the
+      // frame_base + saved_ip_fp_offset formula, which is computed for
+      // the non-generator stack-frame layout and does not coincide with
+      // the GenDataFooter slot offset (W-ARM64-PYDEBUG-CRASH per
+      // testkeeper 2026-05-15T20:53:01Z 4-cell H6/H8 falsifier:
+      // generator cells crash at frame.cpp:243 IP-debug-info lookup
+      // miss, non-generator cells PASS — read/write address divergence
+      // is generator-path-specific).
+      uintptr_t saved_ip = footer->savedIP;
+      if (saved_ip == 0) {
+        // No call has happened yet (slot still zero from generator
+        // entry), fall back to the saved LR slot used by the
+        // non-generator path below.
+        auto saved_lr = reinterpret_cast<uintptr_t*>(
+            reinterpret_cast<uintptr_t>(footer) + kPointerSize);
+        memcpy(&saved_ip, saved_lr, kPointerSize);
+      }
+      return saved_ip;
 #endif
     } else {
       // The generator is suspended.
