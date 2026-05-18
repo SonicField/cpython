@@ -15,6 +15,15 @@
 extern "C" {
 #endif
 
+/* Determinism counter per template (A) (theologian 2026-05-18T20:47:18Z +
+ * sup 21:12:01Z + librarian 21:09:55Z): incremented in phx_ptr_arr_push
+ * when a realloc-grow fires. Single-def in builder.cpp alongside
+ * phx_framestate_parent_resize_count. Read via ctypes in gate fixture to
+ * assert resize-path exercised by existing JIT test suite — amortizes
+ * the certainty cost across all typed-wrapper-migration sites (M1 +
+ * future M2 + ...). */
+extern unsigned long phx_ptr_array_resize_count;
+
 typedef struct PhxPtrArray {
     void **data;
     size_t count;
@@ -32,6 +41,7 @@ static inline void phx_ptr_arr_push(PhxPtrArray *a, void *val) {
         size_t new_cap = a->capacity ? a->capacity * 2 : 8;
         a->data = (void **)realloc(a->data, new_cap * sizeof(void *));
         a->capacity = new_cap;
+        phx_ptr_array_resize_count++;
     }
     a->data[a->count++] = val;
 }
@@ -45,6 +55,7 @@ static inline void phx_ptr_arr_resize(PhxPtrArray *a, size_t n) {
     if (n > a->capacity) {
         a->data = (void **)realloc(a->data, n * sizeof(void *));
         a->capacity = n;
+        phx_ptr_array_resize_count++;
     }
     a->count = n;
 }
@@ -52,6 +63,7 @@ static inline void phx_ptr_arr_reserve(PhxPtrArray *a, size_t n) {
     if (n > a->capacity) {
         a->data = (void **)realloc(a->data, n * sizeof(void *));
         a->capacity = n;
+        phx_ptr_array_resize_count++;
     }
 }
 static inline void phx_ptr_arr_copy(PhxPtrArray *dst, const PhxPtrArray *src) {

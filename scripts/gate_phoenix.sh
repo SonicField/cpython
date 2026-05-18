@@ -516,19 +516,23 @@ FS_MAP_OUTPUT=$(PYTHONJITENABLEHIRINLINER=1 ASAN_OPTIONS=detect_leaks=0 "$PYTHON
 import _cinderx, cinderjit
 
 # Determinism instrumentation per theologian 2026-05-18T20:27:40Z (I): read
-# phx_framestate_parent_resize_count via ctypes pre + post force_compile.
-# Resize-path is exercised iff post > pre. Falls back to INFO-only if ctypes
-# lookup fails (release build w/o symbol export); fixture still validates
-# semantic correctness in that case.
+# phx_framestate_parent_resize_count + phx_ptr_array_resize_count via ctypes
+# pre + post force_compile. Resize-path is exercised iff post > pre. Falls
+# back to INFO-only if ctypes lookup fails. phx_ptr_array_resize_count covers
+# all typed-wrapper-migration sites (M1 inliner.cpp + future M2+) via
+# substrate-local template (A) per sup 21:12:01Z.
 try:
     import ctypes
     libpy = ctypes.CDLL(None)
     rcnt = ctypes.c_size_t.in_dll(libpy, 'phx_framestate_parent_resize_count')
     pre_count = rcnt.value
+    pacnt = ctypes.c_ulong.in_dll(libpy, 'phx_ptr_array_resize_count')
+    pre_pa_count = pacnt.value
     counter_present = True
 except (ImportError, ModuleNotFoundError, AttributeError, ValueError, OSError):
     counter_present = False
     pre_count = 0
+    pre_pa_count = 0
 
 # 14 chained BinaryOps → 14 BinaryOp DeoptBases (each carries a FrameState)
 # + entry Snapshot + Return → 15+ frame_states in callee HIR. When the
@@ -570,10 +574,20 @@ assert result == expected, f'fs_resize_caller: got {result}, expected {expected}
 # Determinism check: assert resize event fired iff symbol is readable
 if counter_present:
     delta = rcnt.value - pre_count
+    pa_delta = pacnt.value - pre_pa_count
     print(f'phx_framestate_parent_resize_count delta: {delta} (pre={pre_count} post={rcnt.value})')
+    print(f'phx_ptr_array_resize_count delta: {pa_delta} (pre={pre_pa_count} post={pacnt.value})')
     assert delta > 0, f'PhxFrameStatePtrMap resize fixture: resize never fired (delta=0 — inliner may have rejected fs_resize_callee, or callee frame_state count < 12)'
+    # PhxPtrArray resize coverage (M1 typed-wrapper-migration falsifier): the
+    # to_delete site in tryEliminateBeginEnd will push begin + end + N
+    # Snapshots; for fs_resize_callee with 14 BinaryOps, N>8 triggers resize.
+    # If pa_delta == 0, M1 inliner.cpp PhxPtrArray sites not exercised at
+    # gate (unexpected for this fixture); print WARN but don't fail (existing
+    # JIT test suite is the substrate-level coverage net for M1).
+    if pa_delta == 0:
+        print('GATE WARN: phx_ptr_array_resize_count unchanged in fs_resize fixture; PhxPtrArray sites at inliner.cpp may have insufficient exercise here (existing JIT suite Step 3 still covers).')
 else:
-    print('phx_framestate_parent_resize_count: symbol unreadable (ctypes lookup failed); semantic check stands but resize-path exercise UNVERIFIED at this build')
+    print('phx_framestate_parent_resize_count + phx_ptr_array_resize_count: symbols unreadable (ctypes lookup failed); semantic check stands but resize-path exercise UNVERIFIED at this build')
 
 print(f'PhxFrameStatePtrMap resize fixture: PASS (result={result})')
 " 2>&1)

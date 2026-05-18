@@ -12,6 +12,12 @@
  * actually fires (theologian 2026-05-18T20:27:40Z (I)). */
 extern "C" {
 size_t phx_framestate_parent_resize_count = 0;
+/* Substrate-local resize counter per template (A) (theologian
+ * 2026-05-18T20:47:18Z + sup 21:12:01Z). Single-def host for the
+ * phx_ptr_array.h declaration; amortizes per-substrate determinism
+ * cost across all PhxPtrArray callers (inliner.cpp M1 + future
+ * builder.cpp M2 + ...). */
+unsigned long phx_ptr_array_resize_count = 0;
 }
 #include "cinderx/Jit/bytecode_c.h"  /* BcByteOffset wrapper for emitAnyCall seam */
 
