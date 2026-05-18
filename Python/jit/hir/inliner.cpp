@@ -5,6 +5,7 @@
 #include "cinderx/Jit/hir/inliner_helpers_c.h"
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
+#include "cinderx/Jit/hir/phx_ptr_array.h"  /* M1: std::vector<T*> → PhxPtrArray */
 #include "cinderx/Jit/jit_config_c.h"
 
 extern "C" void hir_reflow_types_c(void *func, void *start_block);
@@ -317,17 +318,23 @@ void inlineFunctionCall(Function& caller, AbstractCall* call_instr) {
         // later eliminate the allocation for constant-index access.
         size_t num_excess = call_instr->nargs
             - static_cast<size_t>(callee_code->co_argcount);
-        std::vector<Register*> excess_args;
-        excess_args.reserve(num_excess);
+        // M1: std::vector<Register*> → PhxPtrArray. Local-scope; max-count
+        // = num_excess = caller-args - callee-co_argcount, bounded by Python
+        // call-site argc (typically <10, below PhxPtrArray initial-cap 8).
+        PhxPtrArray excess_args;
+        phx_ptr_arr_init(&excess_args);
+        phx_ptr_arr_reserve(&excess_args, num_excess);
         for (size_t i = 0; i < num_excess; i++) {
-          excess_args.push_back(
+          phx_ptr_arr_push(&excess_args,
               call_instr->arg(callee_code->co_argcount + i));
         }
         auto* make_tuple = static_cast<Instr*>(hir_c_create_make_tuple_reg(
             num_excess, instr.output(), call_instr->instr->frameState()));
         for (size_t i = 0; i < num_excess; i++) {
-          make_tuple->SetOperand(i, excess_args[i]);
+          make_tuple->SetOperand(i,
+              static_cast<Register*>(excess_args.data[i]));
         }
+        phx_ptr_arr_destroy(&excess_args);
         instr.ReplaceWith(*make_tuple);
         Instr::Destroy(&instr);
       } else {
@@ -362,12 +369,19 @@ void tryEliminateBeginEnd(EndInlinedFunction* end) {
   }
   auto it = begin->block()->iterator_to(*begin);
   it++;
-  std::vector<Instr*> to_delete{begin, end};
+  // M1: std::vector<Instr*> → PhxPtrArray. Local-scope; max-count = 2 +
+  // count of Snapshots between Begin/End (typically few dozen, may exceed
+  // PhxPtrArray initial-cap 8; resize behavior is realloc-double, same
+  // amortized as std::vector for void* pointers).
+  PhxPtrArray to_delete;
+  phx_ptr_arr_init(&to_delete);
+  phx_ptr_arr_push(&to_delete, begin);
+  phx_ptr_arr_push(&to_delete, end);
   for (; &*it != end; it++) {
     // Snapshots reference the FrameState owned by BeginInlinedFunction and, if
     // not removed, will contain bad pointers.
     if (it->IsSnapshot()) {
-      to_delete.push_back(&*it);
+      phx_ptr_arr_push(&to_delete, &*it);
       continue;
     }
     // Instructions that either deopt or otherwise materialize a PyFrameObject
@@ -380,13 +394,16 @@ void tryEliminateBeginEnd(EndInlinedFunction* end) {
         || hir_has_arbitrary_execution(&*it)
 #endif
     ) {
+      phx_ptr_arr_destroy(&to_delete);
       return;
     }
   }
-  for (Instr* instr : to_delete) {
+  for (size_t i = 0; i < to_delete.count; i++) {
+    Instr* instr = static_cast<Instr*>(to_delete.data[i]);
     instr->unlink();
     Instr::Destroy(instr);
   }
+  phx_ptr_arr_destroy(&to_delete);
 }
 
 } // namespace
@@ -687,18 +704,23 @@ void InlineFunctionCalls::Run(Function& irfunc) {
 }
 
 void BeginInlinedFunctionElimination::Run(Function& irfunc) {
-  std::vector<EndInlinedFunction*> ends;
+  // M1: std::vector<EndInlinedFunction*> → PhxPtrArray. Local-scope;
+  // max-count = count of EndInlinedFunction in irfunc (bounded by inlining
+  // decisions, typically <10).
+  PhxPtrArray ends;
+  phx_ptr_arr_init(&ends);
   for (auto& block : irfunc.cfg.blocks) {
     for (auto& instr : block) {
       if (!instr.IsEndInlinedFunction()) {
         continue;
       }
-      ends.push_back(static_cast<EndInlinedFunction*>(&instr));
+      phx_ptr_arr_push(&ends, &instr);
     }
   }
-  for (EndInlinedFunction* end : ends) {
-    tryEliminateBeginEnd(end);
+  for (size_t i = 0; i < ends.count; i++) {
+    tryEliminateBeginEnd(static_cast<EndInlinedFunction*>(ends.data[i]));
   }
+  phx_ptr_arr_destroy(&ends);
 }
 
 } // namespace jit::hir
