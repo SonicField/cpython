@@ -1133,6 +1133,7 @@ if [ "$ARM64" -eq 1 ]; then
     # 'GATE PASS' verdicts undeterminable — addressed by line buffering on the
     # capture side so output flushes incrementally rather than in a final block.
     ARM64_OUTPUT=$(stdbuf -oL -eL nbs-remote-run "$ARM64_HOST" --timeout=900 "
+        export PATH=/data/users/wlei/miniconda3-arm/bin:\$PATH;
         cd $ARM64_DIR &&
         echo STASH_PUSH_BEGIN;
         ORIG_REF=\$(git symbolic-ref --short -q HEAD || git rev-parse HEAD);
@@ -1191,6 +1192,22 @@ if [ "$ARM64" -eq 1 ]; then
     fi
 
     echo "$ARM64_OUTPUT" | tee -a "$RESULTS_FILE"
+
+    # Silent-truncation detection. Per testkeeper 2026-05-18T19:18:44Z +
+    # 19:54:39Z 2-occurrence pattern (fecf4459f7 + b2fd9affa2 both required
+    # hand-recovery): if the remote PATH lacks ARM64 cmake, build never
+    # starts, $ARM64_OUTPUT comes back empty/truncated, no ARM64_REMOTE_FAIL
+    # or FAILURE marker fires, ARM64_COMMIT_HASH guard skips silently, and
+    # the gate vacuously claims PASS. Assert that the BUILD_ARM64= marker
+    # printed by the remote script body actually appears in the captured
+    # output — its presence proves the remote script ran past the build
+    # step, even if subsequent steps failed (those would trigger FAILURE/
+    # ARM64_REMOTE_FAIL detection above).
+    if ! echo "$ARM64_OUTPUT" | grep -q 'BUILD_ARM64='; then
+        echo "GATE FAIL — ARM64 output missing BUILD_ARM64 marker (silent-truncation; check remote PATH + nbs-remote-run completion)" | tee -a "$RESULTS_FILE"
+        GATE_PASS=0
+        FAILURES="$FAILURES ARM64:silent_truncation"
+    fi
 
     if echo "$ARM64_OUTPUT" | grep -q "ARM64_REMOTE_FAIL"; then
         GATE_PASS=0
