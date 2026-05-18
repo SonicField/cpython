@@ -220,7 +220,8 @@ void Instr::Destroy(Instr* instr) {
   // H2-C: Delegate to pure C implementation.
   // Per-type cleanup is handled explicitly in hir_c_destroy_instr_impl()
   // (hir_instr_c.h). FrameState deletion goes through the C++ helper
-  // hir_c_destroy_frame_state() since FrameState still has std::vector.
+  // hir_c_destroy_frame_state() to chain ~FrameState (PhxPtrArray
+  // localsplus/stack + PhxExecBlockArray block_stack member dtors).
   hir_c_destroy_instr_impl(instr);
 }
 
