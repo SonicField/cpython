@@ -4,6 +4,15 @@
 #include "cinderx/Jit/hir/hir_instr_c.h"
 #include "cinderx/Jit/hir/hir_c_api.h"
 #include "cinderx/Jit/hir/hir_type_c.h"
+#include "cinderx/Jit/hir/phx_frame_state_ptr_map.h"  /* E-9 substrate 2.8 */
+
+/* Determinism counter for PhxFrameStatePtrMap resize-path coverage at
+ * HIRBuilder::inlineHIR framestate_parent fill loop. Fixture in
+ * scripts/gate_phoenix.sh Step 2.5 reads via ctypes to assert resize
+ * actually fires (theologian 2026-05-18T20:27:40Z (I)). */
+extern "C" {
+size_t phx_framestate_parent_resize_count = 0;
+}
 #include "cinderx/Jit/bytecode_c.h"  /* BcByteOffset wrapper for emitAnyCall seam */
 
 extern "C" int hir_remove_trampoline_blocks_c(void *cfg);
@@ -797,7 +806,11 @@ InlineResult HIRBuilder::inlineHIR(
   // Map of FrameState to parent pointers. We must completely disconnect the
   // inlined function's CFG from its caller for SSAify to run properly: it will
   // find uses (in FrameState) before defs and insert LoadConst<Nullptr>.
-  UnorderedMap<FrameState*, FrameState*> framestate_parent;
+  // E-9 substrate 2.8 (b2fd9affa2): PhxFrameStatePtrMap typed alias over
+  // PhxPtrMap replaces UnorderedMap<FrameState*, FrameState*>. NULL-key
+  // invariant preserved by the fs == nullptr guard below.
+  PhxFrameStatePtrMap framestate_parent;
+  phx_frame_state_ptr_map_init(&framestate_parent);
   for (BasicBlock* block : caller->cfg.GetRPOTraversal(entry_block)) {
     for (Instr& instr : *block) {
       JIT_CHECK(
@@ -816,7 +829,17 @@ InlineResult HIRBuilder::inlineHIR(
       if (fs == nullptr || fs->parent == nullptr) {
         continue;
       }
-      bool inserted = framestate_parent.emplace(fs, fs->parent).second;
+      // Determinism instrumentation per theologian 2026-05-18T20:27:40Z (I)
+      // hard-runtime-assertion of resize: detect capacity grow across the
+      // insert call. Fixture reads phx_framestate_parent_resize_count via
+      // ctypes to assert resize-path was actually exercised (vs silent
+      // passes-without-exercise pattern).
+      size_t cap_before = phx_frame_state_ptr_map_capacity(&framestate_parent);
+      int inserted =
+          phx_frame_state_ptr_map_insert(&framestate_parent, fs, fs->parent);
+      if (phx_frame_state_ptr_map_capacity(&framestate_parent) > cap_before) {
+        phx_framestate_parent_resize_count++;
+      }
       JIT_CHECK(inserted, "there should not be duplicate FrameState pointers");
       fs->parent = nullptr;
     }
@@ -826,11 +849,18 @@ InlineResult HIRBuilder::inlineHIR(
   // passes require input to be in SSA form. SSAify the inlined function.
   SSAify{}.Run(*caller, entry_block);
 
-  // Re-link the CFG.
-  for (auto& [fs, parent] : framestate_parent) {
-    fs->parent = parent;
+  // Re-link the CFG. PhxPtrMap iteration is slot-walk with key==NULL skip
+  // (phx_ptr_map.h:173-189 pattern); unordered like the prior UnorderedMap.
+  for (size_t i = 0; i < phx_frame_state_ptr_map_capacity(&framestate_parent);
+       i++) {
+    FrameState* fs = phx_frame_state_ptr_map_at_key(&framestate_parent, i);
+    if (fs == nullptr) {
+      continue;
+    }
+    fs->parent = phx_frame_state_ptr_map_at_value(&framestate_parent, i);
   }
 
+  phx_frame_state_ptr_map_destroy(&framestate_parent);
   return {entry_block, exit_block};
 }
 

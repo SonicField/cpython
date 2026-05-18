@@ -504,6 +504,87 @@ if [ "$SMOKE_EXIT" -ne 0 ]; then
 fi
 echo "JIT Smoke: PASS" | tee -a "$RESULTS_FILE"
 
+# Step 2.5: PhxFrameStatePtrMap resize fixture (E-9 substrate 2.8 caller-wire,
+# bundled per librarian 2026-05-18T19:36:52Z PhxBlockMap precedent + supervisor
+# 20:20:34Z PICK α). Exercises HIRBuilder::inlineHIR framestate_parent past
+# PhxPtrMap INITIAL_CAP=16 LOAD_NUM/DEN=7/10 resize threshold (~12 entries).
+# Inliner-pass-gated; runs in subprocess with PYTHONJITENABLEHIRINLINER=1.
+preflight_check_binary "step-2.5-phx-fs-map-resize"
+echo "" | tee -a "$RESULTS_FILE"
+echo "--- Step 2.5: PhxFrameStatePtrMap Resize Fixture ---" | tee -a "$RESULTS_FILE"
+FS_MAP_OUTPUT=$(PYTHONJITENABLEHIRINLINER=1 ASAN_OPTIONS=detect_leaks=0 "$PYTHON" -c "
+import _cinderx, cinderjit
+
+# Determinism instrumentation per theologian 2026-05-18T20:27:40Z (I): read
+# phx_framestate_parent_resize_count via ctypes pre + post force_compile.
+# Resize-path is exercised iff post > pre. Falls back to INFO-only if ctypes
+# lookup fails (release build w/o symbol export); fixture still validates
+# semantic correctness in that case.
+try:
+    import ctypes
+    libpy = ctypes.CDLL(None)
+    rcnt = ctypes.c_size_t.in_dll(libpy, 'phx_framestate_parent_resize_count')
+    pre_count = rcnt.value
+    counter_present = True
+except (ImportError, ModuleNotFoundError, AttributeError, ValueError, OSError):
+    counter_present = False
+    pre_count = 0
+
+# 14 chained BinaryOps → 14 BinaryOp DeoptBases (each carries a FrameState)
+# + entry Snapshot + Return → 15+ frame_states in callee HIR. When the
+# inliner pass inlines this callee, framestate_parent (builder.cpp:800)
+# fills past PhxPtrMap LOAD threshold (count > 16*0.7 = 11.2 = resize at
+# 12th insert).
+def fs_resize_callee(a, b, c):
+    x = a + b
+    x = x + c
+    x = x + a
+    x = x + b
+    x = x + c
+    x = x + a
+    x = x + b
+    x = x + c
+    x = x + a
+    x = x + b
+    x = x + c
+    x = x + a
+    x = x + b
+    return x + c
+
+def fs_resize_caller(a, b, c):
+    return fs_resize_callee(a, b, c)
+
+# Force-compile callee FIRST so inliner sees compiled body when caller compiles.
+cinderjit.force_compile(fs_resize_callee)
+assert cinderjit.is_jit_compiled(fs_resize_callee), 'callee not compiled'
+cinderjit.force_compile(fs_resize_caller)
+assert cinderjit.is_jit_compiled(fs_resize_caller), 'caller not compiled'
+
+# Semantic verification: 14 chained BinaryOps cycle a,b,c,a,b,c,...,a,b,c
+# starting from a+b and ending with +c. Final value = 5*a + 5*b + 5*c.
+# (a=1, b=2, c=3 → 5 + 10 + 15 = 30. Per gatekeeper 20:28:00Z code-trace.)
+result = fs_resize_caller(1, 2, 3)
+expected = 5 * 1 + 5 * 2 + 5 * 3
+assert result == expected, f'fs_resize_caller: got {result}, expected {expected}'
+
+# Determinism check: assert resize event fired iff symbol is readable
+if counter_present:
+    delta = rcnt.value - pre_count
+    print(f'phx_framestate_parent_resize_count delta: {delta} (pre={pre_count} post={rcnt.value})')
+    assert delta > 0, f'PhxFrameStatePtrMap resize fixture: resize never fired (delta=0 — inliner may have rejected fs_resize_callee, or callee frame_state count < 12)'
+else:
+    print('phx_framestate_parent_resize_count: symbol unreadable (ctypes lookup failed); semantic check stands but resize-path exercise UNVERIFIED at this build')
+
+print(f'PhxFrameStatePtrMap resize fixture: PASS (result={result})')
+" 2>&1)
+FS_MAP_EXIT=$?
+echo "$FS_MAP_OUTPUT" | tee -a "$RESULTS_FILE"
+if [ "$FS_MAP_EXIT" -ne 0 ]; then
+    echo "GATE FAIL — PhxFrameStatePtrMap resize fixture failed" | tee -a "$RESULTS_FILE"
+    GATE_PASS=0
+    FAILURES="$FAILURES PhxFrameStatePtrMap:CRASH"
+fi
+
 # Step 3: Phoenix test suite
 preflight_check_binary "step-3-phoenix"
 echo "" | tee -a "$RESULTS_FILE"
