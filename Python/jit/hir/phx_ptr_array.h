@@ -24,6 +24,17 @@ extern "C" {
  * future M2 + ...). */
 extern unsigned long phx_ptr_array_resize_count;
 
+/* P2 per-site attribution counters per theologian 2026-05-18T22:00:54Z +
+ * testkeeper 22:08:07Z empirical verification (Sites A+B uncovered by
+ * Step 3, Site C delta=15). Bumped at each M1 inliner.cpp site after
+ * capacity-change detection at the push call. Global counter remains for
+ * substrate-wide signal; per-site counters distinguish which specific
+ * M1 caller fired. M2 sites add own externs incrementally per-commit
+ * (substrate-M1-only scope per testkeeper 22:10:23Z). */
+extern unsigned long phx_ptr_array_resize_count_inliner_excess_args;
+extern unsigned long phx_ptr_array_resize_count_inliner_to_delete;
+extern unsigned long phx_ptr_array_resize_count_inliner_ends;
+
 typedef struct PhxPtrArray {
     void **data;
     size_t count;

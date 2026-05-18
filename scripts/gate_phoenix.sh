@@ -528,11 +528,20 @@ try:
     pre_count = rcnt.value
     pacnt = ctypes.c_ulong.in_dll(libpy, 'phx_ptr_array_resize_count')
     pre_pa_count = pacnt.value
+    # P2 per-site attribution counters (theologian 22:00:54Z + testkeeper
+    # 22:08:07Z empirical verification). Distinguish which M1 site fired.
+    psite_ea = ctypes.c_ulong.in_dll(libpy, 'phx_ptr_array_resize_count_inliner_excess_args')
+    psite_td = ctypes.c_ulong.in_dll(libpy, 'phx_ptr_array_resize_count_inliner_to_delete')
+    psite_en = ctypes.c_ulong.in_dll(libpy, 'phx_ptr_array_resize_count_inliner_ends')
+    pre_psite_ea = psite_ea.value
+    pre_psite_td = psite_td.value
+    pre_psite_en = psite_en.value
     counter_present = True
 except (ImportError, ModuleNotFoundError, AttributeError, ValueError, OSError):
     counter_present = False
     pre_count = 0
     pre_pa_count = 0
+    pre_psite_ea = pre_psite_td = pre_psite_en = 0
 
 # 14 chained BinaryOps → 14 BinaryOp DeoptBases (each carries a FrameState)
 # + entry Snapshot + Return → 15+ frame_states in callee HIR. When the
@@ -575,19 +584,25 @@ assert result == expected, f'fs_resize_caller: got {result}, expected {expected}
 if counter_present:
     delta = rcnt.value - pre_count
     pa_delta = pacnt.value - pre_pa_count
+    psite_ea_delta = psite_ea.value - pre_psite_ea
+    psite_td_delta = psite_td.value - pre_psite_td
+    psite_en_delta = psite_en.value - pre_psite_en
     print(f'phx_framestate_parent_resize_count delta: {delta} (pre={pre_count} post={rcnt.value})')
     print(f'phx_ptr_array_resize_count delta: {pa_delta} (pre={pre_pa_count} post={pacnt.value})')
+    print(f'phx_ptr_array_resize_count_inliner_excess_args delta: {psite_ea_delta} (pre={pre_psite_ea} post={psite_ea.value})')
+    print(f'phx_ptr_array_resize_count_inliner_to_delete  delta: {psite_td_delta} (pre={pre_psite_td} post={psite_td.value})')
+    print(f'phx_ptr_array_resize_count_inliner_ends       delta: {psite_en_delta} (pre={pre_psite_en} post={psite_en.value})')
     assert delta > 0, f'PhxFrameStatePtrMap resize fixture: resize never fired (delta=0 — inliner may have rejected fs_resize_callee, or callee frame_state count < 12)'
-    # PhxPtrArray resize coverage (M1 typed-wrapper-migration falsifier): the
-    # to_delete site in tryEliminateBeginEnd will push begin + end + N
-    # Snapshots; for fs_resize_callee with 14 BinaryOps, N>8 triggers resize.
-    # If pa_delta == 0, M1 inliner.cpp PhxPtrArray sites not exercised at
-    # gate (unexpected for this fixture); print WARN but don't fail (existing
-    # JIT test suite is the substrate-level coverage net for M1).
+    # P2 per-site attribution: Step 2.5 fixture is PhxFrameStatePtrMap-primary
+    # probe; per-site M1 inliner.cpp PhxPtrArray exercise here is incidental
+    # (only Site C ends fired per testkeeper 22:08:07Z (P1) result). The
+    # Step 3 JIT test suite is the per-site coverage net for Sites A + B.
+    # WARN-not-FAIL on per-site delta=0 — informational; existing test suite
+    # measurement is load-bearing.
     if pa_delta == 0:
         print('GATE WARN: phx_ptr_array_resize_count unchanged in fs_resize fixture; PhxPtrArray sites at inliner.cpp may have insufficient exercise here (existing JIT suite Step 3 still covers).')
 else:
-    print('phx_framestate_parent_resize_count + phx_ptr_array_resize_count: symbols unreadable (ctypes lookup failed); semantic check stands but resize-path exercise UNVERIFIED at this build')
+    print('phx_framestate_parent_resize_count + phx_ptr_array_resize_count + per-site counters: symbols unreadable (ctypes lookup failed); semantic check stands but resize-path exercise UNVERIFIED at this build')
 
 print(f'PhxFrameStatePtrMap resize fixture: PASS (result={result})')
 " 2>&1)

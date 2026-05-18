@@ -323,10 +323,18 @@ void inlineFunctionCall(Function& caller, AbstractCall* call_instr) {
         // call-site argc (typically <10, below PhxPtrArray initial-cap 8).
         PhxPtrArray excess_args;
         phx_ptr_arr_init(&excess_args);
+        size_t excess_cap_before = excess_args.capacity;
         phx_ptr_arr_reserve(&excess_args, num_excess);
+        if (excess_args.capacity != excess_cap_before) {
+          phx_ptr_array_resize_count_inliner_excess_args++;
+        }
         for (size_t i = 0; i < num_excess; i++) {
+          excess_cap_before = excess_args.capacity;
           phx_ptr_arr_push(&excess_args,
               call_instr->arg(callee_code->co_argcount + i));
+          if (excess_args.capacity != excess_cap_before) {
+            phx_ptr_array_resize_count_inliner_excess_args++;
+          }
         }
         auto* make_tuple = static_cast<Instr*>(hir_c_create_make_tuple_reg(
             num_excess, instr.output(), call_instr->instr->frameState()));
@@ -375,13 +383,25 @@ void tryEliminateBeginEnd(EndInlinedFunction* end) {
   // amortized as std::vector for void* pointers).
   PhxPtrArray to_delete;
   phx_ptr_arr_init(&to_delete);
+  size_t to_delete_cap_before = to_delete.capacity;
   phx_ptr_arr_push(&to_delete, begin);
+  if (to_delete.capacity != to_delete_cap_before) {
+    phx_ptr_array_resize_count_inliner_to_delete++;
+  }
+  to_delete_cap_before = to_delete.capacity;
   phx_ptr_arr_push(&to_delete, end);
+  if (to_delete.capacity != to_delete_cap_before) {
+    phx_ptr_array_resize_count_inliner_to_delete++;
+  }
   for (; &*it != end; it++) {
     // Snapshots reference the FrameState owned by BeginInlinedFunction and, if
     // not removed, will contain bad pointers.
     if (it->IsSnapshot()) {
+      to_delete_cap_before = to_delete.capacity;
       phx_ptr_arr_push(&to_delete, &*it);
+      if (to_delete.capacity != to_delete_cap_before) {
+        phx_ptr_array_resize_count_inliner_to_delete++;
+      }
       continue;
     }
     // Instructions that either deopt or otherwise materialize a PyFrameObject
@@ -714,7 +734,11 @@ void BeginInlinedFunctionElimination::Run(Function& irfunc) {
       if (!instr.IsEndInlinedFunction()) {
         continue;
       }
+      size_t ends_cap_before = ends.capacity;
       phx_ptr_arr_push(&ends, &instr);
+      if (ends.capacity != ends_cap_before) {
+        phx_ptr_array_resize_count_inliner_ends++;
+      }
     }
   }
   for (size_t i = 0; i < ends.count; i++) {

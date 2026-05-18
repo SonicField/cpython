@@ -18,6 +18,16 @@ size_t phx_framestate_parent_resize_count = 0;
  * cost across all PhxPtrArray callers (inliner.cpp M1 + future
  * builder.cpp M2 + ...). */
 unsigned long phx_ptr_array_resize_count = 0;
+/* P2 per-site attribution single-defs per theologian 2026-05-18T22:00:54Z
+ * + testkeeper 22:08:07Z (P1) measurement validation. M1 inliner.cpp
+ * sites (excess_args / to_delete / ends). Per-site bumps happen at the
+ * call-site via capacity-before/after detection (cannot be done inside
+ * phx_ptr_arr_push without site-tagging the call). M2 sites add own
+ * externs + defs incrementally per testkeeper 22:10:23Z
+ * substrate-M1-only scope. */
+unsigned long phx_ptr_array_resize_count_inliner_excess_args = 0;
+unsigned long phx_ptr_array_resize_count_inliner_to_delete = 0;
+unsigned long phx_ptr_array_resize_count_inliner_ends = 0;
 }
 #include "cinderx/Jit/bytecode_c.h"  /* BcByteOffset wrapper for emitAnyCall seam */
 
