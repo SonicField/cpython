@@ -369,19 +369,37 @@ struct PhxRegStateArray {
 // Subclass of Instr that is able to deopt back to the interpreter.
 class DeoptBase : public Instr {
  public:
-  explicit DeoptBase(Opcode op);
-  DeoptBase(Opcode op, const FrameState& frame);
-  DeoptBase(const DeoptBase& other);
+  explicit DeoptBase(Opcode op) : Instr(op) {}
+  DeoptBase(Opcode op, const FrameState& frame) : Instr(op) {
+    setFrameState(frame);
+  }
+  DeoptBase(const DeoptBase& other) : Instr(other) {
+    hir_c_deopt_base_init_copy(this, &other);
+  }
 
   template <typename... Args>
   void emplaceLiveReg(Args&&... args) {
     live_regs_.emplace_back(std::forward<Args>(args)...);
   }
 
-  const PhxRegStateArray& live_regs() const;
-  PhxRegStateArray& live_regs();
+  const PhxRegStateArray& live_regs() const {
+    return *static_cast<const PhxRegStateArray*>(
+        hir_c_deopt_live_regs(const_cast<DeoptBase*>(this)));
+  }
+  PhxRegStateArray& live_regs() {
+    return *static_cast<PhxRegStateArray*>(hir_c_deopt_live_regs(this));
+  }
 
-  void sortLiveRegs();
+  void sortLiveRegs() {
+    hir_c_deopt_sort_live_regs(this);
+    if (kPyDebug) {
+      // Phase 4.X-mini X-mini-b (Batch 80, E-4 discharge): post-sort
+      // uniqueness check via inline C helper.
+      Register* dup = static_cast<Register*>(
+          hir_c_deopt_find_adjacent_dup_reg(this));
+      JIT_DCHECK(dup == nullptr, "Register {} is live twice", *dup);
+    }
+  }
 
   // Set/get the metadata needed to reconstruct the state of the interpreter
   // after this instruction executes.  H2-E3: raw FrameState* (was unique_ptr).
@@ -389,7 +407,9 @@ class DeoptBase : public Instr {
     delete frame_state_;
     frame_state_ = state.release();
   }
-  void setFrameState(const FrameState& state);
+  void setFrameState(const FrameState& state) {
+    hir_c_deopt_set_frame_state(this, &state);
+  }
   FrameState* frameState() const { return frame_state_; }
   FrameState* takeFrameState() {
     FrameState* tmp = frame_state_;
@@ -399,26 +419,41 @@ class DeoptBase : public Instr {
 
   // visitUses devirtualized in T2-C4. Called from Instr::visitUses
   // after operand iteration, to visit DeoptBase-specific registers.
-  bool visitUsesDeopt(const std::function<bool(Register*&)>& func);
+  bool visitUsesDeopt(const std::function<bool(Register*&)>& func) {
+    // Thunk wraps the std::function callback as a C visitor + user pointer
+    // so hir_c_deopt_visit_uses_deopt can iterate frame_state + live_regs +
+    // guilty_reg in pure C.
+    auto thunk = +[](void** slot, void* user) -> int {
+      auto& f = *static_cast<const std::function<bool(Register*&)>*>(user);
+      Register*& reg_ref = *reinterpret_cast<Register**>(slot);
+      return f(reg_ref) ? 1 : 0;
+    };
+    return hir_c_deopt_visit_uses_deopt(
+        this,
+        thunk,
+        const_cast<std::function<bool(Register*&)>*>(&func)) != 0;
+  }
 
   // asDeoptBase() devirtualized in T2-C1 — handled by Instr's non-virtual
   // implementation via opcode metadata check.
 
-  int nonce() const;
-  void set_nonce(int nonce);
+  int nonce() const { return hir_c_deopt_get_nonce(this); }
+  void set_nonce(int nonce) { hir_c_deopt_set_nonce(this, nonce); }
 
   // Get or set the human-readable description of why this instruction might
   // deopt.  descr_ is a strdup'd char* (H2-E1: was std::string).
-  const char* descr() const;
-  void setDescr(const char* r);
+  const char* descr() const { return hir_c_deopt_get_descr(this); }
+  void setDescr(const char* r) { hir_c_deopt_set_descr(this, r); }
   void setDescr(std::string r) { setDescr(r.c_str()); }
 
-  ~DeoptBase();
+  ~DeoptBase() { hir_c_deopt_base_destroy(this); }
 
   // Get or set the optional value that is responsible for this deopt
   // event. Its exact meaning depends on the opcode of this instruction.
-  Register* guiltyReg() const;
-  void setGuiltyReg(Register* reg);
+  Register* guiltyReg() const {
+    return static_cast<Register*>(hir_c_deopt_get_guilty_reg(this));
+  }
+  void setGuiltyReg(Register* reg) { hir_c_deopt_set_guilty_reg(this, reg); }
 
   // When set, the LIR generator skips the auto null-check deopt for this
   // instruction. Used when an inline exception handler (CondBranch on null)

@@ -37,89 +37,9 @@ static_assert(sizeof(HirInstrList) == sizeof(Instr::List),
 // PrimitiveCompare, PrimitiveUnbox, Return, UseType.
 // No FOREACH_OPCODE or _OperandTypes mixin references — class deletion safe.
 
-DeoptBase::DeoptBase(Opcode op) : Instr(op) {}
-
-DeoptBase::DeoptBase(Opcode op, const FrameState& frame) : Instr(op) {
-  setFrameState(frame);
-}
-
-DeoptBase::DeoptBase(const DeoptBase& other) : Instr(other) {
-  hir_c_deopt_base_init_copy(this, &other);
-}
-
-DeoptBase::~DeoptBase() {
-  hir_c_deopt_base_destroy(this);
-}
-
-const PhxRegStateArray& DeoptBase::live_regs() const {
-  return *static_cast<const PhxRegStateArray*>(
-      hir_c_deopt_live_regs(const_cast<DeoptBase*>(this)));
-}
-
-PhxRegStateArray& DeoptBase::live_regs() {
-  return *static_cast<PhxRegStateArray*>(hir_c_deopt_live_regs(this));
-}
-
-// asDeoptBase() devirtualized in T2-C1 — implementation moved to Instr
-// (opcode metadata check). DeoptBase no longer overrides.
-
-bool DeoptBase::visitUsesDeopt(const std::function<bool(Register*&)>& func) {
-  // Phase 4.A W7b Batch 74: thunk pattern matches Instr::visitUses
-  // (line 356-366). hir_c_deopt_visit_uses_deopt walks frame_state +
-  // live_regs + guilty_reg in pure-C; this shim wraps the std::function
-  // callback as a C visitor + user pointer.
-  auto thunk = +[](void **slot, void *user) -> int {
-    auto& f = *static_cast<const std::function<bool(Register*&)>*>(user);
-    Register*& reg_ref = *reinterpret_cast<Register**>(slot);
-    return f(reg_ref) ? 1 : 0;
-  };
-  return hir_c_deopt_visit_uses_deopt(
-      this,
-      thunk,
-      const_cast<std::function<bool(Register*&)>*>(&func)) != 0;
-}
-
-void DeoptBase::sortLiveRegs() {
-  hir_c_deopt_sort_live_regs(this);
-
-  if (kPyDebug) {
-    // Phase 4.X-mini X-mini-b (Batch 80, E-4 discharge per supervisor
-    // 22:42:40Z): std::adjacent_find lambda replaced with inline C
-    // helper hir_c_deopt_find_adjacent_dup_reg (hir_instr_c.h). Same
-    // post-sort uniqueness check; same fail-loud message format.
-    Register* dup = static_cast<Register*>(
-        hir_c_deopt_find_adjacent_dup_reg(this));
-    JIT_DCHECK(dup == nullptr, "Register {} is live twice", *dup);
-  }
-}
-
-void DeoptBase::setFrameState(const FrameState& state) {
-  hir_c_deopt_set_frame_state(this, &state);
-}
-
-int DeoptBase::nonce() const {
-  return hir_c_deopt_get_nonce(this);
-}
-
-void DeoptBase::set_nonce(int nonce) {
-  hir_c_deopt_set_nonce(this, nonce);
-}
-
-const char* DeoptBase::descr() const {
-  return hir_c_deopt_get_descr(this);
-}
-
-void DeoptBase::setDescr(const char* r) {
-  hir_c_deopt_set_descr(this, r);
-}
-
-Register* DeoptBase::guiltyReg() const {
-  return static_cast<Register*>(hir_c_deopt_get_guilty_reg(this));
-}
-
-void DeoptBase::setGuiltyReg(Register* reg) {
-  hir_c_deopt_set_guilty_reg(this, reg);
-}
+// DeoptBase methods are now defined inline in hir.h (each is a thin shim
+// over hir_c_deopt_* bridges; ~88 LOC retired from this TU). C++ class
+// facade unchanged; bridge call-sites identical.
 
 // CallCFunc::Func enum count — pinned to the C-side name table in
 // hir_c_call_cfunc_func_name (hir_instr_c.h). Update both together
