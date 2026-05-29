@@ -526,8 +526,12 @@ test_ws_deque_concurrent_push_steal(PyObject *self, PyObject *Py_UNUSED(ignored)
 // ============================================================================
 
 // T3-F1: Init with capacity=0 should trigger assertion
+//
+// NOTE: Named with unsafe_ prefix to prevent test_capi auto-discovery.
+// This function triggers assert(capacity > 0) and aborts the process.
+// Only called from test_gc_ws_deque.py via subprocess.
 static PyObject *
-test_barrier_capacity_zero(PyObject *self, PyObject *Py_UNUSED(ignored))
+unsafe_barrier_capacity_zero(PyObject *self, PyObject *Py_UNUSED(ignored))
 {
     _PyGCBarrier barrier;
     // This should trigger assert(capacity > 0) and abort
@@ -1328,7 +1332,7 @@ static PyMethodDef test_methods[] = {
     {"test_ws_deque_concurrent_push_steal", test_ws_deque_concurrent_push_steal, METH_NOARGS, NULL},
 
     // Barrier tests (T3-F1, T3-F9)
-    {"test_barrier_capacity_zero", test_barrier_capacity_zero, METH_NOARGS, NULL},
+    {"unsafe_barrier_capacity_zero", unsafe_barrier_capacity_zero, METH_NOARGS, NULL},
     {"test_barrier_basic", test_barrier_basic, METH_NOARGS, NULL},
     {"test_barrier_multiple_rounds", test_barrier_multiple_rounds, METH_NOARGS, NULL},
     {"test_barrier_epoch_distinguishes", test_barrier_epoch_distinguishes, METH_NOARGS, NULL},

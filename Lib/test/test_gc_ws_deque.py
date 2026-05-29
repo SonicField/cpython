@@ -102,7 +102,7 @@ class TestBarrier(unittest.TestCase):
         Falsifiability: removing assert(capacity > 0) from _PyGCBarrier_Init
         causes this test to hang (Wait decrements num_left=0 to UINT_MAX).
         """
-        code = "import _testinternalcapi; _testinternalcapi.test_barrier_capacity_zero()"
+        code = "import _testinternalcapi; _testinternalcapi.unsafe_barrier_capacity_zero()"
         result = subprocess.run(
             [sys.executable, "-c", code],
             capture_output=True, timeout=5

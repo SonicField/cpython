@@ -325,10 +325,6 @@ The following implementation-specific options are available:\n\
 #ifdef Py_GIL_DISABLED
 "-X gil=[0|1]: enable (1) or disable (0) the GIL; also PYTHON_GIL\n"
 #endif
-#if defined(Py_PARALLEL_GC) || defined(Py_GIL_DISABLED)
-"-X parallel_gc=N: enable parallel GC with N workers;\n\
-         also PYTHONPARALLELGC\n"
-#endif
 "\
 -X importtime[=2]: show how long each import takes; use -X importtime=2 to\n\
          log imports of already-loaded modules; also PYTHONPROFILEIMPORTTIME\n\
@@ -338,6 +334,12 @@ The following implementation-specific options are available:\n\
          default is normal; also PYTHON_LAZY_IMPORTS\n\
 -X no_debug_ranges: don't include extra location information in code objects;\n\
          also PYTHONNODEBUGRANGES\n\
+"
+#if defined(Py_PARALLEL_GC) || defined(Py_GIL_DISABLED)
+"-X parallel_gc=N: enable parallel GC with N workers;\n\
+         also PYTHONPARALLELGC\n"
+#endif
+"\
 -X pathconfig_warnings=[0|1]: if true (1) then path configuration is allowed\n\
          to log warnings into stderr; if false (0) suppress these warnings;\n\
          set to true by default; also PYTHON_PATHCONFIG_WARNINGS\n\
@@ -434,9 +436,6 @@ static const char usage_envvars[] =
 #ifdef Py_GIL_DISABLED
 "PYTHON_GIL      : when set to 0, disables the GIL (-X gil)\n"
 #endif
-#if defined(Py_PARALLEL_GC) || defined(Py_GIL_DISABLED)
-"PYTHONPARALLELGC: enable parallel GC with N workers (-X parallel_gc=N)\n"
-#endif
 "PYTHONINSPECT   : inspect interactively after running script (-i)\n"
 "PYTHONINTMAXSTRDIGITS: limit the size of int<->str conversions;\n"
 "                  0 disables the limit (-X int_max_str_digits=N)\n"
@@ -445,6 +444,9 @@ static const char usage_envvars[] =
 "                  (-X no_debug_ranges)\n"
 "PYTHONNOUSERSITE: disable user site directory (-s)\n"
 "PYTHONOPTIMIZE  : enable level 1 optimizations (-O)\n"
+#if defined(Py_PARALLEL_GC) || defined(Py_GIL_DISABLED)
+"PYTHONPARALLELGC: enable parallel GC with N workers (-X parallel_gc=N)\n"
+#endif
 "PYTHON_PERF_JIT_SUPPORT: enable Linux \"perf\" profiler support with JIT\n"
 "                  (-X perf_jit)\n"
 "PYTHONPERFSUPPORT: support the Linux \"perf\" profiler (-X perf)\n"
