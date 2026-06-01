@@ -528,8 +528,14 @@ struct _PyGCScanHeapResult {
     int gc_reason;                   // GC reason for shutdown check
 };
 
-// Get number of parallel GC workers based on configuration.
-// Returns 0 if parallel GC is disabled, otherwise the worker count.
+// Get number of parallel GC workers for the next collection.
+// Returns 0 if parallel GC is disabled, otherwise the adaptive worker count
+// chosen by the random-walk controller (see pycore_gc_random_walk.h).
+//
+// The thread pool persists with the maximum num_workers; this returns the
+// CURRENT adaptive count, which varies per collection. If the pool isn't
+// initialised yet (first call before enable_parallel) the configured
+// num_workers is used as a fall-through.
 static inline int
 _PyGC_GetParallelWorkers(PyInterpreterState *interp)
 {
@@ -537,7 +543,14 @@ _PyGC_GetParallelWorkers(PyInterpreterState *interp)
     if (!gc->parallel_gc_enabled) {
         return 0;
     }
-    // num_workers is required and validated by gc.enable_parallel()
+    _PyGCThreadPool *pool = gc->thread_pool;
+    if (pool != NULL) {
+        // Adaptive worker count, updated by _PyGC_RandomWalkUpdate after
+        // each collection. Guaranteed in [2, pool->num_workers].
+        return (int)pool->adaptive_workers;
+    }
+    // No pool yet (e.g. during initial enable_parallel before pool init):
+    // fall back to the configured max.
     return gc->parallel_gc_num_workers;
 }
 
