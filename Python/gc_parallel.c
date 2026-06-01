@@ -138,6 +138,15 @@ _parallel_gc_visit_and_enqueue(PyObject *op, void *arg)
         return 0;
     }
 
+    // Defensive: skip freed objects discovered through stale parent references.
+    if (_PyObject_IsFreed(op)) {
+        fprintf(stderr, "PARALLEL GC WARNING: freed child %p discovered by worker %lu, "
+                "ob_type=%p, gc_next=%p\n",
+                (void*)op, worker->thread_id,
+                (void*)Py_TYPE(op), (void*)_Py_AS_GC(op)->_gc_next);
+        return 0;
+    }
+
     PyGC_Head *gc = _Py_AS_GC(op);
 
     // Check if object is in collection set and try to mark as reachable
@@ -176,7 +185,19 @@ drain_local_buffer(_PyParallelGCWorker *worker)
         PyObject *obj = _PyGCLocalBuffer_Pop(&worker->local_buffer);
         worker->objects_marked++;
 
-        traverseproc traverse = Py_TYPE(obj)->tp_traverse;
+        // Defensive: skip freed objects to prevent crash on stale pointers.
+        // Objects may be freed by refcount between collections but remain
+        // discoverable through parent references in the generation list.
+        // Serial GC tolerates this; parallel GC exposes it due to different
+        // traversal ordering and timing.
+        if (_PyObject_IsFreed(obj)) {
+            fprintf(stderr, "PARALLEL GC WARNING: freed object %p in drain buffer, "
+                    "worker %lu\n", (void*)obj, worker->thread_id);
+            continue;
+        }
+
+        PyTypeObject *tp = Py_TYPE(obj);
+        traverseproc traverse = tp->tp_traverse;
         if (traverse != NULL) {
             traverse(obj, (visitproc)_parallel_gc_visit_and_enqueue, worker);
             worker->traversals_performed++;
@@ -329,6 +350,12 @@ _parallel_gc_worker_thread(void *arg)
                 PyGC_Head *end = worker->slice_end;
                 while (gc != end) {
                     PyGC_Head *next = _PyGCHead_NEXT(gc);
+
+                    // Defensive: skip freed objects in segment
+                    if (_PyObject_IsFreed(_Py_FROM_GC(gc))) {
+                        gc = next;
+                        continue;
+                    }
 
                     // Skip objects already marked reachable
                     if (!gc_is_collecting(gc)) {
@@ -2248,6 +2275,7 @@ _PyGC_ParallelMarkAliveFromQueue(PyInterpreterState *interp, PyGC_Head *containe
 
     // Set phase for all workers to use queue-based processing
     for (size_t i = 0; i < par_gc->num_workers; i++) {
+        _PyGCLocalBuffer_Reset(&par_gc->workers[i].local_buffer);
         par_gc->workers[i].phase = _PyGC_PHASE_MARK_ALIVE_QUEUE;
     }
 

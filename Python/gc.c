@@ -556,6 +556,16 @@ update_refs_with_splits(PyGC_Head *containers, _PyGCSplitVector *splits)
         next = GC_NEXT(gc);
         PyObject *op = FROM_GC(gc);
 
+        // Defensive: skip freed objects that remain in the generation list.
+        // This can happen when an object is freed by refcount but its GC
+        // links are not properly cleaned up. Serial GC tolerates this;
+        // parallel GC crashes because workers may traverse the stale entry.
+        if (_PyObject_IsFreed(op)) {
+            gc_list_remove(gc);
+            gc = next;
+            continue;
+        }
+
         if (_Py_IsImmortal(op)) {
             assert(!_Py_IsStaticImmortal(op));
             _PyObject_GC_UNTRACK(op);
