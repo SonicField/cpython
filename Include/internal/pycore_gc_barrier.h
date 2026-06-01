@@ -97,6 +97,22 @@ _PyGCBarrier_Fini(_PyGCBarrier *barrier)
     _PyGC_MUTEX_FINI(&barrier->lock);
 }
 
+// Re-size a barrier to a new capacity. Safe to call only when no thread
+// is currently inside _PyGCBarrier_Wait for this barrier (typically: at
+// the start of each dispatch, before any worker is woken). Used by the
+// FTP parallel GC to size the phase_barrier to adaptive_workers each
+// dispatch so only active workers participate.
+static inline void
+_PyGCBarrier_Resize(_PyGCBarrier *barrier, unsigned int new_capacity)
+{
+    assert(new_capacity > 0);
+    _PyGC_MUTEX_LOCK(&barrier->lock);
+    barrier->capacity = new_capacity;
+    barrier->num_left = new_capacity;
+    // epoch unchanged; no one should be waiting
+    _PyGC_MUTEX_UNLOCK(&barrier->lock);
+}
+
 // Wait at barrier - blocks until all threads arrive
 static inline void
 _PyGCBarrier_Wait(_PyGCBarrier *barrier)

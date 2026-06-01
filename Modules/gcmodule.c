@@ -730,8 +730,11 @@ gc_get_parallel_config_impl(PyObject *module)
         return NULL;
     }
 
+    // num_workers = the configured maximum (what enable_parallel was called
+    // with). adaptive_workers = the current count chosen by the random-walk
+    // controller; <= num_workers. Mirror of the GIL build's config API.
     int num_workers = interp->gc.parallel_gc_enabled ?
-                      _PyGC_GetParallelWorkers(interp) : 0;
+                      interp->gc.parallel_gc_num_workers : 0;
     PyObject *workers = PyLong_FromLong(num_workers);
     if (workers == NULL || PyDict_SetItemString(result, "num_workers", workers) < 0) {
         Py_XDECREF(workers);
@@ -739,6 +742,16 @@ gc_get_parallel_config_impl(PyObject *module)
         return NULL;
     }
     Py_DECREF(workers);
+
+    if (interp->gc.parallel_gc_enabled && interp->gc.thread_pool != NULL) {
+        PyObject *aw = PyLong_FromSize_t(interp->gc.thread_pool->adaptive_workers);
+        if (aw == NULL || PyDict_SetItemString(result, "adaptive_workers", aw) < 0) {
+            Py_XDECREF(aw);
+            Py_DECREF(result);
+            return NULL;
+        }
+        Py_DECREF(aw);
+    }
 
     // Parallel cleanup is available in FTP builds
     if (PyDict_SetItemString(result, "parallel_cleanup", Py_True) < 0) {

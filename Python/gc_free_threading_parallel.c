@@ -14,6 +14,7 @@
 #include "pycore_gc_random_walk.h"  // _PyGC_RandomWalkUpdate, _PyGC_RandomWalkSeed
 #include "pycore_interp.h"
 #include "pycore_lock.h"                // PyMutex_Lock/Unlock
+#include "condvar.h"                    // PyMUTEX_INIT, PyCOND_INIT, etc.
 #include "pycore_pystate.h"
 #include "pycore_tstate.h"
 #include "pycore_time.h"  // For PyTime_PerfCounterRaw
@@ -1649,6 +1650,72 @@ scan_heap_pool_work(_PyGCThreadPool *pool, int worker_id)
     }
 }
 
+// Forward declaration so _PyGC_FTDispatchAndWait can call this.
+static void thread_pool_do_work(_PyGCThreadPool *pool, int worker_id);
+
+// Adaptive dispatch: wake `active_workers` of the pool's worker threads
+// (worker 0 is main thread and is NOT signalled — caller invokes
+// thread_pool_do_work(pool, 0) directly after dispatching). Helpers are
+// woken via per-worker condvars; main waits on done_cond for exactly
+// (active_workers - 1) completions.
+//
+// Resizes pool->phase_barrier to active_workers so internal multi-phase
+// work (e.g. update_refs init/compute) uses the right participant count.
+//
+// Reentrancy guard prevents deadlock if a __del__ triggers another GC
+// while one is in progress; reentrant callers should fall back to serial.
+// Returns 0 on dispatched, 1 on reentrant skip.
+//
+// Mirror of _PyGC_DispatchAndWait in Python/gc_parallel.c (GIL build).
+static int
+_PyGC_FTDispatchAndWait(_PyGCThreadPool *pool, size_t active_workers)
+{
+    if (active_workers > (size_t)pool->num_workers) {
+        active_workers = (size_t)pool->num_workers;
+    }
+    if (active_workers < 1) {
+        active_workers = 1;
+    }
+
+    // Reentrancy guard
+    if (_Py_atomic_load_int(&pool->dispatch_in_progress)) {
+        return 1;
+    }
+    _Py_atomic_store_int(&pool->dispatch_in_progress, 1);
+
+    // Resize phase_barrier to active workers so internal multi-phase work
+    // (e.g. update_refs init/compute) only waits for participants that
+    // actually exist this dispatch.
+    _PyGCBarrier_Resize(&pool->phase_barrier, (unsigned int)active_workers);
+
+    // Reset done counter
+    PyMUTEX_LOCK(&pool->done_mutex);
+    pool->workers_done_count = 0;
+    PyMUTEX_UNLOCK(&pool->done_mutex);
+
+    // Wake helpers (workers 1..active_workers-1). Worker 0 is main thread.
+    for (size_t i = 1; i < active_workers; i++) {
+        PyMUTEX_LOCK(&pool->workers[i].wake_mutex);
+        pool->workers[i].wake_flag = 1;
+        PyCOND_SIGNAL(&pool->workers[i].wake_cond);
+        PyMUTEX_UNLOCK(&pool->workers[i].wake_mutex);
+    }
+
+    // Main thread does its share (worker 0)
+    thread_pool_do_work(pool, 0);
+
+    // Wait for all woken helpers to signal done
+    int expected = (int)(active_workers - 1);
+    PyMUTEX_LOCK(&pool->done_mutex);
+    while (pool->workers_done_count < expected) {
+        PyCOND_WAIT(&pool->done_cond, &pool->done_mutex);
+    }
+    PyMUTEX_UNLOCK(&pool->done_mutex);
+
+    _Py_atomic_store_int(&pool->dispatch_in_progress, 0);
+    return 0;
+}
+
 // Dispatcher for pool work based on work type
 static void
 thread_pool_do_work(_PyGCThreadPool *pool, int worker_id)
@@ -1658,20 +1725,12 @@ thread_pool_do_work(_PyGCThreadPool *pool, int worker_id)
         return;  // No work to do
     }
 
-    // NOTE: pool->adaptive_workers is tracked (see _PyGC_RandomWalkUpdate
-    // call after each collection) but is NOT YET used here to skip work
-    // for idle workers. Reason: FTP work functions (update_refs, mark_heap,
-    // scan_heap, propagate) use internal phase_barriers that require ALL
-    // num_workers participants to arrive. Skipping work in workers >=
-    // adaptive_workers would leave them not participating in those
-    // phase_barriers, causing deadlock.
-    //
-    // The next commit replaces barrier dispatch with per-worker condvars,
-    // at which point idle workers stay asleep and don't enter the work
-    // functions at all. Then adaptive_workers will actually skip work.
-    // For now, the controller state is updated so both builds use the same
-    // logic; the dispatch refactor enables it to take effect on FTP.
-    (void)pool->adaptive_workers;  // intentionally unused this commit
+    // With per-worker condvar dispatch (see _PyGC_FTDispatchAndWait), only
+    // workers in [0, adaptive_workers) are woken; the rest stay asleep on
+    // their wake_cond and never enter this function. So we don't need an
+    // adaptive_workers check here — the dispatch path already skipped them.
+    // Internal phase_barriers in the work functions are resized to
+    // adaptive_workers per dispatch (see _PyGC_FTDispatchAndWait).
 
 #if GC_DEBUG_ATOMICS
     // Reset TLS stats at start of work
@@ -1733,9 +1792,15 @@ thread_pool_worker(void *arg)
         worker->tstate = tstate;
     }
 
+    // Per-worker condvar dispatch (mirror of GIL parallel GC).
     while (1) {
-        // Wait at mark_barrier for work (main thread signals by arriving here too)
-        _PyGCBarrier_Wait(&pool->mark_barrier);
+        // Wait for wake signal from main thread
+        PyMUTEX_LOCK(&worker->wake_mutex);
+        while (!worker->wake_flag) {
+            PyCOND_WAIT(&worker->wake_cond, &worker->wake_mutex);
+        }
+        worker->wake_flag = 0;
+        PyMUTEX_UNLOCK(&worker->wake_mutex);
 
         // Check for shutdown after waking
         if (_Py_atomic_load_int_relaxed(&pool->shutdown)) {
@@ -1745,8 +1810,11 @@ thread_pool_worker(void *arg)
         // Do the work
         thread_pool_do_work(pool, worker_id);
 
-        // Signal completion
-        _PyGCBarrier_Wait(&pool->done_barrier);
+        // Signal completion to main thread
+        PyMUTEX_LOCK(&pool->done_mutex);
+        pool->workers_done_count++;
+        PyCOND_SIGNAL(&pool->done_cond);
+        PyMUTEX_UNLOCK(&pool->done_mutex);
     }
 
     // Clean up Python thread state
@@ -1813,18 +1881,25 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
     pool->prev_cost_per_obj_ns = 0.0;
     pool->explore_rng = _PyGC_RandomWalkSeed();
 
-    // Initialize barriers for synchronization
-    // All barriers include all workers (main thread as worker 0)
-    _PyGCBarrier_Init(&pool->mark_barrier, num_workers);
-    _PyGCBarrier_Init(&pool->done_barrier, num_workers);
+    // Initialize per-collection done signaling (mirrors GIL parallel GC).
+    // mark_barrier/done_barrier dispatch retired in favour of per-worker
+    // condvars (set up below per worker). phase_barrier remains for use
+    // inside work functions and is resized to adaptive_workers per dispatch.
+    PyMUTEX_INIT(&pool->done_mutex);
+    PyCOND_INIT(&pool->done_cond);
+    pool->workers_done_count = 0;
+    pool->dispatch_in_progress = 0;
+
+    // phase_barrier is initialised to num_workers as a safe default; each
+    // dispatch resizes it to the active worker count before waking workers.
     _PyGCBarrier_Init(&pool->phase_barrier, num_workers);
 
     // Allocate thread handles (for workers 1..N-1, worker 0 is main thread)
     pool->threads = PyMem_RawCalloc(num_workers - 1, sizeof(PyThread_handle_t));
     if (pool->threads == NULL) {
         _PyGCBarrier_Fini(&pool->phase_barrier);
-        _PyGCBarrier_Fini(&pool->done_barrier);
-        _PyGCBarrier_Fini(&pool->mark_barrier);
+        PyCOND_FINI(&pool->done_cond);
+        PyMUTEX_FINI(&pool->done_mutex);
         PyMem_RawFree(pool);
         return -1;
     }
@@ -1834,8 +1909,8 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
     if (pool->workers == NULL) {
         PyMem_RawFree(pool->threads);
         _PyGCBarrier_Fini(&pool->phase_barrier);
-        _PyGCBarrier_Fini(&pool->done_barrier);
-        _PyGCBarrier_Fini(&pool->mark_barrier);
+        PyCOND_FINI(&pool->done_cond);
+        PyMUTEX_FINI(&pool->done_mutex);
         PyMem_RawFree(pool);
         return -1;
     }
@@ -1851,6 +1926,11 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
         worker->objects_marked = 0;
         worker->objects_stolen = 0;
         worker->steals_attempted = 0;
+
+        // Per-worker wake condvar (mirror of GIL parallel GC)
+        PyMUTEX_INIT(&worker->wake_mutex);
+        PyCOND_INIT(&worker->wake_cond);
+        worker->wake_flag = 0;
 
         // Allocate thread-local pool (done once at enable time, not per-collection)
         worker->local_pool = PyMem_RawCalloc(1, pool_bytes);
@@ -1884,13 +1964,13 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
         PyMem_RawFree(pool->workers);
         PyMem_RawFree(pool->threads);
         _PyGCBarrier_Fini(&pool->phase_barrier);
-        _PyGCBarrier_Fini(&pool->done_barrier);
-        _PyGCBarrier_Fini(&pool->mark_barrier);
+        PyCOND_FINI(&pool->done_cond);
+        PyMUTEX_FINI(&pool->done_mutex);
         PyMem_RawFree(pool);
         return -1;
     }
 
-    // Create worker threads (they will wait at mark_barrier immediately)
+    // Create worker threads (they will wait on per-worker wake_cond immediately)
     for (int i = 0; i < num_workers - 1; i++) {
         _pool_worker_args[i].pool = pool;
         _pool_worker_args[i].worker_id = i + 1;  // Workers 1..N-1
@@ -1918,8 +1998,8 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
             PyMem_RawFree(pool->workers);
             PyMem_RawFree(pool->threads);
             _PyGCBarrier_Fini(&pool->phase_barrier);
-            _PyGCBarrier_Fini(&pool->done_barrier);
-            _PyGCBarrier_Fini(&pool->mark_barrier);
+            PyCOND_FINI(&pool->done_cond);
+            PyMUTEX_FINI(&pool->done_mutex);
             PyMem_RawFree(pool);
             return -1;
         }
@@ -1944,12 +2024,17 @@ _PyGC_ThreadPoolFini(PyInterpreterState *interp)
         return;
     }
 
-    // Signal shutdown - workers will check this after mark_barrier
+    // Signal shutdown - workers will check this after waking
     _Py_atomic_store_int_relaxed(&pool->shutdown, 1);
 
-    // Release workers from mark_barrier so they can see shutdown flag
-    // Main thread participates in barrier to release all workers
-    _PyGCBarrier_Wait(&pool->mark_barrier);
+    // Wake ALL workers via per-worker condvars so they see shutdown and exit
+    // (workers 1..N-1 are the helper threads; worker 0 is the main thread)
+    for (int i = 1; i < pool->num_workers; i++) {
+        PyMUTEX_LOCK(&pool->workers[i].wake_mutex);
+        pool->workers[i].wake_flag = 1;
+        PyCOND_SIGNAL(&pool->workers[i].wake_cond);
+        PyMUTEX_UNLOCK(&pool->workers[i].wake_mutex);
+    }
 
     // Wait for all workers to finish (they exit after seeing shutdown)
     for (int i = 0; i < pool->num_workers - 1; i++) {
@@ -1962,9 +2047,11 @@ _PyGC_ThreadPoolFini(PyInterpreterState *interp)
         _pool_worker_args = NULL;
     }
 
-    // Clean up worker states and deques
+    // Clean up worker states, per-worker condvars, and deques
     if (pool->workers != NULL) {
         for (int i = 0; i < pool->num_workers; i++) {
+            PyCOND_FINI(&pool->workers[i].wake_cond);
+            PyMUTEX_FINI(&pool->workers[i].wake_mutex);
             // Use FiniExternal if using pre-allocated pool to avoid double-free
             if (pool->workers[i].local_pool != NULL) {
                 _PyWSDeque_FiniExternal(&pool->workers[i].deque,
@@ -1980,8 +2067,8 @@ _PyGC_ThreadPoolFini(PyInterpreterState *interp)
     // Clean up
     PyMem_RawFree(pool->threads);
     _PyGCBarrier_Fini(&pool->phase_barrier);
-    _PyGCBarrier_Fini(&pool->done_barrier);
-    _PyGCBarrier_Fini(&pool->mark_barrier);
+    PyCOND_FINI(&pool->done_cond);
+    PyMUTEX_FINI(&pool->done_mutex);
     PyMem_RawFree(pool);
 
     interp->gc.thread_pool = NULL;
@@ -2027,11 +2114,15 @@ _PyGC_ParallelPropagateAliveWithPool(PyInterpreterState *interp,
 {
     _PyGCThreadPool *pool = interp->gc.thread_pool;
     assert(pool != NULL);
-    assert(pool->num_workers == num_workers);
+    // num_workers from the caller is now the adaptive count; it may be
+    // <= pool->num_workers. Workers beyond adaptive stay asleep this
+    // dispatch (see _PyGC_FTDispatchAndWait).
+    assert((size_t)num_workers <= (size_t)pool->num_workers);
     assert(pool->workers != NULL);
 
-    // Reset worker states for this collection
-    for (int i = 0; i < num_workers; i++) {
+    // Reset worker states for this collection (all of them, since stats
+    // are read by num_workers-wide loops elsewhere).
+    for (int i = 0; i < pool->num_workers; i++) {
         pool->workers[i].objects_marked = 0;
         pool->workers[i].objects_stolen = 0;
         pool->workers[i].steals_attempted = 0;
@@ -2064,16 +2155,14 @@ _PyGC_ParallelPropagateAliveWithPool(PyInterpreterState *interp,
         }
     }
 
-    // Signal workers to start by arriving at mark_barrier
-    // Workers are waiting at mark_barrier; when we arrive, all are released
-    _PyGCBarrier_Wait(&pool->mark_barrier);
-
-    // Worker 0 (main thread) does its share
-    thread_pool_do_work(pool, 0);
-
-    // Signal completion by arriving at done_barrier
-    // This blocks until all workers finish, guaranteeing correct termination
-    _PyGCBarrier_Wait(&pool->done_barrier);
+    // Dispatch to adaptive_workers (mirror of GIL parallel GC).
+    // Helpers wake via per-worker condvars; main thread does worker 0's
+    // work inside _PyGC_FTDispatchAndWait and waits for the rest to signal.
+    if (_PyGC_FTDispatchAndWait(pool, pool->adaptive_workers)) {
+        // Reentrant dispatch — caller should treat as serial fallback.
+        pool->current_work = NULL;
+        return;
+    }
 
     // Clear work descriptor
     pool->current_work = NULL;
@@ -2848,7 +2937,7 @@ _PyGC_ParallelUpdateRefsWithPool(PyInterpreterState *interp,
 
     _PyGCThreadPool *pool = interp->gc.thread_pool;
     assert(pool != NULL);
-    assert(pool->num_workers == state->num_workers);
+    assert(state->num_workers <= pool->num_workers);  // adaptive may be smaller
     assert(state->buckets != NULL);
 
     // Allocate per-worker candidate counts
@@ -2867,14 +2956,12 @@ _PyGC_ParallelUpdateRefsWithPool(PyInterpreterState *interp,
     };
     pool->current_work = &work;
 
-    // Signal workers to start
-    _PyGCBarrier_Wait(&pool->mark_barrier);
-
-    // Worker 0 (main thread) does its share
-    thread_pool_do_work(pool, 0);
-
-    // Wait for all workers to complete
-    _PyGCBarrier_Wait(&pool->done_barrier);
+    // Dispatch to adaptive_workers (mirror of GIL parallel GC).
+    // FTP STW collections don't release a GIL, so reentrant dispatch
+    // shouldn't happen here — assert if it does.
+    int reentrant = _PyGC_FTDispatchAndWait(pool, pool->adaptive_workers);
+    assert(reentrant == 0 && "FTP STW dispatch should not be reentrant");
+    (void)reentrant;
 
     // Record end time for update_refs phase
     PyTime_t end_time;
@@ -2907,7 +2994,7 @@ _PyGC_ParallelMarkHeapWithPool(PyInterpreterState *interp,
     assert(interp->stoptheworld.world_stopped);  // relaxed-ops marking is only safe during STW
     _PyGCThreadPool *pool = interp->gc.thread_pool;
     assert(pool != NULL);
-    assert(pool->num_workers == state->num_workers);
+    assert(state->num_workers <= pool->num_workers);  // adaptive may be smaller
     assert(state->buckets != NULL);
 
     // Reset worker states
@@ -2927,14 +3014,10 @@ _PyGC_ParallelMarkHeapWithPool(PyInterpreterState *interp,
     };
     pool->current_work = &work;
 
-    // Signal workers to start
-    _PyGCBarrier_Wait(&pool->mark_barrier);
-
-    // Worker 0 (main thread) does its share
-    thread_pool_do_work(pool, 0);
-
-    // Wait for all workers to complete
-    _PyGCBarrier_Wait(&pool->done_barrier);
+    // Dispatch to adaptive_workers (mirror of GIL parallel GC).
+    int reentrant = _PyGC_FTDispatchAndWait(pool, pool->adaptive_workers);
+    assert(reentrant == 0 && "FTP STW dispatch should not be reentrant");
+    (void)reentrant;
 
     // Record end time for mark_heap phase
     PyTime_t mark_end;
@@ -3004,7 +3087,7 @@ _PyGC_ParallelScanHeapWithPool(PyInterpreterState *interp,
 {
     _PyGCThreadPool *pool = interp->gc.thread_pool;
     assert(pool != NULL);
-    assert(pool->num_workers == state->num_workers);
+    assert(state->num_workers <= pool->num_workers);  // adaptive may be smaller
 
     // Allocate per-worker scan state
     struct _PyGCScanWorkerState *scan_workers = PyMem_RawCalloc(
@@ -3120,20 +3203,17 @@ _PyGC_ParallelScanHeapWithPool(PyInterpreterState *interp,
     };
     pool->current_work = &work;
 
-    // Signal workers to start
-    _PyGCBarrier_Wait(&pool->mark_barrier);
-
-    // Worker 0 (main thread) does its share
-    thread_pool_do_work(pool, 0);
-
-    // Wait for all workers to complete
-    _PyGCBarrier_Wait(&pool->done_barrier);
+    // Dispatch to adaptive_workers (mirror of GIL parallel GC).
+    int reentrant = _PyGC_FTDispatchAndWait(pool, pool->adaptive_workers);
+    assert(reentrant == 0 && "FTP STW dispatch should not be reentrant");
+    (void)reentrant;
 
     // Clear work descriptor
     pool->current_work = NULL;
 
-    // Merge results from all workers
-    for (int i = 0; i < pool->num_workers; i++) {
+    // Merge results from active workers (workers >= adaptive_workers stayed
+    // asleep so have nothing to contribute)
+    for (int i = 0; i < (int)pool->adaptive_workers; i++) {
         scan_worklist_merge(&scan_workers[i].unreachable, result->unreachable_head);
         scan_worklist_merge(&scan_workers[i].legacy_finalizers,
                             result->legacy_finalizers_head);
@@ -3252,6 +3332,9 @@ _PyGC_FTParallelGetStats(PyInterpreterState *interp)
         return NULL;
     }
 
+    // num_workers = the configured maximum (what enable_parallel was called
+    // with). adaptive_workers = the current count chosen by the random-walk
+    // controller; <= num_workers.
     int num_workers = interp->gc.parallel_gc_enabled ?
                       interp->gc.parallel_gc_num_workers : 0;
     PyObject *workers = PyLong_FromLong(num_workers);
@@ -3261,6 +3344,16 @@ _PyGC_FTParallelGetStats(PyInterpreterState *interp)
         return NULL;
     }
     Py_DECREF(workers);
+
+    if (interp->gc.parallel_gc_enabled && interp->gc.thread_pool != NULL) {
+        PyObject *aw = PyLong_FromSize_t(interp->gc.thread_pool->adaptive_workers);
+        if (aw == NULL || PyDict_SetItemString(result, "adaptive_workers", aw) < 0) {
+            Py_XDECREF(aw);
+            Py_DECREF(result);
+            return NULL;
+        }
+        Py_DECREF(aw);
+    }
 
     // Add phase timing (nanoseconds)
     PyObject *phase_timing = PyDict_New();

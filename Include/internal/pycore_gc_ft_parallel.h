@@ -273,6 +273,14 @@ typedef struct _PyGCWorkerState {
     // Per-phase atomic stats - copied from TLS after work completes
     _PyGCAtomicWorkerStats atomic_stats;
 #endif
+
+    // Per-worker condvar for targeted wakeup (adaptive worker count).
+    // Mirrors the GIL parallel GC. Replaces the previous mark_barrier
+    // broadcast dispatch: main thread sets wake_flag and signals wake_cond
+    // for only the active workers; idle workers stay asleep.
+    PyMUTEX_T wake_mutex;
+    PyCOND_T wake_cond;
+    int wake_flag;  // 0=sleeping, 1=wake up
 } _PyGCWorkerState;
 
 // Work descriptor - describes work for a single collection
@@ -328,10 +336,20 @@ typedef struct _PyGCThreadPool {
     // Current work descriptor - set by main thread before signalling workers
     _PyGCWorkDescriptor *current_work;
 
-    // Barrier synchronization (like GIL-based parallel GC)
-    _PyGCBarrier mark_barrier;     // Workers wait here for work
-    _PyGCBarrier done_barrier;     // All workers wait here when done
-    _PyGCBarrier phase_barrier;    // For multi-phase operations
+    // Per-collection done signaling. Workers signal done_cond when they
+    // finish; main waits on done_cond until workers_done_count reaches
+    // the count of woken workers. Mirrors the GIL parallel GC.
+    PyMUTEX_T done_mutex;
+    PyCOND_T done_cond;
+    volatile int workers_done_count;  // Protected by done_mutex
+
+    // Reentrancy guard for the dispatch path.
+    int dispatch_in_progress;
+
+    // Phase barrier — used INSIDE work functions (e.g. update_refs has
+    // init/compute phases). Resized to the active worker count at the
+    // start of each dispatch so only active workers participate.
+    _PyGCBarrier phase_barrier;
 
     // Worker control
     int shutdown;           // 1 = pool is shutting down (use atomics)
@@ -339,7 +357,7 @@ typedef struct _PyGCThreadPool {
     // Adaptive worker count — see Include/internal/pycore_gc_random_walk.h.
     // Same controller as the GIL parallel GC for identical behaviour.
     // adaptive_workers ∈ [2, num_workers]; workers with worker_id >=
-    // adaptive_workers no-op for this collection.
+    // adaptive_workers do not wake this dispatch.
     size_t adaptive_workers;
     double prev_cost_per_obj_ns;
     uint32_t explore_rng;
@@ -529,21 +547,17 @@ struct _PyGCScanHeapResult {
 };
 
 // Get number of parallel GC workers for the next collection.
-// Returns 0 if parallel GC is disabled, otherwise the worker count.
+// Returns 0 if parallel GC is disabled, otherwise the adaptive worker
+// count chosen by the random-walk controller (see pycore_gc_random_walk.h).
 //
-// Currently returns pool->num_workers (the configured maximum), NOT the
-// adaptive count. The pool dispatch path
-// (_PyGC_ParallelPropagateAliveWithPool and similar) asserts that the
-// passed num_workers matches pool->num_workers and that the internal
-// phase_barrier (sized num_workers) receives that many participants.
-// Returning adaptive_workers here would break both invariants.
+// Pool dispatch (_PyGC_FTDispatchAndWait) wakes only [0, adaptive_workers)
+// of the pool's helpers via per-worker condvars; idle workers stay asleep
+// and don't enter the work functions. The internal phase_barrier is resized
+// to adaptive_workers per dispatch so it only waits for active participants.
 //
-// Plumbing the adaptive count through requires the pool dispatch refactor:
-// per-worker condvars instead of mark_barrier broadcast, dynamically-sized
-// (or per-dispatch) phase_barriers. Once that lands, change the body to:
-//   _PyGCThreadPool *pool = gc->thread_pool;
-//   return pool ? (int)pool->adaptive_workers : gc->parallel_gc_num_workers;
-// and FTP collections will scale per-collection like the GIL build does.
+// Falls back to configured num_workers only if the pool isn't initialised
+// yet (e.g. enable_parallel hasn't completed). Once pool exists, the
+// adaptive count owned by the pool is authoritative.
 static inline int
 _PyGC_GetParallelWorkers(PyInterpreterState *interp)
 {
@@ -551,7 +565,10 @@ _PyGC_GetParallelWorkers(PyInterpreterState *interp)
     if (!gc->parallel_gc_enabled) {
         return 0;
     }
-    // num_workers is required and validated by gc.enable_parallel()
+    _PyGCThreadPool *pool = gc->thread_pool;
+    if (pool != NULL) {
+        return (int)pool->adaptive_workers;
+    }
     return gc->parallel_gc_num_workers;
 }
 
