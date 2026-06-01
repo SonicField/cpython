@@ -567,18 +567,38 @@ gc_enable_parallel_impl(PyObject *module, int num_workers)
 
     // Check if already initialized
     if (interp->gc.parallel_gc != NULL) {
-        // Already initialized - check if just disabled
+        size_t current_workers = interp->gc.parallel_gc->num_workers;
+
         if (_PyGC_ParallelIsEnabled(interp)) {
-            // Already enabled - this is fine, just return
+            // Already enabled - require the worker count to match. Silently
+            // ignoring a different num_workers misleads callers that read
+            // gc.get_parallel_config() afterwards (they expect the new count).
+            if ((size_t)num_workers != current_workers) {
+                PyErr_Format(PyExc_RuntimeError,
+                             "Parallel GC already enabled with %zu workers; "
+                             "call gc.disable_parallel() before re-enabling "
+                             "with a different worker count (got %d)",
+                             current_workers, num_workers);
+                return NULL;
+            }
             Py_RETURN_NONE;
         }
-        // Was disabled - re-enable and restart workers
-        _PyGC_ParallelSetEnabled(interp, 1);
-        if (_PyGC_ParallelStart(interp) < 0) {
-            _PyGC_ParallelSetEnabled(interp, 0);
-            return NULL;
+
+        // Was disabled. If the worker count matches the existing init,
+        // just restart the existing pool. Otherwise tear down and re-init
+        // so num_workers actually changes.
+        if ((size_t)num_workers == current_workers) {
+            _PyGC_ParallelSetEnabled(interp, 1);
+            if (_PyGC_ParallelStart(interp) < 0) {
+                _PyGC_ParallelSetEnabled(interp, 0);
+                return NULL;
+            }
+            Py_RETURN_NONE;
         }
-        Py_RETURN_NONE;
+
+        // Different worker count requested — tear down and rebuild.
+        _PyGC_ParallelFini(interp);
+        // Fall through to the fresh-init path below.
     }
 
     // Initialize parallel GC state
