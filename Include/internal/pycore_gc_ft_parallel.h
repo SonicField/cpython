@@ -316,13 +316,14 @@ typedef struct {
 // Persistent thread pool for parallel GC
 // Created once on gc.enable_parallel(), destroyed on gc.disable_parallel()
 //
-// Uses barrier synchronization like the GIL-based parallel GC:
-// - mark_barrier: Workers wait here until main signals work ready
-// - done_barrier: All workers (including main as worker 0) wait here when done
-// - phase_barrier: For multi-phase operations (e.g., UPDATE_REFS init/compute)
+// Dispatch uses per-worker condvars (wake_mutex/wake_cond on
+// _PyGCWorkerState) so main can wake only the active adaptive_workers
+// subset; idle workers stay asleep. Worker completions are signalled
+// through the pool's done_mutex/done_cond + workers_done_count.
 //
-// This guarantees correct termination: barriers only release when ALL
-// participants arrive, ensuring no work is in flight.
+// phase_barrier remains for use INSIDE work functions (e.g. update_refs
+// has init/compute phases); it is resized to adaptive_workers per
+// dispatch so it only waits for active participants.
 typedef struct _PyGCThreadPool {
     // Interpreter state - needed to create Python thread states for workers
     PyInterpreterState *interp;
