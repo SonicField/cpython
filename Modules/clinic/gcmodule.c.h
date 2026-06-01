@@ -616,7 +616,16 @@ PyDoc_STRVAR(gc_enable_parallel__doc__,
 "\n"
 "num_workers must be >= 2 (one coordinator + workers).\n"
 "\n"
-"Only available in GIL-based builds compiled with --with-parallel-gc.");
+"If parallel GC is already enabled with a *different* num_workers, raises\n"
+"RuntimeError; call gc.disable_parallel() first. Calling enable_parallel\n"
+"again with the same num_workers (after disable_parallel) restarts the\n"
+"existing thread pool without re-initialisation.\n"
+"\n"
+"The collector dynamically adjusts the active worker count between 2 and\n"
+"num_workers per collection (biased constrained random walk); num_workers\n"
+"is the upper bound.\n"
+"\n"
+"Available in all GIL-based builds (parallel GC is built-in).");
 
 #define GC_ENABLE_PARALLEL_METHODDEF    \
     {"enable_parallel", _PyCFunction_CAST(gc_enable_parallel), METH_FASTCALL|METH_KEYWORDS, gc_enable_parallel__doc__},
@@ -682,7 +691,7 @@ PyDoc_STRVAR(gc_disable_parallel__doc__,
 "Stops worker threads and switches back to incremental/serial GC.\n"
 "Can be re-enabled later with gc.enable_parallel().\n"
 "\n"
-"Only available in GIL-based builds compiled with --with-parallel-gc.");
+"Available in all GIL-based builds (parallel GC is built-in).");
 
 #define GC_DISABLE_PARALLEL_METHODDEF    \
     {"disable_parallel", (PyCFunction)gc_disable_parallel, METH_NOARGS, gc_disable_parallel__doc__},
@@ -708,7 +717,7 @@ PyDoc_STRVAR(gc_get_parallel_config__doc__,
 "    - \'enabled\': bool - True if parallel GC is enabled\n"
 "    - \'num_workers\': int - Number of worker threads (or 0 if disabled)\n"
 "\n"
-"Only available in GIL-based builds compiled with --with-parallel-gc.");
+"Available in all GIL-based builds (parallel GC is built-in).");
 
 #define GC_GET_PARALLEL_CONFIG_METHODDEF    \
     {"get_parallel_config", (PyCFunction)gc_get_parallel_config, METH_NOARGS, gc_get_parallel_config__doc__},
@@ -738,7 +747,7 @@ PyDoc_STRVAR(gc_get_parallel_stats__doc__,
 "    - \'collections_succeeded\': int - Times parallel marking succeeded (vs serial fallback)\n"
 "    - \'workers\': list - Per-worker statistics (objects_marked, steal_attempts, steal_successes)\n"
 "\n"
-"Only available in GIL-based builds compiled with --with-parallel-gc.");
+"Available in all GIL-based builds (parallel GC is built-in).");
 
 #define GC_GET_PARALLEL_STATS_METHODDEF    \
     {"get_parallel_stats", (PyCFunction)gc_get_parallel_stats, METH_NOARGS, gc_get_parallel_stats__doc__},
@@ -751,4 +760,4 @@ gc_get_parallel_stats(PyObject *module, PyObject *Py_UNUSED(ignored))
 {
     return gc_get_parallel_stats_impl(module);
 }
-/*[clinic end generated code: output=ba2ec0c1ff049282 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=57ac9891b062dea9 input=a9049054013a1b77]*/

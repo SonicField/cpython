@@ -503,12 +503,21 @@ Enable parallel garbage collection with the specified number of workers.
 
 num_workers must be >= 2 (one coordinator + workers).
 
+If parallel GC is already enabled with a *different* num_workers, raises
+RuntimeError; call gc.disable_parallel() first. Calling enable_parallel
+again with the same num_workers (after disable_parallel) restarts the
+existing thread pool without re-initialisation.
+
+The collector dynamically adjusts the active worker count between 2 and
+num_workers per collection (biased constrained random walk); num_workers
+is the upper bound.
+
 Available in all GIL-based builds (parallel GC is built-in).
 [clinic start generated code]*/
 
 static PyObject *
 gc_enable_parallel_impl(PyObject *module, int num_workers)
-/*[clinic end generated code: output=073661d508bcbcd3 input=68c108dd877213c9]*/
+/*[clinic end generated code: output=073661d508bcbcd3 input=eb06a8b394b65504]*/
 {
 #if defined(Py_GIL_DISABLED) && defined(Py_PARALLEL_GC)
     // FTP (free-threading) parallel GC
@@ -636,7 +645,7 @@ Available in all GIL-based builds (parallel GC is built-in).
 
 static PyObject *
 gc_disable_parallel_impl(PyObject *module)
-/*[clinic end generated code: output=ad7defd925ecd9b6 input=912e72cb61fee6fe]*/
+/*[clinic end generated code: output=ad7defd925ecd9b6 input=45a7c611a9b73b3b]*/
 {
 #if defined(Py_GIL_DISABLED) && defined(Py_PARALLEL_GC)
     // FTP (free-threading) parallel GC
@@ -699,7 +708,7 @@ Available in all GIL-based builds (parallel GC is built-in).
 
 static PyObject *
 gc_get_parallel_config_impl(PyObject *module)
-/*[clinic end generated code: output=1560c2e1d57859e5 input=21e77c05e10fa9a2]*/
+/*[clinic end generated code: output=1560c2e1d57859e5 input=62175e9fd1614ca4]*/
 {
     PyObject *result = PyDict_New();
     if (result == NULL) {
@@ -790,7 +799,7 @@ Available in all GIL-based builds (parallel GC is built-in).
 
 static PyObject *
 gc_get_parallel_stats_impl(PyObject *module)
-/*[clinic end generated code: output=bdc0714efc1df08c input=10079e4be8230ed3]*/
+/*[clinic end generated code: output=bdc0714efc1df08c input=7ac8786257fceb3c]*/
 {
 #if defined(Py_GIL_DISABLED) && defined(Py_PARALLEL_GC)
     // FTP (free-threading) parallel GC
