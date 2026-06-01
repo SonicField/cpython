@@ -537,12 +537,9 @@ _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
         return -1;
     }
 
-    // Initialize barriers
-    // mark_barrier: all workers + main thread (to signal start)
-    // done_barrier: all workers + main thread (to signal completion)
-    // startup_barrier: all workers + main thread (to ensure workers are ready)
-    _PyGCBarrier_Init(&par_gc->mark_barrier, (unsigned int)num_workers + 1);
-    _PyGCBarrier_Init(&par_gc->done_barrier, (unsigned int)num_workers + 1);
+    // Initialize startup_barrier (worker-ready handshake; only barrier still used).
+    // mark_barrier/done_barrier dispatch was replaced with per-worker condvars
+    // (see _PyGC_DispatchAndWait + per-worker wake_mutex/wake_cond).
     _PyGCBarrier_Init(&par_gc->startup_barrier, (unsigned int)num_workers + 1);
 
     // Initialize locks
@@ -557,8 +554,6 @@ _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
         PyCOND_FINI(&par_gc->workers_done_cond);
         PyMUTEX_FINI(&par_gc->active_lock);
         _PyGCBarrier_Fini(&par_gc->startup_barrier);
-        _PyGCBarrier_Fini(&par_gc->done_barrier);
-        _PyGCBarrier_Fini(&par_gc->mark_barrier);
         _PyGCWorkQueue_Fini(&par_gc->work_queue);
         _PyGCSplitVector_Fini(&par_gc->split_vector);
         PyMem_Free(par_gc);
@@ -655,9 +650,8 @@ _PyGC_ParallelFini(PyInterpreterState *interp)
         }
     }
 
-    // Clean up barriers
-    _PyGCBarrier_Fini(&par_gc->mark_barrier);
-    _PyGCBarrier_Fini(&par_gc->done_barrier);
+    // Clean up startup_barrier (the only barrier still in use; mark/done
+    // were replaced with per-worker condvars in Phase 5.3).
     _PyGCBarrier_Fini(&par_gc->startup_barrier);
 
     // Clean up split vector
@@ -750,7 +744,7 @@ _PyGC_ParallelStop(PyInterpreterState *interp)
     // Wait for workers to finish (they exit after seeing should_exit)
     // After joining, clean up each worker's tstate from the main thread.
     // This avoids a race condition: if workers did cleanup themselves, there
-    // would be a window between done_barrier and thread exit where cleanup
+    // would be a window between worker exit and thread exit where cleanup
     // could race with re-initialization if enable_parallel() is called quickly.
     for (size_t i = 0; i < par_gc->num_workers; i++) {
         _PyParallelGCWorker *worker = &par_gc->workers[i];

@@ -204,8 +204,10 @@ typedef struct {
 // =============================================================================
 // Worker Thread Phases
 // =============================================================================
-// Workers wait on mark_barrier, then dispatch based on current phase.
-// The main GC thread sets the phase before signalling the barrier.
+// Workers wait on per-worker (wake_mutex, wake_cond) for dispatch, then
+// switch on current phase. The main GC thread sets the phase, then sets
+// wake_flag and signals wake_cond for each active worker.
+// See _PyGC_DispatchAndWait in gc_parallel.c.
 
 typedef enum {
     _PyGC_PHASE_IDLE,               // Waiting for work
@@ -308,15 +310,15 @@ struct _PyParallelGCState {
     // Populated during level-1 expansion, consumed by workers
     _PyGCWorkQueue work_queue;
 
-    // Synchronizes all workers before marking reachable objects
-    _PyGCBarrier mark_barrier;
-
-    // Synchronizes all worker threads and the main thread at the end of
-    // parallel collection
-    _PyGCBarrier done_barrier;
-
     // Synchronizes worker startup - ensures all workers are ready before
-    // ParallelStart returns (prevents race condition in Stop)
+    // ParallelStart returns (prevents race condition in Stop).
+    //
+    // The previous mark_barrier and done_barrier fields were retired in
+    // Phase 5.3 when broadcast-barrier dispatch was replaced with per-worker
+    // condvar dispatch (see _PyGC_DispatchAndWait in gc_parallel.c plus the
+    // wake_mutex/wake_cond on each worker and done_mutex/done_cond at the
+    // pool level). startup_barrier remains because the once-per-pool worker
+    // handshake during ParallelStart is a natural fit for a barrier.
     _PyGCBarrier startup_barrier;
 
     // Tracks the number of workers actively running. When this reaches zero
