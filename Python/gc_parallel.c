@@ -1063,8 +1063,13 @@ _PyGC_ParallelGetStats(PyInterpreterState *interp)
         mark_alive_ns = par_gc->mark_alive_end_ns - par_gc->update_refs_end_ns;
         subtract_refs_ns = par_gc->subtract_refs_end_ns - par_gc->mark_alive_end_ns;
         mark_ns = par_gc->mark_end_ns - par_gc->subtract_refs_end_ns;
-        cleanup_ns = par_gc->cleanup_end_ns - par_gc->mark_end_ns;
-        total_ns = par_gc->cleanup_end_ns - par_gc->gc_start_ns;
+        if (par_gc->cleanup_end_ns != 0) {
+            cleanup_ns = par_gc->cleanup_end_ns - par_gc->mark_end_ns;
+            total_ns = par_gc->cleanup_end_ns - par_gc->gc_start_ns;
+        } else {
+            /* cleanup_end_ns not recorded — estimate from mark_end */
+            total_ns = par_gc->mark_end_ns - par_gc->gc_start_ns;
+        }
     }
 
     // Helper macro to add int64 to dict
