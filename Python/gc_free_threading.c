@@ -7,6 +7,7 @@
 #include "pycore_freelist.h"      // _PyObject_ClearFreeLists()
 #ifdef Py_PARALLEL_GC
 #include "pycore_gc_ft_parallel.h" // Parallel GC support
+#include "pycore_gc_random_walk.h"  // _PyGC_RandomWalkUpdate()
 #endif
 #include "pycore_genobject.h"     // _PyGen_GetGeneratorFromFrame()
 #include "pycore_initconfig.h"    // _PyStatus_NO_MEMORY()
@@ -2725,6 +2726,22 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
     PyTime_t cleanup_end;
     (void)PyTime_PerfCounterRaw(&cleanup_end);
     interp->gc.cleanup_end_ns = cleanup_end;
+
+    // Update adaptive worker count via shared random-walk controller.
+    // Mirrors the GIL parallel GC body in Python/gc.c — both builds use the
+    // same logic to converge on a worker count for this workload.
+    {
+        _PyGCThreadPool *_pool = interp->gc.thread_pool;
+        if (_pool != NULL) {
+            _PyGC_RandomWalkUpdate(
+                interp->gc.cleanup_end_ns - interp->gc.gc_start_ns,
+                state->candidates,
+                &_pool->prev_cost_per_obj_ns,
+                &_pool->explore_rng,
+                &_pool->adaptive_workers,
+                (size_t)_pool->num_workers);
+        }
+    }
 
     // Store the current memory usage, can be smaller now if breaking cycles
     // freed some memory.

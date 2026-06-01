@@ -11,6 +11,7 @@
 
 #include "pycore_gc.h"
 #include "pycore_gc_ft_parallel.h"
+#include "pycore_gc_random_walk.h"  // _PyGC_RandomWalkUpdate, _PyGC_RandomWalkSeed
 #include "pycore_interp.h"
 #include "pycore_lock.h"                // PyMutex_Lock/Unlock
 #include "pycore_pystate.h"
@@ -1657,6 +1658,21 @@ thread_pool_do_work(_PyGCThreadPool *pool, int worker_id)
         return;  // No work to do
     }
 
+    // NOTE: pool->adaptive_workers is tracked (see _PyGC_RandomWalkUpdate
+    // call after each collection) but is NOT YET used here to skip work
+    // for idle workers. Reason: FTP work functions (update_refs, mark_heap,
+    // scan_heap, propagate) use internal phase_barriers that require ALL
+    // num_workers participants to arrive. Skipping work in workers >=
+    // adaptive_workers would leave them not participating in those
+    // phase_barriers, causing deadlock.
+    //
+    // The next commit replaces barrier dispatch with per-worker condvars,
+    // at which point idle workers stay asleep and don't enter the work
+    // functions at all. Then adaptive_workers will actually skip work.
+    // For now, the controller state is updated so both builds use the same
+    // logic; the dispatch refactor enables it to take effect on FTP.
+    (void)pool->adaptive_workers;  // intentionally unused this commit
+
 #if GC_DEBUG_ATOMICS
     // Reset TLS stats at start of work
     _PyGC_ATOMIC_RESET_STATS();
@@ -1790,6 +1806,12 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
     _Py_atomic_store_int_relaxed(&pool->shutdown, 0);
     pool->threads_created = 0;
     pool->collections_completed = 0;
+
+    // Adaptive worker controller — same as GIL build, see
+    // Include/internal/pycore_gc_random_walk.h.
+    pool->adaptive_workers = (num_workers < 4) ? (size_t)num_workers : 4;
+    pool->prev_cost_per_obj_ns = 0.0;
+    pool->explore_rng = _PyGC_RandomWalkSeed();
 
     // Initialize barriers for synchronization
     // All barriers include all workers (main thread as worker 0)

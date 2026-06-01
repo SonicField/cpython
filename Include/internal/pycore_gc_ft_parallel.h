@@ -336,6 +336,14 @@ typedef struct _PyGCThreadPool {
     // Worker control
     int shutdown;           // 1 = pool is shutting down (use atomics)
 
+    // Adaptive worker count — see Include/internal/pycore_gc_random_walk.h.
+    // Same controller as the GIL parallel GC for identical behaviour.
+    // adaptive_workers ∈ [2, num_workers]; workers with worker_id >=
+    // adaptive_workers no-op for this collection.
+    size_t adaptive_workers;
+    double prev_cost_per_obj_ns;
+    uint32_t explore_rng;
+
     // Debug/testing counters (for assertions)
     size_t threads_created;          // Total threads ever created (should equal num_workers-1)
     size_t collections_completed;    // Number of GC collections processed
