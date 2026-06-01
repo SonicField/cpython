@@ -529,13 +529,21 @@ struct _PyGCScanHeapResult {
 };
 
 // Get number of parallel GC workers for the next collection.
-// Returns 0 if parallel GC is disabled, otherwise the adaptive worker count
-// chosen by the random-walk controller (see pycore_gc_random_walk.h).
+// Returns 0 if parallel GC is disabled, otherwise the worker count.
 //
-// The thread pool persists with the maximum num_workers; this returns the
-// CURRENT adaptive count, which varies per collection. If the pool isn't
-// initialised yet (first call before enable_parallel) the configured
-// num_workers is used as a fall-through.
+// Currently returns pool->num_workers (the configured maximum), NOT the
+// adaptive count. The pool dispatch path
+// (_PyGC_ParallelPropagateAliveWithPool and similar) asserts that the
+// passed num_workers matches pool->num_workers and that the internal
+// phase_barrier (sized num_workers) receives that many participants.
+// Returning adaptive_workers here would break both invariants.
+//
+// Plumbing the adaptive count through requires the pool dispatch refactor:
+// per-worker condvars instead of mark_barrier broadcast, dynamically-sized
+// (or per-dispatch) phase_barriers. Once that lands, change the body to:
+//   _PyGCThreadPool *pool = gc->thread_pool;
+//   return pool ? (int)pool->adaptive_workers : gc->parallel_gc_num_workers;
+// and FTP collections will scale per-collection like the GIL build does.
 static inline int
 _PyGC_GetParallelWorkers(PyInterpreterState *interp)
 {
@@ -543,14 +551,7 @@ _PyGC_GetParallelWorkers(PyInterpreterState *interp)
     if (!gc->parallel_gc_enabled) {
         return 0;
     }
-    _PyGCThreadPool *pool = gc->thread_pool;
-    if (pool != NULL) {
-        // Adaptive worker count, updated by _PyGC_RandomWalkUpdate after
-        // each collection. Guaranteed in [2, pool->num_workers].
-        return (int)pool->adaptive_workers;
-    }
-    // No pool yet (e.g. during initial enable_parallel before pool init):
-    // fall back to the configured max.
+    // num_workers is required and validated by gc.enable_parallel()
     return gc->parallel_gc_num_workers;
 }
 
