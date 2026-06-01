@@ -1747,6 +1747,7 @@ static void
 gc_collect_region(PyThreadState *tstate,
                   PyGC_Head *from,
                   PyGC_Head *to,
+                  int generation,
                   struct gc_collection_stats *stats);
 
 static inline Py_ssize_t
@@ -1804,7 +1805,7 @@ gc_collect_young(PyThreadState *tstate,
     PyGC_Head survivors;
     gc_list_init(&survivors);
     gc_list_set_space(young, gcstate->visited_space);
-    gc_collect_region(tstate, young, &survivors, stats);
+    gc_collect_region(tstate, young, &survivors, 0, stats);
     gc_list_merge(&survivors, visited);
     validate_spaces(gcstate);
     gcstate->young.count = 0;
@@ -2118,7 +2119,7 @@ gc_collect_increment(PyThreadState *tstate, struct gc_collection_stats *stats)
     gc_list_validate_space(&increment, gcstate->visited_space);
     PyGC_Head survivors;
     gc_list_init(&survivors);
-    gc_collect_region(tstate, &increment, &survivors, stats);
+    gc_collect_region(tstate, &increment, &survivors, 1, stats);
     gc_list_merge(&survivors, visited);
     assert(gc_list_is_empty(&increment));
     gcstate->work_to_do -= increment_size;
@@ -2149,7 +2150,7 @@ gc_collect_full(PyThreadState *tstate,
     validate_spaces(gcstate);
 
     gc_collect_region(tstate, visited, visited,
-                      stats);
+                      2, stats);
     validate_spaces(gcstate);
     gcstate->young.count = 0;
     gcstate->old[0].count = 0;
@@ -2165,6 +2166,7 @@ static void
 gc_collect_region(PyThreadState *tstate,
                   PyGC_Head *from,
                   PyGC_Head *to,
+                  int generation,
                   struct gc_collection_stats *stats)
 {
     PyGC_Head unreachable; /* non-problematic unreachable trash */
@@ -2174,6 +2176,21 @@ gc_collect_region(PyThreadState *tstate,
 
     assert(gcstate->garbage != NULL);
     assert(!_PyErr_Occurred(tstate));
+
+#ifdef Py_PARALLEL_GC
+    // Set adaptive_workers for this collection from per-generation state.
+    // Must happen before deduce_unreachable which dispatches parallel work.
+    {
+        _PyParallelGCState *_par_gc = tstate->interp->gc.parallel_gc;
+        if (_par_gc != NULL && _par_gc->enabled) {
+            int gen = generation;
+            if (gen < 0) gen = 0;
+            if (gen > 2) gen = 2;
+            _par_gc->adaptive_workers = _par_gc->adaptive_workers_by_gen[gen];
+            _par_gc->last_generation = gen;
+        }
+    }
+#endif
 
     gc_list_init(&unreachable);
     stats->candidates = deduce_unreachable(from, &unreachable);
@@ -2263,26 +2280,89 @@ gc_collect_region(PyThreadState *tstate,
             (void)PyTime_PerfCounterRaw(&cleanup_end);
             par_gc->cleanup_end_ns = cleanup_end;
 
-            // Hill-climbing adaptive worker count.
-            // Compare this collection's per-object cost against an EMA.
-            // If cost decreased (more workers helped), try more.
-            // If cost increased (overhead dominated), reduce workers.
-            // EMA provides damping to prevent oscillation.
+            // Stochastic hill-climbing adaptive worker count (per-generation).
+            // Each generation independently tracks its own EMA and worker count.
+            // Epsilon-greedy exploration prevents getting stuck in local optima
+            // when workload characteristics change.
+            int gen = generation;
+            if (gen < 0) gen = 0;
+            if (gen > 2) gen = 2;
+
             int64_t parallel_time = par_gc->cleanup_end_ns - par_gc->gc_start_ns;
             Py_ssize_t candidates = par_gc->split_vector.count;
             if (parallel_time > 0 && candidates > 0) {
                 double per_obj = (double)parallel_time / (double)candidates;
-                double prev_ema = par_gc->ema_per_obj_ns;
-                // EMA update: 0.7 old + 0.3 new (smooth over ~3 collections)
-                par_gc->ema_per_obj_ns = 0.7 * prev_ema + 0.3 * per_obj;
-                // Hill-climbing: if cost went up vs EMA, reduce workers.
-                // If cost went down, try more workers.
-                if (per_obj > prev_ema * 1.05 && par_gc->adaptive_workers > 2) {
-                    par_gc->adaptive_workers--;
-                } else if (per_obj < prev_ema * 0.95
-                           && par_gc->adaptive_workers < par_gc->num_workers) {
-                    par_gc->adaptive_workers++;
+                double prev_ema = par_gc->ema_per_obj_ns_by_gen[gen];
+
+                // Track per-generation collection count (saturates at 255)
+                uint8_t gen_count = par_gc->collections_by_gen[gen];
+                if (gen_count < 255) {
+                    par_gc->collections_by_gen[gen] = ++gen_count;
                 }
+
+                // Workload shift detection: 3 consecutive collections with
+                // cost > 2x EMA resets exploration (not a single outlier).
+                // Skip during EMA warmup (first 3 collections per gen).
+                if (gen_count > 3 && per_obj > 2.0 * prev_ema) {
+                    par_gc->shift_count++;
+                    if (par_gc->shift_count >= 3) {
+                        par_gc->epsilon = 0.3;
+                        par_gc->shift_count = 0;
+                    }
+                } else if (gen_count > 3) {
+                    par_gc->shift_count = 0;
+                }
+
+                // EMA update: 0.7 old + 0.3 new (smooth over ~3 collections)
+                par_gc->ema_per_obj_ns_by_gen[gen] = 0.7 * prev_ema + 0.3 * per_obj;
+
+                // Skip explore/exploit during EMA warmup (first 3 collections
+                // per generation). The EMA needs time to converge to the
+                // actual per-object cost before hill-climbing decisions
+                // are meaningful. Without this, cold-start EMA (100.0) vs
+                // real cost (potentially millions) causes the controller
+                // to always decrease workers on first contact with a gen.
+                if (gen_count <= 3) {
+                    goto controller_done;
+                }
+
+                // Epsilon-greedy: explore or exploit
+                // xorshift32 PRNG for exploration decisions
+                uint32_t rng = par_gc->explore_rng;
+                rng ^= rng << 13;
+                rng ^= rng >> 17;
+                rng ^= rng << 5;
+                par_gc->explore_rng = rng;
+                double rand_val = (double)(rng & 0xFFFF) / 65535.0;
+
+                if (rand_val < par_gc->epsilon) {
+                    // EXPLORE: random worker count in [2, num_workers]
+                    uint32_t range = (uint32_t)(par_gc->num_workers - 1);
+                    if (range == 0) range = 1;
+                    par_gc->adaptive_workers_by_gen[gen] = 2 + (rng % range);
+                    if (par_gc->adaptive_workers_by_gen[gen] > par_gc->num_workers) {
+                        par_gc->adaptive_workers_by_gen[gen] = par_gc->num_workers;
+                    }
+                } else {
+                    // EXPLOIT: hill-climb with 15% dead zone
+                    if (per_obj > prev_ema * 1.15
+                            && par_gc->adaptive_workers_by_gen[gen] > 2) {
+                        par_gc->adaptive_workers_by_gen[gen]--;
+                    } else if (per_obj < prev_ema * 0.85
+                            && par_gc->adaptive_workers_by_gen[gen]
+                               < par_gc->num_workers) {
+                        par_gc->adaptive_workers_by_gen[gen]++;
+                    }
+                }
+
+                // Decay epsilon: multiply by 0.95 after non-exploratory collections
+                if (rand_val >= par_gc->epsilon) {
+                    par_gc->epsilon *= 0.95;
+                    if (par_gc->epsilon < 0.05) {
+                        par_gc->epsilon = 0.05;  // floor: 5% ongoing exploration
+                    }
+                }
+controller_done: ;
             }
         }
     }
