@@ -2156,13 +2156,11 @@ _PyGC_ParallelPropagateAliveWithPool(PyInterpreterState *interp,
     }
 
     // Dispatch to adaptive_workers (mirror of GIL parallel GC).
-    // Helpers wake via per-worker condvars; main thread does worker 0's
-    // work inside _PyGC_FTDispatchAndWait and waits for the rest to signal.
-    if (_PyGC_FTDispatchAndWait(pool, pool->adaptive_workers)) {
-        // Reentrant dispatch — caller should treat as serial fallback.
-        pool->current_work = NULL;
-        return;
-    }
+    // FTP STW collections shouldn't release a lock that re-enters GC, so
+    // reentrant dispatch shouldn't happen — assert if it does.
+    int reentrant = _PyGC_FTDispatchAndWait(pool, pool->adaptive_workers);
+    assert(reentrant == 0 && "FTP STW dispatch should not be reentrant");
+    (void)reentrant;
 
     // Clear work descriptor
     pool->current_work = NULL;
