@@ -5,6 +5,7 @@
 #ifdef Py_PARALLEL_GC
 
 #include "pycore_gc_parallel.h"
+#include "pycore_gc_random_walk.h"  // _PyGC_RandomWalkSeed()
 #include "pycore_pystate.h"
 #include "pycore_interp.h"
 #include "pycore_gc.h"  // For GC internals
@@ -507,17 +508,7 @@ _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
     par_gc->prev_cost_per_obj_ns = 0.0;  // no previous measurement yet
 
     // Seed PRNG from GC_TEST_SEED or perf counter
-    const char *seed_env = getenv("GC_TEST_SEED");
-    if (seed_env != NULL) {
-        par_gc->explore_rng = (uint32_t)atoi(seed_env);
-    } else {
-        PyTime_t seed_time;
-        (void)PyTime_PerfCounterRaw(&seed_time);
-        par_gc->explore_rng = (uint32_t)seed_time;
-    }
-    if (par_gc->explore_rng == 0) {
-        par_gc->explore_rng = 1;  // xorshift32 absorbing state guard
-    }
+    par_gc->explore_rng = _PyGC_RandomWalkSeed();
 
     par_gc->dispatch_in_progress = 0;
 

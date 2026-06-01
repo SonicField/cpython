@@ -9,6 +9,7 @@
 #include "pycore_interp.h"        // PyInterpreterState.gc
 #ifdef Py_PARALLEL_GC
 #include "pycore_gc_parallel.h"   // _PyGC_ParallelMoveUnreachable()
+#include "pycore_gc_random_walk.h"  // _PyGC_RandomWalkUpdate()
 #include "pycore_time.h"          // PyTime_PerfCounterRaw
 #endif
 #include "pycore_interpframe.h"   // _PyFrame_GetLocalsArray()
@@ -2280,46 +2281,15 @@ gc_collect_region(PyThreadState *tstate,
             par_gc->cleanup_end_ns = cleanup_end;
 
             // Biased constrained random walk controller.
-            // Each collection: with 20% probability, step current±1 workers.
-            // Proactive: always step when dice fires. Good values stick naturally.
-            int64_t parallel_time = par_gc->cleanup_end_ns - par_gc->gc_start_ns;
-            Py_ssize_t candidates = par_gc->split_vector.count;
-            if (parallel_time > 0 && candidates > 0) {
-                double cost = (double)parallel_time / (double)candidates;
-                double prev_cost = par_gc->prev_cost_per_obj_ns;
-                par_gc->prev_cost_per_obj_ns = cost;
-
-                // Skip adjustment on first collection (no baseline yet)
-                if (prev_cost <= 0.0) {
-                    goto controller_done;
-                }
-
-                // xorshift32 PRNG
-                uint32_t rng = par_gc->explore_rng;
-                rng ^= rng << 13;
-                rng ^= rng >> 17;
-                rng ^= rng << 5;
-                par_gc->explore_rng = rng;
-                double rand_val = (double)(rng & 0xFFFF) / 65535.0;
-
-                // 20% chance to step ±1 (proactive exploration)
-                if (rand_val < 0.2) {
-                    // No directional bias: 50/50 chance to increase or decrease
-                    double dir_val = (double)((rng >> 16) & 0xFFFF) / 65535.0;
-                    int delta = (dir_val < 0.5) ? 1 : -1;
-
-                    // Always step when the dice fires. Good values stick
-                    // because they don't trigger further corrective steps.
-                    size_t trial = par_gc->adaptive_workers;
-                    if (delta > 0 && trial < par_gc->num_workers) {
-                        trial++;
-                    } else if (delta < 0 && trial > 2) {
-                        trial--;
-                    }
-                    par_gc->adaptive_workers = trial;
-                }
-controller_done: ;
-            }
+            // Shared with the free-threaded parallel GC for identical
+            // behaviour across builds — see pycore_gc_random_walk.h.
+            _PyGC_RandomWalkUpdate(
+                par_gc->cleanup_end_ns - par_gc->gc_start_ns,
+                par_gc->split_vector.count,
+                &par_gc->prev_cost_per_obj_ns,
+                &par_gc->explore_rng,
+                &par_gc->adaptive_workers,
+                par_gc->num_workers);
         }
     }
 #endif
