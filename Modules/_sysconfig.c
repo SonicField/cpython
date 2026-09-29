@@ -68,6 +68,16 @@ _sysconfig_config_vars_impl(PyObject *module)
         return NULL;
     }
 
+#ifdef Py_PARALLEL_GC
+    PyObject *py_parallel_gc = _PyLong_GetOne();
+#else
+    PyObject *py_parallel_gc = _PyLong_GetZero();
+#endif
+    if (PyDict_SetItemString(config, "Py_PARALLEL_GC", py_parallel_gc) < 0) {
+        Py_DECREF(config);
+        return NULL;
+    }
+
 #ifdef Py_DEBUG
     PyObject *py_debug = _PyLong_GetOne();
 #else

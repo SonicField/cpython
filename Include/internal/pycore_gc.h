@@ -12,6 +12,10 @@ extern "C" {
 #include "pycore_pystate.h"       // _PyInterpreterState_GET()
 #include "pycore_typedefs.h"      // _PyInterpreterFrame
 
+#define _PyGC_PARALLEL_MIN_WORKERS 2
+#define _PyGC_PARALLEL_MAX_WORKERS 64
+#define _PyGC_PARALLEL_WORK_CHUNK 8192
+
 
 /* Get an object's GC head */
 static inline PyGC_Head* _Py_AS_GC(PyObject *op) {

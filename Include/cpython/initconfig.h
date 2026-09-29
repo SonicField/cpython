@@ -180,6 +180,7 @@ typedef struct PyConfig {
     int use_frozen_modules;
     int safe_path;
     int int_max_str_digits;
+    int parallel_gc_workers;
     int thread_inherit_context;
     int context_aware_warnings;
 #ifdef __APPLE__

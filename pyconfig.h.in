@@ -1886,6 +1886,9 @@
 /* Define if you want to disable the GIL */
 #undef Py_GIL_DISABLED
 
+/* Define if you want to enable parallel garbage collection */
+#undef Py_PARALLEL_GC
+
 /* Define hash algorithm for str, bytes and memoryview. SipHash24: 1, FNV: 2,
    SipHash13: 3, externally defined: 0 */
 #undef Py_HASH_ALGORITHM
@@ -2288,4 +2291,3 @@
 #endif
 
 #endif /*Py_PYCONFIG_H*/
-

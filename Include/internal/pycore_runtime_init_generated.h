@@ -1961,6 +1961,7 @@ extern "C" {
     INIT_ID(nstype), \
     INIT_ID(nt), \
     INIT_ID(null), \
+    INIT_ID(num_workers), \
     INIT_ID(number), \
     INIT_ID(obj), \
     INIT_ID(object), \

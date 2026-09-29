@@ -392,7 +392,7 @@ def _init_non_posix(vars):
     vars['BINLIBDEST'] = get_path('platstdlib')
     vars['INCLUDEPY'] = get_path('include')
 
-    # Add EXT_SUFFIX, SOABI, Py_DEBUG, and Py_GIL_DISABLED
+    # Add EXT_SUFFIX, SOABI, Py_DEBUG, Py_GIL_DISABLED, and Py_PARALLEL_GC
     vars.update(_sysconfig.config_vars())
 
     # NOTE: ABIFLAGS is only an emulated value. It is not present during build

@@ -15,6 +15,13 @@ class MyObj:
     pass
 
 
+class CycleNode:
+    __slots__ = ("next", "__weakref__")
+
+    def __init__(self):
+        self.next = None
+
+
 @threading_helper.requires_working_threading()
 class TestGC(TestCase):
     def test_get_objects(self):
@@ -208,6 +215,41 @@ class TestGC(TestCase):
 
         with threading_helper.start_threads(threads):
             pass
+
+
+@threading_helper.requires_working_threading()
+class TestParallelGCAbandonedPages(TestCase):
+    def setUp(self):
+        config = getattr(gc, "get_parallel_config", lambda: {})()
+        if not config.get("available"):
+            self.skipTest("parallel GC is not available")
+        self.old_workers = config["num_workers"] if config["enabled"] else 0
+
+    def tearDown(self):
+        gc.disable_parallel()
+        if self.old_workers:
+            gc.enable_parallel(self.old_workers)
+
+    def test_collects_cycles_from_exited_threads(self):
+        refs = []
+        refs_lock = threading.Lock()
+
+        def make_cycle():
+            nodes = [CycleNode() for _ in range(200)]
+            for index, node in enumerate(nodes):
+                node.next = nodes[(index + 1) % len(nodes)]
+            with refs_lock:
+                refs.extend(map(weakref.ref, nodes))
+
+        gc.disable()
+        self.addCleanup(gc.enable)
+        threads = [Thread(target=make_cycle) for _ in range(4)]
+        with threading_helper.start_threads(threads):
+            pass
+
+        gc.enable_parallel(4)
+        gc.collect()
+        self.assertTrue(all(ref() is None for ref in refs))
 
 
 if __name__ == "__main__":

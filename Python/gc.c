@@ -5,6 +5,9 @@
 #include "Python.h"
 #include "pycore_ceval.h"         // _Py_set_eval_breaker_bit()
 #include "pycore_dict.h"          // _PyInlineValuesSize()
+#ifdef Py_PARALLEL_GC
+#  include "pycore_gc_parallel.h"  // _PyGC_ParallelMoveUnreachable()
+#endif
 #include "pycore_initconfig.h"    // _PyStatus_OK()
 #include "pycore_context.h"
 #include "pycore_interp.h"        // PyInterpreterState.gc
@@ -435,9 +438,53 @@ update_refs(PyGC_Head *containers)
     return candidates;
 }
 
+#ifdef Py_PARALLEL_GC
+/* Set gc_refs while recording boundaries for the parallel phases. */
+static Py_ssize_t
+update_refs_with_splits(PyGC_Head *containers, _PyGCSplitVector *splits)
+{
+    PyGC_Head *gc = GC_NEXT(containers);
+    Py_ssize_t candidates = 0;
+    int record_splits = 1;
+
+    _PyGCSplitVector_Clear(splits);
+
+    while (gc != containers) {
+        PyGC_Head *next = GC_NEXT(gc);
+        PyObject *op = FROM_GC(gc);
+        if (_Py_IsImmortal(op)) {
+            assert(!_Py_IsStaticImmortal(op));
+            _PyObject_GC_UNTRACK(op);
+            gc = next;
+            continue;
+        }
+
+        if (record_splits &&
+            candidates % _PyGC_PARALLEL_WORK_CHUNK == 0 &&
+            _PyGCSplitVector_Push(splits, gc) < 0)
+        {
+            record_splits = 0;
+        }
+        gc_reset_refs(gc, Py_REFCNT(op));
+        _PyObject_ASSERT(op, gc_get_refs(gc) != 0);
+        candidates++;
+        gc = next;
+    }
+
+    if (!record_splits || _PyGCSplitVector_Push(splits, containers) < 0) {
+        _PyGCSplitVector_Clear(splits);
+    }
+    return candidates;
+}
+#endif
+
 /* A traversal callback for subtract_refs. */
+#ifdef Py_PARALLEL_GC
+PyAPI_FUNC(int)
+#else
 static int
-visit_decref(PyObject *op, void *parent)
+#endif
+_PyGC_VisitDecref(PyObject *op, void *parent)
 {
     OBJECT_STAT_INC(object_visits);
     _PyObject_ASSERT(_PyObject_CAST(parent), !_PyObject_IsFreed(op));
@@ -449,7 +496,16 @@ visit_decref(PyObject *op, void *parent)
          * because only they have positive gc_refs.
          */
         if (gc_is_collecting(gc)) {
+#ifdef Py_PARALLEL_GC
+            uintptr_t prev = _Py_atomic_load_uintptr_relaxed(&gc->_gc_prev);
+            _PyObject_ASSERT_WITH_MSG(op,
+                                      (prev >> _PyGC_PREV_SHIFT) > 0,
+                                      "refcount is too small");
+            _Py_atomic_add_uintptr(
+                &gc->_gc_prev, -((uintptr_t)1 << _PyGC_PREV_SHIFT));
+#else
             gc_decref(gc);
+#endif
         }
     }
     return 0;
@@ -462,7 +518,9 @@ _PyGC_VisitStackRef(_PyStackRef *ref, visitproc visit, void *arg)
     // refcounts when computing the incoming references, but otherwise treat
     // them like normal.
     assert(!PyStackRef_IsTaggedInt(*ref));
-    if (!PyStackRef_RefcountOnObject(*ref) && (visit == visit_decref)) {
+    if (!PyStackRef_RefcountOnObject(*ref) &&
+        visit == _PyGC_VisitDecref)
+    {
         return 0;
     }
     Py_VISIT(PyStackRef_AsPyObjectBorrow(*ref));
@@ -495,7 +553,7 @@ subtract_refs(PyGC_Head *containers)
         PyObject *op = FROM_GC(gc);
         traverse = Py_TYPE(op)->tp_traverse;
         (void) traverse(op,
-                        visit_decref,
+                        _PyGC_VisitDecref,
                         op);
     }
 }
@@ -1173,8 +1231,35 @@ deduce_unreachable(PyGC_Head *base, PyGC_Head *unreachable) {
      * refcount greater than 0 when all the references within the
      * set are taken into account).
      */
+#ifdef Py_PARALLEL_GC
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    _PyParallelGCState *par_gc = interp->gc.parallel_gc;
+    int use_parallel = (par_gc != NULL && par_gc->enabled &&
+                        par_gc->num_workers_active > 0);
+    Py_ssize_t candidates;
+
+    if (use_parallel) {
+        candidates = update_refs_with_splits(base, &par_gc->split_vector);
+
+        if (par_gc->split_vector.count >= 2) {
+            if (!_PyGC_ParallelSubtractRefs(interp)) {
+                subtract_refs(base);
+            }
+        }
+        else {
+            subtract_refs(base);
+        }
+    }
+    else {
+        candidates = update_refs(base);
+        subtract_refs(base);
+    }
+    int use_parallel_move =
+        use_parallel && par_gc->split_vector.count >= 2;
+#else
     Py_ssize_t candidates = update_refs(base);  // gc_prev is used for gc_refs
     subtract_refs(base);
+#endif
 
     /* Leave everything reachable from outside base in base, and move
      * everything else (in base) to unreachable.
@@ -1212,7 +1297,19 @@ deduce_unreachable(PyGC_Head *base, PyGC_Head *unreachable) {
      * worth complicating the code to speed just a little.
      */
     gc_list_init(unreachable);
+#ifdef Py_PARALLEL_GC
+    if (use_parallel_move &&
+        _PyGC_ParallelMoveUnreachable(interp, base, unreachable))
+    {
+        /* The parallel path restored the reachable list and populated
+         * unreachable. */
+    }
+    else {
+        move_unreachable(base, unreachable);
+    }
+#else
     move_unreachable(base, unreachable);  // gc_prev is pointer again
+#endif
     validate_list(base, collecting_clear_unreachable_clear);
     validate_list(unreachable, collecting_set_unreachable_set);
     return candidates;

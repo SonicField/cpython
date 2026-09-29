@@ -409,6 +409,10 @@ Configuration Options
      - :c:member:`orig_argv <PyConfig.orig_argv>`
      - ``list[str]``
      - Read-only
+   * - ``"parallel_gc_workers"``
+     - :c:member:`parallel_gc_workers <PyConfig.parallel_gc_workers>`
+     - ``int``
+     - Read-only
    * - ``"parse_argv"``
      - :c:member:`parse_argv <PyConfig.parse_argv>`
      - ``bool``
@@ -1551,6 +1555,26 @@ PyConfig
       (:data:`sys.int_info.default_max_str_digits`) in isolated mode.
 
       .. versionadded:: 3.12
+
+   .. c:member:: int parallel_gc_workers
+
+      Number of workers used by the experimental parallel cyclic garbage
+      collector.  Set to ``0`` to leave the parallel collector disabled, or
+      to a value between 2 and 64 to enable it.  A nonzero value causes
+      interpreter initialization to fail in builds not configured with
+      :option:`--with-parallel-gc`.
+      The value is the maximum number of threads executing collector work.  A
+      GIL build uses that many helpers.  In a free-threaded build, the
+      collecting thread participates and the pool uses exactly one fewer
+      helper.  A collection may activate fewer helpers when there is not
+      enough work.
+
+      Configured by the :option:`-X parallel_gc=N <-X>` command-line option or
+      the :envvar:`PYTHON_PARALLEL_GC` environment variable.
+
+      Default: ``0``.
+
+      .. versionadded:: 3.16
 
    .. c:member:: int cpu_count
 

@@ -1682,3 +1682,50 @@ bool _mi_abandoned_pool_visit_blocks(mi_abandoned_pool_t* pool, uint8_t page_tag
 
   return true;
 }
+
+static void mi_segment_visit_pages_only(mi_segment_t* segment,
+                                        uint8_t page_tag,
+                                        mi_page_visit_fun* visitor,
+                                        void* arg) {
+  const mi_slice_t* end;
+  mi_slice_t* slice = mi_slices_start_iterate(segment, &end);
+  while (slice < end) {
+    if (mi_slice_is_used(slice)) {
+      mi_page_t* const page = mi_slice_to_page(slice);
+      if (page->tag == page_tag && page->used > 0) {
+        visitor(page, arg);
+      }
+    }
+    slice = slice + slice->slice_count;
+  }
+}
+
+void _mi_abandoned_pool_visit_pages(mi_abandoned_pool_t* pool,
+                                    uint8_t page_tag,
+                                    mi_page_visit_fun* visitor,
+                                    void* arg) {
+  // Not safe while another thread is abandoning or claiming pool segments.
+  mi_segment_t* segment = mi_tagged_segment_ptr(pool->abandoned);
+  while (segment != NULL) {
+    mi_segment_visit_pages_only(segment, page_tag, visitor, arg);
+    segment = segment->abandoned_next;
+  }
+
+  segment = pool->abandoned_visited;
+  while (segment != NULL) {
+    mi_segment_visit_pages_only(segment, page_tag, visitor, arg);
+    segment = segment->abandoned_next;
+  }
+}
+
+static void mi_count_page(mi_page_t* page, void* arg) {
+  size_t* count = (size_t*)arg;
+  (*count)++;
+}
+
+size_t _mi_abandoned_pool_count_pages(mi_abandoned_pool_t* pool,
+                                      uint8_t page_tag) {
+  size_t count = 0;
+  _mi_abandoned_pool_visit_pages(pool, page_tag, mi_count_page, &count);
+  return count;
+}

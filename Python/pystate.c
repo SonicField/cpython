@@ -10,6 +10,12 @@
 #include "pycore_critical_section.h" // _PyCriticalSection_Resume()
 #include "pycore_dtoa.h"          // _dtoa_state_INIT()
 #include "pycore_freelist.h"      // _PyObject_ClearFreeLists()
+#ifdef Py_PARALLEL_GC
+#  include "pycore_gc_parallel.h" // _PyGC_ParallelFini()
+#  ifdef Py_GIL_DISABLED
+#    include "pycore_gc_ft_parallel.h" // _PyGC_ThreadPoolFini()
+#  endif
+#endif
 #include "pycore_initconfig.h"    // _PyStatus_OK()
 #include "pycore_interpframe.h"   // _PyThreadState_HasStackSpace()
 #include "pycore_object.h"        // _Py_ClearImmortal()
@@ -832,6 +838,17 @@ interpreter_clear(PyInterpreterState *interp, PyThreadState *tstate)
     if (_PySys_Audit(tstate, "cpython.PyInterpreterState_Clear", NULL) < 0) {
         _PyErr_Clear(tstate);
     }
+
+#ifdef Py_PARALLEL_GC
+    // Main-interpreter and Py_EndInterpreter teardown stop helpers before
+    // deleting thread states. Keep finalization idempotent for other callers
+    // of interpreter_clear().
+#  ifdef Py_GIL_DISABLED
+    _PyGC_ThreadPoolFini(interp);
+#  else
+    _PyGC_ParallelFini(interp);
+#  endif
+#endif
 
     // Clear the current/main thread state last.
     _Py_FOR_EACH_TSTATE_BEGIN(interp, p) {

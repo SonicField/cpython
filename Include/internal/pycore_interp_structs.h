@@ -269,8 +269,18 @@ struct _gc_runtime_state {
 #ifdef Py_GIL_DISABLED
     /* True if gc.freeze() has been used. */
     int freeze_active;
+
+#ifdef Py_PARALLEL_GC
+    int parallel_gc_enabled;
+    int parallel_gc_num_workers;
+    struct _PyGCThreadPool *thread_pool;
+
+#endif
 #else
     PyGC_Head *generation0;
+#ifdef Py_PARALLEL_GC
+    struct _PyParallelGCState *parallel_gc;
+#endif
 #endif
 };
 

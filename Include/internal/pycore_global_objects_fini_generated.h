@@ -674,6 +674,7 @@ _PyStaticObjects_CheckAll(PyInterpreterState *interp) {
     _PyStaticObject_CheckUnicodeSingleton((PyObject *)&_Py_ID(nstype), "nstype", 6);
     _PyStaticObject_CheckUnicodeSingleton((PyObject *)&_Py_ID(nt), "nt", 2);
     _PyStaticObject_CheckUnicodeSingleton((PyObject *)&_Py_ID(null), "null", 4);
+    _PyStaticObject_CheckUnicodeSingleton((PyObject *)&_Py_ID(num_workers), "num_workers", 11);
     _PyStaticObject_CheckUnicodeSingleton((PyObject *)&_Py_ID(number), "number", 6);
     _PyStaticObject_CheckUnicodeSingleton((PyObject *)&_Py_ID(obj), "obj", 3);
     _PyStaticObject_CheckUnicodeSingleton((PyObject *)&_Py_ID(object), "object", 6);

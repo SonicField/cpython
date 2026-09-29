@@ -154,6 +154,47 @@ The :mod:`!gc` module provides the following functions:
    threshold1, threshold2)``.
 
 
+.. function:: enable_parallel(num_workers)
+
+   Enable the experimental parallel cyclic garbage collector with
+   at most *num_workers* threads executing collector work.  *num_workers*
+   must be between 2 and 64.  A GIL build uses that many helper threads.  In a
+   free-threaded build, the collecting thread participates and the pool uses
+   exactly *num_workers - 1* helpers.  A collection may activate fewer helpers
+   when there is not enough work.
+
+   Calling this function with the current worker count has no effect.  Calling
+   it with a different count replaces the existing worker pool.
+
+   Raise :exc:`RuntimeError` if this interpreter was not built with
+   :option:`--with-parallel-gc`.
+
+   .. versionadded:: 3.16
+
+
+.. function:: disable_parallel()
+
+   Disable parallel garbage collection and release its worker pool.  Normal
+   serial collection remains enabled.
+
+   Raise :exc:`RuntimeError` if this interpreter was not built with
+   :option:`--with-parallel-gc`.
+
+   .. versionadded:: 3.16
+
+
+.. function:: get_parallel_config()
+
+   Return a dictionary describing the parallel collector configuration.  The
+   ``available`` and ``enabled`` entries are booleans, and ``num_workers`` is
+   the configured concurrency limit, or zero when disabled.
+
+   In a build without :option:`--with-parallel-gc`, ``available`` and
+   ``enabled`` are false and ``num_workers`` is zero.
+
+   .. versionadded:: 3.16
+
+
 .. function:: get_referrers(*objs)
 
    Return the list of objects that directly refer to any of objs. This function

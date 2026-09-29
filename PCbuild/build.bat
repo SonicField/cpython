@@ -34,6 +34,7 @@ echo.      automatically by the pythoncore project)
 echo.  --pgo          Build with Profile-Guided Optimization.  This flag
 echo.                 overrides -c and -d
 echo.  --disable-gil  Enable support for running without the GIL.
+echo.  --parallel-gc  Build the experimental parallel garbage collector.
 echo.  --test-marker  Enable the test marker within the build.
 echo.  --regen        Regenerate all opcodes, grammar and tokens.
 echo.  --experimental-jit          Enable the experimental just-in-time compiler.
@@ -91,6 +92,7 @@ if "%~1"=="-k" (set kill=true) & shift & goto CheckOpts
 if "%~1"=="--pgo" (set do_pgo=true) & shift & goto CheckOpts
 if "%~1"=="--pgo-job" (set do_pgo=true) & (set pgo_job=%~2) & shift & shift & goto CheckOpts
 if "%~1"=="--disable-gil" (set UseDisableGil=true) & shift & goto CheckOpts
+if "%~1"=="--parallel-gc" (set ParallelGC=true) & shift & goto CheckOpts
 if "%~1"=="--test-marker" (set UseTestMarker=true) & shift & goto CheckOpts
 if "%~1"=="-V" shift & goto Version
 if "%~1"=="--regen" (set Regen=true) & shift & goto CheckOpts
@@ -136,6 +138,15 @@ if "%UseDisableGil%" EQU "true" if "%UseTIER2%" NEQ "" (
     rem GH-133171: This configuration builds the JIT but never actually uses it,
     rem which is surprising (and strictly worse than not building it at all):
     echo.ERROR: --experimental-jit cannot be used with --disable-gil.
+    exit /b 1
+)
+
+if "%ParallelGC%" EQU "true" if /I "%platf%" EQU "Win32" (
+    echo.ERROR: --parallel-gc requires a 64-bit platform.
+    exit /b 1
+)
+if "%ParallelGC%" EQU "true" if /I "%platf%" EQU "ARM" (
+    echo.ERROR: --parallel-gc requires a 64-bit platform.
     exit /b 1
 )
 
@@ -213,6 +224,7 @@ echo on
  /p:IncludeCTypes=%IncludeCTypes%^
  /p:IncludeSSL=%IncludeSSL% /p:IncludeTkinter=%IncludeTkinter%^
  /p:DisableGil=%UseDisableGil%^
+ /p:ParallelGC=%ParallelGC%^
  /p:UseTestMarker=%UseTestMarker% %GITProperty%^
  /p:UseJIT=%UseJIT%^
  /p:UseTIER2=%UseTIER2%^

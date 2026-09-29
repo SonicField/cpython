@@ -5,6 +5,9 @@
 #include "pycore_dict.h"          // _PyInlineValuesSize()
 #include "pycore_frame.h"         // FRAME_CLEARED
 #include "pycore_freelist.h"      // _PyObject_ClearFreeLists()
+#ifdef Py_PARALLEL_GC
+#  include "pycore_gc_ft_parallel.h"
+#endif
 #include "pycore_genobject.h"     // _PyGen_GetGeneratorFromFrame()
 #include "pycore_initconfig.h"    // _PyStatus_NO_MEMORY()
 #include "pycore_interp.h"        // PyInterpreterState.gc
@@ -1444,8 +1447,29 @@ deduce_unreachable_heap(PyInterpreterState *interp,
 {
     // Identify objects that are directly reachable from outside the GC heap
     // by computing the difference between the refcount and the number of
-    // incoming references.
+    // incoming references.  Keep this phase serial: visit_decref() lazily
+    // initializes referents that are not found by the heap-page walk.
     gc_visit_heaps(interp, &update_refs, &state->base);
+
+#ifdef Py_PARALLEL_GC
+    int configured_workers = _PyGC_ShouldUseParallel(interp);
+    int num_workers = 0;
+    if (state->candidates > _PyGC_PARALLEL_WORK_CHUNK) {
+        size_t chunks = ((size_t)state->candidates - 1) /
+                        _PyGC_PARALLEL_WORK_CHUNK + 1;
+        num_workers = (int)Py_MIN((size_t)configured_workers, chunks);
+    }
+    int using_parallel = 0;
+    _PyGCFTParState par_state = {
+        .num_workers = num_workers,
+    };
+
+    if (num_workers > 1) {
+        if (_PyGC_AssignPagesToBuckets(interp, &par_state) == 0) {
+            using_parallel = 1;
+        }
+    }
+#endif
 
 #ifdef GC_DEBUG
     // Check that all objects are marked as unreachable and that the computed
@@ -1458,16 +1482,30 @@ deduce_unreachable_heap(PyInterpreterState *interp,
 
     // Transitively mark reachable objects by clearing the
     // _PyGC_BITS_UNREACHABLE flag.
-    if (gc_visit_heaps(interp, &mark_heap_visitor, &state->base) < 0) {
+    int mark_result;
+#ifdef Py_PARALLEL_GC
+    if (using_parallel) {
+        mark_result = _PyGC_ParallelMarkHeapWithPool(
+            interp, &par_state, state->skip_deferred_objects);
+        _PyGC_FreeBuckets(&par_state);
+    }
+    else
+#endif
+    {
+        mark_result = gc_visit_heaps(
+            interp, &mark_heap_visitor, &state->base);
+    }
+
+    if (mark_result < 0) {
         // On out-of-memory, restore the refcounts and bail out.
         gc_visit_heaps(interp, &restore_refs, &state->base);
         return -1;
     }
 
     // Identify remaining unreachable objects and push them onto a stack.
-    // Restores ob_tid for reachable objects.
+    // Restores ob_tid for reachable objects.  Keep this phase serial because
+    // it merges reference counts and rewrites deferred frame references.
     gc_visit_heaps(interp, &scan_heap_visitor, &state->base);
-
     if (state->legacy_finalizers.head) {
         // There may be objects reachable from legacy finalizers that are in
         // the unreachable set. We need to mark them as reachable.

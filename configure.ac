@@ -1804,6 +1804,21 @@ then
   ABI_THREAD="t"
 fi
 
+# Check for --with-parallel-gc
+AC_MSG_CHECKING([for --with-parallel-gc])
+AC_ARG_WITH([parallel-gc],
+  [AS_HELP_STRING([--with-parallel-gc],
+                  [enable parallel garbage collection (default is no)])],
+  [], [with_parallel_gc=no]
+)
+AC_MSG_RESULT([$with_parallel_gc])
+
+if test "$with_parallel_gc" = "yes"
+then
+  AC_DEFINE([Py_PARALLEL_GC], [1],
+            [Define if you want to enable parallel garbage collection])
+fi
+
 # Check for --with-pydebug
 AC_MSG_CHECKING([for --with-pydebug])
 AC_ARG_WITH([pydebug],
@@ -3363,6 +3378,10 @@ AC_CHECK_SIZEOF([long], [4])
 AC_CHECK_ALIGNOF([long])
 AC_CHECK_SIZEOF([long long], [8])
 AC_CHECK_SIZEOF([void *], [4])
+AS_IF([test "$with_parallel_gc" = yes &&
+       test "$ac_cv_sizeof_void_p" -lt 8], [
+  AC_MSG_ERROR([--with-parallel-gc requires a 64-bit target])
+])
 AC_CHECK_SIZEOF([short], [2])
 AC_CHECK_SIZEOF([float], [4])
 AC_CHECK_SIZEOF([double], [8])

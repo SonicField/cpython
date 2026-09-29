@@ -18,6 +18,11 @@
 #include "pycore_call.h"          // _PyObject_CallNoArgs()
 #include "pycore_ceval.h"         // _PyEval_ReInitThreads()
 #include "pycore_fileutils.h"     // _Py_closerange()
+#if defined(Py_PARALLEL_GC) && defined(Py_GIL_DISABLED)
+#  include "pycore_gc_ft_parallel.h" // _PyGC_ThreadPoolBeforeFork()
+#elif defined(Py_PARALLEL_GC)
+#  include "pycore_gc_parallel.h" // _PyGC_ParallelBeforeFork()
+#endif
 #include "pycore_import.h"        // _PyImport_AcquireLock()
 #include "pycore_initconfig.h"    // _PyStatus_EXCEPTION()
 #include "pycore_jit_unwind.h"    // _Py_jit_debug_mutex
@@ -716,15 +721,38 @@ PyOS_BeforeFork(void)
     _PyImport_AcquireLock(interp);
     _PyEval_StopTheWorldAll(&_PyRuntime);
     HEAD_LOCK(&_PyRuntime);
+#ifdef Py_PARALLEL_GC
+    for (PyInterpreterState *gc_interp = PyInterpreterState_Head();
+         gc_interp != NULL;
+         gc_interp = PyInterpreterState_Next(gc_interp))
+    {
+#  ifdef Py_GIL_DISABLED
+        _PyGC_ThreadPoolBeforeFork(gc_interp);
+#  else
+        _PyGC_ParallelBeforeFork(gc_interp);
+#  endif
+    }
+#endif
 }
 
 void
 PyOS_AfterFork_Parent(void)
 {
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+#ifdef Py_PARALLEL_GC
+    for (PyInterpreterState *gc_interp = PyInterpreterState_Head();
+         gc_interp != NULL;
+         gc_interp = PyInterpreterState_Next(gc_interp))
+    {
+#  ifdef Py_GIL_DISABLED
+        _PyGC_ThreadPoolAfterFork(gc_interp);
+#  else
+        _PyGC_ParallelAfterFork(gc_interp);
+#  endif
+    }
+#endif
     HEAD_UNLOCK(&_PyRuntime);
     _PyEval_StartTheWorldAll(&_PyRuntime);
-
-    PyInterpreterState *interp = _PyInterpreterState_GET();
     _PyImport_ReleaseLock(interp);
     run_at_forkers(interp->after_forkers_parent, 0);
 }
@@ -778,6 +806,19 @@ PyOS_AfterFork_Child(void)
     if (_PyStatus_EXCEPTION(status)) {
         goto fatal_error;
     }
+
+#ifdef Py_PARALLEL_GC
+    for (PyInterpreterState *gc_interp = PyInterpreterState_Head();
+         gc_interp != NULL;
+         gc_interp = PyInterpreterState_Next(gc_interp))
+    {
+#  ifdef Py_GIL_DISABLED
+        _PyGC_ThreadPoolAfterForkChild(gc_interp);
+#  else
+        _PyGC_ParallelAfterForkChild(gc_interp);
+#  endif
+    }
+#endif
 
 #if defined(PY_HAVE_JIT_GDB_UNWIND)
     // The child can inherit this mutex locked if another thread held it at

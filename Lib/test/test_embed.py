@@ -792,6 +792,7 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
     if support.Py_GIL_DISABLED:
         CONFIG_COMPAT['enable_gil'] = -1
         CONFIG_COMPAT['tlbc_enabled'] = GET_DEFAULT_CONFIG
+    CONFIG_COMPAT['parallel_gc_workers'] = 0
     if MS_WINDOWS:
         CONFIG_COMPAT.update({
             'legacy_windows_stdio': False,
@@ -1055,6 +1056,14 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
     @unittest.skipIf(support.check_bolt_optimized, "segfaults on BOLT instrumented binaries")
     def test_init_default_config(self):
         self.check_all_configs("test_init_initialize_config", api=API_COMPAT)
+
+    def test_init_parallel_gc_invalid_config(self):
+        self.run_embedded_interpreter("test_init_parallel_gc_invalid_config")
+
+    @unittest.skipUnless(support.Py_PARALLEL_GC,
+                         "requires a parallel-GC build")
+    def test_init_parallel_gc_config(self):
+        self.run_embedded_interpreter("test_init_parallel_gc_config")
 
     def test_preinit_compat_config(self):
         self.check_all_configs("test_preinit_compat_config", api=API_COMPAT)

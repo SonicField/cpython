@@ -583,4 +583,103 @@ gc_get_freeze_count(PyObject *module, PyObject *Py_UNUSED(ignored))
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=d0cb000f41ffe433 input=a9049054013a1b77]*/
+
+PyDoc_STRVAR(gc_enable_parallel__doc__,
+"enable_parallel($module, /, num_workers)\n"
+"--\n"
+"\n"
+"Enable parallel garbage collection.\n"
+"\n"
+"*num_workers* is the maximum number of GC participants.");
+
+#define GC_ENABLE_PARALLEL_METHODDEF    \
+    {"enable_parallel", _PyCFunction_CAST(gc_enable_parallel), METH_FASTCALL|METH_KEYWORDS, gc_enable_parallel__doc__},
+
+static PyObject *
+gc_enable_parallel_impl(PyObject *module, int num_workers);
+
+static PyObject *
+gc_enable_parallel(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObject *kwnames)
+{
+    PyObject *return_value = NULL;
+    #if defined(Py_BUILD_CORE) && !defined(Py_BUILD_CORE_MODULE)
+
+    #define NUM_KEYWORDS 1
+    static struct {
+        PyGC_Head _this_is_not_used;
+        PyObject_VAR_HEAD
+        Py_hash_t ob_hash;
+        PyObject *ob_item[NUM_KEYWORDS];
+    } _kwtuple = {
+        .ob_base = PyVarObject_HEAD_INIT(&PyTuple_Type, NUM_KEYWORDS)
+        .ob_hash = -1,
+        .ob_item = { &_Py_ID(num_workers), },
+    };
+    #undef NUM_KEYWORDS
+    #define KWTUPLE (&_kwtuple.ob_base.ob_base)
+
+    #else  // !Py_BUILD_CORE
+    #  define KWTUPLE NULL
+    #endif  // !Py_BUILD_CORE
+
+    static const char * const _keywords[] = {"num_workers", NULL};
+    static _PyArg_Parser _parser = {
+        .keywords = _keywords,
+        .fname = "enable_parallel",
+        .kwtuple = KWTUPLE,
+    };
+    #undef KWTUPLE
+    PyObject *argsbuf[1];
+    int num_workers;
+
+    args = _PyArg_UnpackKeywords(args, nargs, NULL, kwnames, &_parser,
+            /*minpos*/ 1, /*maxpos*/ 1, /*minkw*/ 0, /*varpos*/ 0, argsbuf);
+    if (!args) {
+        goto exit;
+    }
+    num_workers = PyLong_AsInt(args[0]);
+    if (num_workers == -1 && PyErr_Occurred()) {
+        goto exit;
+    }
+    return_value = gc_enable_parallel_impl(module, num_workers);
+
+exit:
+    return return_value;
+}
+
+PyDoc_STRVAR(gc_disable_parallel__doc__,
+"disable_parallel($module, /)\n"
+"--\n"
+"\n"
+"Disable parallel garbage collection.");
+
+#define GC_DISABLE_PARALLEL_METHODDEF    \
+    {"disable_parallel", (PyCFunction)gc_disable_parallel, METH_NOARGS, gc_disable_parallel__doc__},
+
+static PyObject *
+gc_disable_parallel_impl(PyObject *module);
+
+static PyObject *
+gc_disable_parallel(PyObject *module, PyObject *Py_UNUSED(ignored))
+{
+    return gc_disable_parallel_impl(module);
+}
+
+PyDoc_STRVAR(gc_get_parallel_config__doc__,
+"get_parallel_config($module, /)\n"
+"--\n"
+"\n"
+"Return the parallel garbage collector configuration.");
+
+#define GC_GET_PARALLEL_CONFIG_METHODDEF    \
+    {"get_parallel_config", (PyCFunction)gc_get_parallel_config, METH_NOARGS, gc_get_parallel_config__doc__},
+
+static PyObject *
+gc_get_parallel_config_impl(PyObject *module);
+
+static PyObject *
+gc_get_parallel_config(PyObject *module, PyObject *Py_UNUSED(ignored))
+{
+    return gc_get_parallel_config_impl(module);
+}
+/*[clinic end generated code: output=fed5e3d7f1aacbe0 input=a9049054013a1b77]*/

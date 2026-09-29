@@ -6,6 +6,12 @@
 
 #include "Python.h"
 #include "pycore_gc.h"
+#ifdef Py_PARALLEL_GC
+#  include "pycore_gc_parallel.h"
+#  ifdef Py_GIL_DISABLED
+#    include "pycore_gc_ft_parallel.h"
+#  endif
+#endif
 #include "pycore_object.h"      // _PyObject_IS_GC()
 #include "pycore_pystate.h"     // _PyInterpreterState_GET()
 
@@ -503,6 +509,141 @@ gc_get_freeze_count_impl(PyObject *module)
     return _PyGC_GetFreezeCount(interp);
 }
 
+/*[clinic input]
+gc.enable_parallel
+
+    num_workers: int
+
+Enable parallel garbage collection.
+
+*num_workers* is the maximum number of GC participants.
+[clinic start generated code]*/
+
+static PyObject *
+gc_enable_parallel_impl(PyObject *module, int num_workers)
+/*[clinic end generated code: output=073661d508bcbcd3 input=0ba2ed6a72479a20]*/
+{
+#if defined(Py_PARALLEL_GC) && defined(Py_GIL_DISABLED)
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    if (num_workers < _PyGC_PARALLEL_MIN_WORKERS ||
+        num_workers > _PyGC_PARALLEL_MAX_WORKERS)
+    {
+        PyErr_Format(PyExc_ValueError,
+                     "num_workers must be between %d and %d",
+                     _PyGC_PARALLEL_MIN_WORKERS,
+                     _PyGC_PARALLEL_MAX_WORKERS);
+        return NULL;
+    }
+    _PyEval_StopTheWorld(interp);
+    if (interp->gc.thread_pool != NULL) {
+        if (interp->gc.parallel_gc_enabled &&
+            interp->gc.thread_pool->num_workers == num_workers)
+        {
+            _PyEval_StartTheWorld(interp);
+            Py_RETURN_NONE;
+        }
+        _PyGC_ThreadPoolFini(interp);
+    }
+    if (_PyGC_ThreadPoolInit(interp, num_workers) < 0) {
+        _PyEval_StartTheWorld(interp);
+        return NULL;
+    }
+    interp->gc.parallel_gc_enabled = 1;
+    interp->gc.parallel_gc_num_workers = num_workers;
+    _PyEval_StartTheWorld(interp);
+    Py_RETURN_NONE;
+#elif defined(Py_PARALLEL_GC)
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    if (num_workers < _PyGC_PARALLEL_MIN_WORKERS ||
+        num_workers > _PyGC_PARALLEL_MAX_WORKERS)
+    {
+        PyErr_Format(PyExc_ValueError,
+                     "num_workers must be between 2 and %d",
+                     _PyGC_PARALLEL_MAX_WORKERS);
+        return NULL;
+    }
+    if (interp->gc.parallel_gc != NULL) {
+        size_t current = interp->gc.parallel_gc->num_workers;
+        if (_PyGC_ParallelIsEnabled(interp) &&
+            (size_t)num_workers == current)
+        {
+            Py_RETURN_NONE;
+        }
+        _PyGC_ParallelFini(interp);
+    }
+    if (_PyGC_ParallelInit(interp, num_workers) < 0) {
+        return NULL;
+    }
+    if (_PyGC_ParallelStart(interp) < 0) {
+        _PyGC_ParallelFini(interp);
+        return NULL;
+    }
+    Py_RETURN_NONE;
+#else
+    PyErr_SetString(PyExc_RuntimeError,
+                    "parallel GC is not available in this build");
+    return NULL;
+#endif
+}
+
+/*[clinic input]
+gc.disable_parallel
+
+Disable parallel garbage collection.
+[clinic start generated code]*/
+
+static PyObject *
+gc_disable_parallel_impl(PyObject *module)
+/*[clinic end generated code: output=ad7defd925ecd9b6 input=8686ef7458b55537]*/
+{
+#if defined(Py_PARALLEL_GC) && defined(Py_GIL_DISABLED)
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    _PyEval_StopTheWorld(interp);
+    _PyGC_ThreadPoolFini(interp);
+    interp->gc.parallel_gc_enabled = 0;
+    interp->gc.parallel_gc_num_workers = 0;
+    _PyEval_StartTheWorld(interp);
+    Py_RETURN_NONE;
+#elif defined(Py_PARALLEL_GC)
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    _PyGC_ParallelFini(interp);
+    Py_RETURN_NONE;
+#else
+    PyErr_SetString(PyExc_RuntimeError,
+                    "parallel GC is not available in this build");
+    return NULL;
+#endif
+}
+
+/*[clinic input]
+gc.get_parallel_config -> object
+
+Return the parallel garbage collector configuration.
+[clinic start generated code]*/
+
+static PyObject *
+gc_get_parallel_config_impl(PyObject *module)
+/*[clinic end generated code: output=1560c2e1d57859e5 input=62e9e36d698550e9]*/
+{
+#if defined(Py_PARALLEL_GC) && defined(Py_GIL_DISABLED)
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    _PyEval_StopTheWorld(interp);
+    int enabled = interp->gc.parallel_gc_enabled;
+    int workers = enabled ? interp->gc.parallel_gc_num_workers : 0;
+    _PyEval_StartTheWorld(interp);
+    return Py_BuildValue("{s:O,s:O,s:i}",
+                         "available", Py_True,
+                         "enabled", enabled ? Py_True : Py_False,
+                         "num_workers", workers);
+#elif defined(Py_PARALLEL_GC)
+    return _PyGC_ParallelGetConfig(_PyInterpreterState_GET());
+#else
+    return Py_BuildValue("{s:O,s:O,s:i}",
+                         "available", Py_False,
+                         "enabled", Py_False,
+                         "num_workers", 0);
+#endif
+}
 
 PyDoc_STRVAR(gc__doc__,
 "This module provides access to the garbage collector for reference cycles.\n"
@@ -524,7 +665,10 @@ PyDoc_STRVAR(gc__doc__,
 "get_referents() -- Return the list of objects that an object refers to.\n"
 "freeze() -- Freeze all tracked objects and ignore them for future collections.\n"
 "unfreeze() -- Unfreeze all objects in the permanent generation.\n"
-"get_freeze_count() -- Return the number of objects in the permanent generation.\n");
+"get_freeze_count() -- Return the number of objects in the permanent generation.\n"
+"enable_parallel() -- Enable experimental parallel collection.\n"
+"disable_parallel() -- Disable experimental parallel collection.\n"
+"get_parallel_config() -- Return the parallel collector configuration.\n");
 
 static PyMethodDef GcMethods[] = {
     GC_ENABLE_METHODDEF
@@ -545,6 +689,9 @@ static PyMethodDef GcMethods[] = {
     GC_FREEZE_METHODDEF
     GC_UNFREEZE_METHODDEF
     GC_GET_FREEZE_COUNT_METHODDEF
+    GC_ENABLE_PARALLEL_METHODDEF
+    GC_DISABLE_PARALLEL_METHODDEF
+    GC_GET_PARALLEL_CONFIG_METHODDEF
     {NULL,      NULL}           /* Sentinel */
 };
 

@@ -1,6 +1,7 @@
 #include "Python.h"
 #include "pycore_fileutils.h"     // _Py_HasFileSystemDefaultEncodeErrors
 #include "pycore_getopt.h"        // _PyOS_GetOpt()
+#include "pycore_gc.h"          // _PyGC_PARALLEL_MAX_WORKERS
 #include "pycore_initconfig.h"    // _PyStatus_OK()
 #include "pycore_interp.h"        // _PyInterpreterState.runtime
 #include "pycore_long.h"          // _PY_LONG_MAX_STR_DIGITS_THRESHOLD
@@ -153,6 +154,7 @@ static const PyConfigSpec PYCONFIG_SPEC[] = {
     SPEC(enable_gil, INT, READ_ONLY, NO_SYS),
     SPEC(tlbc_enabled, INT, READ_ONLY, NO_SYS),
 #endif
+    SPEC(parallel_gc_workers, INT, READ_ONLY, NO_SYS),
     SPEC(faulthandler, BOOL, READ_ONLY, NO_SYS),
     SPEC(filesystem_encoding, WSTR, READ_ONLY, NO_SYS),
     SPEC(filesystem_errors, WSTR, READ_ONLY, NO_SYS),
@@ -466,6 +468,10 @@ static const char usage_xoptions[] =
 "         default is #B{normal}; also #e{PYTHON_LAZY_IMPORTS}\n"
 "#s{-X} #L{no_debug_ranges}: don't include extra location information in code objects;\n"
 "         also #e{PYTHONNODEBUGRANGES}\n"
+#ifdef Py_PARALLEL_GC
+"#s{-X} #L{parallel_gc}#b{=N}: enable parallel GC with N workers;\n"
+"         also #e{PYTHON_PARALLEL_GC}\n"
+#endif
 "#s{-X} #L{pathconfig_warnings}#b{=[0|1]}: if true (#B{1}) then path configuration is allowed\n"
 "         to log warnings into stderr; if false (#B{0}) suppress these warnings;\n"
 "         set to true by default; also #e{PYTHON_PATHCONFIG_WARNINGS}\n"
@@ -564,6 +570,10 @@ static const char usage_envvars[] =
 "                  (#S{-X} #e{no_debug_ranges})\n"
 "#E{PYTHONNOUSERSITE}: disable user site directory (#S{-s})\n"
 "#E{PYTHONOPTIMIZE}  : enable level 1 optimizations (#S{-O})\n"
+#ifdef Py_PARALLEL_GC
+"#E{PYTHON_PARALLEL_GC}: enable parallel GC with N workers\n"
+"                  (#S{-X} #e{parallel_gc}#B{=N})\n"
+#endif
 "#E{PYTHON_PERF_JIT_SUPPORT}: enable Linux \"perf\" profiler support with JIT\n"
 "                  (#S{-X} #e{perf_jit})\n"
 "#E{PYTHONPERFSUPPORT}: support the Linux \"perf\" profiler (#S{-X} #e{perf})\n"
@@ -1153,6 +1163,7 @@ _PyConfig_InitCompatConfig(PyConfig *config)
 #endif
     config->safe_path = 0;
     config->int_max_str_digits = -1;
+    config->parallel_gc_workers = 0;
     config->_is_python_build = 0;
     config->code_debug_ranges = 1;
     config->cpu_count = -1;
@@ -2271,6 +2282,55 @@ config_init_pycache_prefix(PyConfig *config)
                               "PYTHONPYCACHEPREFIX");
 }
 
+static PyStatus
+config_init_parallel_gc(PyConfig *config)
+{
+    int num_workers;
+    const char *env = config_get_env(config, "PYTHON_PARALLEL_GC");
+
+    if (env != NULL) {
+        if (_Py_str_to_int(env, &num_workers) ||
+            (num_workers != 0 &&
+             (num_workers < _PyGC_PARALLEL_MIN_WORKERS ||
+              num_workers > _PyGC_PARALLEL_MAX_WORKERS)))
+        {
+            return _PyStatus_ERR(
+                "PYTHON_PARALLEL_GC: worker count must be 0 or between 2 and 64");
+        }
+        config->parallel_gc_workers = num_workers;
+    }
+
+    const wchar_t *xoption = config_get_xoption(config, L"parallel_gc");
+    if (xoption != NULL) {
+        const wchar_t *sep = wcschr(xoption, L'=');
+        if (sep == NULL || config_wstr_to_int(sep + 1, &num_workers) ||
+            (num_workers != 0 &&
+             (num_workers < _PyGC_PARALLEL_MIN_WORKERS ||
+              num_workers > _PyGC_PARALLEL_MAX_WORKERS)))
+        {
+            return _PyStatus_ERR(
+                "-X parallel_gc: worker count must be 0 or between 2 and 64");
+        }
+        config->parallel_gc_workers = num_workers;
+    }
+
+    int workers = config->parallel_gc_workers;
+    if (workers != 0 &&
+        (workers < _PyGC_PARALLEL_MIN_WORKERS ||
+         workers > _PyGC_PARALLEL_MAX_WORKERS))
+    {
+        return _PyStatus_ERR(
+            "PyConfig.parallel_gc_workers must be 0 or between 2 and 64");
+    }
+#ifndef Py_PARALLEL_GC
+    if (workers != 0) {
+        return _PyStatus_ERR(
+            "parallel GC is not supported by this Python build");
+    }
+#endif
+    return _PyStatus_OK();
+}
+
 
 #ifdef Py_DEBUG
 static PyStatus
@@ -2453,6 +2513,11 @@ config_read_complex_options(PyConfig *config)
         if (_PyStatus_EXCEPTION(status)) {
             return status;
         }
+    }
+
+    status = config_init_parallel_gc(config);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
     }
 
     if (config->cpu_count < 0) {
