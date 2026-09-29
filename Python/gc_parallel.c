@@ -8,6 +8,12 @@
 #include "pycore_gc_parallel.h"
 #include "pycore_interp.h"
 #include "pycore_object.h"         // _PyObject_IsFreed()
+#include "pycore_stats.h"          // OBJECT_STAT_INC()
+
+typedef struct {
+    _PyParallelGCWorker *worker;
+    PyObject *parent;
+} _PyGCSubtractRefsContext;
 
 // Mirrors gc_get_refs() from Python/gc.c. Parallel workers require an atomic
 // load so that race detectors see the matching accesses.
@@ -157,8 +163,7 @@ parallel_mark_worker(_PyParallelGCWorker *worker)
 }
 
 static void
-_parallel_subtract_refs_worker(PyGC_Head *start,
-                               PyGC_Head *end);
+_parallel_subtract_refs_worker(_PyParallelGCWorker *worker);
 
 static void
 _parallel_gc_worker_thread(void *arg)
@@ -182,8 +187,7 @@ _parallel_gc_worker_thread(void *arg)
 
         switch (worker->phase) {
         case _PyGC_PHASE_SUBTRACT_REFS:
-            _parallel_subtract_refs_worker(worker->slice_start,
-                                           worker->slice_end);
+            _parallel_subtract_refs_worker(worker);
             break;
 
         case _PyGC_PHASE_MARK:
@@ -291,6 +295,9 @@ _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
         worker->slice_start = NULL;
         worker->slice_end = NULL;
         worker->error = 0;
+        worker->deferred_assertion = _PyGC_ASSERT_NONE;
+        worker->assertion_object = NULL;
+        worker->assertion_referent = NULL;
         _PyGCLocalBuffer_Reset(&worker->local_buffer);
         worker->par_gc = par_gc;
         worker->phase = _PyGC_PHASE_IDLE;
@@ -671,12 +678,59 @@ _PyGC_ParallelMoveUnreachable(
 }
 
 // Parallel version of subtract_refs(). Each worker processes a segment of the
-// GC list. The shared visitor uses atomic decrements in parallel-GC builds.
-static void
-_parallel_subtract_refs_worker(PyGC_Head *start,
-                               PyGC_Head *end)
+// GC list. Object assertions are deferred to the collecting thread because
+// their diagnostics acquire the GIL to format the object representation.
+int
+_PyGC_ParallelVisitDecref(PyObject *op, void *arg)
 {
-    PyGC_Head *gc = start;
+    _PyGCSubtractRefsContext *context = arg;
+    _PyParallelGCWorker *worker = context->worker;
+
+    if (worker->deferred_assertion != _PyGC_ASSERT_NONE) {
+        return 1;
+    }
+
+    OBJECT_STAT_INC(object_visits);
+
+#ifndef NDEBUG
+    if (_PyObject_IsFreed(op)) {
+        worker->deferred_assertion = _PyGC_ASSERT_LIVE_REFERENT;
+        worker->assertion_object = context->parent;
+        worker->assertion_referent = op;
+        return 1;
+    }
+#endif
+
+    if (!_PyObject_IS_GC(op)) {
+        return 0;
+    }
+
+    PyGC_Head *gc = _Py_AS_GC(op);
+    uintptr_t prev = _Py_atomic_load_uintptr_relaxed(&gc->_gc_prev);
+    while (prev & _PyGC_PREV_MASK_COLLECTING) {
+#ifndef NDEBUG
+        if ((prev >> _PyGC_PREV_SHIFT) == 0) {
+            worker->deferred_assertion = _PyGC_ASSERT_POSITIVE_REFS;
+            worker->assertion_object = op;
+            return 1;
+        }
+#endif
+        uintptr_t decremented =
+            prev - ((uintptr_t)1 << _PyGC_PREV_SHIFT);
+        if (_Py_atomic_compare_exchange_uintptr(
+                &gc->_gc_prev, &prev, decremented))
+        {
+            break;
+        }
+    }
+    return 0;
+}
+
+static void
+_parallel_subtract_refs_worker(_PyParallelGCWorker *worker)
+{
+    PyGC_Head *gc = worker->slice_start;
+    PyGC_Head *end = worker->slice_end;
 
     while (gc != end) {
         PyGC_Head *next = _PyGCHead_NEXT(gc);
@@ -691,7 +745,14 @@ _parallel_subtract_refs_worker(PyGC_Head *start,
 
         traverseproc traverse = Py_TYPE(op)->tp_traverse;
         if (traverse != NULL) {
-            traverse(op, _PyGC_VisitDecref, op);
+            _PyGCSubtractRefsContext context = {
+                .worker = worker,
+                .parent = op,
+            };
+            (void)traverse(op, _PyGC_ParallelVisitDecref, &context);
+            if (worker->deferred_assertion != _PyGC_ASSERT_NONE) {
+                break;
+            }
         }
 
         gc = next;
@@ -718,9 +779,34 @@ _PyGC_ParallelSubtractRefs(PyInterpreterState *interp)
         return 0;
     }
 
+    for (size_t i = 0; i < active; i++) {
+        _PyParallelGCWorker *worker = &par_gc->workers[i];
+        worker->deferred_assertion = _PyGC_ASSERT_NONE;
+        worker->assertion_object = NULL;
+        worker->assertion_referent = NULL;
+    }
+
     // gcstate->collecting prevents another collection from entering while
     // these workers operate on the generation lists.
     dispatch_and_wait(par_gc, active);
+
+#ifndef NDEBUG
+    for (size_t i = 0; i < active; i++) {
+        _PyParallelGCWorker *worker = &par_gc->workers[i];
+        if (worker->deferred_assertion == _PyGC_ASSERT_LIVE_REFERENT) {
+            _PyObject_ASSERT(worker->assertion_object,
+                             !_PyObject_IsFreed(worker->assertion_referent));
+        }
+        else if (worker->deferred_assertion ==
+                 _PyGC_ASSERT_POSITIVE_REFS)
+        {
+            PyGC_Head *gc = _Py_AS_GC(worker->assertion_object);
+            _PyObject_ASSERT_WITH_MSG(worker->assertion_object,
+                                      gc_get_refs(gc) > 0,
+                                      "refcount is too small");
+        }
+    }
+#endif
 
     return 1;
 }

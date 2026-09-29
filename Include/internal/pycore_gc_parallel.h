@@ -59,6 +59,12 @@ typedef enum {
     _PyGC_PHASE_MARK,               // Parallel marking
 } _PyGCPhase;
 
+typedef enum {
+    _PyGC_ASSERT_NONE,
+    _PyGC_ASSERT_LIVE_REFERENT,
+    _PyGC_ASSERT_POSITIVE_REFS,
+} _PyGCDeferredAssertion;
+
 typedef struct _PyParallelGCState _PyParallelGCState;
 
 typedef struct {
@@ -73,6 +79,12 @@ typedef struct {
     int should_exit;
     int error;
     _PyGCPhase phase;
+
+    // Object assertions must run on the collecting thread.  Their diagnostic
+    // acquires the GIL to format the object representation.
+    _PyGCDeferredAssertion deferred_assertion;
+    PyObject *assertion_object;
+    PyObject *assertion_referent;
 
     PyMUTEX_T wake_mutex;
     PyCOND_T wake_cond;
@@ -97,9 +109,10 @@ struct _PyParallelGCState {
     _PyParallelGCWorker workers[];
 };
 
-// Shared with serial subtraction so frame traversal recognizes references
-// whose count is stored in the stack entry rather than the object.
+// Decrement visitors are compared by address when frame traversal decides
+// whether an embedded stack reference contributes to an object's refcount.
 PyAPI_FUNC(int) _PyGC_VisitDecref(PyObject *op, void *parent);
+PyAPI_FUNC(int) _PyGC_ParallelVisitDecref(PyObject *op, void *arg);
 
 // API Functions
 

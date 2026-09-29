@@ -501,6 +501,7 @@ _PyGC_VisitDecref(PyObject *op, void *parent)
             _PyObject_ASSERT_WITH_MSG(op,
                                       (prev >> _PyGC_PREV_SHIFT) > 0,
                                       "refcount is too small");
+            (void)prev;
             _Py_atomic_add_uintptr(
                 &gc->_gc_prev, -((uintptr_t)1 << _PyGC_PREV_SHIFT));
 #else
@@ -519,7 +520,11 @@ _PyGC_VisitStackRef(_PyStackRef *ref, visitproc visit, void *arg)
     // them like normal.
     assert(!PyStackRef_IsTaggedInt(*ref));
     if (!PyStackRef_RefcountOnObject(*ref) &&
-        visit == _PyGC_VisitDecref)
+        (visit == _PyGC_VisitDecref
+#ifdef Py_PARALLEL_GC
+         || visit == _PyGC_ParallelVisitDecref
+#endif
+        ))
     {
         return 0;
     }
