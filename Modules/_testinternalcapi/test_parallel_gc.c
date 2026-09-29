@@ -62,8 +62,10 @@ barrier_worker(void *arg)
     _PyGCBarrier_Wait(args->barrier);
 }
 
+// These thread-creating helpers omit the test_ prefix so test_capi's automatic
+// discovery does not bypass test_gc_ws_deque's platform capability checks.
 static PyObject *
-test_barrier_basic(PyObject *self, PyObject *Py_UNUSED(ignored))
+barrier_basic(PyObject *self, PyObject *Py_UNUSED(ignored))
 {
     enum { num_threads = 4 };
     _PyGCBarrier barrier;
@@ -157,7 +159,7 @@ epoch_worker(void *arg)
 }
 
 static PyObject *
-test_barrier_epoch_distinguishes(PyObject *self, PyObject *Py_UNUSED(ignored))
+barrier_epoch_distinguishes(PyObject *self, PyObject *Py_UNUSED(ignored))
 {
     _PyGCBarrier barrier;
     _PyGCBarrier_Init(&barrier, 2);
@@ -621,9 +623,9 @@ parallel_gc_helper_visits(PyObject *self, PyObject *Py_UNUSED(ignored))
 static PyMethodDef test_methods[] = {
 #ifdef _Py_TEST_GC_BARRIER
     TEST_METHOD(unsafe_barrier_capacity_zero),
-    TEST_METHOD(test_barrier_basic),
+    TEST_METHOD(barrier_basic),
     TEST_METHOD(test_barrier_multiple_rounds),
-    TEST_METHOD(test_barrier_epoch_distinguishes),
+    TEST_METHOD(barrier_epoch_distinguishes),
     TEST_METHOD(test_barrier_postcondition),
 #endif
     TEST_METHOD(test_localbuffer_push_pop),

@@ -424,8 +424,10 @@ steal_worker(void *arg)
     }
 }
 
+// This thread-creating helper omits the test_ prefix so test_capi's automatic
+// discovery does not bypass test_gc_ws_deque's platform capability check.
 static PyObject *
-test_ws_deque_concurrent_push_steal(
+ws_deque_concurrent_push_steal(
     PyObject *self, PyObject *Py_UNUSED(ignored))
 {
     _PyWSDeque deque;
@@ -672,7 +674,7 @@ static PyMethodDef test_methods[] = {
     TEST_METHOD(test_ws_deque_steal_empty),
     TEST_METHOD(test_ws_deque_resize),
     TEST_METHOD(ws_deque_grow_oom),
-    TEST_METHOD(test_ws_deque_concurrent_push_steal),
+    TEST_METHOD(ws_deque_concurrent_push_steal),
     TEST_METHOD(test_deque_init_values),
     TEST_METHOD(test_deque_top_leq_bot),
     TEST_METHOD(test_deque_grow_chain_fini),

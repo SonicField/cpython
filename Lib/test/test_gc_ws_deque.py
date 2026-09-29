@@ -49,22 +49,22 @@ class TestWorkStealingDequeEdgeCases(unittest.TestCase):
 class TestWorkStealingDequeConcurrent(unittest.TestCase):
     @threading_helper.requires_working_threading()
     def test_concurrent_push_steal(self):
-        _testinternalcapi.test_ws_deque_concurrent_push_steal()
+        _testinternalcapi.ws_deque_concurrent_push_steal()
 
 
-@unittest.skipUnless(hasattr(_testinternalcapi, 'test_barrier_basic'),
+@unittest.skipUnless(hasattr(_testinternalcapi, 'barrier_basic'),
                      "barriers are not supported on this platform")
 class TestBarrier(unittest.TestCase):
     @threading_helper.requires_working_threading()
     def test_basic(self):
-        _testinternalcapi.test_barrier_basic()
+        _testinternalcapi.barrier_basic()
 
     def test_multiple_rounds(self):
         _testinternalcapi.test_barrier_multiple_rounds()
 
     @threading_helper.requires_working_threading()
     def test_epoch_distinguishes(self):
-        _testinternalcapi.test_barrier_epoch_distinguishes()
+        _testinternalcapi.barrier_epoch_distinguishes()
 
     def test_postcondition(self):
         _testinternalcapi.test_barrier_postcondition()
@@ -74,6 +74,8 @@ class TestBarrier(unittest.TestCase):
                          "assert() only fires in debug builds")
     def test_capacity_zero(self):
         code = (
+            "from test import support; "
+            "support.SuppressCrashReport().__enter__(); "
             "import _testinternalcapi; "
             "_testinternalcapi.unsafe_barrier_capacity_zero()"
         )

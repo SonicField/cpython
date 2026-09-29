@@ -1915,8 +1915,8 @@ Optional Packages:
   --without-static-libpython
                           do not build libpythonMAJOR.MINOR.a and do not
                           install python.o (default is yes)
-  --with-pydebug          build with Py_DEBUG defined (default is no)
   --with-parallel-gc      enable parallel garbage collection (default is no)
+  --with-pydebug          build with Py_DEBUG defined (default is no)
   --with-trace-refs       enable tracing references for debugging purpose
                           (default is no)
   --with-assertions       build with C assertions enabled (default is no)
@@ -8543,7 +8543,8 @@ if test ${with_parallel_gc+y}
 then :
   withval=$with_parallel_gc;
 else case e in #(
-  e) with_parallel_gc=no ;;
+  e) with_parallel_gc=no
+ ;;
 esac
 fi
 
@@ -13325,6 +13326,13 @@ printf "%s\n" "$ac_cv_sizeof_void_p" >&6; }
 printf "%s\n" "#define SIZEOF_VOID_P $ac_cv_sizeof_void_p" >>confdefs.h
 
 
+if test "$with_parallel_gc" = yes &&
+       test "$ac_cv_sizeof_void_p" -lt 8
+then :
+
+  as_fn_error $? "--with-parallel-gc requires a 64-bit target" "$LINENO" 5
+
+fi
 # The cast to long int works around a bug in the HP C Compiler
 # version HP92453-01 B.11.11.23709.GP, which incorrectly rejects
 # declarations like 'int a3[[(sizeof (unsigned char)) >= 0]];'.
@@ -40591,3 +40599,4 @@ if test "$ac_cv_header_stdatomic_h" != "yes"; then
   { printf "%s\n" "$as_me:${as_lineno-$LINENO}: Your compiler or platform does have a working C11 stdatomic.h. A future version of Python may require stdatomic.h." >&5
 printf "%s\n" "$as_me: Your compiler or platform does have a working C11 stdatomic.h. A future version of Python may require stdatomic.h." >&6;}
 fi
+
