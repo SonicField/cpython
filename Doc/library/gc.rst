@@ -158,7 +158,9 @@ The :mod:`!gc` module provides the following functions:
 
    Enable the experimental parallel cyclic garbage collector.  Its adaptive
    controller selects how many workers participate in each collection, up to
-   an implementation maximum of 16.
+   an implementation maximum of 16.  The function does not accept a worker
+   count.  In a GIL build, collections with fewer than 16,384 candidate objects
+   remain serial.
 
    Calling this function while parallel collection is already enabled has no
    effect.  In a free-threaded build, the collecting thread participates as
@@ -185,10 +187,15 @@ The :mod:`!gc` module provides the following functions:
 .. function:: get_parallel_config()
 
    Return a dictionary describing the parallel collector configuration.  The
-   ``available`` and ``enabled`` entries are booleans, and ``num_workers`` is
-   the implementation maximum, or zero when disabled.  An enabled collector also
-   reports ``adaptive_workers``, the count currently selected by its adaptive
-   controller.  Free-threaded builds report ``parallel_cleanup``.
+   ``available`` and ``enabled`` entries are booleans.  ``num_workers`` is the
+   initialized pool ceiling: it is 16 while enabled and is zero before
+   initialization.  After disabling, a GIL build continues to report 16 because
+   it retains the stopped pool; a free-threaded build reports zero because it
+   destroys the pool.  An enabled collector also reports ``adaptive_workers``,
+   the count currently selected by its adaptive controller.  Free-threaded
+   builds report ``parallel_cleanup`` to identify their parallel heap-scan
+   capability; weak-reference callbacks, finalizers, and ``tp_clear`` deletion
+   remain serial.
 
    In a build without :option:`--with-parallel-gc`, ``available`` and
    ``enabled`` are false and ``num_workers`` is zero.
@@ -200,7 +207,9 @@ The :mod:`!gc` module provides the following functions:
 
    Return implementation statistics for the experimental parallel collector.
    The dictionary includes its enabled state, configured and adaptive worker
-   counts, phase timings, and build-specific work-distribution counters.
+   counts, private phase timings, and build-specific work-distribution
+   counters.  These timings do not replace the duration reported by
+   :func:`get_stats`.
 
    .. versionadded:: 3.16
 
