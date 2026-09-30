@@ -1108,9 +1108,9 @@ with_static_libpython
 enable_static_libpython_for_interpreter
 enable_profiling
 enable_gil
-with_parallel_gc
 with_pydebug
 with_trace_refs
+with_parallel_gc
 enable_pystats
 with_assertions
 enable_optimizations
@@ -1915,10 +1915,10 @@ Optional Packages:
   --without-static-libpython
                           do not build libpythonMAJOR.MINOR.a and do not
                           install python.o (default is yes)
-  --with-parallel-gc      enable parallel garbage collection (default is no)
   --with-pydebug          build with Py_DEBUG defined (default is no)
   --with-trace-refs       enable tracing references for debugging purpose
                           (default is no)
+  --with-parallel-gc      enable parallel garbage collection (default is no)
   --with-assertions       build with C assertions enabled (default is no)
   --with-lto=[full|thin|no|yes]
                           enable Link-Time-Optimization in any build (default
@@ -8534,30 +8534,6 @@ printf "%s\n" "#define Py_GIL_DISABLED 1" >>confdefs.h
   ABI_THREAD="t"
 fi
 
-# Check for --with-parallel-gc
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for --with-parallel-gc" >&5
-printf %s "checking for --with-parallel-gc... " >&6; }
-
-# Check whether --with-parallel-gc was given.
-if test ${with_parallel_gc+y}
-then :
-  withval=$with_parallel_gc;
-else case e in #(
-  e) with_parallel_gc=no
- ;;
-esac
-fi
-
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $with_parallel_gc" >&5
-printf "%s\n" "$with_parallel_gc" >&6; }
-
-if test "$with_parallel_gc" = "yes"
-then
-
-printf "%s\n" "#define Py_PARALLEL_GC 1" >>confdefs.h
-
-fi
-
 # Check for --with-pydebug
 { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for --with-pydebug" >&5
 printf %s "checking for --with-pydebug... " >&6; }
@@ -8613,6 +8589,31 @@ fi
 if test "$disable_gil" = "yes" -a "$with_trace_refs" = "yes";
 then
   as_fn_error $? "--disable-gil cannot be used with --with-trace-refs" "$LINENO" 5
+fi
+
+# Check for --with-parallel-gc
+# --with-parallel-gc
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for --with-parallel-gc" >&5
+printf %s "checking for --with-parallel-gc... " >&6; }
+
+# Check whether --with-parallel-gc was given.
+if test ${with_parallel_gc+y}
+then :
+  withval=$with_parallel_gc;
+else case e in #(
+  e) with_parallel_gc=no
+ ;;
+esac
+fi
+
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $with_parallel_gc" >&5
+printf "%s\n" "$with_parallel_gc" >&6; }
+
+if test "$with_parallel_gc" = "yes"
+then
+
+printf "%s\n" "#define Py_PARALLEL_GC 1" >>confdefs.h
+
 fi
 
 # Check for --enable-pystats
@@ -40599,4 +40600,3 @@ if test "$ac_cv_header_stdatomic_h" != "yes"; then
   { printf "%s\n" "$as_me:${as_lineno-$LINENO}: Your compiler or platform does have a working C11 stdatomic.h. A future version of Python may require stdatomic.h." >&5
 printf "%s\n" "$as_me: Your compiler or platform does have a working C11 stdatomic.h. A future version of Python may require stdatomic.h." >&6;}
 fi
-

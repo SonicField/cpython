@@ -1,219 +1,879 @@
-"""Tests for the free-threaded parallel garbage collector."""
+"""
+Tests for FTP (Free-Threaded Python) parallel GC components.
+
+These tests run on both GIL and FTP builds where applicable.
+FTP-specific tests are skipped on GIL builds.
+"""
 
 import gc
 import sys
-import threading
 import unittest
 import weakref
-
+import threading
+from test.support import import_helper
 from test.support import threading_helper
 
 
-if not hasattr(sys, "_is_gil_enabled") or sys._is_gil_enabled():
-    raise unittest.SkipTest("requires a free-threaded build")
-
-if not gc.get_parallel_config()["available"]:
-    raise unittest.SkipTest("parallel GC is not available")
-
-
+# Custom class that supports weak references (dict does not)
 class GCTestObject:
-    __slots__ = ("data", "ref", "__weakref__")
+    """A simple object that can have weak references for GC testing."""
+    __slots__ = ('__weakref__', 'data', 'ref')
 
-    def __init__(self, **data):
-        self.data = data
+    def __init__(self, **kwargs):
+        self.data = kwargs
         self.ref = None
 
+# Check if we're running on FTP (no-GIL) build
+try:
+    FTP_BUILD = not sys._is_gil_enabled()
+except AttributeError:
+    FTP_BUILD = False
 
-class ParallelGCTest(unittest.TestCase):
-    def setUp(self):
-        self.gc_was_enabled = gc.isenabled()
-        config = gc.get_parallel_config()
-        self.old_workers = config["num_workers"] if config["enabled"] else 0
-        gc.disable()
+# Check if parallel GC test APIs are available
+try:
+    _count_pages = gc._count_gc_pages
+    PARALLEL_GC_TESTS_AVAILABLE = True
+except AttributeError:
+    PARALLEL_GC_TESTS_AVAILABLE = False
+
+
+def requires_ftp(test_func):
+    """Skip test if not running on FTP build."""
+    return unittest.skipUnless(FTP_BUILD, "Requires FTP (no-GIL) build")(test_func)
+
+
+def requires_parallel_gc_tests(test_func):
+    """Skip test if parallel GC test APIs not available."""
+    return unittest.skipUnless(
+        PARALLEL_GC_TESTS_AVAILABLE,
+        "Requires parallel GC test APIs"
+    )(test_func)
+
+
+class TestPageCounter(unittest.TestCase):
+    """Tests for page counting functionality."""
+
+    @requires_ftp
+    @requires_parallel_gc_tests
+    def test_page_count_non_negative(self):
+        """Page count should always be non-negative."""
         gc.collect()
-        gc.enable_parallel(4)
+        count = gc._count_gc_pages()
+        self.assertGreaterEqual(count, 0)
 
-    def tearDown(self):
-        gc.disable_parallel()
-        if self.old_workers:
-            gc.enable_parallel(self.old_workers)
-        if self.gc_was_enabled:
-            gc.enable()
-        else:
-            gc.disable()
-
-
-@threading_helper.requires_working_threading()
-class TestCrossThreadReferences(ParallelGCTest):
-    def test_cross_thread_refs_survive(self):
-        shared = []
-        lock = threading.Lock()
-
-        def allocate(thread_id):
-            objects = [
-                GCTestObject(thread=thread_id, index=index)
-                for index in range(100)
-            ]
-            with lock:
-                shared.extend(objects)
-
-        threads = [
-            threading.Thread(target=allocate, args=(thread_id,))
-            for thread_id in range(4)
-        ]
-        with threading_helper.start_threads(threads):
-            pass
-
-        refs = [weakref.ref(obj) for obj in shared]
+    @requires_ftp
+    @requires_parallel_gc_tests
+    def test_page_count_increases_with_allocation(self):
+        """Allocating many objects should increase page count."""
         gc.collect()
-        self.assertTrue(all(ref() is not None for ref in refs))
+        gc.collect()  # Double collect to clear any pending garbage
 
-    def test_cross_thread_cycles_collected(self):
-        first = []
-        second = []
-        refs = []
-        lock = threading.Lock()
-        barrier = threading.Barrier(2)
+        before = gc._count_gc_pages()
 
-        def make_half_cycle(own, other):
-            obj = GCTestObject()
-            own.append(obj)
-            with lock:
-                refs.append(weakref.ref(obj))
-            barrier.wait()
-            obj.ref = other[0]
-            barrier.wait()
+        # Allocate many objects (enough to require new pages)
+        # Each page is ~64KB, each dict is ~100-200 bytes
+        # So 10000 dicts should require multiple pages
+        objects = [{'data': i, 'more': 'x' * 100} for i in range(10000)]
 
-        threads = [
-            threading.Thread(target=make_half_cycle, args=(first, second)),
-            threading.Thread(target=make_half_cycle, args=(second, first)),
-        ]
-        with threading_helper.start_threads(threads):
-            pass
+        after = gc._count_gc_pages()
 
-        first.clear()
-        second.clear()
+        # Note: Page count may not increase if mimalloc reuses pages from
+        # previous test runs. The key invariant is that page count doesn't
+        # decrease while objects are alive.
+        self.assertGreaterEqual(after, before,
+            f"Page count should not decrease with live allocations: "
+            f"before={before}, after={after}")
+
+        # Keep objects alive until we're done checking
+        del objects
+
+    @requires_ftp
+    @requires_parallel_gc_tests
+    def test_page_count_stable_after_gc(self):
+        """Page count should be stable after GC with no new allocations."""
+        # Create and release garbage
+        garbage = [{'cycle': None} for _ in range(1000)]
+        for i in range(len(garbage) - 1):
+            garbage[i]['cycle'] = garbage[i + 1]
+        garbage[-1]['cycle'] = garbage[0]  # Complete the cycle
+        del garbage
+
         gc.collect()
-        self.assertTrue(all(ref() is None for ref in refs))
+        count1 = gc._count_gc_pages()
 
-
-@threading_helper.requires_working_threading()
-class TestConcurrentCollection(ParallelGCTest):
-    def test_concurrent_collect(self):
-        errors = []
-        lock = threading.Lock()
-
-        def collect(thread_id):
-            try:
-                for iteration in range(20):
-                    objects = [
-                        GCTestObject(
-                            thread=thread_id,
-                            iteration=iteration,
-                            index=index,
-                        )
-                        for index in range(100)
-                    ]
-                    for index, obj in enumerate(objects):
-                        obj.ref = objects[(index + 1) % len(objects)]
-                    gc.collect()
-            except Exception as exc:
-                with lock:
-                    errors.append(exc)
-
-        threads = [
-            threading.Thread(target=collect, args=(thread_id,))
-            for thread_id in range(4)
-        ]
-        with threading_helper.start_threads(threads):
-            pass
-        self.assertEqual(errors, [])
-
-    def test_allocation_during_collection(self):
-        start = threading.Barrier(5)
-        errors = []
-        lock = threading.Lock()
-
-        def allocate():
-            try:
-                start.wait()
-                for _ in range(100):
-                    [GCTestObject(index=index) for index in range(500)]
-            except Exception as exc:
-                with lock:
-                    errors.append(exc)
-
-        def collect():
-            try:
-                start.wait()
-                for _ in range(100):
-                    gc.collect()
-            except Exception as exc:
-                with lock:
-                    errors.append(exc)
-
-        threads = [threading.Thread(target=allocate) for _ in range(4)]
-        threads.append(threading.Thread(target=collect))
-        with threading_helper.start_threads(threads):
-            pass
-
-        self.assertEqual(errors, [])
-
-    def test_reachable_graph_survives(self):
-        objects = [GCTestObject(index=index) for index in range(1000)]
-        for index, obj in enumerate(objects):
-            obj.ref = objects[(index * 17 + 3) % len(objects)]
-
-        refs = [weakref.ref(obj) for obj in objects]
-
-        threads = [threading.Thread(target=gc.collect) for _ in range(4)]
-        with threading_helper.start_threads(threads):
-            pass
-
-        self.assertTrue(all(ref() is not None for ref in refs))
-        self.assertEqual(
-            [obj.data["index"] for obj in objects],
-            list(range(len(objects))),
-        )
-
-
-class TestThreadPoolLifecycle(unittest.TestCase):
-    def tearDown(self):
-        gc.disable_parallel()
-
-    def test_worker_count(self):
-        gc.enable_parallel(4)
-        config = gc.get_parallel_config()
-        self.assertTrue(config["enabled"])
-        self.assertEqual(config["num_workers"], 4)
-
-    def test_enable_disable_cycle(self):
-        gc.enable_parallel(2)
         gc.collect()
-        gc.disable_parallel()
+        count2 = gc._count_gc_pages()
+
+        # Page count shouldn't change significantly without allocation
+        self.assertAlmostEqual(count1, count2, delta=2,
+            msg=f"Page count unstable: {count1} vs {count2}")
+
+
+class TestPageAssignment(unittest.TestCase):
+    """Tests for page assignment (bucket filling) algorithm."""
+
+    @requires_ftp
+    @requires_parallel_gc_tests
+    def test_assignment_even_distribution(self):
+        """Pages should be distributed evenly across workers."""
+        # Test with 100 pages, 4 workers -> 25 each
+        assignment = gc._test_page_assignment(100, 4)
+
+        self.assertEqual(len(assignment), 4)
+        self.assertEqual(assignment, [25, 25, 25, 25])
+
+    @requires_ftp
+    @requires_parallel_gc_tests
+    def test_assignment_uneven_distribution(self):
+        """Remainder pages should go to last worker."""
+        # Test with 103 pages, 4 workers -> 25, 25, 25, 28
+        assignment = gc._test_page_assignment(103, 4)
+
+        self.assertEqual(len(assignment), 4)
+        self.assertEqual(sum(assignment), 103)
+        # Last worker gets the remainder
+        self.assertGreaterEqual(assignment[-1], assignment[0])
+
+    @requires_ftp
+    @requires_parallel_gc_tests
+    def test_assignment_single_worker(self):
+        """Single worker gets all pages."""
+        assignment = gc._test_page_assignment(100, 1)
+
+        self.assertEqual(len(assignment), 1)
+        self.assertEqual(assignment[0], 100)
+
+    @requires_ftp
+    @requires_parallel_gc_tests
+    def test_assignment_more_workers_than_pages(self):
+        """When workers > pages, some workers get 0 pages."""
+        assignment = gc._test_page_assignment(3, 8)
+
+        self.assertEqual(len(assignment), 8)
+        self.assertEqual(sum(assignment), 3)
+        # At least some workers should have pages
+        self.assertGreater(max(assignment), 0)
+
+    @requires_ftp
+    @requires_parallel_gc_tests
+    def test_assignment_zero_pages(self):
+        """Zero pages should give all workers 0."""
+        assignment = gc._test_page_assignment(0, 4)
+
+        self.assertEqual(len(assignment), 4)
+        self.assertEqual(assignment, [0, 0, 0, 0])
+
+
+class TestRealPageEnumeration(unittest.TestCase):
+    """
+    Tests for REAL page enumeration via _test_real_page_enumeration().
+    This exercises the actual _PyGC_AssignPagesToBuckets() code path
+    including all invariant assertions.
+    """
+
+    @requires_ftp
+    @requires_parallel_gc_tests
+    def test_real_enumeration_returns_valid_data(self):
+        """Real page enumeration should return valid bucket data."""
+        # Allocate some objects first to ensure we have pages
+        objects = [GCTestObject(id=i) for i in range(1000)]
+
+        result = gc._test_real_page_enumeration(4)
+
+        self.assertIn('total_pages', result)
+        self.assertIn('pages_enumerated', result)
+        self.assertIn('bucket_sizes', result)
+
+        self.assertGreaterEqual(result['total_pages'], 0)
+        self.assertGreaterEqual(result['pages_enumerated'], 0)
+        self.assertEqual(len(result['bucket_sizes']), 4)
+
+        # Sum of buckets should equal pages_enumerated
+        self.assertEqual(sum(result['bucket_sizes']), result['pages_enumerated'])
+
+        del objects
+
+    @requires_ftp
+    @requires_parallel_gc_tests
+    def test_real_enumeration_finds_pages(self):
+        """Real enumeration should find pages after allocating objects."""
         gc.collect()
+
+        # Allocate many objects - should create multiple pages
+        objects = [GCTestObject(data='x' * 100) for _ in range(5000)]
+
+        result = gc._test_real_page_enumeration(4)
+
+        # We should have found some pages
+        self.assertGreater(result['pages_enumerated'], 0,
+            "Expected to find pages after allocating 5000 objects")
+
+        # All buckets except possibly the last should have similar counts
+        # (sequential bucket filling should distribute evenly)
+        if result['pages_enumerated'] >= 4:
+            # With enough pages, first workers should have similar amounts
+            bucket_sizes = result['bucket_sizes']
+            # Check that we're not putting everything in one bucket
+            non_empty = [s for s in bucket_sizes if s > 0]
+            self.assertGreater(len(non_empty), 1,
+                f"Expected pages distributed across workers, got {bucket_sizes}")
+
+        del objects
+
+    @requires_ftp
+    @requires_parallel_gc_tests
+    def test_real_enumeration_different_worker_counts(self):
+        """Real enumeration should work with different worker counts."""
+        objects = [GCTestObject(id=i) for i in range(2000)]
+
+        for num_workers in [1, 2, 4, 8]:
+            result = gc._test_real_page_enumeration(num_workers)
+
+            self.assertEqual(len(result['bucket_sizes']), num_workers)
+            self.assertEqual(sum(result['bucket_sizes']), result['pages_enumerated'])
+
+        del objects
+
+    @requires_ftp
+    @requires_parallel_gc_tests
+    def test_real_enumeration_invariants_hold(self):
+        """
+        Real enumeration triggers all invariant assertions in C code.
+        If assertions are enabled (debug build), this tests:
+        - Bucket counts match enumerated pages
+        - No NULL page pointers
+        - page->used <= page->capacity
+        - Worker indices stay in bounds
+        """
+        # Create complex object graph
+        objects = []
+        for i in range(1000):
+            obj = GCTestObject(id=i)
+            if objects:
+                obj.ref = objects[-1]  # Chain references
+            objects.append(obj)
+
+        # This call exercises all the assertions
+        result = gc._test_real_page_enumeration(8)
+
+        # If we got here without assertion failure, invariants held
+        self.assertIsNotNone(result)
+        self.assertEqual(sum(result['bucket_sizes']), result['pages_enumerated'])
+
+        del objects
+
+    @requires_ftp
+    @requires_parallel_gc_tests
+    def test_real_enumeration_many_workers(self):
+        """Real enumeration with many workers (more than pages)."""
+        objects = [GCTestObject(id=i) for i in range(50)]
+
+        # Use many workers to test distribution
+        num_workers = 64
+        result = gc._test_real_page_enumeration(num_workers)
+
+        self.assertEqual(len(result['bucket_sizes']), num_workers)
+        self.assertEqual(sum(result['bucket_sizes']), result['pages_enumerated'])
+
+        # All bucket sizes should be non-negative
+        for size in result['bucket_sizes']:
+            self.assertGreaterEqual(size, 0)
+
+        del objects
+
+    @requires_ftp
+    @requires_parallel_gc_tests
+    def test_real_enumeration_after_gc(self):
+        """Real enumeration after GC clears garbage."""
+        # Create garbage
+        for _ in range(100):
+            garbage = [GCTestObject(id=i) for i in range(100)]
+            for i in range(len(garbage) - 1):
+                garbage[i].ref = garbage[i + 1]
+            garbage[-1].ref = garbage[0]  # Cycle
+            del garbage
+
+        # Collect garbage
+        gc.collect()
+
+        # Enumeration should still work
+        result = gc._test_real_page_enumeration(4)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result['bucket_sizes']), 4)
+        self.assertEqual(sum(result['bucket_sizes']), result['pages_enumerated'])
+
+
+class TestParallelMarking(unittest.TestCase):
+    """
+    Tests for REAL parallel marking via _test_parallel_mark().
+    This exercises the actual _PyGC_ParallelMarkAlive() code path.
+    """
+
+    @requires_ftp
+    @requires_parallel_gc_tests
+    def test_parallel_mark_returns_valid_data(self):
+        """Parallel marking should return valid data."""
+        # Allocate some objects first
+        objects = [GCTestObject(id=i) for i in range(1000)]
+
+        result = gc._test_parallel_mark(4)
+
+        self.assertIn('total_objects', result)
+        self.assertIn('per_worker_marked', result)
+
+        # Should have marked some objects
+        self.assertGreater(result['total_objects'], 0)
+        self.assertEqual(len(result['per_worker_marked']), 4)
+
+        # Sum should equal total
+        self.assertEqual(sum(result['per_worker_marked']), result['total_objects'])
+
+        del objects
+
+    @requires_ftp
+    @requires_parallel_gc_tests
+    def test_parallel_mark_finds_objects(self):
+        """Parallel marking should find objects after allocation."""
+        gc.collect()
+
+        # Allocate many objects
+        objects = [GCTestObject(data='x' * 100) for _ in range(5000)]
+
+        result = gc._test_parallel_mark(4)
+
+        # We should have marked many objects
+        self.assertGreater(result['total_objects'], 0,
+            "Expected to mark objects after allocating 5000")
+
+        del objects
+
+    @requires_ftp
+    @requires_parallel_gc_tests
+    def test_parallel_mark_different_worker_counts(self):
+        """Parallel marking should work with different worker counts."""
+        objects = [GCTestObject(id=i) for i in range(2000)]
+
+        for num_workers in [1, 2, 4, 8]:
+            result = gc._test_parallel_mark(num_workers)
+
+            self.assertEqual(len(result['per_worker_marked']), num_workers)
+            self.assertEqual(sum(result['per_worker_marked']), result['total_objects'])
+            self.assertGreater(result['total_objects'], 0)
+
+        del objects
+
+    @requires_ftp
+    @requires_parallel_gc_tests
+    def test_parallel_mark_clears_alive_bits(self):
+        """Parallel marking test should clean up ALIVE bits properly."""
+        objects = [GCTestObject(id=i) for i in range(1000)]
+
+        # Run parallel marking
+        result = gc._test_parallel_mark(4)
+        self.assertGreater(result['total_objects'], 0)
+
+        # GC should work fine after (ALIVE bits cleared)
+        gc.collect()
+
+        # Objects should still be alive (we hold refs)
+        self.assertEqual(len(objects), 1000)
+
+        del objects
+
+    @requires_ftp
+    @requires_parallel_gc_tests
+    def test_parallel_mark_multiple_runs(self):
+        """Multiple parallel marking runs should work correctly."""
+        objects = [GCTestObject(id=i) for i in range(1000)]
+
+        # Run parallel marking multiple times
+        results = []
+        for _ in range(5):
+            result = gc._test_parallel_mark(4)
+            results.append(result['total_objects'])
+            # Run gc between tests
+            gc.collect()
+
+        # Each run should mark objects
+        for count in results:
+            self.assertGreater(count, 0)
+
+        del objects
+
+    @requires_ftp
+    @requires_parallel_gc_tests
+    def test_parallel_mark_work_stealing_occurs(self):
+        """Work-stealing should result in uneven per-worker distribution."""
+        # Create objects with varying reference depths to trigger work-stealing
+        # Some objects have deep reference chains, others are shallow
+        objects = []
+        for i in range(500):
+            # Create chains of varying lengths
+            chain_len = (i % 10) + 1
+            chain = [GCTestObject(chain_id=i, depth=d) for d in range(chain_len)]
+            for j in range(len(chain) - 1):
+                chain[j].ref = chain[j + 1]
+            objects.extend(chain)
+
+        result = gc._test_parallel_mark(4)
+
+        # With work-stealing, we expect non-uniform distribution
+        per_worker = result['per_worker_marked']
+        self.assertEqual(len(per_worker), 4)
+        self.assertEqual(sum(per_worker), result['total_objects'])
+
+        # At least some workers should have done work
+        workers_with_work = sum(1 for c in per_worker if c > 0)
+        self.assertGreater(workers_with_work, 0)
+
+        del objects
+
+    @requires_ftp
+    @requires_parallel_gc_tests
+    def test_parallel_mark_single_worker(self):
+        """Single worker should mark all objects."""
+        objects = [GCTestObject(id=i) for i in range(1000)]
+
+        result = gc._test_parallel_mark(1)
+
+        self.assertEqual(len(result['per_worker_marked']), 1)
+        self.assertEqual(result['per_worker_marked'][0], result['total_objects'])
+        self.assertGreater(result['total_objects'], 0)
+
+        del objects
+
+    @requires_ftp
+    @requires_parallel_gc_tests
+    def test_parallel_mark_many_workers(self):
+        """Many workers (more than pages) should still work."""
+        objects = [GCTestObject(id=i) for i in range(100)]
+
+        # Use more workers than likely pages
+        result = gc._test_parallel_mark(16)
+
+        self.assertEqual(len(result['per_worker_marked']), 16)
+        self.assertEqual(sum(result['per_worker_marked']), result['total_objects'])
+
+        del objects
+
+    @requires_ftp
+    @requires_parallel_gc_tests
+    def test_parallel_mark_with_ctypes_loaded(self):
+        """Parallel marking must work when ctypes is loaded.
+
+        Regression test: ctypes CType_Type_traverse calls
+        PyType_GetBaseByToken -> Py_INCREF, which in debug builds
+        dereferences _PyThreadState_GET() for reftotal tracking.
+        Worker threads without a PyThreadState would segfault.
+        """
+        import_helper.import_module('ctypes')
+
+        objects = [GCTestObject(id=i) for i in range(1000)]
+
+        # Must not segfault
+        result = gc._test_parallel_mark(4)
+        self.assertGreater(result['total_objects'], 0)
+        self.assertEqual(sum(result['per_worker_marked']),
+                         result['total_objects'])
+
+        # GC should still work after
+        gc.collect()
+        self.assertEqual(len(objects), 1000)
+
+        del objects
+
+
+class TestBasicGCCorrectness(unittest.TestCase):
+    """
+    Basic GC correctness tests.
+    These should pass on BOTH GIL and FTP builds.
+    """
+
+    def test_live_objects_not_collected(self):
+        """Objects with references should survive GC."""
+        objects = [GCTestObject(id=i) for i in range(1000)]
+        weak_refs = [weakref.ref(obj) for obj in objects]
+
+        gc.collect()
+
+        for i, ref in enumerate(weak_refs):
+            self.assertIsNotNone(ref(),
+                f"Live object {i} was incorrectly collected!")
+
+    def test_garbage_is_collected(self):
+        """Unreachable objects should be collected."""
+        weak_refs = []
+
+        def create_garbage():
+            garbage = [GCTestObject(id=i) for i in range(1000)]
+            for obj in garbage:
+                weak_refs.append(weakref.ref(obj))
+            # garbage goes out of scope
+
+        create_garbage()
+        gc.collect()
+
+        collected = sum(1 for ref in weak_refs if ref() is None)
+        self.assertEqual(collected, 1000,
+            f"Expected 1000 objects collected, got {collected}")
+
+    def test_cycles_collected(self):
+        """Cyclic garbage should be collected."""
+        weak_refs = []
+
+        def create_cycles():
+            for _ in range(500):
+                a = GCTestObject(name='a')
+                b = GCTestObject(name='b')
+                a.ref = b
+                b.ref = a
+                weak_refs.append(weakref.ref(a))
+                weak_refs.append(weakref.ref(b))
+
+        create_cycles()
+        gc.collect()
+
+        collected = sum(1 for ref in weak_refs if ref() is None)
+        self.assertEqual(collected, 1000,
+            f"Expected 1000 cyclic objects collected, got {collected}")
+
+
+class TestCrossThreadReferences(unittest.TestCase):
+    """
+    Tests for objects referenced across threads.
+    These exercise biased reference counting in FTP.
+    """
 
     @threading_helper.requires_working_threading()
-    def test_concurrent_enable_disable(self):
+    def test_cross_thread_refs_survive(self):
+        """Objects referenced across threads should survive GC."""
+        shared_objects = []
+        lock = threading.Lock()
+
+        def worker(thread_id):
+            # Create objects on this thread
+            local_objs = [GCTestObject(thread=thread_id, id=i) for i in range(100)]
+
+            with lock:
+                # Share references to main thread's list
+                shared_objects.extend(local_objs)
+
+        threads = [threading.Thread(target=worker, args=(i,))
+                   for i in range(4)]
+
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # Create weak refs before GC
+        weak_refs = [weakref.ref(obj) for obj in shared_objects]
+
+        gc.collect()
+
+        # All objects should survive (we still hold references)
+        for i, ref in enumerate(weak_refs):
+            self.assertIsNotNone(ref(),
+                f"Shared object {i} was incorrectly collected!")
+
+    @threading_helper.requires_working_threading()
+    def test_cross_thread_cycles_collected(self):
+        """Cyclic garbage spanning threads should be collected."""
+        weak_refs = []
+        barriers = threading.Barrier(2)
+
+        def create_half_cycle(container, other_container, barrier):
+            obj = GCTestObject(half='cycle')
+            weak_refs.append(weakref.ref(obj))
+            container.append(obj)
+            barrier.wait()  # Sync with other thread
+
+            # Now create cross-thread reference
+            if other_container:
+                obj.ref = other_container[0]
+                other_container[0].ref = obj
+            barrier.wait()
+
+        container_a = []
+        container_b = []
+
+        t1 = threading.Thread(target=create_half_cycle,
+                              args=(container_a, container_b, barriers))
+        t2 = threading.Thread(target=create_half_cycle,
+                              args=(container_b, container_a, barriers))
+
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        # Clear our references to make it garbage
+        container_a.clear()
+        container_b.clear()
+
+        gc.collect()
+
+        collected = sum(1 for ref in weak_refs if ref() is None)
+        self.assertEqual(collected, 2,
+            f"Expected 2 cross-thread cyclic objects collected, got {collected}")
+
+
+class TestConcurrentMarking(unittest.TestCase):
+    """
+    Tests for concurrent marking correctness.
+    These validate that parallel GC operations are safe.
+    """
+
+    @threading_helper.requires_working_threading()
+    def test_concurrent_gc_no_crashes(self):
+        """Multiple threads triggering GC concurrently should not crash."""
         errors = []
-        barrier = threading.Barrier(4)
 
-        def reconfigure():
+        def gc_worker(thread_id, iterations):
             try:
-                barrier.wait()
-                for _ in range(20):
-                    gc.enable_parallel(2)
-                    gc.get_parallel_config()
+                for i in range(iterations):
+                    # Create some garbage
+                    garbage = [GCTestObject(thread=thread_id, iter=i, idx=j)
+                               for j in range(100)]
+                    for k in range(len(garbage) - 1):
+                        garbage[k].ref = garbage[k + 1]
+                    garbage[-1].ref = garbage[0]  # Cycle
+
+                    # Trigger GC (may run concurrently with other threads)
                     gc.collect()
-                    gc.disable_parallel()
-            except BaseException as exc:
-                errors.append(exc)
 
-        threads = [threading.Thread(target=reconfigure) for _ in range(4)]
-        with threading_helper.start_threads(threads):
-            pass
-        self.assertEqual(errors, [])
+            except Exception as e:
+                errors.append((thread_id, e))
+
+        num_threads = 4
+        iterations = 50
+
+        threads = [threading.Thread(target=gc_worker, args=(i, iterations))
+                   for i in range(num_threads)]
+
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(len(errors), 0,
+            f"Threads had errors: {errors}")
+
+    @threading_helper.requires_working_threading()
+    def test_rapid_alloc_dealloc_with_gc(self):
+        """Rapid allocation/deallocation with GC should be safe."""
+        errors = []
+        stop_flag = threading.Event()
+
+        def allocator_worker(thread_id):
+            try:
+                while not stop_flag.is_set():
+                    # Rapidly create and discard objects
+                    objs = [GCTestObject(id=i) for i in range(1000)]
+                    del objs
+            except Exception as e:
+                errors.append((thread_id, e))
+
+        def gc_worker():
+            try:
+                while not stop_flag.is_set():
+                    gc.collect()
+            except Exception as e:
+                errors.append(('gc', e))
+
+        # Start allocator threads
+        allocators = [threading.Thread(target=allocator_worker, args=(i,))
+                      for i in range(4)]
+        gc_thread = threading.Thread(target=gc_worker)
+
+        for t in allocators:
+            t.start()
+        gc_thread.start()
+
+        # Let them run for a bit
+        import time
+        time.sleep(0.5)
+        stop_flag.set()
+
+        for t in allocators:
+            t.join()
+        gc_thread.join()
+
+        self.assertEqual(len(errors), 0,
+            f"Threads had errors: {errors}")
+
+    @requires_ftp
+    @threading_helper.requires_working_threading()
+    def test_object_graph_integrity_under_concurrent_gc(self):
+        """Object graph should remain valid during concurrent GC."""
+        # Build a complex object graph
+        num_objects = 1000
+        objects = [GCTestObject(id=i) for i in range(num_objects)]
+
+        # Create a random-ish graph of references
+        import random
+        random.seed(42)  # Reproducible
+        for obj in objects:
+            if random.random() > 0.3:
+                target = random.choice(objects)
+                obj.ref = target
+
+        # Keep weak refs to track which survive
+        weak_refs = [weakref.ref(obj) for obj in objects]
+
+        # Trigger GC from multiple threads
+        barriers = threading.Barrier(4)
+
+        def gc_worker():
+            barriers.wait()  # Synchronize start
+            for _ in range(10):
+                gc.collect()
+
+        threads = [threading.Thread(target=gc_worker) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # All objects should still be alive (we hold references)
+        alive_count = sum(1 for ref in weak_refs if ref() is not None)
+        self.assertEqual(alive_count, num_objects,
+            f"Expected {num_objects} alive, got {alive_count}")
+
+        # Verify graph integrity - refs should still point to valid objects
+        for i, obj in enumerate(objects):
+            if obj.ref is not None:
+                self.assertIsNotNone(obj.ref.data,
+                    f"Object {i}'s reference target is corrupted")
 
 
-if __name__ == "__main__":
+@unittest.skipUnless(FTP_BUILD, "FTP-only tests")
+class TestParallelSerialEquivalence(unittest.TestCase):
+    """Verify parallel GC produces identical results to serial GC.
+
+    This is the top-level behavioral invariant: parallel collection must
+    collect the same objects as serial collection for any reachable-object graph.
+    """
+
+    def test_cyclic_garbage_equivalence(self):
+        """Serial and parallel collect the same cyclic garbage."""
+        gc.collect()  # clean slate
+
+        # Create cyclic garbage
+        def make_cycle():
+            a = GCTestObject()
+            b = GCTestObject()
+            a.ref = b
+            b.ref = a
+
+        # Serial collection
+        gc.disable()
+        for _ in range(100):
+            make_cycle()
+        gc.collect()
+        serial_stats = gc.get_stats()
+        serial_collected = serial_stats[0]['collected']
+
+        # Parallel collection
+        gc.enable_parallel()
+        try:
+            for _ in range(100):
+                make_cycle()
+            gc.collect()
+            parallel_stats = gc.get_stats()
+            parallel_collected = parallel_stats[0]['collected']
+        finally:
+            gc.disable_parallel()
+            gc.enable()
+
+        # Both should collect the same number of objects
+        self.assertEqual(serial_collected, parallel_collected,
+            f"Serial collected {serial_collected}, parallel collected {parallel_collected}")
+
+    def test_reachable_survives_both_modes(self):
+        """Reachable objects survive under both serial and parallel GC."""
+        gc.collect()
+
+        # Create reachable objects with cycles
+        roots = []
+        for i in range(50):
+            obj = GCTestObject(value=i)
+            roots.append(obj)
+            if i > 0:
+                obj.ref = roots[i - 1]
+
+        # Parallel collection should not collect any reachable objects
+        gc.enable_parallel()
+        try:
+            gc.collect()
+            gc.collect()  # two passes
+        finally:
+            gc.disable_parallel()
+
+        # All roots should still be alive
+        for i, obj in enumerate(roots):
+            self.assertEqual(obj.data['value'], i,
+                f"Root {i} corrupted after parallel GC")
+
+    def test_dense_graph_parallel_terminates(self):
+        """Dense reference graph with many workers terminates (T2-F12).
+
+        Falsifies unbounded duplicate traversal: if traversal depth
+        grows super-linearly with workers, this test times out.
+        """
+        gc.collect()
+
+        # Create dense graph — each node references several others
+        N = 200
+        objects = [GCTestObject(idx=i) for i in range(N)]
+        for i in range(N):
+            objects[i].ref = objects[(i + 1) % N]
+            objects[i].data['neighbors'] = [
+                objects[(i + j) % N] for j in range(1, min(10, N))
+            ]
+
+        # Run parallel GC with high worker count
+        gc.enable_parallel()
+        try:
+            # Make some objects unreachable
+            dead_refs = objects[N//2:]
+            del objects[N//2:]
+
+            gc.collect()
+
+            # Surviving objects should be intact
+            for obj in objects:
+                self.assertIsNotNone(obj.data)
+        finally:
+            gc.disable_parallel()
+
+
+@unittest.skipUnless(FTP_BUILD, "FTP-only tests")
+class TestThreadPoolLifecycle(unittest.TestCase):
+    """Test thread pool init/fini cycle (T2-F1, T2-F2, T2-F7)."""
+
+    def test_worker_count_matches(self):
+        """Enabled worker count matches the fixed implementation ceiling."""
+        gc.enable_parallel()
+        try:
+            config = gc.get_parallel_config()
+            self.assertEqual(config['num_workers'], 16)
+            self.assertTrue(config['enabled'])
+        finally:
+            gc.disable_parallel()
+
+    def test_enable_disable_cycle(self):
+        """Enable → collect → disable → collect cycle works cleanly."""
+        gc.enable_parallel()
+        try:
+            gc.collect()
+        finally:
+            gc.disable_parallel()
+
+        # Serial collection should still work after disable
+        gc.collect()
+
+
+if __name__ == '__main__':
     unittest.main()

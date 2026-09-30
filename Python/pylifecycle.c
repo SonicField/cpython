@@ -12,10 +12,10 @@
 #include "pycore_floatobject.h"   // _PyFloat_InitTypes()
 #include "pycore_freelist.h"      // _PyObject_ClearFreeLists()
 #ifdef Py_PARALLEL_GC
-#  include "pycore_gc_parallel.h" // _PyGC_ParallelFini()
-#  ifdef Py_GIL_DISABLED
-#    include "pycore_gc_ft_parallel.h" // _PyGC_ThreadPoolFini()
-#  endif
+#include "pycore_gc_parallel.h"   // _PyGC_ParallelFini()
+#endif
+#if defined(Py_GIL_DISABLED) && defined(Py_PARALLEL_GC)
+#include "pycore_gc_ft_parallel.h" // _PyGC_ThreadPoolFini()
 #endif
 #include "pycore_global_objects_fini_generated.h"  // _PyStaticObjects_CheckAll()
 #include "pycore_initconfig.h"    // _PyStatus_OK()
@@ -1431,27 +1431,6 @@ init_interp_main(PyThreadState *tstate)
             }
         }
 
-#ifdef Py_PARALLEL_GC
-        if (config->parallel_gc_workers > 0) {
-#  ifdef Py_GIL_DISABLED
-            if (_PyGC_ThreadPoolInit(interp, config->parallel_gc_workers) < 0) {
-                return _PyStatus_ERR(
-                    "can't initialize parallel GC thread pool");
-            }
-            interp->gc.parallel_gc_enabled = 1;
-            interp->gc.parallel_gc_num_workers = config->parallel_gc_workers;
-#  else
-            if (_PyGC_ParallelInit(interp, config->parallel_gc_workers) < 0) {
-                return _PyStatus_ERR("can't initialize parallel GC");
-            }
-            if (_PyGC_ParallelStart(interp) < 0) {
-                _PyGC_ParallelFini(interp);
-                return _PyStatus_ERR("can't start parallel GC workers");
-            }
-#  endif
-        }
-#endif
-
 #ifdef PY_HAVE_PERF_TRAMPOLINE
         if (config->perf_profiling) {
             _PyPerf_Callbacks *cur_cb;
@@ -2466,12 +2445,10 @@ _Py_Finalize(_PyRuntimeState *runtime)
 
     // XXX Call something like _PyImport_Disable() here?
 
-#ifdef Py_PARALLEL_GC
-#  ifdef Py_GIL_DISABLED
+#if defined(Py_GIL_DISABLED) && defined(Py_PARALLEL_GC)
     _PyGC_ThreadPoolFini(tstate->interp);
-#  else
+#elif defined(Py_PARALLEL_GC)
     _PyGC_ParallelFini(tstate->interp);
-#  endif
 #endif
 
     /* Remove the state of all threads of the interpreter, except for the
@@ -2860,12 +2837,10 @@ Py_EndInterpreter(PyThreadState *tstate)
        when they attempt to take the GIL (ex: PyEval_RestoreThread()). */
     _PyInterpreterState_SetFinalizing(interp, tstate);
 
-#ifdef Py_PARALLEL_GC
-#  ifdef Py_GIL_DISABLED
+#if defined(Py_GIL_DISABLED) && defined(Py_PARALLEL_GC)
     _PyGC_ThreadPoolFini(interp);
-#  else
+#elif defined(Py_PARALLEL_GC)
     _PyGC_ParallelFini(interp);
-#  endif
 #endif
 
     PyThreadState *list = _PyThreadState_RemoveExcept(tstate);

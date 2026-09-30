@@ -572,18 +572,6 @@ Miscellaneous options
 
      .. versionadded:: 3.11
 
-   * ``-X parallel_gc=N`` configures the experimental parallel cyclic garbage
-     collector with *N* workers.  *N* must be 0, which leaves the collector
-     disabled, or between 2 and 64.  A nonzero value causes interpreter startup
-     to fail if Python was not built with :option:`--with-parallel-gc`.
-     *N* is the maximum number of threads executing collector work.  A GIL
-     build uses *N* helpers.  In a free-threaded build, the collecting thread
-     participates and the pool uses exactly *N-1* helpers.  A collection may
-     activate fewer helpers when there is not enough work.
-     See also :envvar:`PYTHON_PARALLEL_GC`.
-
-     .. versionadded:: 3.16
-
    * ``-X importtime`` to show how long each import takes. It shows module
      name, cumulative time (including nested imports) and self time (excluding
      nested imports).  Note that its output may be broken in multi-threaded
@@ -968,21 +956,6 @@ conflict.
    <int_max_str_digits>`.
 
    .. versionadded:: 3.11
-
-.. envvar:: PYTHON_PARALLEL_GC
-
-   If set to an integer between 2 and 64, enable the experimental parallel
-   cyclic garbage collector with that many workers.  A value of ``0`` leaves
-   it disabled.  A nonzero value causes interpreter startup to fail if Python
-   was not built with :option:`--with-parallel-gc`.
-   The value is the maximum number of threads executing collector work.  A
-   GIL build uses that many helpers.  In a free-threaded build, the collecting
-   thread participates and the pool uses exactly one fewer helper.  A
-   collection may activate fewer helpers when there is not enough work.
-
-   This is equivalent to specifying :option:`-X parallel_gc=N <-X>`.
-
-   .. versionadded:: 3.16
 
 .. envvar:: PYTHONIOENCODING
 

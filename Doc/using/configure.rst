@@ -449,8 +449,9 @@ General Options
    Build CPython with the experimental parallel cyclic garbage collector.
    The collector is available in both the default and :ref:`free-threaded
    <free-threading-build>` builds, but is disabled at runtime unless enabled
-   with :option:`-X parallel_gc <-X>`, :envvar:`PYTHON_PARALLEL_GC`, or
-   :func:`gc.enable_parallel`.
+   with :func:`gc.enable_parallel`.
+
+   Parallel GC currently requires a 64-bit target.
 
    This option defines the ``Py_PARALLEL_GC`` macro.
 

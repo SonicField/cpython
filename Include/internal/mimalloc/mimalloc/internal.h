@@ -122,13 +122,14 @@ bool       _mi_segment_try_reclaim_abandoned( mi_heap_t* heap, bool try_all, mi_
 void       _mi_segment_thread_collect(mi_segments_tld_t* tld);
 bool       _mi_abandoned_pool_visit_blocks(mi_abandoned_pool_t* pool, uint8_t page_tag, bool visit_blocks, mi_block_visit_fun* visitor, void* arg);
 
-typedef void (mi_page_visit_fun)(mi_page_t *page, void *arg);
-void       _mi_abandoned_pool_visit_pages(mi_abandoned_pool_t* pool,
-                                          uint8_t page_tag,
-                                          mi_page_visit_fun* visitor,
-                                          void* arg);
-size_t     _mi_abandoned_pool_count_pages(mi_abandoned_pool_t* pool,
-                                          uint8_t page_tag);
+// Page enumeration callback for parallel GC
+typedef void (*mi_page_enumerate_fun)(mi_page_t* page, void* arg);
+
+// Enumerate pages (not blocks) in abandoned pool - for parallel GC page assignment
+void       _mi_abandoned_pool_enumerate_pages(mi_abandoned_pool_t* pool, uint8_t page_tag, mi_page_enumerate_fun enumerator, void* arg);
+
+// Count pages in abandoned pool - for parallel GC page counting
+size_t     _mi_abandoned_pool_count_pages(mi_abandoned_pool_t* pool, uint8_t page_tag);
 
 
 #if MI_HUGE_PAGE_ABANDON

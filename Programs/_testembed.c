@@ -541,48 +541,6 @@ static int test_init_initialize_config(void)
     return 0;
 }
 
-static int
-test_init_parallel_gc_invalid_config(void)
-{
-    PyConfig config;
-    PyConfig_InitPythonConfig(&config);
-    config_set_program_name(&config);
-    config.use_environment = 0;
-#ifdef Py_PARALLEL_GC
-    config.parallel_gc_workers = -1;
-#else
-    config.parallel_gc_workers = 2;
-#endif
-
-    PyStatus status = Py_InitializeFromConfig(&config);
-    PyConfig_Clear(&config);
-    if (!PyStatus_Exception(status)) {
-        Py_Finalize();
-        return 1;
-    }
-    return 0;
-}
-
-#ifdef Py_PARALLEL_GC
-static int
-test_init_parallel_gc_config(void)
-{
-    PyConfig config;
-    PyConfig_InitPythonConfig(&config);
-    config_set_program_name(&config);
-    config.use_environment = 0;
-    config.parallel_gc_workers = 2;
-    init_from_config_clear(&config);
-
-    int rc = PyRun_SimpleString(
-        "import gc\n"
-        "assert gc.get_parallel_config() == "
-        "{'available': True, 'enabled': True, 'num_workers': 2}\n");
-    Py_Finalize();
-    return rc;
-}
-#endif
-
 
 static void config_set_argv(PyConfig *config, Py_ssize_t argc, wchar_t * const *argv)
 {
@@ -3004,11 +2962,6 @@ static struct TestCase TestCases[] = {
     {"test_initialize_twice", test_initialize_twice},
     {"test_initialize_pymain", test_initialize_pymain},
     {"test_init_initialize_config", test_init_initialize_config},
-    {"test_init_parallel_gc_invalid_config",
-     test_init_parallel_gc_invalid_config},
-#ifdef Py_PARALLEL_GC
-    {"test_init_parallel_gc_config", test_init_parallel_gc_config},
-#endif
     {"test_preinit_compat_config", test_preinit_compat_config},
     {"test_init_compat_config", test_init_compat_config},
     {"test_init_global_config", test_init_global_config},

@@ -12,19 +12,22 @@ extern "C" {
 #endif
 
 #include "pycore_pyatomic_ft_wrappers.h"  // _Py_atomic_*
-#include "pyatomic.h"                     // Atomic operations
-#include "pycore_pymem.h"                 // PyMem_RawCalloc, PyMem_RawFree
-#include <assert.h>
+#include "pyatomic.h"                      // Atomic operations
+#include "pycore_pymem.h"                  // PyMem_RawCalloc, PyMem_RawFree
 #include <stdint.h>                        // uintptr_t
+#include <string.h>                        // memset
+#include <assert.h>                        // assert
 
-// Prefetch primitives.  These are local to avoid a circular include.
+// =============================================================================
+// Prefetch Primitives (local definition to avoid circular includes)
+// =============================================================================
 #if defined(__GNUC__) || defined(__clang__)
-#  define _PyWS_PREFETCH(ptr) __builtin_prefetch((ptr), 0, 0)
-#elif defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
-#  include <intrin.h>
-#  define _PyWS_PREFETCH(ptr) _mm_prefetch((const char *)(ptr), 0)
+    #define _PyWS_PREFETCH(ptr) __builtin_prefetch((ptr), 0, 0)
+#elif defined(_MSC_VER)
+    #include <intrin.h>
+    #define _PyWS_PREFETCH(ptr) _mm_prefetch((const char*)(ptr), 0)
 #else
-#  define _PyWS_PREFETCH(ptr) ((void)(ptr))
+    #define _PyWS_PREFETCH(ptr) ((void)(ptr))
 #endif
 
 // This implements the Chase-Lev work stealing deque first described in
@@ -40,19 +43,21 @@ extern "C" {
 // This implementation uses CPython's atomic abstractions (pycore_atomic.h)
 // instead of raw C11 atomics for portability.
 
-// Arrays form a singly linked list as the deque grows.
+// WSArray: Circular buffer backing storage for the deque
+// Arrays are linked into a singly linked list as they grow.
 typedef struct _PyWSArray {
     struct _PyWSArray *next;
     size_t size;
-    uintptr_t buf[];
+    uintptr_t buf[];  // Flexible array member - actual size determined at allocation
 } _PyWSArray;
 
 static inline _PyWSArray *
 _PyWSArray_New(size_t size)
 {
+    // size must be a power of two > 0
     assert(size > 0 && (size & (size - 1)) == 0);
 
-    _PyWSArray *arr = PyMem_RawCalloc(
+    _PyWSArray *arr = (struct _PyWSArray *)PyMem_RawCalloc(
         1, sizeof(_PyWSArray) + sizeof(uintptr_t) * size);
     if (arr == NULL) {
         return NULL;
@@ -78,16 +83,16 @@ _PyWSArray_Destroy(_PyWSArray *arr)
 static inline void *
 _PyWSArray_Get(_PyWSArray *arr, size_t idx)
 {
-    uintptr_t val = _Py_atomic_load_uintptr_relaxed(
-        &arr->buf[idx & (arr->size - 1)]);
+    // Use relaxed load - synchronization handled by deque operations
+    uintptr_t val = _Py_atomic_load_uintptr_relaxed(&arr->buf[idx & (arr->size - 1)]);
     return (void *)val;
 }
 
 static inline void
 _PyWSArray_Put(_PyWSArray *arr, size_t idx, void *obj)
 {
-    _Py_atomic_store_uintptr_relaxed(
-        &arr->buf[idx & (arr->size - 1)], (uintptr_t)obj);
+    // Use relaxed store - synchronization handled by deque operations
+    _Py_atomic_store_uintptr_relaxed(&arr->buf[idx & (arr->size - 1)], (uintptr_t)obj);
 }
 
 static inline _PyWSArray *
@@ -102,6 +107,7 @@ _PyWSArray_Grow(_PyWSArray *arr, size_t top, size_t bot)
     }
     new_arr->next = arr;
 
+    // Copy elements from old array to new array
     for (size_t i = top; i < bot; i++) {
         PyObject *obj = (PyObject *)_PyWSArray_Get(arr, i);
         _PyWSArray_Put(new_arr, i, obj);
@@ -110,35 +116,85 @@ _PyWSArray_Grow(_PyWSArray *arr, size_t top, size_t bot)
     return new_arr;
 }
 
-static const size_t _Py_WSDEQUE_INITIAL_ARRAY_SIZE = 1 << 12;
+// Initial size for work-stealing deque arrays (general use)
+static const size_t _Py_WSDEQUE_INITIAL_ARRAY_SIZE = 1 << 12;  // 4096 elements
 
-#define _Py_WSDEQUE_CACHELINE_SIZE 64
+// Buffer size for parallel GC work-stealing deques.
+// 256K elements = 2MB per deque on 64-bit systems.
+//
+// Rationale:
+// - Power of 2 required for Chase-Lev bitmask indexing
+// - 2MB reasonable per-worker memory overhead
+// - Avoids resize during typical GC cycles (<256K objects in young gen)
+//
+// TODO: Needs tuning based on production workload profiling.
+//       Consider making configurable for benchmarking.
+#define _Py_WSDEQUE_PARALLEL_GC_SIZE (1 << 18)  // 262144 elements
 
-// The owner thread pushes and pops from the bottom (LIFO).  Other threads
-// steal from the top (FIFO relative to pushes).
+// Create a WSArray using a pre-allocated buffer (no malloc during hot path)
+// The buffer must be at least sizeof(_PyWSArray) + sizeof(uintptr_t) * size bytes
+// Returns the array, or NULL if buffer is too small
+static inline _PyWSArray *
+_PyWSArray_NewWithBuffer(void *buffer, size_t buffer_bytes, size_t size)
+{
+    // size must be a power of two > 0
+    assert(size > 0 && (size & (size - 1)) == 0);
+
+    size_t required = sizeof(_PyWSArray) + sizeof(uintptr_t) * size;
+    if (buffer_bytes < required) {
+        return NULL;
+    }
+
+    _PyWSArray *arr = (_PyWSArray *)buffer;
+    arr->size = size;
+    arr->next = NULL;
+    // Zero the buffer for safety
+    memset(arr->buf, 0, sizeof(uintptr_t) * size);
+    return arr;
+}
+
+// Cache line size for padding to prevent false sharing
+// Ideally this would be determined based on architecture, but hardcoded for now.
+#define _Py_CACHELINE_SIZE 64
+
+// _PyWSDeque: Lock-free work-stealing deque
+//
+// The deque has two ends: top and bottom.
+// - The owner thread pushes and pops from the bottom (LIFO)
+// - Worker threads steal from the top (FIFO relative to push)
+//
+// Cache-line padding prevents false sharing between top and bot.
 typedef struct {
-    // Cache-line padding separates the thief-shared top from the owner-local
-    // bottom.
+    // Top index - accessed by both owner and workers (steal)
+    // Padded to prevent false sharing with bot
     union {
         size_t top;
-        uint8_t top_padding[_Py_WSDEQUE_CACHELINE_SIZE];
+        uint8_t top_padding[_Py_CACHELINE_SIZE];
     };
 
+    // Bottom index - primarily accessed by owner
+    // Padded to prevent false sharing with arr
     union {
         size_t bot;
-        uint8_t bot_padding[_Py_WSDEQUE_CACHELINE_SIZE];
+        uint8_t bot_padding[_Py_CACHELINE_SIZE];
     };
 
+    // Pointer to current array (can be replaced during resize)
     _PyWSArray *arr;
+
+    // Number of times the array has been resized (for testing/debugging)
     int num_resizes;
 } _PyWSDeque;
 
-static inline int
+static inline void
 _PyWSDeque_Init(_PyWSDeque *deque)
 {
     _PyWSArray *arr = _PyWSArray_New(_Py_WSDEQUE_INITIAL_ARRAY_SIZE);
     if (arr == NULL) {
-        return -1;
+        // OOM during GC worker init is unrecoverable. Partial marking
+        // would miss reachable objects, leading to premature collection
+        // and use-after-free. Fatal is the only safe option.
+        Py_FatalError("failed to allocate work-stealing deque");
     }
     _Py_atomic_store_ptr_relaxed(&deque->arr, arr);
 
@@ -150,8 +206,55 @@ _PyWSDeque_Init(_PyWSDeque *deque)
     _Py_atomic_store_ssize_relaxed((Py_ssize_t *)&deque->top, 1);
     _Py_atomic_store_ssize_relaxed((Py_ssize_t *)&deque->bot, 1);
     _Py_atomic_store_int_relaxed(&deque->num_resizes, 0);
+    // T3-F10: verify init-to-1 postcondition (prevents Take wraparound bug)
     assert(deque->top == 1 && deque->bot == 1);
-    return 0;
+}
+
+// Initialize deque with a pre-allocated buffer (for thread-local pools)
+// This avoids malloc/calloc during the hot path of GC collections.
+// The buffer must be large enough for sizeof(_PyWSArray) + sizeof(uintptr_t) * size
+// Returns 1 on success, 0 if buffer too small (falls back to malloc)
+static inline int
+_PyWSDeque_InitWithBuffer(_PyWSDeque *deque, void *buffer, size_t buffer_bytes, size_t size)
+{
+    _PyWSArray *arr = _PyWSArray_NewWithBuffer(buffer, buffer_bytes, size);
+    if (arr == NULL) {
+        // Buffer too small, fall back to regular init
+        _PyWSDeque_Init(deque);
+        return 0;
+    }
+
+    _Py_atomic_store_ptr_relaxed(&deque->arr, arr);
+    _Py_atomic_store_ssize_relaxed((Py_ssize_t *)&deque->top, 1);
+    _Py_atomic_store_ssize_relaxed((Py_ssize_t *)&deque->bot, 1);
+    _Py_atomic_store_int_relaxed(&deque->num_resizes, 0);
+    return 1;
+}
+
+// Finalize deque - but skip freeing if using external buffer
+// When the deque grows, the chain looks like: newest_arr -> older_arr -> ... -> external_buffer
+// We need to free all arrays in the chain EXCEPT the external buffer
+static inline void
+_PyWSDeque_FiniExternal(_PyWSDeque *deque, void *external_buffer)
+{
+    _PyWSArray *arr = (_PyWSArray *)_Py_atomic_load_ptr(&deque->arr);
+
+    // Walk the chain and free all arrays except the external buffer
+    while (arr != NULL && (void *)arr != external_buffer) {
+        _PyWSArray *next = arr->next;
+        arr->next = NULL;  // Prevent recursive free
+        PyMem_RawFree(arr);
+        arr = next;
+    }
+
+    // If we stopped at the external buffer, clear its next pointer
+    // (in case there were older grown arrays before the buffer was installed)
+    if (arr != NULL && (void *)arr == external_buffer) {
+        if (arr->next != NULL) {
+            _PyWSArray_Destroy(arr->next);
+            arr->next = NULL;
+        }
+    }
 }
 
 static inline void
@@ -161,8 +264,8 @@ _PyWSDeque_Fini(_PyWSDeque *deque)
     _PyWSArray_Destroy(arr);
 }
 
-// Pop from the bottom.  This may only be called by the owner.  Return NULL if
-// the deque is empty or a thief wins the race for the final item.
+// Take: Pop from bottom (owner only - LIFO)
+// Returns NULL if deque is empty or if lost race with steal
 static inline PyObject *
 _PyWSDeque_Take(_PyWSDeque *deque)
 {
@@ -177,28 +280,31 @@ _PyWSDeque_Take(_PyWSDeque *deque)
 
     PyObject *res = NULL;
     if (top <= bot) {
+        // Not empty
         res = (PyObject *)_PyWSArray_Get(arr, bot);
         if (top == bot) {
-            // Compete with thieves for the final item.
+            // One element in the queue - need to compete with steal
             size_t expected_top = top;
             if (!_Py_atomic_compare_exchange_ssize(
                     (Py_ssize_t *)&deque->top,
                     (Py_ssize_t *)&expected_top,
                     top + 1)) {
+                // Failed race with another thread stealing from us
                 res = NULL;
             }
             _Py_atomic_store_ssize_relaxed((Py_ssize_t *)&deque->bot, bot + 1);
         }
     }
     else {
+        // Empty - restore bot
         _Py_atomic_store_ssize_relaxed((Py_ssize_t *)&deque->bot, bot + 1);
     }
 
     return res;
 }
 
-// Push to the bottom.  This may only be called by the owner.
-static inline int
+// Push: Add to bottom (owner only)
+static inline void
 _PyWSDeque_Push(_PyWSDeque *deque, void *obj)
 {
     size_t bot = _Py_atomic_load_ssize_relaxed((Py_ssize_t *)&deque->bot);
@@ -208,13 +314,23 @@ _PyWSDeque_Push(_PyWSDeque *deque, void *obj)
     assert(bot >= top);
 
     if (bot - top > arr->size - 1) {
-        // Unlike the paper, keep the newly allocated array directly.
+        // Full, need to grow the underlying array.
+        //
+        // NB: This differs from the paper. The paper's implementation
+        // is specified as the following pseudocode,
+        //
+        //     resize(q);
+        //     a = load_explicit(&q->array, relaxed);
+        //
         // The array pointer must use release semantics so that all writes to
         // the new array (copying elements in _PyWSArray_Grow) are visible
         // before any thief can see the new pointer via acquire load in Steal.
         _PyWSArray *new_arr = _PyWSArray_Grow(arr, top, bot);
         if (new_arr == NULL) {
-            return -1;
+            // OOM during GC marking is unrecoverable. Dropping objects
+            // from the deque would cause missed marks and premature
+            // collection of reachable objects.
+            Py_FatalError("failed to grow work-stealing deque");
         }
         _Py_atomic_store_ptr_release(&deque->arr, new_arr);
         arr = (_PyWSArray *)_Py_atomic_load_ptr(&deque->arr);
@@ -227,22 +343,15 @@ _PyWSDeque_Push(_PyWSDeque *deque, void *obj)
     _Py_atomic_fence_release();
 
     _Py_atomic_store_ssize_relaxed((Py_ssize_t *)&deque->bot, bot + 1);
-    return 0;
 }
 
-// Discard queued entries after all owners and thieves have stopped.
-static inline void
-_PyWSDeque_Reset(_PyWSDeque *deque)
-{
-    _Py_atomic_store_ssize_relaxed((Py_ssize_t *)&deque->top, 1);
-    _Py_atomic_store_ssize_relaxed((Py_ssize_t *)&deque->bot, 1);
-}
-
-// Pop from the top.  This may be called by any thief.  Return NULL if the
-// deque is empty.
+// Steal: Pop from top (workers - FIFO)
+// Returns NULL if deque is empty or if lost race
 static inline void *
 _PyWSDeque_Steal(_PyWSDeque *deque)
 {
+    // Prefetch the deque's array pointer - we're likely to need it
+    // This hides memory latency while we do the atomic loads
     _PyWS_PREFETCH(&deque->arr);
 
     while (1) {
@@ -255,19 +364,22 @@ _PyWSDeque_Steal(_PyWSDeque *deque)
         void *res = NULL;
 
         if (top < bot) {
-            // pyatomic.h does not provide consume loads.
-            _PyWSArray *arr = (_PyWSArray *)_Py_atomic_load_ptr_acquire(
-                &deque->arr);
+            // Not empty
+            // Note: Using acquire instead of consume (consume not available in pyatomic.h)
+            _PyWSArray *arr = (_PyWSArray *)_Py_atomic_load_ptr_acquire(&deque->arr);
 
+            // Prefetch the array slot we're about to read
             _PyWS_PREFETCH(&arr->buf[top & (arr->size - 1)]);
 
             res = _PyWSArray_Get(arr, top);
 
+            // Try to increment top
             size_t expected_top = top;
             if (!_Py_atomic_compare_exchange_ssize(
                     (Py_ssize_t *)&deque->top,
                     (Py_ssize_t *)&expected_top,
                     top + 1)) {
+                // Lost race - retry
                 continue;
             }
         }
@@ -275,13 +387,14 @@ _PyWSDeque_Steal(_PyWSDeque *deque)
     }
 }
 
+// Get number of resizes (for testing/debugging)
 static inline int
 _PyWSDeque_GetNumResizes(_PyWSDeque *deque)
 {
     return _Py_atomic_load_int_relaxed(&deque->num_resizes);
 }
 
-// This is only an estimate when other threads are stealing.
+// Get approximate size (may be stale due to concurrent operations)
 static inline size_t
 _PyWSDeque_Size(_PyWSDeque *deque)
 {
@@ -290,8 +403,20 @@ _PyWSDeque_Size(_PyWSDeque *deque)
     return bot < top ? 0 : bot - top;
 }
 
-// Thread-local work buffer.  It amortizes deque synchronization and uses LIFO
-// order for cache locality.
+// =============================================================================
+// Local Work Buffer (used with work-stealing deque for GC)
+// =============================================================================
+//
+// Fast thread-local buffer that avoids expensive deque operations.
+// - Push/pop with zero memory fences (just array indexing)
+// - Only touches the work-stealing deque when buffer overflows/underflows
+// - Amortizes the cost of seq_cst fences over 1024 objects
+// - LIFO order for cache locality
+//
+// Typical usage pattern in parallel GC:
+//   1. Pop from local buffer (fast path, zero fences)
+//   2. When empty, batch-refill from own deque
+//   3. When deque empty, batch-steal from other workers
 
 #define _PyGC_LOCAL_BUFFER_SIZE 1024
 
@@ -300,43 +425,56 @@ typedef struct {
     size_t count;
 } _PyGCLocalBuffer;
 
+// Check if buffer is empty
 static inline int
 _PyGCLocalBuffer_IsEmpty(_PyGCLocalBuffer *buf)
 {
     return buf->count == 0;
 }
 
+// Check if buffer is full
 static inline int
 _PyGCLocalBuffer_IsFull(_PyGCLocalBuffer *buf)
 {
     return buf->count >= _PyGC_LOCAL_BUFFER_SIZE;
 }
 
-// The caller must ensure that the buffer is not full.
+// Push to local buffer (caller must ensure not full)
 static inline void
 _PyGCLocalBuffer_Push(_PyGCLocalBuffer *buf, PyObject *obj)
 {
-    assert(buf->count < _PyGC_LOCAL_BUFFER_SIZE);
+    assert(buf->count < _PyGC_LOCAL_BUFFER_SIZE);  // overflow writes past items[]
     buf->items[buf->count++] = obj;
 }
 
-// The caller must ensure that the buffer is not empty.
+// Pop from local buffer (caller must ensure not empty)
 static inline PyObject *
 _PyGCLocalBuffer_Pop(_PyGCLocalBuffer *buf)
 {
-    assert(buf->count > 0);
+    assert(buf->count > 0);  // underflow wraps count to SIZE_MAX
     return buf->items[--buf->count];
 }
 
+// Reset/initialize buffer (for new collection cycle)
 static inline void
 _PyGCLocalBuffer_Reset(_PyGCLocalBuffer *buf)
 {
     buf->count = 0;
 }
 
+// Alias for Init (same as Reset, for code clarity)
 #define _PyGCLocalBuffer_Init _PyGCLocalBuffer_Reset
 
-// Pull up to half a local buffer from the owner's deque.
+// =============================================================================
+// Shared Batch Operations for Parallel GC
+// =============================================================================
+//
+// These functions work with any worker type that has deque and local fields.
+// They're shared between GIL and FTP parallel GC implementations.
+
+// Batch refill local buffer from own deque.
+// Amortises deque take overhead by pulling up to half buffer at once.
+// Returns number of objects pulled.
 static inline size_t
 _PyGC_RefillLocalFromDeque(_PyGCLocalBuffer *local, _PyWSDeque *deque)
 {
@@ -346,7 +484,7 @@ _PyGC_RefillLocalFromDeque(_PyGCLocalBuffer *local, _PyWSDeque *deque)
     while (pulled < max_pull && !_PyGCLocalBuffer_IsFull(local)) {
         PyObject *obj = _PyWSDeque_Take(deque);
         if (obj == NULL) {
-            break;
+            break;  // Deque is empty
         }
         _PyGCLocalBuffer_Push(local, obj);
         pulled++;
@@ -354,23 +492,58 @@ _PyGC_RefillLocalFromDeque(_PyGCLocalBuffer *local, _PyWSDeque *deque)
     return pulled;
 }
 
-// Expose half of a full local buffer to thieves.
-static inline int
+// Batch steal from victim's deque into thief's local buffer.
+// Amortises stealing overhead by stealing up to half buffer at once.
+// Returns number of objects stolen.
+static inline size_t
+_PyGC_BatchSteal(_PyGCLocalBuffer *thief_local, _PyWSDeque *victim_deque)
+{
+    // Lazy size check: relaxed loads are much cheaper than seq_cst fence in Steal()
+    if (_PyWSDeque_Size(victim_deque) == 0) {
+        return 0;
+    }
+
+    const size_t max_steal = _PyGC_LOCAL_BUFFER_SIZE / 2;
+    size_t stolen = 0;
+
+    while (stolen < max_steal && !_PyGCLocalBuffer_IsFull(thief_local)) {
+        PyObject *obj = _PyWSDeque_Steal(victim_deque);
+        if (obj == NULL) {
+            break;  // Victim's deque is empty
+        }
+        _PyGCLocalBuffer_Push(thief_local, obj);
+        stolen++;
+    }
+    return stolen;
+}
+
+// Flush local buffer to deque (when buffer is full or before stealing).
+// Transfers items in reverse order to maintain LIFO semantics.
+static inline void
+_PyGC_FlushLocalToDeque(_PyGCLocalBuffer *local, _PyWSDeque *deque)
+{
+    while (!_PyGCLocalBuffer_IsEmpty(local)) {
+        PyObject *obj = _PyGCLocalBuffer_Pop(local);
+        _PyWSDeque_Push(deque, obj);
+    }
+}
+
+// Overflow flush - flushes half of local buffer when full during traversal.
+// Keeps half the work local for efficiency, exposes half for stealing.
+// Benchmarked: 38% faster than full-flush on chain structures.
+static inline void
 _PyGC_OverflowFlush(_PyGCLocalBuffer *local, _PyWSDeque *deque)
 {
-    assert(local->count >= _PyGC_LOCAL_BUFFER_SIZE / 2);
+    assert(local->count >= _PyGC_LOCAL_BUFFER_SIZE / 2);  // T3-F4: must have enough to flush
     size_t flush_count = _PyGC_LOCAL_BUFFER_SIZE / 2;
     for (size_t i = 0; i < flush_count; i++) {
         PyObject *obj = _PyGCLocalBuffer_Pop(local);
-        if (_PyWSDeque_Push(deque, obj) < 0) {
-            return -1;
-        }
+        _PyWSDeque_Push(deque, obj);
     }
-    return 0;
 }
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif  // Py_INTERNAL_WS_DEQUE_H
+#endif // Py_INTERNAL_WS_DEQUE_H

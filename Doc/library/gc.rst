@@ -154,17 +154,15 @@ The :mod:`!gc` module provides the following functions:
    threshold1, threshold2)``.
 
 
-.. function:: enable_parallel(num_workers)
+.. function:: enable_parallel()
 
-   Enable the experimental parallel cyclic garbage collector with
-   at most *num_workers* threads executing collector work.  *num_workers*
-   must be between 2 and 64.  A GIL build uses that many helper threads.  In a
-   free-threaded build, the collecting thread participates and the pool uses
-   exactly *num_workers - 1* helpers.  A collection may activate fewer helpers
-   when there is not enough work.
+   Enable the experimental parallel cyclic garbage collector.  Its adaptive
+   controller selects how many workers participate in each collection, up to
+   an implementation maximum of 16.
 
-   Calling this function with the current worker count has no effect.  Calling
-   it with a different count replaces the existing worker pool.
+   Calling this function while parallel collection is already enabled has no
+   effect.  In a free-threaded build, the collecting thread participates as
+   worker zero.
 
    Raise :exc:`RuntimeError` if this interpreter was not built with
    :option:`--with-parallel-gc`.
@@ -174,8 +172,9 @@ The :mod:`!gc` module provides the following functions:
 
 .. function:: disable_parallel()
 
-   Disable parallel garbage collection and release its worker pool.  Normal
-   serial collection remains enabled.
+   Disable parallel garbage collection.  Normal serial collection remains
+   enabled.  A GIL build retains the stopped pool for a possible restart with
+   the same fixed maximum; a free-threaded build releases its pool.
 
    Raise :exc:`RuntimeError` if this interpreter was not built with
    :option:`--with-parallel-gc`.
@@ -187,10 +186,29 @@ The :mod:`!gc` module provides the following functions:
 
    Return a dictionary describing the parallel collector configuration.  The
    ``available`` and ``enabled`` entries are booleans, and ``num_workers`` is
-   the configured concurrency limit, or zero when disabled.
+   the implementation maximum, or zero when disabled.  An enabled collector also
+   reports ``adaptive_workers``, the count currently selected by its adaptive
+   controller.  Free-threaded builds report ``parallel_cleanup``.
 
    In a build without :option:`--with-parallel-gc`, ``available`` and
    ``enabled`` are false and ``num_workers`` is zero.
+
+   .. versionadded:: 3.16
+
+
+.. function:: get_parallel_stats()
+
+   Return implementation statistics for the experimental parallel collector.
+   The dictionary includes its enabled state, configured and adaptive worker
+   counts, phase timings, and build-specific work-distribution counters.
+
+   .. versionadded:: 3.16
+
+
+.. function:: collect_async()
+
+   Schedule a garbage collection and return ``0`` immediately, without waiting
+   for the collection to complete.
 
    .. versionadded:: 3.16
 
