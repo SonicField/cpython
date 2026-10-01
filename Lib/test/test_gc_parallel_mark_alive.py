@@ -15,6 +15,8 @@ import threading
 import unittest
 import weakref
 
+import _testinternalcapi
+
 from test.support import script_helper
 
 
@@ -1196,44 +1198,23 @@ class TestCondvarStress(unittest.TestCase):
 
         self.assertEqual(errors, [], f"Allocator threads had errors: {errors}")
 
-    def test_walker_transitions_through_range(self):
-        """Force the walker through a wide range of worker counts.
-
-        Start with a large heap, then switch to a tiny heap. This exercises
-        the condvar dispatch with changing adaptive participant counts.
-        """
+    def test_dispatch_with_changing_worker_counts(self):
+        """Exercise condvar dispatch with changing participant counts."""
         try:
             gc.disable_parallel()
         except (ValueError, RuntimeError):
             pass
         gc.enable_parallel()
-        all_aw = set()
 
-        # Phase 1: large heap -- walker should climb
-        for _ in range(50):
-            nodes = [{'id': i, 'refs': []} for i in range(100_000)]
-            for i in range(0, len(nodes), 100):
-                nodes[i]['refs'].append(nodes[(i + 7) % len(nodes)])
-            del nodes
-            gc.collect()
-            all_aw.add(gc.get_parallel_config()['adaptive_workers'])
-
-        # Phase 2: tiny heap -- walker should drop
-        for _ in range(50):
-            objs = [{'ref': None} for _ in range(100)]
-            if len(objs) > 1:
-                objs[0]['ref'] = objs[1]
-                objs[1]['ref'] = objs[0]
-            del objs
-            gc.collect()
-            all_aw.add(gc.get_parallel_config()['adaptive_workers'])
-
-        # The walker should have visited at least 3 different worker counts
-        # across both phases. This proves the condvar dispatch path exercised
-        # different participant counts.
-        self.assertGreaterEqual(len(all_aw), 3,
-                                f"Walker only visited {all_aw} -- expected >=3 "
-                                f"distinct values for condvar coverage")
+        for active_workers in (2, 4, 8, 16):
+            with self.subTest(active_workers=active_workers):
+                caller_visits, helper_visits = (
+                    _testinternalcapi.parallel_gc_helper_visits_with_workers(
+                        active_workers
+                    )
+                )
+                self.assertGreater(caller_visits + helper_visits, 0)
+                self.assertGreater(helper_visits, 0)
 
 
 if __name__ == '__main__':

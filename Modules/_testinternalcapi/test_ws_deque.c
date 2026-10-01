@@ -1467,6 +1467,42 @@ parallel_gc_helper_visits(PyObject *self, PyObject *Py_UNUSED(ignored))
 
 #ifndef Py_GIL_DISABLED
 static PyObject *
+parallel_gc_helper_visits_with_workers(PyObject *self, PyObject *arg)
+{
+    Py_ssize_t active_workers = PyLong_AsSsize_t(arg);
+    if (active_workers == -1 && PyErr_Occurred()) {
+        return NULL;
+    }
+
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    _PyParallelGCState *par_gc = interp->gc.parallel_gc;
+    if (par_gc == NULL || !par_gc->enabled) {
+        PyErr_SetString(PyExc_RuntimeError, "parallel GC is not enabled");
+        return NULL;
+    }
+    if (active_workers < 2 || (size_t)active_workers > par_gc->num_workers) {
+        PyErr_Format(PyExc_ValueError,
+                     "active_workers must be between 2 and %zu, got %zd",
+                     par_gc->num_workers, active_workers);
+        return NULL;
+    }
+
+    size_t saved_workers = par_gc->adaptive_workers;
+    double saved_cost = par_gc->prev_cost_per_obj_ns;
+    size_t saved_previous_workers = par_gc->trial_previous_workers;
+    uint32_t saved_rng = par_gc->explore_rng;
+    int saved_skip_update = par_gc->skip_adaptive_update;
+    par_gc->adaptive_workers = (size_t)active_workers;
+    PyObject *result = parallel_gc_helper_visits(self, NULL);
+    par_gc->adaptive_workers = saved_workers;
+    par_gc->prev_cost_per_obj_ns = saved_cost;
+    par_gc->trial_previous_workers = saved_previous_workers;
+    par_gc->explore_rng = saved_rng;
+    par_gc->skip_adaptive_update = saved_skip_update;
+    return result;
+}
+
+static PyObject *
 parallel_gc_stackref_visits(PyObject *self, PyObject *Py_UNUSED(ignored))
 {
     PyObject *child = PyList_New(0);
@@ -1684,6 +1720,8 @@ static PyMethodDef test_methods[] = {
     {"parallel_gc_helper_visits", parallel_gc_helper_visits,
      METH_NOARGS, NULL},
 #ifndef Py_GIL_DISABLED
+    {"parallel_gc_helper_visits_with_workers",
+     parallel_gc_helper_visits_with_workers, METH_O, NULL},
     {"parallel_gc_stackref_visits", parallel_gc_stackref_visits,
      METH_NOARGS, NULL},
 #endif

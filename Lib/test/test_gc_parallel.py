@@ -416,15 +416,15 @@ class TestAbandonedParallel(unittest.TestCase):
 
     def setUp(self):
         """Enable parallel GC and save original state."""
-        self.was_enabled = gc.isenabled()
-        gc.disable()
-        gc.collect()
-
         config = gc.get_parallel_config()
         if not config['available']:
             self.skipTest("Parallel GC not available")
 
-        # Enable parallel GC with 4 workers
+        self.was_enabled = gc.isenabled()
+        gc.disable()
+        gc.collect()
+
+        # Enable parallel GC with its fixed worker ceiling.
         gc.enable_parallel()
 
     def tearDown(self):

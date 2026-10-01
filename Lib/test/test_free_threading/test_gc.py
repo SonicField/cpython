@@ -398,7 +398,7 @@ class TestAbandonedPoolGC(TestCase):
             return collected
 
         # Test requires parallel GC support
-        if not hasattr(gc, 'enable_parallel') or not hasattr(gc, 'disable_parallel'):
+        if not gc.get_parallel_config()['available']:
             self.skipTest("Parallel GC not available")
 
         # Run serial collection

@@ -167,7 +167,7 @@ class TestParallelGCLifecycle(unittest.TestCase):
     def test_enable_disable_consistency(self):
         """Enable → config shows enabled. Disable → config shows disabled."""
         import gc
-        if not hasattr(gc, 'enable_parallel'):
+        if not gc.get_parallel_config()['available']:
             self.skipTest("Parallel GC not available")
 
         gc.enable_parallel()
