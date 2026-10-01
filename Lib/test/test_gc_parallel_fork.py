@@ -4,6 +4,7 @@ import gc
 import os
 import traceback
 import unittest
+import _interpreters
 
 from test import support
 from test.support import warnings_helper
@@ -126,6 +127,30 @@ class ParallelGCForkTests(unittest.TestCase):
             self._run_child(self._check_child_after_fork)
 
         self._wait_for_child(pid)
+
+    @unittest.skip(
+        "upstream CPython crashes when a main-interpreter fork cleans up "
+        "a legacy subinterpreter, even without parallel GC"
+    )
+    @warnings_helper.ignore_fork_in_thread_deprecation_warnings()
+    def test_child_discards_subinterpreter_pool_before_cleanup(self):
+        # CPython deletes non-main interpreters in PyOS_AfterFork_Child(). A
+        # parallel-GC pool belonging to one of those interpreters must be
+        # abandoned rather than joined because its helpers exist only in the
+        # parent. This remains skipped until the upstream feature-off control
+        # can survive the same lifecycle in both GIL and free-threaded builds.
+        gc.disable_parallel()
+        interp = _interpreters.create("legacy")
+        try:
+            _interpreters.exec(interp, "import gc; gc.disable(); gc.enable_parallel()")
+
+            pid = os.fork()
+            if pid == 0:
+                os._exit(0)
+            self._wait_for_child(pid)
+        finally:
+            _interpreters.exec(interp, "import gc; gc.disable_parallel()")
+            _interpreters.destroy(interp)
 
 if __name__ == "__main__":
     unittest.main()
