@@ -18,6 +18,11 @@
 #include "pycore_call.h"          // _PyObject_CallNoArgs()
 #include "pycore_ceval.h"         // _PyEval_ReInitThreads()
 #include "pycore_fileutils.h"     // _Py_closerange()
+#if defined(Py_PARALLEL_GC) && defined(Py_GIL_DISABLED)
+#  include "pycore_gc_ft_parallel.h" // _PyGC_ThreadPoolAfterForkChild()
+#elif defined(Py_PARALLEL_GC)
+#  include "pycore_gc_parallel.h" // _PyGC_ParallelAfterForkChild()
+#endif
 #include "pycore_import.h"        // _PyImport_AcquireLock()
 #include "pycore_initconfig.h"    // _PyStatus_EXCEPTION()
 #include "pycore_jit_unwind.h"    // _Py_jit_debug_mutex
@@ -796,6 +801,19 @@ PyOS_AfterFork_Child(void)
     // may call destructors.
     PyThreadState *list = _PyThreadState_RemoveExcept(tstate);
     _PyEval_StartTheWorldAll(&_PyRuntime);
+
+#if defined(Py_PARALLEL_GC) && defined(Py_GIL_DISABLED)
+    if (_PyGC_ThreadPoolAfterForkChild(tstate->interp) < 0) {
+        status = _PyStatus_ERR("failed to recover free-threaded parallel GC after fork");
+        goto fatal_error;
+    }
+#elif defined(Py_PARALLEL_GC)
+    if (_PyGC_ParallelAfterForkChild(tstate->interp) < 0) {
+        status = _PyStatus_ERR("failed to recover GIL parallel GC after fork");
+        goto fatal_error;
+    }
+#endif
+
     _PyThreadState_DeleteList(list, /*is_after_fork=*/1);
 
     _PyImport_ReInitLock(tstate->interp);

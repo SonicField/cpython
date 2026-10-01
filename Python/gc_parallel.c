@@ -514,14 +514,13 @@ _PyGC_ParallelInit(PyInterpreterState *interp, size_t num_workers)
     par_gc->num_workers = num_workers;
     par_gc->enabled = 1;
     par_gc->num_workers_active = 0;
-    // Stochastic hill climbing starts at min(4, num_workers).
-    size_t initial_workers = (num_workers < 4) ? num_workers : 4;
-    par_gc->adaptive_workers = initial_workers;
-    par_gc->prev_cost_per_obj_ns = 0.0;  // no previous measurement yet
-    par_gc->trial_previous_workers = 0;
-
-    // Seed PRNG from GC_TEST_SEED or perf counter
-    par_gc->explore_rng = _PyGC_RandomWalkSeed();
+    _PyGC_RandomWalkReset(
+        num_workers,
+        &par_gc->prev_cost_per_obj_ns,
+        &par_gc->trial_previous_workers,
+        &par_gc->explore_rng,
+        &par_gc->adaptive_workers);
+    par_gc->skip_adaptive_update = 0;
 
     par_gc->dispatch_in_progress = 0;
 
@@ -784,6 +783,56 @@ _PyGC_ParallelStop(PyInterpreterState *interp)
     }
 
     par_gc->num_workers_active = 0;
+}
+
+static void
+parallel_gc_abandon_after_fork(_PyParallelGCState *par_gc)
+{
+    // The child has no helper threads. Do not join them or operate on copied
+    // synchronization primitives whose waiter state belongs to the parent.
+    for (size_t i = 0; i < par_gc->num_workers; i++) {
+        _PyParallelGCWorker *worker = &par_gc->workers[i];
+        if (worker->local_pool_in_use) {
+            _PyWSDeque_FiniExternal(&worker->deque, worker->local_pool);
+        }
+        else {
+            _PyWSDeque_Fini(&worker->deque);
+        }
+        PyMem_RawFree(worker->local_pool);
+    }
+    _PyGCSplitVector_Fini(&par_gc->split_vector);
+    _PyGCWorkQueue_Fini(&par_gc->work_queue);
+    PyMem_Free(par_gc);
+}
+
+int
+_PyGC_ParallelAfterForkChild(PyInterpreterState *interp)
+{
+    _PyParallelGCState *inherited = interp->gc.parallel_gc;
+    if (inherited == NULL || !inherited->enabled) {
+        return 0;
+    }
+
+    // Python callbacks run outside parallel phases. A raw fork from a C
+    // traversal callback bypasses CPython's supported fork protocol.
+    assert(!_Py_atomic_load_int_relaxed(&inherited->dispatch_in_progress));
+
+    size_t num_workers = inherited->num_workers;
+    int skip_adaptive_update =
+        _Py_atomic_load_int_relaxed(&interp->gc.collecting) &&
+        inherited->cleanup_end_ns == 0;
+
+    parallel_gc_abandon_after_fork(inherited);
+    interp->gc.parallel_gc = NULL;
+
+    if (_PyGC_ParallelInit(interp, num_workers) < 0) {
+        return -1;
+    }
+    interp->gc.parallel_gc->skip_adaptive_update = skip_adaptive_update;
+    if (_PyGC_ParallelStart(interp) < 0) {
+        return -1;
+    }
+    return 0;
 }
 
 int

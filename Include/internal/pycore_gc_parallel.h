@@ -385,6 +385,10 @@ struct _PyParallelGCState {
     // xorshift32 PRNG state for stochastic sampling decisions.
     uint32_t explore_rng;
 
+    // Set in a forked child when the current collection began in the parent.
+    // That inherited measurement must not train the child's new controller.
+    int skip_adaptive_update;
+
     int last_generation;      // Last generation collected (for API observability)
     int dispatch_in_progress;  // Reentrancy guard for condvar dispatch
 
@@ -435,6 +439,9 @@ PyAPI_FUNC(int) _PyGC_ParallelStart(PyInterpreterState *interp);
 
 // Stop worker threads (but don't destroy state - can restart later)
 PyAPI_FUNC(void) _PyGC_ParallelStop(PyInterpreterState *interp);
+
+// Replace inherited worker state after fork in the child.
+PyAPI_FUNC(int) _PyGC_ParallelAfterForkChild(PyInterpreterState *interp);
 
 // Check if parallel GC is enabled
 PyAPI_FUNC(int) _PyGC_ParallelIsEnabled(PyInterpreterState *interp);

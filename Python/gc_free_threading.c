@@ -2526,7 +2526,10 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
     // same logic to converge on a worker count for this workload.
     {
         _PyGCThreadPool *_pool = interp->gc.thread_pool;
-        if (_pool != NULL) {
+        if (_pool != NULL && _pool->skip_adaptive_update) {
+            _pool->skip_adaptive_update = 0;
+        }
+        else if (_pool != NULL) {
             _PyGC_RandomWalkUpdate(
                 interp->gc.cleanup_end_ns - interp->gc.gc_start_ns,
                 state->candidates,

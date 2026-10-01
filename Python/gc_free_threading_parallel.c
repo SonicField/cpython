@@ -1877,10 +1877,13 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
 
     // Adaptive worker controller — same as GIL build, see
     // Include/internal/pycore_gc_random_walk.h.
-    pool->adaptive_workers = (num_workers < 4) ? (size_t)num_workers : 4;
-    pool->prev_cost_per_obj_ns = 0.0;
-    pool->trial_previous_workers = 0;
-    pool->explore_rng = _PyGC_RandomWalkSeed();
+    _PyGC_RandomWalkReset(
+        (size_t)num_workers,
+        &pool->prev_cost_per_obj_ns,
+        &pool->trial_previous_workers,
+        &pool->explore_rng,
+        &pool->adaptive_workers);
+    pool->skip_adaptive_update = 0;
 
     // Initialize per-collection done signaling (mirrors GIL parallel GC).
     // mark_barrier/done_barrier dispatch retired in favour of per-worker
@@ -2075,6 +2078,85 @@ _PyGC_ThreadPoolFini(PyInterpreterState *interp)
     interp->gc.thread_pool = NULL;
     interp->gc.parallel_gc_enabled = 0;
     interp->gc.parallel_gc_num_workers = 0;
+}
+
+static void
+thread_pool_abandon_after_fork(_PyGCThreadPool *pool)
+{
+    // The child has no helper threads. Do not join them or operate on copied
+    // synchronization primitives whose waiter state belongs to the parent.
+    PyMem_RawFree(_pool_worker_args);
+    _pool_worker_args = NULL;
+
+    for (int i = 0; i < pool->num_workers; i++) {
+        _PyGCWorkerState *worker = &pool->workers[i];
+        if (worker->local_pool != NULL) {
+            _PyWSDeque_FiniExternal(&worker->deque, worker->local_pool);
+        }
+        else {
+            _PyWSDeque_Fini(&worker->deque);
+        }
+        PyMem_RawFree(worker->local_pool);
+    }
+    PyMem_RawFree(pool->workers);
+    PyMem_RawFree(pool->threads);
+    PyMem_RawFree(pool);
+}
+
+static void
+reset_forked_child_timing(PyInterpreterState *interp)
+{
+    interp->gc.gc_start_ns = 0;
+    interp->gc.stw0_end_ns = 0;
+    interp->gc.merge_refs_end_ns = 0;
+    interp->gc.delayed_frees_end_ns = 0;
+    interp->gc.mark_alive_end_ns = 0;
+    interp->gc.bucket_assign_end_ns = 0;
+    interp->gc.phase_start_ns = 0;
+    interp->gc.update_refs_end_ns = 0;
+    interp->gc.mark_heap_end_ns = 0;
+    interp->gc.scan_heap_end_ns = 0;
+    interp->gc.disable_deferred_end_ns = 0;
+    interp->gc.find_weakrefs_end_ns = 0;
+    interp->gc.stw1_end_ns = 0;
+    interp->gc.objs_decref_end_ns = 0;
+    interp->gc.weakref_callbacks_end_ns = 0;
+    interp->gc.finalize_end_ns = 0;
+    interp->gc.stw2_end_ns = 0;
+    interp->gc.resurrection_end_ns = 0;
+    interp->gc.freelists_end_ns = 0;
+    interp->gc.clear_weakrefs_end_ns = 0;
+    interp->gc.stw3_end_ns = 0;
+    interp->gc.cleanup_start_ns = 0;
+    interp->gc.cleanup_end_ns = 0;
+}
+
+int
+_PyGC_ThreadPoolAfterForkChild(PyInterpreterState *interp)
+{
+    _PyGCThreadPool *inherited = interp->gc.thread_pool;
+    if (inherited == NULL || !interp->gc.parallel_gc_enabled) {
+        return 0;
+    }
+
+    // Python callbacks run outside parallel phases. A raw fork from a C
+    // traversal callback bypasses CPython's supported fork protocol.
+    assert(!_Py_atomic_load_int_relaxed(&inherited->dispatch_in_progress));
+
+    int num_workers = inherited->num_workers;
+    int skip_adaptive_update =
+        _Py_atomic_load_int_relaxed(&interp->gc.collecting) &&
+        interp->gc.cleanup_end_ns == 0;
+
+    thread_pool_abandon_after_fork(inherited);
+    interp->gc.thread_pool = NULL;
+    reset_forked_child_timing(interp);
+
+    if (_PyGC_ThreadPoolInit(interp, num_workers) < 0) {
+        return -1;
+    }
+    interp->gc.thread_pool->skip_adaptive_update = skip_adaptive_update;
+    return 0;
 }
 
 // Check if thread pool is active

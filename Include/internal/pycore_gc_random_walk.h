@@ -143,6 +143,21 @@ _PyGC_RandomWalkSeed(void)
     return seed;
 }
 
+// Reset all caller-owned controller state for a new workload. Both collectors
+// use this helper at initial enable and after fork in the child.
+static inline void
+_PyGC_RandomWalkReset(size_t num_workers,
+                      double *prev_cost_per_obj_ns,
+                      size_t *trial_previous_workers,
+                      uint32_t *explore_rng,
+                      size_t *adaptive_workers)
+{
+    *adaptive_workers = num_workers < 4 ? num_workers : 4;
+    *prev_cost_per_obj_ns = 0.0;
+    *trial_previous_workers = 0;
+    *explore_rng = _PyGC_RandomWalkSeed();
+}
+
 #ifdef __cplusplus
 }
 #endif

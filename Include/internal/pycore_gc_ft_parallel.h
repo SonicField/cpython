@@ -364,6 +364,10 @@ typedef struct _PyGCThreadPool {
     size_t trial_previous_workers;
     uint32_t explore_rng;
 
+    // Set in a forked child when the current collection began in the parent.
+    // That inherited measurement must not train the child's new controller.
+    int skip_adaptive_update;
+
     // Debug/testing counters (for assertions)
     size_t threads_created;          // Total threads ever created (should equal num_workers-1)
     size_t collections_completed;    // Number of GC collections processed
@@ -373,6 +377,7 @@ typedef struct _PyGCThreadPool {
 PyAPI_FUNC(int) _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers);
 PyAPI_FUNC(void) _PyGC_ThreadPoolFini(PyInterpreterState *interp);
 PyAPI_FUNC(int) _PyGC_ThreadPoolIsActive(PyInterpreterState *interp);
+PyAPI_FUNC(int) _PyGC_ThreadPoolAfterForkChild(PyInterpreterState *interp);
 
 // Get thread pool statistics for testing
 PyAPI_FUNC(size_t) _PyGC_ThreadPoolGetThreadsCreated(PyInterpreterState *interp);

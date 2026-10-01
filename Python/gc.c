@@ -2073,7 +2073,12 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
     {
         PyInterpreterState *interp = tstate->interp;
         _PyParallelGCState *par_gc = interp->gc.parallel_gc;
-        if (par_gc != NULL && par_gc->timing_valid && par_gc->cleanup_end_ns == 0) {
+        if (par_gc != NULL && par_gc->skip_adaptive_update) {
+            par_gc->skip_adaptive_update = 0;
+        }
+        else if (par_gc != NULL && par_gc->timing_valid &&
+                 par_gc->cleanup_end_ns == 0)
+        {
             PyTime_t cleanup_end;
             (void)PyTime_PerfCounterRaw(&cleanup_end);
             par_gc->cleanup_end_ns = cleanup_end;

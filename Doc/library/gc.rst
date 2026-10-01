@@ -166,6 +166,12 @@ The :mod:`!gc` module provides the following functions:
    effect.  In a free-threaded build, the collecting thread participates as
    worker zero.
 
+   After a fork made through CPython's supported fork protocol, the parent
+   retains its existing helpers and adaptive state.  The child creates new
+   helpers and resets adaptive selection to four workers with no prior
+   measurement.  A collection that began before the fork does not train the
+   child's reset controller.
+
    Raise :exc:`RuntimeError` if this interpreter was not built with
    :option:`--with-parallel-gc`.
 
