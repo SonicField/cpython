@@ -13,6 +13,7 @@
 #include "pycore_gc_ft_parallel.h"
 #endif
 #include "pycore_object.h"      // _PyObject_IS_GC()
+#include "pycore_lock.h"        // PyMutex_Lock(), PyMutex_Unlock()
 #include "pycore_pystate.h"     // _PyInterpreterState_GET()
 
 typedef struct _gc_runtime_state GCState;
@@ -550,10 +551,19 @@ gc_enable_parallel_impl(PyObject *module)
     PyInterpreterState *interp = _PyInterpreterState_GET();
     const int num_workers = _PyGC_MAX_WORKERS;
 
+    PyMutex_Lock(&interp->gc.parallel_gc_lifecycle_mutex);
+    if (_Py_atomic_load_int(&interp->gc.collecting)) {
+        PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
+        PyErr_SetString(PyExc_RuntimeError,
+                        "cannot enable parallel GC during a collection");
+        return NULL;
+    }
+
     // If already enabled with same settings, just return
     if (interp->gc.parallel_gc_enabled && interp->gc.thread_pool != NULL) {
         int current_workers = interp->gc.thread_pool->num_workers;
         if (current_workers == num_workers) {
+            PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
             Py_RETURN_NONE;  // Already enabled with same worker count
         }
         // Different worker count - need to reinitialize
@@ -562,6 +572,7 @@ gc_enable_parallel_impl(PyObject *module)
 
     // Initialize thread pool
     if (_PyGC_ThreadPoolInit(interp, num_workers) < 0) {
+        PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
         PyErr_SetString(PyExc_RuntimeError, "Failed to initialize GC thread pool");
         return NULL;
     }
@@ -570,6 +581,7 @@ gc_enable_parallel_impl(PyObject *module)
     interp->gc.parallel_gc_enabled = 1;
     interp->gc.parallel_gc_num_workers = num_workers;
 
+    PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
     Py_RETURN_NONE;
 
 #elif defined(Py_PARALLEL_GC)
@@ -656,6 +668,14 @@ gc_disable_parallel_impl(PyObject *module)
     // FTP (free-threading) parallel GC
     PyInterpreterState *interp = _PyInterpreterState_GET();
 
+    PyMutex_Lock(&interp->gc.parallel_gc_lifecycle_mutex);
+    if (_Py_atomic_load_int(&interp->gc.collecting)) {
+        PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
+        PyErr_SetString(PyExc_RuntimeError,
+                        "cannot disable parallel GC during a collection");
+        return NULL;
+    }
+
     // Finalize thread pool if active
     if (interp->gc.thread_pool != NULL) {
         _PyGC_ThreadPoolFini(interp);
@@ -663,6 +683,7 @@ gc_disable_parallel_impl(PyObject *module)
 
     interp->gc.parallel_gc_enabled = 0;
     interp->gc.parallel_gc_num_workers = 0;
+    PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
     Py_RETURN_NONE;
 
 #elif defined(Py_PARALLEL_GC)
@@ -724,12 +745,22 @@ gc_get_parallel_config_impl(PyObject *module)
     // FTP (free-threading) parallel GC
     PyInterpreterState *interp = _PyInterpreterState_GET();
 
+    PyMutex_Lock(&interp->gc.parallel_gc_lifecycle_mutex);
+    int parallel_enabled = interp->gc.parallel_gc_enabled;
+    int num_workers = parallel_enabled ?
+                      interp->gc.parallel_gc_num_workers : 0;
+    size_t adaptive_workers = 0;
+    if (parallel_enabled && interp->gc.thread_pool != NULL) {
+        adaptive_workers = interp->gc.thread_pool->adaptive_workers;
+    }
+    PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
+
     if (PyDict_SetItemString(result, "available", Py_True) < 0) {
         Py_DECREF(result);
         return NULL;
     }
 
-    PyObject *enabled = interp->gc.parallel_gc_enabled ? Py_True : Py_False;
+    PyObject *enabled = parallel_enabled ? Py_True : Py_False;
     if (PyDict_SetItemString(result, "enabled", enabled) < 0) {
         Py_DECREF(result);
         return NULL;
@@ -738,8 +769,6 @@ gc_get_parallel_config_impl(PyObject *module)
     // num_workers = the configured maximum (what enable_parallel was called
     // with). adaptive_workers = the current count chosen by the random-walk
     // controller; <= num_workers. Mirror of the GIL build's config API.
-    int num_workers = interp->gc.parallel_gc_enabled ?
-                      interp->gc.parallel_gc_num_workers : 0;
     PyObject *workers = PyLong_FromLong(num_workers);
     if (workers == NULL || PyDict_SetItemString(result, "num_workers", workers) < 0) {
         Py_XDECREF(workers);
@@ -748,8 +777,8 @@ gc_get_parallel_config_impl(PyObject *module)
     }
     Py_DECREF(workers);
 
-    if (interp->gc.parallel_gc_enabled && interp->gc.thread_pool != NULL) {
-        PyObject *aw = PyLong_FromSize_t(interp->gc.thread_pool->adaptive_workers);
+    if (parallel_enabled) {
+        PyObject *aw = PyLong_FromSize_t(adaptive_workers);
         if (aw == NULL || PyDict_SetItemString(result, "adaptive_workers", aw) < 0) {
             Py_XDECREF(aw);
             Py_DECREF(result);
@@ -1046,18 +1075,22 @@ gc_get_thread_pool_stats(PyObject *module, PyObject *args)
 {
     PyInterpreterState *interp = _PyInterpreterState_GET();
 
+    PyMutex_Lock(&interp->gc.parallel_gc_lifecycle_mutex);
+    int is_active = _PyGC_ThreadPoolIsActive(interp);
+    size_t threads_created = _PyGC_ThreadPoolGetThreadsCreated(interp);
+    size_t collections = _PyGC_ThreadPoolGetCollectionsCompleted(interp);
+    PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
+
     PyObject *result = PyDict_New();
     if (result == NULL) {
         return NULL;
     }
 
-    int is_active = _PyGC_ThreadPoolIsActive(interp);
     if (PyDict_SetItemString(result, "active", is_active ? Py_True : Py_False) < 0) {
         Py_DECREF(result);
         return NULL;
     }
 
-    size_t threads_created = _PyGC_ThreadPoolGetThreadsCreated(interp);
     PyObject *tc = PyLong_FromSize_t(threads_created);
     if (tc == NULL || PyDict_SetItemString(result, "threads_created", tc) < 0) {
         Py_XDECREF(tc);
@@ -1066,7 +1099,6 @@ gc_get_thread_pool_stats(PyObject *module, PyObject *args)
     }
     Py_DECREF(tc);
 
-    size_t collections = _PyGC_ThreadPoolGetCollectionsCompleted(interp);
     PyObject *cc = PyLong_FromSize_t(collections);
     if (cc == NULL || PyDict_SetItemString(result, "collections_completed", cc) < 0) {
         Py_XDECREF(cc);

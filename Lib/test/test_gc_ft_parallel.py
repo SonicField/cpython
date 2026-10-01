@@ -10,6 +10,7 @@ import sys
 import unittest
 import weakref
 import threading
+from test import support
 from test.support import import_helper
 from test.support import threading_helper
 
@@ -35,6 +36,8 @@ try:
     PARALLEL_GC_TESTS_AVAILABLE = True
 except AttributeError:
     PARALLEL_GC_TESTS_AVAILABLE = False
+
+PARALLEL_GC_AVAILABLE = gc.get_parallel_config()['available']
 
 
 def requires_ftp(test_func):
@@ -748,7 +751,10 @@ class TestConcurrentMarking(unittest.TestCase):
                     f"Object {i}'s reference target is corrupted")
 
 
-@unittest.skipUnless(FTP_BUILD, "FTP-only tests")
+@unittest.skipUnless(
+    FTP_BUILD and PARALLEL_GC_AVAILABLE,
+    "free-threaded parallel GC only",
+)
 class TestParallelSerialEquivalence(unittest.TestCase):
     """Verify parallel GC produces identical results to serial GC.
 
@@ -849,9 +855,45 @@ class TestParallelSerialEquivalence(unittest.TestCase):
             gc.disable_parallel()
 
 
-@unittest.skipUnless(FTP_BUILD, "FTP-only tests")
+@unittest.skipUnless(
+    FTP_BUILD and PARALLEL_GC_AVAILABLE,
+    "free-threaded parallel GC only",
+)
 class TestThreadPoolLifecycle(unittest.TestCase):
     """Test thread pool init/fini cycle (T2-F1, T2-F2, T2-F7)."""
+
+    def setUp(self):
+        self.gc_was_enabled = gc.isenabled()
+        gc.disable()
+        gc.disable_parallel()
+
+    def tearDown(self):
+        gc.disable_parallel()
+        if self.gc_was_enabled:
+            gc.enable()
+
+    def run_concurrently(self, functions):
+        start = threading.Barrier(len(functions) + 1)
+        errors = []
+        errors_lock = threading.Lock()
+
+        def run(function):
+            start.wait()
+            try:
+                function()
+            except BaseException as exc:
+                with errors_lock:
+                    errors.append(exc)
+
+        threads = [threading.Thread(target=run, args=(function,))
+                   for function in functions]
+        for thread in threads:
+            thread.start()
+        start.wait()
+        for thread in threads:
+            thread.join(support.SHORT_TIMEOUT)
+        self.assertFalse([thread for thread in threads if thread.is_alive()])
+        return errors
 
     def test_worker_count_matches(self):
         """Enabled worker count matches the fixed implementation ceiling."""
@@ -873,6 +915,156 @@ class TestThreadPoolLifecycle(unittest.TestCase):
 
         # Serial collection should still work after disable
         gc.collect()
+
+    def test_immediate_collection_after_enable(self):
+        """An immediate first collection cannot race with helper startup."""
+        for _ in range(50):
+            gc.enable_parallel()
+            try:
+                gc.collect()
+            finally:
+                gc.disable_parallel()
+
+    def test_concurrent_enable_is_idempotent(self):
+        errors = self.run_concurrently([gc.enable_parallel] * 16)
+        self.assertEqual(errors, [])
+
+        config = gc.get_parallel_config()
+        self.assertTrue(config['enabled'])
+        self.assertEqual(config['num_workers'], 16)
+        stats = gc._get_thread_pool_stats()
+        self.assertTrue(stats['active'])
+        self.assertEqual(stats['threads_created'], 15)
+        gc.collect()
+
+    def test_concurrent_enable_disable_is_coherent(self):
+        for _ in range(50):
+            errors = self.run_concurrently(
+                [gc.enable_parallel, gc.disable_parallel])
+            self.assertEqual(errors, [])
+
+            config = gc.get_parallel_config()
+            if config['enabled']:
+                self.assertEqual(config['num_workers'], 16)
+                gc.collect()
+            else:
+                self.assertEqual(config['num_workers'], 0)
+            gc.disable_parallel()
+
+    def test_configuration_is_coherent_during_transitions(self):
+        stop = threading.Event()
+        errors = []
+        errors_lock = threading.Lock()
+
+        def toggle():
+            try:
+                for _ in range(50):
+                    gc.enable_parallel()
+                    gc.disable_parallel()
+            except BaseException as exc:
+                with errors_lock:
+                    errors.append(exc)
+            finally:
+                stop.set()
+
+        def read_config():
+            try:
+                while not stop.is_set():
+                    config = gc.get_parallel_config()
+                    workers = config['num_workers']
+                    if config['enabled']:
+                        if workers != 16:
+                            raise AssertionError(config)
+                    elif workers != 0:
+                        raise AssertionError(config)
+
+                    stats = gc.get_parallel_stats()
+                    workers = stats['num_workers']
+                    if stats['enabled']:
+                        if workers != 16:
+                            raise AssertionError(stats)
+                    elif workers != 0:
+                        raise AssertionError(stats)
+
+                    pool_stats = gc._get_thread_pool_stats()
+                    threads_created = pool_stats['threads_created']
+                    if pool_stats['active']:
+                        if threads_created != 15:
+                            raise AssertionError(pool_stats)
+                    elif threads_created != 0:
+                        raise AssertionError(pool_stats)
+            except BaseException as exc:
+                with errors_lock:
+                    errors.append(exc)
+
+        threads = [threading.Thread(target=toggle)]
+        threads.extend(threading.Thread(target=read_config) for _ in range(8))
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(support.SHORT_TIMEOUT)
+        self.assertFalse([thread for thread in threads if thread.is_alive()])
+        self.assertEqual(errors, [])
+
+    def check_lifecycle_change_during_collection(self, operation):
+        result = []
+
+        def callback(phase, info):
+            if phase == 'start':
+                try:
+                    operation()
+                except BaseException as exc:
+                    result.append((type(exc), str(exc)))
+
+        gc.callbacks.append(callback)
+        try:
+            gc.collect()
+        finally:
+            gc.callbacks.remove(callback)
+
+        self.assertEqual(len(result), 1)
+        exc_type, message = result[0]
+        self.assertIs(exc_type, RuntimeError)
+        self.assertIn('during a collection', message)
+
+    def test_enable_during_collection_is_rejected(self):
+        self.check_lifecycle_change_during_collection(gc.enable_parallel)
+
+    def test_disable_during_collection_is_rejected(self):
+        gc.enable_parallel()
+        self.check_lifecycle_change_during_collection(gc.disable_parallel)
+
+    def test_subinterpreters_own_independent_pools(self):
+        _interpreters = import_helper.import_module('_interpreters')
+        interps = [_interpreters.create('legacy') for _ in range(2)]
+        enable = (
+            "import gc\n"
+            "gc.disable()\n"
+            "gc.enable_parallel()\n"
+            "assert gc.get_parallel_config()['num_workers'] == 16\n"
+            "gc.collect()\n"
+        )
+        disable = (
+            "import gc\n"
+            "gc.collect()\n"
+            "gc.disable_parallel()\n"
+            "assert not gc.get_parallel_config()['enabled']\n"
+        )
+        try:
+            errors = self.run_concurrently([
+                lambda interp=interp: _interpreters.run_string(interp, enable)
+                for interp in interps
+            ])
+            self.assertEqual(errors, [])
+
+            errors = self.run_concurrently([
+                lambda interp=interp: _interpreters.run_string(interp, disable)
+                for interp in interps
+            ])
+            self.assertEqual(errors, [])
+        finally:
+            for interp in interps:
+                _interpreters.destroy(interp)
 
 
 if __name__ == '__main__':

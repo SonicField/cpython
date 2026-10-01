@@ -246,6 +246,7 @@ typedef enum {
 // Forward declarations
 struct _PyGCThreadPool;
 struct _PyGCPageBucket;
+struct _PyGCPoolWorkerArgs;
 struct mi_page_s;  // mi_page_t from mimalloc
 typedef struct mi_page_s mi_page_t;
 
@@ -330,6 +331,7 @@ typedef struct _PyGCThreadPool {
 
     int num_workers;            // Number of workers (including main thread as worker 0)
     PyThread_handle_t *threads; // Thread handles for workers 1..N-1
+    struct _PyGCPoolWorkerArgs *worker_args;  // One per helper thread
 
     // Persistent worker states (allocated once, reused across collections)
     _PyGCWorkerState *workers;  // Per-worker state including deques
@@ -346,6 +348,13 @@ typedef struct _PyGCThreadPool {
 
     // Reentrancy guard for the dispatch path.
     int dispatch_in_progress;
+
+    // Helper-startup handshake. Helpers report ready after binding their
+    // pre-created thread states; ThreadPoolInit waits for all of them before
+    // publishing the pool.
+    PyMUTEX_T startup_mutex;
+    PyCOND_T startup_cond;
+    int workers_ready;
 
     // Phase barrier — used INSIDE work functions (e.g. update_refs has
     // init/compute phases). Resized to the active worker count at the

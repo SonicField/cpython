@@ -2552,18 +2552,33 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
     assert(gcstate->garbage != NULL);
     assert(!_PyErr_Occurred(tstate));
 
+    // Serialize the collection-start decision with parallel-GC lifecycle
+    // changes. Once collecting is set, enable/disable reject the transition
+    // rather than publishing or freeing a pool used by this collection.
+#ifdef Py_PARALLEL_GC
+    PyMutex_Lock(&gcstate->parallel_gc_lifecycle_mutex);
+#endif
     int expected = 0;
     if (!_Py_atomic_compare_exchange_int(&gcstate->collecting, &expected, 1)) {
         // Don't start a garbage collection if one is already in progress.
+#ifdef Py_PARALLEL_GC
+        PyMutex_Unlock(&gcstate->parallel_gc_lifecycle_mutex);
+#endif
         return 0;
     }
 
     if (reason == _Py_GC_REASON_HEAP && !gc_should_collect(gcstate)) {
         // Don't collect if the threshold is not exceeded.
         _Py_atomic_store_int(&gcstate->collecting, 0);
+#ifdef Py_PARALLEL_GC
+        PyMutex_Unlock(&gcstate->parallel_gc_lifecycle_mutex);
+#endif
         return 0;
     }
     gcstate->frame = tstate->current_frame;
+#ifdef Py_PARALLEL_GC
+    PyMutex_Unlock(&gcstate->parallel_gc_lifecycle_mutex);
+#endif
 
     assert(generation >= 0 && generation < NUM_GENERATIONS);
 

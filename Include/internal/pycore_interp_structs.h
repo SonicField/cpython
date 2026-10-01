@@ -272,6 +272,7 @@ struct _gc_runtime_state {
 
 #ifdef Py_PARALLEL_GC
     /* Parallel GC configuration for FTP */
+    PyMutex parallel_gc_lifecycle_mutex;  /* Serializes pool lifecycle changes */
     int parallel_gc_enabled;    /* 1 = enabled, 0 = disabled (default) */
     int parallel_gc_num_workers; /* Number of workers, 0 = auto (based on CPU count) */
     struct _PyGCThreadPool *thread_pool;  /* Persistent thread pool for parallel GC */

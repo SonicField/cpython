@@ -1763,13 +1763,10 @@ thread_pool_do_work(_PyGCThreadPool *pool, int worker_id)
 
 // Thread args for pool workers (passed at creation time)
 // Contains both pool and worker_id for safe passing to new thread
-typedef struct {
+typedef struct _PyGCPoolWorkerArgs {
     _PyGCThreadPool *pool;
     int worker_id;
 } _PyGCPoolWorkerArgs;
-
-// Static array for pool worker args (allocated in ThreadPoolInit, freed in ThreadPoolFini)
-static _PyGCPoolWorkerArgs *_pool_worker_args = NULL;
 
 // Background worker thread entry point
 static void
@@ -1779,18 +1776,24 @@ thread_pool_worker(void *arg)
     _PyGCThreadPool *pool = args->pool;
     int worker_id = args->worker_id;
 
-    // Create a Python thread state for this worker thread.
-    // This is required for Py_REF_DEBUG (debug builds) where Py_INCREF/Py_DECREF
-    // call _Py_INCREF_IncRefTotal() which needs _PyThreadState_GET() to return
-    // a valid thread state.
+    // Bind the thread state pre-created by ThreadPoolInit. Creating it here can
+    // require a stop-the-world operation to grow the FT QSBR table, which can
+    // deadlock with an immediate first collection.
     _PyGCWorkerState *worker = &pool->workers[worker_id];
-    PyThreadState *tstate = _PyThreadState_New(pool->interp, _PyThreadState_WHENCE_UNKNOWN);
+    PyThreadState *tstate = worker->tstate;
     if (tstate != NULL) {
         _PyThreadState_Bind(tstate);
         _Py_tss_tstate = tstate;
         _Py_tss_interp = pool->interp;
-        worker->tstate = tstate;
     }
+
+    // Report readiness only after the pre-created state is bound to this OS
+    // thread. ThreadPoolInit does not publish the pool until every helper has
+    // reached this point.
+    PyMUTEX_LOCK(&pool->startup_mutex);
+    pool->workers_ready++;
+    PyCOND_SIGNAL(&pool->startup_cond);
+    PyMUTEX_UNLOCK(&pool->startup_mutex);
 
     // Per-worker condvar dispatch (mirror of GIL parallel GC).
     while (1) {
@@ -1825,6 +1828,53 @@ thread_pool_worker(void *arg)
         PyThreadState_Delete(worker->tstate);
         worker->tstate = NULL;
     }
+}
+
+static void
+thread_pool_delete_tstates(_PyGCThreadPool *pool)
+{
+    if (pool->workers == NULL) {
+        return;
+    }
+
+    for (int i = 1; i < pool->num_workers; i++) {
+        PyThreadState *tstate = pool->workers[i].tstate;
+        if (tstate != NULL) {
+            PyThreadState_Clear(tstate);
+            PyThreadState_Delete(tstate);
+            pool->workers[i].tstate = NULL;
+        }
+    }
+}
+
+static void
+thread_pool_free_resources(_PyGCThreadPool *pool)
+{
+    if (pool->workers != NULL) {
+        for (int i = 0; i < pool->num_workers; i++) {
+            _PyGCWorkerState *worker = &pool->workers[i];
+            PyCOND_FINI(&worker->wake_cond);
+            PyMUTEX_FINI(&worker->wake_mutex);
+            if (worker->local_pool != NULL) {
+                _PyWSDeque_FiniExternal(&worker->deque,
+                                        worker->local_pool);
+                PyMem_RawFree(worker->local_pool);
+            }
+            else {
+                _PyWSDeque_Fini(&worker->deque);
+            }
+        }
+    }
+
+    PyMem_RawFree(pool->worker_args);
+    PyMem_RawFree(pool->workers);
+    PyMem_RawFree(pool->threads);
+    _PyGCBarrier_Fini(&pool->phase_barrier);
+    PyCOND_FINI(&pool->startup_cond);
+    PyMUTEX_FINI(&pool->startup_mutex);
+    PyCOND_FINI(&pool->done_cond);
+    PyMUTEX_FINI(&pool->done_mutex);
+    PyMem_RawFree(pool);
 }
 
 // Visitproc for pool-based propagation
@@ -1893,6 +1943,9 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
     PyCOND_INIT(&pool->done_cond);
     pool->workers_done_count = 0;
     pool->dispatch_in_progress = 0;
+    PyMUTEX_INIT(&pool->startup_mutex);
+    PyCOND_INIT(&pool->startup_cond);
+    pool->workers_ready = 0;
 
     // phase_barrier is initialised to num_workers as a safe default; each
     // dispatch resizes it to the active worker count before waking workers.
@@ -1901,21 +1954,14 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
     // Allocate thread handles (for workers 1..N-1, worker 0 is main thread)
     pool->threads = PyMem_RawCalloc(num_workers - 1, sizeof(PyThread_handle_t));
     if (pool->threads == NULL) {
-        _PyGCBarrier_Fini(&pool->phase_barrier);
-        PyCOND_FINI(&pool->done_cond);
-        PyMUTEX_FINI(&pool->done_mutex);
-        PyMem_RawFree(pool);
+        thread_pool_free_resources(pool);
         return -1;
     }
 
     // Allocate persistent worker states (one per worker including main)
     pool->workers = PyMem_RawCalloc(num_workers, sizeof(_PyGCWorkerState));
     if (pool->workers == NULL) {
-        PyMem_RawFree(pool->threads);
-        _PyGCBarrier_Fini(&pool->phase_barrier);
-        PyCOND_FINI(&pool->done_cond);
-        PyMUTEX_FINI(&pool->done_mutex);
-        PyMem_RawFree(pool);
+        thread_pool_free_resources(pool);
         return -1;
     }
 
@@ -1951,64 +1997,68 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
         }
     }
 
-    // Allocate thread args (needed to pass pool + worker_id to each thread)
-    // Store in static for cleanup in ThreadPoolFini
-    _pool_worker_args = PyMem_RawCalloc(num_workers - 1,
-                                         sizeof(_PyGCPoolWorkerArgs));
-    if (_pool_worker_args == NULL) {
-        for (int j = 0; j < num_workers; j++) {
-            if (pool->workers[j].local_pool != NULL) {
-                _PyWSDeque_FiniExternal(&pool->workers[j].deque,
-                                        pool->workers[j].local_pool);
-                PyMem_RawFree(pool->workers[j].local_pool);
-            } else {
-                _PyWSDeque_Fini(&pool->workers[j].deque);
-            }
-        }
-        PyMem_RawFree(pool->workers);
-        PyMem_RawFree(pool->threads);
-        _PyGCBarrier_Fini(&pool->phase_barrier);
-        PyCOND_FINI(&pool->done_cond);
-        PyMUTEX_FINI(&pool->done_mutex);
-        PyMem_RawFree(pool);
+    // Allocate thread args (needed to pass pool + worker_id to each thread).
+    // They are owned by the pool so different interpreters cannot overwrite
+    // each other's helper arguments.
+    pool->worker_args = PyMem_RawCalloc(num_workers - 1,
+                                        sizeof(_PyGCPoolWorkerArgs));
+    if (pool->worker_args == NULL) {
+        thread_pool_free_resources(pool);
         return -1;
+    }
+
+    // Pre-create every helper thread state on the calling thread. In an FT
+    // build _PyThreadState_New() may stop the world while growing the QSBR
+    // table, so helpers must not perform this step asynchronously with the
+    // first collection.
+    for (int i = 1; i < num_workers; i++) {
+        pool->workers[i].tstate = _PyThreadState_New(
+            interp, _PyThreadState_WHENCE_UNKNOWN);
+        if (pool->workers[i].tstate == NULL) {
+            thread_pool_delete_tstates(pool);
+            thread_pool_free_resources(pool);
+            return -1;
+        }
     }
 
     // Create worker threads (they will wait on per-worker wake_cond immediately)
     for (int i = 0; i < num_workers - 1; i++) {
-        _pool_worker_args[i].pool = pool;
-        _pool_worker_args[i].worker_id = i + 1;  // Workers 1..N-1
+        pool->worker_args[i].pool = pool;
+        pool->worker_args[i].worker_id = i + 1;  // Workers 1..N-1
 
         PyThread_ident_t ident;
         int rc = PyThread_start_joinable_thread(
-            thread_pool_worker, &_pool_worker_args[i],
+            thread_pool_worker, &pool->worker_args[i],
             &ident, &pool->threads[i]);
         if (rc != 0) {
-            // Thread creation failure is a fatal error during init.
-            // Already-created threads are not cleaned up here (same as GIL version).
-            // This is acceptable because thread creation failure during init
-            // is rare and indicates system resource exhaustion.
-            PyMem_RawFree(_pool_worker_args);
-            _pool_worker_args = NULL;
-            for (int j = 0; j < num_workers; j++) {
-                if (pool->workers[j].local_pool != NULL) {
-                    _PyWSDeque_FiniExternal(&pool->workers[j].deque,
-                                            pool->workers[j].local_pool);
-                    PyMem_RawFree(pool->workers[j].local_pool);
-                } else {
-                    _PyWSDeque_Fini(&pool->workers[j].deque);
-                }
+            // Stop and join helpers that were created before the failure.
+            _Py_atomic_store_int_relaxed(&pool->shutdown, 1);
+            for (size_t j = 1; j <= pool->threads_created; j++) {
+                PyMUTEX_LOCK(&pool->workers[j].wake_mutex);
+                pool->workers[j].wake_flag = 1;
+                PyCOND_SIGNAL(&pool->workers[j].wake_cond);
+                PyMUTEX_UNLOCK(&pool->workers[j].wake_mutex);
             }
-            PyMem_RawFree(pool->workers);
-            PyMem_RawFree(pool->threads);
-            _PyGCBarrier_Fini(&pool->phase_barrier);
-            PyCOND_FINI(&pool->done_cond);
-            PyMUTEX_FINI(&pool->done_mutex);
-            PyMem_RawFree(pool);
+            for (size_t j = 0; j < pool->threads_created; j++) {
+                PyThread_join_thread(pool->threads[j]);
+            }
+
+            // Started helpers deleted their own states. Delete the states for
+            // helpers that were never started.
+            thread_pool_delete_tstates(pool);
+            thread_pool_free_resources(pool);
             return -1;
         }
         pool->threads_created++;
     }
+
+    // Wait until every helper has bound its pre-created thread state and is
+    // ready to observe a wake flag. The pool remains unpublished until then.
+    PyMUTEX_LOCK(&pool->startup_mutex);
+    while (pool->workers_ready < num_workers - 1) {
+        PyCOND_WAIT(&pool->startup_cond, &pool->startup_mutex);
+    }
+    PyMUTEX_UNLOCK(&pool->startup_mutex);
 
     interp->gc.thread_pool = pool;
 
@@ -2045,35 +2095,7 @@ _PyGC_ThreadPoolFini(PyInterpreterState *interp)
         PyThread_join_thread(pool->threads[i]);
     }
 
-    // Free the thread args
-    if (_pool_worker_args != NULL) {
-        PyMem_RawFree(_pool_worker_args);
-        _pool_worker_args = NULL;
-    }
-
-    // Clean up worker states, per-worker condvars, and deques
-    if (pool->workers != NULL) {
-        for (int i = 0; i < pool->num_workers; i++) {
-            PyCOND_FINI(&pool->workers[i].wake_cond);
-            PyMUTEX_FINI(&pool->workers[i].wake_mutex);
-            // Use FiniExternal if using pre-allocated pool to avoid double-free
-            if (pool->workers[i].local_pool != NULL) {
-                _PyWSDeque_FiniExternal(&pool->workers[i].deque,
-                                        pool->workers[i].local_pool);
-                PyMem_RawFree(pool->workers[i].local_pool);
-            } else {
-                _PyWSDeque_Fini(&pool->workers[i].deque);
-            }
-        }
-        PyMem_RawFree(pool->workers);
-    }
-
-    // Clean up
-    PyMem_RawFree(pool->threads);
-    _PyGCBarrier_Fini(&pool->phase_barrier);
-    PyCOND_FINI(&pool->done_cond);
-    PyMUTEX_FINI(&pool->done_mutex);
-    PyMem_RawFree(pool);
+    thread_pool_free_resources(pool);
 
     interp->gc.thread_pool = NULL;
     interp->gc.parallel_gc_enabled = 0;
@@ -2085,8 +2107,8 @@ thread_pool_abandon_after_fork(_PyGCThreadPool *pool)
 {
     // The child has no helper threads. Do not join them or operate on copied
     // synchronization primitives whose waiter state belongs to the parent.
-    PyMem_RawFree(_pool_worker_args);
-    _pool_worker_args = NULL;
+    PyMem_RawFree(pool->worker_args);
+    pool->worker_args = NULL;
 
     for (int i = 0; i < pool->num_workers; i++) {
         _PyGCWorkerState *worker = &pool->workers[i];
@@ -2134,6 +2156,9 @@ reset_forked_child_timing(PyInterpreterState *interp)
 int
 _PyGC_ThreadPoolAfterForkChild(PyInterpreterState *interp)
 {
+    // The owner of an inherited lifecycle mutex does not survive fork.
+    _PyMutex_at_fork_reinit(&interp->gc.parallel_gc_lifecycle_mutex);
+
     _PyGCThreadPool *inherited = interp->gc.thread_pool;
     if (inherited == NULL || !interp->gc.parallel_gc_enabled) {
         return 0;
@@ -3402,12 +3427,25 @@ pool_scan_heap_process_page(mi_page_t *page, struct _PyGCScanWorkerState *worker
 PyObject *
 _PyGC_FTParallelGetStats(PyInterpreterState *interp)
 {
+    PyMutex_Lock(&interp->gc.parallel_gc_lifecycle_mutex);
+    int parallel_enabled = interp->gc.parallel_gc_enabled;
+    int num_workers = parallel_enabled ?
+                      interp->gc.parallel_gc_num_workers : 0;
+    size_t adaptive_workers = 0;
+    double prev_cost_per_obj_ns = 0.0;
+    if (parallel_enabled && interp->gc.thread_pool != NULL) {
+        adaptive_workers = interp->gc.thread_pool->adaptive_workers;
+        prev_cost_per_obj_ns =
+            interp->gc.thread_pool->prev_cost_per_obj_ns;
+    }
+    PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
+
     PyObject *result = PyDict_New();
     if (result == NULL) {
         return NULL;
     }
 
-    PyObject *enabled = interp->gc.parallel_gc_enabled ? Py_True : Py_False;
+    PyObject *enabled = parallel_enabled ? Py_True : Py_False;
     if (PyDict_SetItemString(result, "enabled", enabled) < 0) {
         Py_DECREF(result);
         return NULL;
@@ -3416,8 +3454,6 @@ _PyGC_FTParallelGetStats(PyInterpreterState *interp)
     // num_workers = the configured maximum (what enable_parallel was called
     // with). adaptive_workers = the current count chosen by the random-walk
     // controller; <= num_workers.
-    int num_workers = interp->gc.parallel_gc_enabled ?
-                      interp->gc.parallel_gc_num_workers : 0;
     PyObject *workers = PyLong_FromLong(num_workers);
     if (workers == NULL || PyDict_SetItemString(result, "num_workers", workers) < 0) {
         Py_XDECREF(workers);
@@ -3426,8 +3462,8 @@ _PyGC_FTParallelGetStats(PyInterpreterState *interp)
     }
     Py_DECREF(workers);
 
-    if (interp->gc.parallel_gc_enabled && interp->gc.thread_pool != NULL) {
-        PyObject *aw = PyLong_FromSize_t(interp->gc.thread_pool->adaptive_workers);
+    if (parallel_enabled) {
+        PyObject *aw = PyLong_FromSize_t(adaptive_workers);
         if (aw == NULL || PyDict_SetItemString(result, "adaptive_workers", aw) < 0) {
             Py_XDECREF(aw);
             Py_DECREF(result);
@@ -3435,8 +3471,7 @@ _PyGC_FTParallelGetStats(PyInterpreterState *interp)
         }
         Py_DECREF(aw);
 
-        PyObject *cost = PyFloat_FromDouble(
-            interp->gc.thread_pool->prev_cost_per_obj_ns);
+        PyObject *cost = PyFloat_FromDouble(prev_cost_per_obj_ns);
         if (cost == NULL ||
             PyDict_SetItemString(result, "prev_cost_per_obj_ns", cost) < 0)
         {
