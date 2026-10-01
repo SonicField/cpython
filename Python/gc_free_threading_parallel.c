@@ -3352,6 +3352,17 @@ _PyGC_FTParallelGetStats(PyInterpreterState *interp)
             return NULL;
         }
         Py_DECREF(aw);
+
+        PyObject *cost = PyFloat_FromDouble(
+            interp->gc.thread_pool->prev_cost_per_obj_ns);
+        if (cost == NULL ||
+            PyDict_SetItemString(result, "prev_cost_per_obj_ns", cost) < 0)
+        {
+            Py_XDECREF(cost);
+            Py_DECREF(result);
+            return NULL;
+        }
+        Py_DECREF(cost);
     }
 
     // Add phase timing (nanoseconds)

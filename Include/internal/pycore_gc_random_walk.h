@@ -37,30 +37,36 @@ extern "C" {
 #include "Python.h"
 #include <stdint.h>
 
+// Normalize elapsed collection time by the exact number of candidates. Both
+// collectors use this function so they optimize the same quantity.
+static inline double
+_PyGC_NormalizeCollectionCost(int64_t parallel_time_ns,
+                              Py_ssize_t exact_candidates)
+{
+    assert(parallel_time_ns > 0);
+    assert(exact_candidates > 0);
+    return (double)parallel_time_ns / (double)exact_candidates;
+}
+
 // Update *adaptive_workers, *explore_rng, *prev_cost_per_obj_ns based on the
-// observed collection cost. Pure logic — no allocations, no locks, no globals.
-//
-// parallel_time_ns: wall-clock time the parallel work took (gc_start to
-//   cleanup_end), in nanoseconds. Must be > 0 for the update to fire.
-// candidates: number of objects considered by the collection. Must be > 0 for
-//   the update to fire.
-//
-// If parallel_time_ns <= 0 or candidates <= 0 (e.g. trivial collection),
+// normalized collection cost. Pure logic — no allocations, locks, or globals.
+// If parallel_time_ns <= 0 or exact_candidates <= 0 (e.g. trivial collection),
 // state is not modified.
 static inline void
 _PyGC_RandomWalkUpdate(int64_t parallel_time_ns,
-                       Py_ssize_t candidates,
+                       Py_ssize_t exact_candidates,
                        double *prev_cost_per_obj_ns,
                        size_t *trial_previous_workers,
                        uint32_t *explore_rng,
                        size_t *adaptive_workers,
                        size_t num_workers)
 {
-    if (parallel_time_ns <= 0 || candidates <= 0) {
+    if (parallel_time_ns <= 0 || exact_candidates <= 0) {
         return;
     }
 
-    double cost = (double)parallel_time_ns / (double)candidates;
+    double cost = _PyGC_NormalizeCollectionCost(
+        parallel_time_ns, exact_candidates);
     if (*prev_cost_per_obj_ns <= 0.0) {
         *prev_cost_per_obj_ns = cost;
         return;

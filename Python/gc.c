@@ -2078,12 +2078,11 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
             (void)PyTime_PerfCounterRaw(&cleanup_end);
             par_gc->cleanup_end_ns = cleanup_end;
 
-            // Biased constrained random walk controller.
-            // Shared with the free-threaded parallel GC for identical
-            // behaviour across builds — see pycore_gc_random_walk.h.
+            // Shared random-walk controller. Both collectors normalize by
+            // their exact candidate count; see pycore_gc_random_walk.h.
             _PyGC_RandomWalkUpdate(
                 par_gc->cleanup_end_ns - par_gc->gc_start_ns,
-                par_gc->split_vector.count,
+                stats.candidates,
                 &par_gc->prev_cost_per_obj_ns,
                 &par_gc->trial_previous_workers,
                 &par_gc->explore_rng,

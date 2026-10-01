@@ -842,6 +842,34 @@ class TestAdaptiveControllerAPI(unittest.TestCase):
         self.assertIn('prev_cost_per_obj_ns', stats)
         self.assertIsInstance(stats['prev_cost_per_obj_ns'], float)
 
+    def test_cost_uses_exact_candidate_count(self):
+        """Adaptive cost is elapsed time divided by exact candidates."""
+        code = textwrap.dedent("""
+            import gc
+
+            class Node:
+                pass
+
+            gc.disable()
+            gc.enable_parallel()
+            before = sum(item['candidates'] for item in gc.get_stats())
+
+            nodes = [Node() for _ in range(20_000)]
+            for node in nodes:
+                node.ref = node
+            gc.collect()
+
+            after = sum(item['candidates'] for item in gc.get_stats())
+            stats = gc.get_parallel_stats()
+            candidates = after - before
+            total_ns = stats['phase_timing']['total_ns']
+
+            assert candidates >= 20_000, candidates
+            assert total_ns > 0, total_ns
+            assert stats['prev_cost_per_obj_ns'] == total_ns / candidates
+        """)
+        script_helper.assert_python_ok("-c", code)
+
     def test_stats_has_last_generation(self):
         """gc.get_parallel_stats() should report which generation was last collected."""
         gc.collect()

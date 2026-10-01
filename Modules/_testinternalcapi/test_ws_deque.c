@@ -1532,6 +1532,14 @@ advance_to_random_walk_trial(double cost,
 static PyObject *
 test_gc_random_walk_accept_reject(PyObject *self, PyObject *Py_UNUSED(ignored))
 {
+    double normalized = _PyGC_NormalizeCollectionCost(1000, 10);
+    if (normalized != 100.0) {
+        PyErr_SetString(
+            PyExc_AssertionError,
+            "collection cost was not normalized by exact candidates");
+        return NULL;
+    }
+
     double previous_cost = 0.0;
     size_t trial_previous_workers = 0;
     uint32_t rng = 1;
