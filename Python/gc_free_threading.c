@@ -23,6 +23,16 @@
 
 #include "pydtrace.h"
 
+#ifdef Py_PARALLEL_GC
+#define RECORD_PARALLEL_GC_TIMESTAMP(interp, field) do { \
+    PyTime_t timestamp; \
+    (void)PyTime_PerfCounterRaw(&timestamp); \
+    (interp)->gc.field = timestamp; \
+} while (0)
+#else
+#define RECORD_PARALLEL_GC_TIMESTAMP(interp, field) ((void)0)
+#endif
+
 
 // enable the "mark alive" pass of GC
 #define GC_ENABLE_MARK_ALIVE 1
@@ -2318,16 +2328,12 @@ static void
 gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, int generation)
 {
     // Record GC start time
-    PyTime_t gc_start;
-    (void)PyTime_PerfCounterRaw(&gc_start);
-    interp->gc.gc_start_ns = gc_start;
+    RECORD_PARALLEL_GC_TIMESTAMP(interp, gc_start_ns);
 
     _PyEval_StopTheWorld(interp);
 
     // Record STW0 end time
-    PyTime_t stw0_end;
-    (void)PyTime_PerfCounterRaw(&stw0_end);
-    interp->gc.stw0_end_ns = stw0_end;
+    RECORD_PARALLEL_GC_TIMESTAMP(interp, stw0_end_ns);
 
     // update collection and allocation counters
     if (generation+1 < NUM_GENERATIONS) {
@@ -2358,16 +2364,12 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
     _Py_FOR_EACH_TSTATE_END(interp);
 
     // Record merge refs end time
-    PyTime_t merge_refs_end;
-    (void)PyTime_PerfCounterRaw(&merge_refs_end);
-    interp->gc.merge_refs_end_ns = merge_refs_end;
+    RECORD_PARALLEL_GC_TIMESTAMP(interp, merge_refs_end_ns);
 
     process_delayed_frees(interp, state);
 
     // Record delayed frees end time
-    PyTime_t delayed_frees_end;
-    (void)PyTime_PerfCounterRaw(&delayed_frees_end);
-    interp->gc.delayed_frees_end_ns = delayed_frees_end;
+    RECORD_PARALLEL_GC_TIMESTAMP(interp, delayed_frees_end_ns);
 
     #ifdef GC_ENABLE_MARK_ALIVE
     // If gc.freeze() was used, it seems likely that doing this "mark alive"
@@ -2389,9 +2391,7 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
     #endif
 
     // Record mark_alive end time
-    PyTime_t mark_alive_end;
-    (void)PyTime_PerfCounterRaw(&mark_alive_end);
-    interp->gc.mark_alive_end_ns = mark_alive_end;
+    RECORD_PARALLEL_GC_TIMESTAMP(interp, mark_alive_end_ns);
 
     // Find unreachable objects
     int err = deduce_unreachable_heap(interp, state);
@@ -2421,81 +2421,61 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
     find_weakref_callbacks(state);
 
     // Record find_weakrefs end time
-    PyTime_t find_weakrefs_end;
-    (void)PyTime_PerfCounterRaw(&find_weakrefs_end);
-    interp->gc.find_weakrefs_end_ns = find_weakrefs_end;
+    RECORD_PARALLEL_GC_TIMESTAMP(interp, find_weakrefs_end_ns);
 
     _PyEval_StartTheWorld(interp);
 
     // Record STW #1 end time
-    PyTime_t stw1_end;
-    (void)PyTime_PerfCounterRaw(&stw1_end);
-    interp->gc.stw1_end_ns = stw1_end;
+    RECORD_PARALLEL_GC_TIMESTAMP(interp, stw1_end_ns);
 
     // Deallocate any object from the refcount merge step
     cleanup_worklist(&state->objs_to_decref);
 
     // Record objs_decref end time
-    PyTime_t objs_decref_end;
-    (void)PyTime_PerfCounterRaw(&objs_decref_end);
-    interp->gc.objs_decref_end_ns = objs_decref_end;
+    RECORD_PARALLEL_GC_TIMESTAMP(interp, objs_decref_end_ns);
 
     // Call weakref callbacks and finalizers after unpausing other threads to
     // avoid potential deadlocks.
     call_weakref_callbacks(state);
 
     // Record weakref_callbacks end time
-    PyTime_t weakref_callbacks_end;
-    (void)PyTime_PerfCounterRaw(&weakref_callbacks_end);
-    interp->gc.weakref_callbacks_end_ns = weakref_callbacks_end;
+    RECORD_PARALLEL_GC_TIMESTAMP(interp, weakref_callbacks_end_ns);
 
     finalize_garbage(state);
 
     // Record finalize end time
-    PyTime_t finalize_end;
-    (void)PyTime_PerfCounterRaw(&finalize_end);
-    interp->gc.finalize_end_ns = finalize_end;
+    RECORD_PARALLEL_GC_TIMESTAMP(interp, finalize_end_ns);
 
     _PyEval_StopTheWorld(interp);
 
     // Record STW #2 end time
-    PyTime_t stw2_end;
-    (void)PyTime_PerfCounterRaw(&stw2_end);
-    interp->gc.stw2_end_ns = stw2_end;
+    RECORD_PARALLEL_GC_TIMESTAMP(interp, stw2_end_ns);
 
     // Handle any objects that may have resurrected after the finalization.
     err = handle_resurrected_objects(state);
 
     // Record resurrection end time
-    PyTime_t resurrection_end;
-    (void)PyTime_PerfCounterRaw(&resurrection_end);
-    interp->gc.resurrection_end_ns = resurrection_end;
+    RECORD_PARALLEL_GC_TIMESTAMP(interp, resurrection_end_ns);
 
     // Clear free lists in all threads
     _PyGC_ClearAllFreeLists(interp);
 
     // Record freelists end time
-    PyTime_t freelists_end;
-    (void)PyTime_PerfCounterRaw(&freelists_end);
-    interp->gc.freelists_end_ns = freelists_end;
+    RECORD_PARALLEL_GC_TIMESTAMP(interp, freelists_end_ns);
 
     if (err == 0) {
         clear_weakrefs(state);
     }
 
     // Record clear_weakrefs end time
-    PyTime_t clear_weakrefs_end;
-    (void)PyTime_PerfCounterRaw(&clear_weakrefs_end);
-    interp->gc.clear_weakrefs_end_ns = clear_weakrefs_end;
+    RECORD_PARALLEL_GC_TIMESTAMP(interp, clear_weakrefs_end_ns);
 
     // Record the number of live GC objects
     interp->gc.long_lived_total = state->long_lived_total;
     _PyEval_StartTheWorld(interp);
 
     // Record STW #3 end time
-    PyTime_t stw3_end;
-    (void)PyTime_PerfCounterRaw(&stw3_end);
-    interp->gc.stw3_end_ns = stw3_end;
+    RECORD_PARALLEL_GC_TIMESTAMP(interp, stw3_end_ns);
 
     if (err < 0) {
         cleanup_worklist(&state->unreachable);
@@ -2510,20 +2490,17 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
     // the reference cycles to be broken. It may also cause some objects
     // to be freed.
     // Record cleanup start time
-    PyTime_t cleanup_start;
-    (void)PyTime_PerfCounterRaw(&cleanup_start);
-    interp->gc.cleanup_start_ns = cleanup_start;
+    RECORD_PARALLEL_GC_TIMESTAMP(interp, cleanup_start_ns);
 
     delete_garbage(state);
 
     // Record cleanup end time
-    PyTime_t cleanup_end;
-    (void)PyTime_PerfCounterRaw(&cleanup_end);
-    interp->gc.cleanup_end_ns = cleanup_end;
+    RECORD_PARALLEL_GC_TIMESTAMP(interp, cleanup_end_ns);
 
+#ifdef Py_PARALLEL_GC
     // Update adaptive worker count via shared random-walk controller.
-    // Mirrors the GIL parallel GC body in Python/gc.c — both builds use the
-    // same logic to converge on a worker count for this workload.
+    // Mirrors the GIL parallel GC body in Python/gc.c. Both builds normalize
+    // elapsed time by the exact candidate count in the shared controller.
     {
         _PyGCThreadPool *_pool = interp->gc.thread_pool;
         if (_pool != NULL && _pool->skip_adaptive_update) {
@@ -2540,6 +2517,7 @@ gc_collect_internal(PyInterpreterState *interp, struct collection_state *state, 
                 (size_t)_pool->num_workers);
         }
     }
+#endif
 
     // Append objects with legacy finalizers to the "gc.garbage" list.
     handle_legacy_finalizers(state);
@@ -2614,8 +2592,10 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
 
     PyInterpreterState *interp = tstate->interp;
 
-    // Reset cleanup timing for this collection
+    // Reset cleanup timing for this collection.
+#ifdef Py_PARALLEL_GC
     interp->gc.cleanup_end_ns = 0;
+#endif
 
     struct collection_state state = {
         .interp = interp,
