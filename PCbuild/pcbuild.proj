@@ -86,8 +86,11 @@
       <BuildInParallel>false</BuildInParallel>
     </Projects>
 
-    <!-- _freeze_module -->
-    <FreezeProjects Include="_freeze_module.vcxproj" />
+    <!-- _freeze_module is a host tool and may be 32-bit independently of the
+         target runtime. Frozen bytecode does not depend on the target GC. -->
+    <FreezeProjects Include="_freeze_module.vcxproj">
+      <Properties>ParallelGC=false</Properties>
+    </FreezeProjects>
     <!-- python[w].exe -->
     <Projects2 Include="python.vcxproj;pythonw.vcxproj" />
     <Projects2 Include="python_uwp.vcxproj;pythonw_uwp.vcxproj" Condition="$(IncludeUwp)" />
