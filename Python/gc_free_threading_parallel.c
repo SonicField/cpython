@@ -29,8 +29,6 @@
 // For mimalloc heap access - includes mimalloc/types.h for mi_page_t, mi_heap_t
 #include "pycore_mimalloc.h"
 
-#include <stdatomic.h>
-
 // Minimum capacity for page buckets (must be power of 2)
 #define _PyGC_BUCKET_MIN_CAPACITY 16
 

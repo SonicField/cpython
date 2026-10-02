@@ -147,7 +147,7 @@ test_ws_deque_lifo_order(PyObject *self, PyObject *Py_UNUSED(ignored))
     _PyWSDeque_Init(&deque);
 
     // Push multiple objects
-    const int count = 10;
+    enum { count = 10 };
     PyObject *objects[count];
 
     for (int i = 0; i < count; i++) {
@@ -193,7 +193,7 @@ test_ws_deque_fifo_order(PyObject *self, PyObject *Py_UNUSED(ignored))
     _PyWSDeque_Init(&deque);
 
     // Push multiple objects
-    const int count = 10;
+    enum { count = 10 };
     PyObject *objects[count];
 
     for (int i = 0; i < count; i++) {
@@ -470,7 +470,7 @@ ws_deque_concurrent_push_steal(PyObject *self, PyObject *Py_UNUSED(ignored))
     _PyWSDeque_Init(&deque);
 
     const int num_items = 1000;
-    const int num_workers = 4;
+    enum { num_workers = 4 };
     const int steals_per_worker = 300;
 
     // Create test object
@@ -586,7 +586,7 @@ barrier_worker(void *arg)
 static PyObject *
 barrier_basic(PyObject *self, PyObject *Py_UNUSED(ignored))
 {
-    const int num_threads = 4;
+    enum { num_threads = 4 };
     _PyGCBarrier barrier;
     _PyGCBarrier_Init(&barrier, num_threads);
 

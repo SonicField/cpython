@@ -260,6 +260,7 @@
     <ClInclude Include="..\Include\internal\pycore_gc_barrier.h" />
     <ClInclude Include="..\Include\internal\pycore_gc_ft_parallel.h" />
     <ClInclude Include="..\Include\internal\pycore_gc_parallel.h" />
+    <ClInclude Include="..\Include\internal\pycore_gc_random_walk.h" />
     <ClInclude Include="..\Include\internal\pycore_ws_deque.h" />
     <ClInclude Include="..\Include\internal\pycore_genobject.h" />
     <ClInclude Include="..\Include\internal\pycore_getopt.h" />

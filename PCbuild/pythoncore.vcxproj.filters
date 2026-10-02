@@ -693,6 +693,9 @@
     <ClInclude Include="..\Include\internal\pycore_gc_parallel.h">
       <Filter>Include\internal</Filter>
     </ClInclude>
+    <ClInclude Include="..\Include\internal\pycore_gc_random_walk.h">
+      <Filter>Include\internal</Filter>
+    </ClInclude>
     <ClInclude Include="..\Include\internal\pycore_ws_deque.h">
       <Filter>Include\internal</Filter>
     </ClInclude>
