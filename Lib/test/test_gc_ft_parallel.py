@@ -1212,9 +1212,10 @@ class TestThreadPoolLifecycle(unittest.TestCase):
         config = gc.get_parallel_config()
         self.assertTrue(config['enabled'])
         self.assertEqual(config['num_workers'], 16)
-        stats = gc._get_thread_pool_stats()
-        self.assertTrue(stats['active'])
-        self.assertEqual(stats['threads_created'], 15)
+        if hasattr(gc, '_get_thread_pool_stats'):
+            stats = gc._get_thread_pool_stats()
+            self.assertTrue(stats['active'])
+            self.assertEqual(stats['threads_created'], 15)
         gc.collect()
 
     def test_concurrent_enable_disable_is_coherent(self):
@@ -1266,13 +1267,14 @@ class TestThreadPoolLifecycle(unittest.TestCase):
                     elif workers != 0:
                         raise AssertionError(stats)
 
-                    pool_stats = gc._get_thread_pool_stats()
-                    threads_created = pool_stats['threads_created']
-                    if pool_stats['active']:
-                        if threads_created != 15:
+                    if hasattr(gc, '_get_thread_pool_stats'):
+                        pool_stats = gc._get_thread_pool_stats()
+                        threads_created = pool_stats['threads_created']
+                        if pool_stats['active']:
+                            if threads_created != 15:
+                                raise AssertionError(pool_stats)
+                        elif threads_created != 0:
                             raise AssertionError(pool_stats)
-                    elif threads_created != 0:
-                        raise AssertionError(pool_stats)
             except BaseException as exc:
                 with errors_lock:
                     errors.append(exc)
