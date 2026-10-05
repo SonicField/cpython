@@ -1079,6 +1079,12 @@ gc_get_thread_pool_stats(PyObject *module, PyObject *args)
     int is_active = _PyGC_ThreadPoolIsActive(interp);
     size_t threads_created = _PyGC_ThreadPoolGetThreadsCreated(interp);
     size_t collections = _PyGC_ThreadPoolGetCollectionsCompleted(interp);
+    _PyGCThreadPool *pool = interp->gc.thread_pool;
+    size_t target_edges = pool != NULL ? pool->test_list_target_edges : 0;
+    PyObject *target_first = pool != NULL ? pool->test_list_target_first : NULL;
+    PyObject *target_last = pool != NULL ? pool->test_list_target_last : NULL;
+    int target_fast = pool != NULL ? pool->test_list_target_fast_path : 0;
+    int target_generic = pool != NULL ? pool->test_list_target_generic_path : 0;
     PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
 
     PyObject *result = PyDict_New();
@@ -1107,7 +1113,58 @@ gc_get_thread_pool_stats(PyObject *module, PyObject *args)
     }
     Py_DECREF(cc);
 
+    PyObject *edges = PyLong_FromSize_t(target_edges);
+    PyObject *first = PyLong_FromVoidPtr(target_first);
+    PyObject *last = PyLong_FromVoidPtr(target_last);
+    if (edges == NULL || first == NULL || last == NULL ||
+        PyDict_SetItemString(result, "list_target_edges", edges) < 0 ||
+        PyDict_SetItemString(result, "list_target_first", first) < 0 ||
+        PyDict_SetItemString(result, "list_target_last", last) < 0 ||
+        PyDict_SetItemString(result, "list_target_fast_path",
+                             target_fast ? Py_True : Py_False) < 0 ||
+        PyDict_SetItemString(result, "list_target_generic_path",
+                             target_generic ? Py_True : Py_False) < 0)
+    {
+        Py_XDECREF(edges);
+        Py_XDECREF(first);
+        Py_XDECREF(last);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(edges);
+    Py_DECREF(first);
+    Py_DECREF(last);
+
     return result;
+}
+
+static PyObject *
+gc_test_set_parallel_list_target(PyObject *module, PyObject *arg)
+{
+    if (arg != Py_None && !PyList_Check(arg)) {
+        PyErr_SetString(PyExc_TypeError, "target must be a list or None");
+        return NULL;
+    }
+
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    PyMutex_Lock(&interp->gc.parallel_gc_lifecycle_mutex);
+    _PyGCThreadPool *pool = interp->gc.thread_pool;
+    if (pool == NULL) {
+        PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
+        PyErr_SetString(PyExc_RuntimeError, "parallel GC is not enabled");
+        return NULL;
+    }
+
+    // Retaining the target would make it a GC root and invalidate the test.
+    // The caller owns a strong reference until it resets the target to None.
+    pool->test_list_target = arg == Py_None ? NULL : arg;
+    pool->test_list_target_edges = 0;
+    pool->test_list_target_first = NULL;
+    pool->test_list_target_last = NULL;
+    pool->test_list_target_fast_path = 0;
+    pool->test_list_target_generic_path = 0;
+    PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
+    Py_RETURN_NONE;
 }
 
 #define GC_COUNT_GC_PAGES_METHODDEF \
@@ -1125,6 +1182,9 @@ gc_get_thread_pool_stats(PyObject *module, PyObject *args)
 #define GC_GET_THREAD_POOL_STATS_METHODDEF \
     {"_get_thread_pool_stats", gc_get_thread_pool_stats, METH_NOARGS, \
      "Get thread pool statistics (FTP test API)"},
+#define GC_TEST_SET_PARALLEL_LIST_TARGET_METHODDEF \
+    {"_test_set_parallel_list_target", gc_test_set_parallel_list_target, \
+     METH_O, "Set the exact-list traversal test target"},
 
 #else
 // Not FTP debug build - don't expose test APIs
@@ -1133,6 +1193,7 @@ gc_get_thread_pool_stats(PyObject *module, PyObject *args)
 #define GC_TEST_REAL_PAGE_ENUMERATION_METHODDEF
 #define GC_TEST_PARALLEL_MARK_METHODDEF
 #define GC_GET_THREAD_POOL_STATS_METHODDEF
+#define GC_TEST_SET_PARALLEL_LIST_TARGET_METHODDEF
 #endif
 
 static PyMethodDef GcMethods[] = {
@@ -1165,6 +1226,7 @@ static PyMethodDef GcMethods[] = {
     GC_TEST_REAL_PAGE_ENUMERATION_METHODDEF
     GC_TEST_PARALLEL_MARK_METHODDEF
     GC_GET_THREAD_POOL_STATS_METHODDEF
+    GC_TEST_SET_PARALLEL_LIST_TARGET_METHODDEF
     {NULL,      NULL}           /* Sentinel */
 };
 

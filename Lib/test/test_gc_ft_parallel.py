@@ -42,6 +42,8 @@ except AttributeError:
 PARALLEL_GC_AVAILABLE = gc.get_parallel_config()['available']
 UNTRACKED_PROBE_AVAILABLE = hasattr(
     _testinternalcapi, 'parallel_gc_untracked_probe')
+LIST_TRAVERSAL_PROBE_AVAILABLE = hasattr(
+    gc, '_test_set_parallel_list_target')
 
 
 def requires_ftp(test_func):
@@ -62,6 +64,14 @@ def requires_untracked_probe(test_func):
     return unittest.skipUnless(
         UNTRACKED_PROBE_AVAILABLE,
         "Requires the parallel GC untracked-object probe"
+    )(test_func)
+
+
+def requires_list_traversal_probe(test_func):
+    """Skip test if exact-list traversal instrumentation is unavailable."""
+    return unittest.skipUnless(
+        LIST_TRAVERSAL_PROBE_AVAILABLE,
+        "Requires the exact-list traversal probe",
     )(test_func)
 
 
@@ -910,6 +920,219 @@ class TestParallelSerialEquivalence(unittest.TestCase):
                 self.assertIsNotNone(obj.data)
         finally:
             gc.disable_parallel()
+
+
+@unittest.skipUnless(
+    FTP_BUILD and PARALLEL_GC_AVAILABLE,
+    "free-threaded parallel GC only",
+)
+class TestParallelListTraversal(unittest.TestCase):
+    """Exact lists and list subtypes retain serial traversal semantics."""
+
+    class ListWithExtraReference(list):
+        __slots__ = ("extra",)
+
+    def setUp(self):
+        self.gc_was_enabled = gc.isenabled()
+        self.parallel_was_enabled = gc.get_parallel_config()['enabled']
+        gc.disable()
+        if self.parallel_was_enabled:
+            gc.disable_parallel()
+        gc.collect()
+        self.roots = []
+
+    def tearDown(self):
+        self.roots.clear()
+        if gc.get_parallel_config()['enabled']:
+            gc.disable_parallel()
+        gc.collect()
+        if self.parallel_was_enabled:
+            gc.enable_parallel()
+        if self.gc_was_enabled:
+            gc.enable()
+
+    def set_parallel(self, enabled):
+        if gc.get_parallel_config()['enabled']:
+            gc.disable_parallel()
+        if enabled:
+            gc.enable_parallel()
+
+    def collect_live_graph(self, builder, parallel):
+        self.set_parallel(parallel)
+        root, references = builder()
+        self.roots.append(root)
+
+        if parallel and hasattr(gc, '_get_thread_pool_stats'):
+            before = gc._get_thread_pool_stats()['collections_completed']
+        gc.collect()
+        if parallel and hasattr(gc, '_get_thread_pool_stats'):
+            after = gc._get_thread_pool_stats()['collections_completed']
+            self.assertGreater(after, before)
+
+        result = tuple(reference() is not None for reference in references)
+        self.roots.clear()
+        del root
+        gc.collect()
+        return result
+
+    def collect_list_target_stats(self, target):
+        self.set_parallel(True)
+        gc.collect()
+        gc._test_set_parallel_list_target(target)
+        try:
+            gc.collect()
+            return gc._get_thread_pool_stats()
+        finally:
+            gc._test_set_parallel_list_target(None)
+
+    @staticmethod
+    def make_exact_list_graph():
+        first = GCTestObject(position='first')
+        first.ref = first
+        repeated = GCTestObject(position='repeated')
+        repeated.ref = repeated
+        last = GCTestObject(position='last')
+        last.ref = last
+
+        deep_leaf = GCTestObject(position='deep')
+        deep_leaf.ref = deep_leaf
+        deep = deep_leaf
+        for _ in range(64):
+            deep = [deep]
+
+        self_cycle_leaf = GCTestObject(position='self-cycle')
+        self_cycle_leaf.ref = self_cycle_leaf
+        self_cycle = []
+        self_cycle.extend((self_cycle_leaf, self_cycle))
+
+        mutual_leaf = GCTestObject(position='mutual-cycle')
+        mutual_leaf.ref = mutual_leaf
+        mutual_a = []
+        mutual_b = [mutual_a, mutual_leaf]
+        mutual_a.append(mutual_b)
+
+        resized_first = GCTestObject(position='resized-first')
+        resized_first.ref = resized_first
+        resized_last = GCTestObject(position='resized-last')
+        resized_last.ref = resized_last
+        resized = [resized_first]
+        resized.extend([None] * 64)
+        resized.append(resized_last)
+        del resized[1:-1]
+
+        references = tuple(map(weakref.ref, (
+            first,
+            repeated,
+            last,
+            deep_leaf,
+            self_cycle_leaf,
+            mutual_leaf,
+            resized_first,
+            resized_last,
+        )))
+        root = [
+            first,
+            repeated,
+            repeated,
+            repeated,
+            [],
+            deep,
+            self_cycle,
+            mutual_a,
+            resized,
+            last,
+        ]
+        return root, references
+
+    def test_exact_list_reachable_graph_matches_serial(self):
+        serial = self.collect_live_graph(self.make_exact_list_graph, False)
+        parallel = self.collect_live_graph(self.make_exact_list_graph, True)
+
+        self.assertEqual(serial, (True,) * len(serial))
+        self.assertEqual(parallel, serial)
+
+    @requires_list_traversal_probe
+    def test_exact_list_visits_every_slot_in_reverse_order(self):
+        for size in (0, 1, 257):
+            with self.subTest(size=size):
+                target = [GCTestObject(index=index) for index in range(size)]
+                first = id(target[-1]) if target else 0
+                last = id(target[0]) if target else 0
+
+                stats = self.collect_list_target_stats(target)
+
+                self.assertTrue(stats['list_target_fast_path'])
+                self.assertFalse(stats['list_target_generic_path'])
+                self.assertEqual(stats['list_target_edges'], size)
+                self.assertEqual(stats['list_target_first'], first)
+                self.assertEqual(stats['list_target_last'], last)
+
+    @staticmethod
+    def make_unreachable_list_cycles():
+        references = []
+        for shape in ('single', 'mutual', 'nested'):
+            node = GCTestObject(shape=shape)
+            references.append(weakref.ref(node))
+            if shape == 'single':
+                cycle = [node]
+                node.ref = cycle
+            elif shape == 'mutual':
+                left = []
+                right = [left, node]
+                left.append(right)
+                node.ref = left
+            else:
+                cycle = node
+                for _ in range(64):
+                    cycle = [cycle]
+                node.ref = cycle
+        return tuple(references)
+
+    def collect_unreachable_graph(self, parallel):
+        self.set_parallel(parallel)
+        references = self.make_unreachable_list_cycles()
+        collected = gc.collect()
+        return collected, tuple(
+            reference() is None for reference in references
+        )
+
+    def test_exact_list_unreachable_cycles_match_serial(self):
+        serial_collected, serial_dead = self.collect_unreachable_graph(False)
+        parallel_collected, parallel_dead = self.collect_unreachable_graph(True)
+
+        self.assertEqual(serial_dead, (True,) * len(serial_dead))
+        self.assertEqual(parallel_dead, serial_dead)
+        self.assertEqual(parallel_collected, serial_collected)
+
+    def make_list_subclass_graph(self):
+        payload = GCTestObject(position='payload')
+        payload.ref = payload
+        extra = GCTestObject(position='extra')
+        extra.ref = extra
+
+        root = self.ListWithExtraReference([payload])
+        root.extra = extra
+        return root, (weakref.ref(payload), weakref.ref(extra))
+
+    def test_list_subclass_uses_generic_traversal(self):
+        serial = self.collect_live_graph(self.make_list_subclass_graph, False)
+        parallel = self.collect_live_graph(
+            self.make_list_subclass_graph,
+            True,
+        )
+
+        self.assertEqual(serial, (True, True))
+        self.assertEqual(parallel, serial)
+
+    @requires_list_traversal_probe
+    def test_list_subclass_does_not_use_exact_list_path(self):
+        target = self.ListWithExtraReference([GCTestObject()])
+        target.extra = GCTestObject()
+
+        stats = self.collect_list_target_stats(target)
+
+        self.assertFalse(stats['list_target_fast_path'])
+        self.assertTrue(stats['list_target_generic_path'])
 
 
 @unittest.skipUnless(

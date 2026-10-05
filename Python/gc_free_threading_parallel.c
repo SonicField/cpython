@@ -1375,6 +1375,23 @@ cleanup:
 // Forward declaration
 static int propagate_pool_visitproc(PyObject *obj, void *arg);
 
+static inline Py_ALWAYS_INLINE void
+propagate_pool_visit(_PyGCWorkerState *worker, PyObject *obj)
+{
+    _PyGC_ATOMIC_SET_PHASE(GC_ATOMIC_PHASE_POOL_PROPAGATE);
+    if (obj == NULL || !_PyObject_GC_IS_TRACKED(obj)) {
+        return;
+    }
+
+    if (_PyGC_TryMarkAlive(obj)) {
+        _PyGCLocalBuffer *local = &worker->local;
+        if (_PyGCLocalBuffer_IsFull(local)) {
+            _PyGC_OverflowFlush(local, &worker->deque);
+        }
+        _PyGCLocalBuffer_Push(local, obj);
+    }
+}
+
 // Wrapper: flush local buffer to deque (uses shared implementation)
 static inline void
 flush_local_buffer_to_deque(_PyGCWorkerState *worker)
@@ -1418,11 +1435,41 @@ propagate_pool_work(_PyGCThreadPool *pool, int worker_id)
             PyObject *obj = _PyGCLocalBuffer_Pop(local);
             traverseproc traverse = Py_TYPE(obj)->tp_traverse;
             if (traverse != NULL) {
+#ifdef Py_DEBUG
+                int is_test_list_target =
+                    obj == pool->test_list_target && PyList_Check(obj);
+                if (is_test_list_target &&
+                    traverse != PyList_Type.tp_traverse)
+                {
+                    pool->test_list_target_generic_path = 1;
+                }
+#endif
+                if (traverse == PyList_Type.tp_traverse) {
+                    PyListObject *list = (PyListObject *)obj;
+#ifdef Py_DEBUG
+                    if (is_test_list_target) {
+                        pool->test_list_target_fast_path = 1;
+                    }
+#endif
+                    for (Py_ssize_t i = Py_SIZE(list); --i >= 0;) {
+                        PyObject *item = list->ob_item[i];
+#ifdef Py_DEBUG
+                        if (is_test_list_target) {
+                            if (pool->test_list_target_edges == 0) {
+                                pool->test_list_target_first = item;
+                            }
+                            pool->test_list_target_last = item;
+                            pool->test_list_target_edges++;
+                        }
+#endif
+                        propagate_pool_visit(worker, item);
+                    }
+                }
                 // Special handling for tuples: untrack if possible and clear
                 // alive bit. This matches the serial gc_mark_traverse_tuple
                 // behavior and prevents alive bits from being left on untracked
                 // tuples.
-                if (traverse == PyTuple_Type.tp_traverse) {
+                else if (traverse == PyTuple_Type.tp_traverse) {
                     _PyTuple_MaybeUntrack(obj);
                     if (!_PyObject_GC_IS_TRACKED(obj)) {
                         // Tuple was untracked - clear alive bit
@@ -1430,10 +1477,15 @@ propagate_pool_work(_PyGCThreadPool *pool, int worker_id)
                         worker->objects_marked++;
                         continue;
                     }
+                    traverse(obj,
+                        (visitproc)propagate_pool_visitproc,
+                        (void *)worker);
                 }
-                traverse(obj,
-                    (visitproc)propagate_pool_visitproc,
-                    (void *)worker);
+                else {
+                    traverse(obj,
+                        (visitproc)propagate_pool_visitproc,
+                        (void *)worker);
+                }
             }
             worker->objects_marked++;
         }
@@ -1880,21 +1932,8 @@ thread_pool_free_resources(_PyGCThreadPool *pool)
 static int
 propagate_pool_visitproc(PyObject *obj, void *arg)
 {
-    _PyGC_ATOMIC_SET_PHASE(GC_ATOMIC_PHASE_POOL_PROPAGATE);
-    if (obj == NULL || !_PyObject_GC_IS_TRACKED(obj)) {
-        return 0;
-    }
     _PyGCWorkerState *worker = (_PyGCWorkerState *)arg;
-
-    // Try to mark as alive - if we win, push to our local buffer
-    if (_PyGC_TryMarkAlive(obj)) {
-        _PyGCLocalBuffer *local = &worker->local;
-        if (_PyGCLocalBuffer_IsFull(local)) {
-            // Local buffer full - use compile-time selected flush strategy
-            _PyGC_OverflowFlush(local, &worker->deque);
-        }
-        _PyGCLocalBuffer_Push(local, obj);
-    }
+    propagate_pool_visit(worker, obj);
     return 0;
 }
 
@@ -2246,6 +2285,14 @@ _PyGC_ParallelPropagateAliveWithPool(PyInterpreterState *interp,
         .error_flag = 0,
     };
     pool->current_work = &work;
+
+#ifdef Py_DEBUG
+    pool->test_list_target_edges = 0;
+    pool->test_list_target_first = NULL;
+    pool->test_list_target_last = NULL;
+    pool->test_list_target_fast_path = 0;
+    pool->test_list_target_generic_path = 0;
+#endif
 
     // Distribute roots round-robin to worker deques
     // Do this BEFORE signaling workers to start

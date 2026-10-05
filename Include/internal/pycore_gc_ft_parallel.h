@@ -380,6 +380,16 @@ typedef struct _PyGCThreadPool {
     // Debug/testing counters (for assertions)
     size_t threads_created;          // Total threads ever created (should equal num_workers-1)
     size_t collections_completed;    // Number of GC collections processed
+#ifdef Py_DEBUG
+    // Raw pointer retained only for one synchronous traversal test. The test
+    // owns a strong reference until it clears this field.
+    PyObject *test_list_target;
+    size_t test_list_target_edges;
+    PyObject *test_list_target_first;
+    PyObject *test_list_target_last;
+    int test_list_target_fast_path;
+    int test_list_target_generic_path;
+#endif
 } _PyGCThreadPool;
 
 // Thread pool management functions
