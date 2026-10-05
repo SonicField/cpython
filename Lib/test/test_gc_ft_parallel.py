@@ -67,8 +67,8 @@ def requires_untracked_probe(test_func):
     )(test_func)
 
 
-def requires_list_traversal_probe(test_func):
-    """Skip test if exact-list traversal instrumentation is unavailable."""
+def requires_traversal_probe(test_func):
+    """Skip test if container traversal instrumentation is unavailable."""
     return unittest.skipUnless(
         TRAVERSAL_PROBE_AVAILABLE,
         "Requires the container traversal probe",
@@ -922,16 +922,7 @@ class TestParallelSerialEquivalence(unittest.TestCase):
             gc.disable_parallel()
 
 
-@unittest.skipUnless(
-    FTP_BUILD and PARALLEL_GC_AVAILABLE,
-    "free-threaded parallel GC only",
-)
-class TestParallelListTraversal(unittest.TestCase):
-    """Exact lists and list subtypes retain serial traversal semantics."""
-
-    class ListWithExtraReference(list):
-        __slots__ = ("extra",)
-
+class _ParallelTraversalTest(unittest.TestCase):
     def setUp(self):
         self.gc_was_enabled = gc.isenabled()
         self.parallel_was_enabled = gc.get_parallel_config()['enabled']
@@ -975,15 +966,27 @@ class TestParallelListTraversal(unittest.TestCase):
         gc.collect()
         return result
 
-    def collect_traversal_target_stats(self, target):
+    def collect_traversal_target_stats(self, target, *, settle=True):
         self.set_parallel(True)
-        gc.collect()
+        if settle:
+            gc.collect()
         gc._test_set_parallel_traversal_target(target)
         try:
             gc.collect()
             return gc._get_thread_pool_stats()
         finally:
             gc._test_set_parallel_traversal_target(None)
+
+
+@unittest.skipUnless(
+    FTP_BUILD and PARALLEL_GC_AVAILABLE,
+    "free-threaded parallel GC only",
+)
+class TestParallelListTraversal(_ParallelTraversalTest):
+    """Exact lists and list subtypes retain serial traversal semantics."""
+
+    class ListWithExtraReference(list):
+        __slots__ = ("extra",)
 
     @staticmethod
     def make_exact_list_graph():
@@ -1051,7 +1054,7 @@ class TestParallelListTraversal(unittest.TestCase):
         self.assertEqual(serial, (True,) * len(serial))
         self.assertEqual(parallel, serial)
 
-    @requires_list_traversal_probe
+    @requires_traversal_probe
     def test_exact_list_visits_every_slot_in_reverse_order(self):
         for size in (0, 1, 257):
             with self.subTest(size=size):
@@ -1124,9 +1127,189 @@ class TestParallelListTraversal(unittest.TestCase):
         self.assertEqual(serial, (True, True))
         self.assertEqual(parallel, serial)
 
-    @requires_list_traversal_probe
+    @requires_traversal_probe
     def test_list_subclass_does_not_use_exact_list_path(self):
         target = self.ListWithExtraReference([GCTestObject()])
+        target.extra = GCTestObject()
+
+        stats = self.collect_traversal_target_stats(target)
+
+        self.assertFalse(stats['traversal_target_fast_path'])
+        self.assertTrue(stats['traversal_target_generic_path'])
+
+
+@unittest.skipUnless(
+    FTP_BUILD and PARALLEL_GC_AVAILABLE,
+    "free-threaded parallel GC only",
+)
+class TestParallelTupleTraversal(_ParallelTraversalTest):
+    """Exact tuples and tuple subtypes retain serial traversal semantics."""
+
+    class TupleWithExtraReference(tuple):
+        pass
+
+    @staticmethod
+    def make_exact_tuple_graph():
+        first = GCTestObject(position='first')
+        first.ref = first
+        repeated = GCTestObject(position='repeated')
+        repeated.ref = repeated
+        last = GCTestObject(position='last')
+        last.ref = last
+
+        deep_leaf = GCTestObject(position='deep')
+        deep_leaf.ref = deep_leaf
+        deep = deep_leaf
+        for _ in range(64):
+            deep = (deep,)
+
+        mutual_leaf = GCTestObject(position='mutual-cycle')
+        mutual_leaf.ref = mutual_leaf
+        mutual_list = []
+        mutual_tuple = (mutual_list, mutual_leaf)
+        mutual_list.append(mutual_tuple)
+
+        references = tuple(map(weakref.ref, (
+            first,
+            repeated,
+            last,
+            deep_leaf,
+            mutual_leaf,
+        )))
+        root = (
+            first,
+            repeated,
+            repeated,
+            repeated,
+            (),
+            (repeated,),
+            deep,
+            mutual_tuple,
+            last,
+        )
+        return root, references
+
+    def test_exact_tuple_reachable_graph_matches_serial(self):
+        serial = self.collect_live_graph(self.make_exact_tuple_graph, False)
+        parallel = self.collect_live_graph(self.make_exact_tuple_graph, True)
+
+        self.assertEqual(serial, (True,) * len(serial))
+        self.assertEqual(parallel, serial)
+
+    @requires_traversal_probe
+    def test_exact_tuple_visits_every_slot_in_reverse_order(self):
+        for size in (1, 257):
+            with self.subTest(size=size):
+                target = tuple(
+                    GCTestObject(index=index) for index in range(size)
+                )
+                first = id(target[-1])
+                last = id(target[0])
+
+                stats = self.collect_traversal_target_stats(target)
+
+                self.assertTrue(stats['traversal_target_fast_path'])
+                self.assertFalse(stats['traversal_target_generic_path'])
+                self.assertEqual(stats['traversal_target_edges'], size)
+                self.assertEqual(stats['traversal_target_first'], first)
+                self.assertEqual(stats['traversal_target_last'], last)
+
+    @staticmethod
+    def make_untrackable_tuple_chain(depth=4):
+        current = (*range(257),)
+        for _ in range(depth):
+            current = (*(current,),)
+        return current
+
+    def test_exact_tuple_can_become_untracked(self):
+        self.set_parallel(True)
+        target = self.make_untrackable_tuple_chain()
+        self.assertTrue(gc.is_tracked(target))
+
+        self.roots.append(target)
+        del target
+        for _ in range(10):
+            gc.collect()
+            if not gc.is_tracked(self.roots[0]):
+                break
+        self.assertFalse(gc.is_tracked(self.roots[0]))
+
+        self.roots.clear()
+        for _ in range(3):
+            gc.collect()
+
+    @requires_traversal_probe
+    def test_untracked_tuple_clears_alive_bit(self):
+        self.set_parallel(True)
+        target = self.make_untrackable_tuple_chain()
+        self.assertTrue(gc.is_tracked(target))
+
+        self.roots.append(target)
+        gc._test_set_parallel_traversal_target(target)
+        del target
+        try:
+            for _ in range(10):
+                gc.collect()
+                stats = gc._get_thread_pool_stats()
+                if stats['traversal_target_untracked']:
+                    break
+        finally:
+            gc._test_set_parallel_traversal_target(None)
+        self.assertFalse(gc.is_tracked(self.roots[0]))
+        self.assertTrue(stats['traversal_target_untracked'])
+        self.assertFalse(stats['traversal_target_alive_after_untrack'])
+
+    @staticmethod
+    def make_unreachable_tuple_cycles():
+        references = []
+        for depth in (0, 1, 64):
+            node = GCTestObject(depth=depth)
+            references.append(weakref.ref(node))
+            cycle = (node,)
+            for _ in range(depth):
+                cycle = (cycle,)
+            node.ref = cycle
+        return tuple(references)
+
+    def collect_unreachable_graph(self, parallel):
+        self.set_parallel(parallel)
+        references = self.make_unreachable_tuple_cycles()
+        collected = gc.collect()
+        return collected, tuple(
+            reference() is None for reference in references
+        )
+
+    def test_exact_tuple_unreachable_cycles_match_serial(self):
+        serial_collected, serial_dead = self.collect_unreachable_graph(False)
+        parallel_collected, parallel_dead = self.collect_unreachable_graph(True)
+
+        self.assertEqual(serial_dead, (True,) * len(serial_dead))
+        self.assertEqual(parallel_dead, serial_dead)
+        self.assertEqual(parallel_collected, serial_collected)
+
+    def make_tuple_subclass_graph(self):
+        payload = GCTestObject(position='payload')
+        payload.ref = payload
+        extra = GCTestObject(position='extra')
+        extra.ref = extra
+
+        root = self.TupleWithExtraReference((payload,))
+        root.extra = extra
+        return root, (weakref.ref(payload), weakref.ref(extra))
+
+    def test_tuple_subclass_uses_generic_traversal(self):
+        serial = self.collect_live_graph(self.make_tuple_subclass_graph, False)
+        parallel = self.collect_live_graph(
+            self.make_tuple_subclass_graph,
+            True,
+        )
+
+        self.assertEqual(serial, (True, True))
+        self.assertEqual(parallel, serial)
+
+    @requires_traversal_probe
+    def test_tuple_subclass_does_not_use_exact_tuple_path(self):
+        target = self.TupleWithExtraReference((GCTestObject(),))
         target.extra = GCTestObject()
 
         stats = self.collect_traversal_target_stats(target)

@@ -1438,8 +1438,11 @@ propagate_pool_work(_PyGCThreadPool *pool, int worker_id)
 #ifdef Py_DEBUG
                 int is_test_traversal_target =
                     obj == pool->test_traversal_target;
-                if (is_test_traversal_target && PyList_Check(obj) &&
-                    traverse != PyList_Type.tp_traverse)
+                if (is_test_traversal_target &&
+                    ((PyList_Check(obj) &&
+                      traverse != PyList_Type.tp_traverse) ||
+                     (PyTuple_Check(obj) &&
+                      traverse != PyTuple_Type.tp_traverse)))
                 {
                     pool->test_traversal_target_generic_path = 1;
                 }
@@ -1474,12 +1477,35 @@ propagate_pool_work(_PyGCThreadPool *pool, int worker_id)
                     if (!_PyObject_GC_IS_TRACKED(obj)) {
                         // Tuple was untracked - clear alive bit
                         _PyGC_AtomicClearBit(obj, _PyGC_BITS_ALIVE);
+#ifdef Py_DEBUG
+                        if (is_test_traversal_target) {
+                            pool->test_traversal_target_untracked = 1;
+                            pool->test_traversal_target_alive_after_untrack =
+                                _PyGC_IsAlive(obj);
+                        }
+#endif
                         worker->objects_marked++;
                         continue;
                     }
-                    traverse(obj,
-                        (visitproc)propagate_pool_visitproc,
-                        (void *)worker);
+                    PyTupleObject *tuple = (PyTupleObject *)obj;
+#ifdef Py_DEBUG
+                    if (is_test_traversal_target) {
+                        pool->test_traversal_target_fast_path = 1;
+                    }
+#endif
+                    for (Py_ssize_t i = Py_SIZE(tuple); --i >= 0;) {
+                        PyObject *item = tuple->ob_item[i];
+#ifdef Py_DEBUG
+                        if (is_test_traversal_target) {
+                            if (pool->test_traversal_target_edges == 0) {
+                                pool->test_traversal_target_first = item;
+                            }
+                            pool->test_traversal_target_last = item;
+                            pool->test_traversal_target_edges++;
+                        }
+#endif
+                        propagate_pool_visit(worker, item);
+                    }
                 }
                 else {
                     traverse(obj,
@@ -2292,6 +2318,8 @@ _PyGC_ParallelPropagateAliveWithPool(PyInterpreterState *interp,
     pool->test_traversal_target_last = NULL;
     pool->test_traversal_target_fast_path = 0;
     pool->test_traversal_target_generic_path = 0;
+    pool->test_traversal_target_untracked = 0;
+    pool->test_traversal_target_alive_after_untrack = 0;
 #endif
 
     // Distribute roots round-robin to worker deques

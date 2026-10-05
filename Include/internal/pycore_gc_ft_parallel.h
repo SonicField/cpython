@@ -389,6 +389,8 @@ typedef struct _PyGCThreadPool {
     PyObject *test_traversal_target_last;
     int test_traversal_target_fast_path;
     int test_traversal_target_generic_path;
+    int test_traversal_target_untracked;
+    int test_traversal_target_alive_after_untrack;
 #endif
 } _PyGCThreadPool;
 

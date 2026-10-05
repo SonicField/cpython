@@ -1090,6 +1090,10 @@ gc_get_thread_pool_stats(PyObject *module, PyObject *args)
         pool != NULL ? pool->test_traversal_target_fast_path : 0;
     int target_generic =
         pool != NULL ? pool->test_traversal_target_generic_path : 0;
+    int target_untracked =
+        pool != NULL ? pool->test_traversal_target_untracked : 0;
+    int target_alive_after_untrack =
+        pool != NULL ? pool->test_traversal_target_alive_after_untrack : 0;
     PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
 
     PyObject *result = PyDict_New();
@@ -1128,7 +1132,11 @@ gc_get_thread_pool_stats(PyObject *module, PyObject *args)
         PyDict_SetItemString(result, "traversal_target_fast_path",
                              target_fast ? Py_True : Py_False) < 0 ||
         PyDict_SetItemString(result, "traversal_target_generic_path",
-                             target_generic ? Py_True : Py_False) < 0)
+                             target_generic ? Py_True : Py_False) < 0 ||
+        PyDict_SetItemString(result, "traversal_target_untracked",
+                             target_untracked ? Py_True : Py_False) < 0 ||
+        PyDict_SetItemString(result, "traversal_target_alive_after_untrack",
+                             target_alive_after_untrack ? Py_True : Py_False) < 0)
     {
         Py_XDECREF(edges);
         Py_XDECREF(first);
@@ -1172,6 +1180,8 @@ gc_test_set_parallel_traversal_target(PyObject *module, PyObject *arg)
     pool->test_traversal_target_last = NULL;
     pool->test_traversal_target_fast_path = 0;
     pool->test_traversal_target_generic_path = 0;
+    pool->test_traversal_target_untracked = 0;
+    pool->test_traversal_target_alive_after_untrack = 0;
     PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
     Py_RETURN_NONE;
 }
