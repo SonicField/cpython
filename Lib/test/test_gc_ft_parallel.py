@@ -1322,6 +1322,262 @@ class TestParallelTupleTraversal(_ParallelTraversalTest):
     FTP_BUILD and PARALLEL_GC_AVAILABLE,
     "free-threaded parallel GC only",
 )
+class TestParallelDictTraversal(_ParallelTraversalTest):
+    """Exact dictionaries retain the traversal contract of dict_traverse."""
+
+    class DictWithExtraReference(dict):
+        __slots__ = ("extra",)
+
+    class UnreachableSplitNode:
+        pass
+
+    @staticmethod
+    def make_unicode_dict_graph():
+        first = GCTestObject(position='first')
+        first.ref = first
+        repeated = GCTestObject(position='repeated')
+        repeated.ref = repeated
+        last = GCTestObject(position='last')
+        last.ref = last
+
+        deep_leaf = GCTestObject(position='deep')
+        deep_leaf.ref = deep_leaf
+        deep = deep_leaf
+        for index in range(64):
+            deep = {f'level-{index}': deep}
+
+        references = tuple(map(weakref.ref, (
+            first,
+            repeated,
+            last,
+            deep_leaf,
+        )))
+        root = {
+            'first': first,
+            'repeated-1': repeated,
+            'repeated-2': repeated,
+            'deep': deep,
+            'last': last,
+        }
+        return root, references
+
+    @staticmethod
+    def make_general_dict_graph():
+        first_key = GCTestObject(position='first-key')
+        first_key.ref = first_key
+        first_value = GCTestObject(position='first-value')
+        first_value.ref = first_value
+        last_key = GCTestObject(position='last-key')
+        last_key.ref = last_key
+        last_value = GCTestObject(position='last-value')
+        last_value.ref = last_value
+
+        references = tuple(map(weakref.ref, (
+            first_key,
+            first_value,
+            last_key,
+            last_value,
+        )))
+        root = {
+            first_key: first_value,
+            last_key: last_value,
+        }
+        return root, references
+
+    @staticmethod
+    def make_split_dict_graph():
+        class SplitNode:
+            pass
+
+        template = SplitNode()
+        template.first = None
+        template.repeated = None
+        template.last = None
+
+        first = GCTestObject(position='first')
+        first.ref = first
+        repeated = GCTestObject(position='repeated')
+        repeated.ref = repeated
+        last = GCTestObject(position='last')
+        last.ref = last
+
+        node = SplitNode()
+        node.first = first
+        node.repeated = repeated
+        node.last = last
+        root = node.__dict__
+        if not _testinternalcapi.has_split_table(root):
+            raise AssertionError("test did not construct a split dictionary")
+        references = tuple(map(weakref.ref, (first, repeated, last)))
+        return root, references
+
+    def test_exact_dict_reachable_graphs_match_serial(self):
+        builders = (
+            self.make_unicode_dict_graph,
+            self.make_general_dict_graph,
+            self.make_split_dict_graph,
+        )
+        for builder in builders:
+            with self.subTest(builder=builder.__name__):
+                serial = self.collect_live_graph(builder, False)
+                parallel = self.collect_live_graph(builder, True)
+
+                self.assertEqual(serial, (True,) * len(serial))
+                self.assertEqual(parallel, serial)
+
+    @staticmethod
+    def make_unreachable_dict_cycles():
+        unicode_marker = GCTestObject(layout='unicode')
+        unicode_cycle = {'marker': unicode_marker}
+        unicode_cycle['self'] = unicode_cycle
+        unicode_marker.ref = unicode_cycle
+
+        general_marker = GCTestObject(layout='general')
+        general_key = GCTestObject(layout='general-key')
+        general_left = {general_key: general_marker}
+        general_right = {GCTestObject(layout='general-key'): general_left}
+        general_left[GCTestObject(layout='general-key')] = general_right
+        general_marker.ref = general_right
+
+        template = TestParallelDictTraversal.UnreachableSplitNode()
+        template.peer = None
+        template.marker = None
+
+        split_marker = GCTestObject(layout='split')
+        split_left = TestParallelDictTraversal.UnreachableSplitNode()
+        split_right = TestParallelDictTraversal.UnreachableSplitNode()
+        split_left.peer = split_right.__dict__
+        split_left.marker = split_marker
+        split_right.peer = split_left.__dict__
+        split_right.marker = split_marker
+        split_marker.ref = split_left.__dict__
+        if not _testinternalcapi.has_split_table(split_left.__dict__):
+            raise AssertionError("test did not construct a split dictionary")
+        if not _testinternalcapi.has_split_table(split_right.__dict__):
+            raise AssertionError("test did not construct a split dictionary")
+
+        return tuple(map(weakref.ref, (
+            unicode_marker,
+            general_marker,
+            split_marker,
+        )))
+
+    def collect_unreachable_graph(self, parallel):
+        self.set_parallel(parallel)
+        references = self.make_unreachable_dict_cycles()
+        collected = gc.collect()
+        return collected, tuple(
+            reference() is None for reference in references
+        )
+
+    def test_exact_dict_unreachable_cycles_match_serial(self):
+        serial_collected, serial_dead = self.collect_unreachable_graph(False)
+        parallel_collected, parallel_dead = self.collect_unreachable_graph(True)
+
+        self.assertEqual(serial_dead, (True,) * len(serial_dead))
+        self.assertEqual(parallel_dead, serial_dead)
+        self.assertEqual(parallel_collected, serial_collected)
+
+    def assert_exact_dict_traversal(self, target, expected):
+        stats = self.collect_traversal_target_stats(target)
+
+        self.assertTrue(stats['traversal_target_fast_path'])
+        self.assertFalse(stats['traversal_target_generic_path'])
+        self.assertEqual(stats['traversal_target_edges'], len(expected))
+        self.assertEqual(
+            stats['traversal_target_first'],
+            id(expected[0]) if expected else 0,
+        )
+        self.assertEqual(
+            stats['traversal_target_last'],
+            id(expected[-1]) if expected else 0,
+        )
+
+    @requires_traversal_probe
+    def test_unicode_dict_visits_values_and_skips_deleted_entries(self):
+        first = GCTestObject(position='first')
+        deleted = GCTestObject(position='deleted')
+        last = GCTestObject(position='last')
+        target = {'first': first, 'deleted': deleted, 'last': last}
+        del target['deleted']
+
+        self.assert_exact_dict_traversal(target, (first, last))
+
+    @requires_traversal_probe
+    def test_general_dict_visits_value_then_key_and_skips_deleted_entries(self):
+        first_key = GCTestObject(position='first-key')
+        first_value = GCTestObject(position='first-value')
+        deleted_key = GCTestObject(position='deleted-key')
+        deleted_value = GCTestObject(position='deleted-value')
+        last_key = GCTestObject(position='last-key')
+        last_value = GCTestObject(position='last-value')
+        target = {
+            first_key: first_value,
+            deleted_key: deleted_value,
+            last_key: last_value,
+        }
+        del target[deleted_key]
+
+        self.assert_exact_dict_traversal(
+            target,
+            (first_value, first_key, last_value, last_key),
+        )
+
+    @requires_traversal_probe
+    def test_split_dict_visits_values_and_skips_missing_entries(self):
+        class SplitNode:
+            pass
+
+        template = SplitNode()
+        template.first = None
+        template.missing = None
+        template.last = None
+
+        first = GCTestObject(position='first')
+        last = GCTestObject(position='last')
+        node = SplitNode()
+        node.first = first
+        node.last = last
+        target = node.__dict__
+        self.assertTrue(_testinternalcapi.has_split_table(target))
+
+        self.assert_exact_dict_traversal(target, (first, last))
+
+    def make_dict_subclass_graph(self):
+        payload = GCTestObject(position='payload')
+        payload.ref = payload
+        extra = GCTestObject(position='extra')
+        extra.ref = extra
+
+        root = self.DictWithExtraReference(payload=payload)
+        root.extra = extra
+        return root, (weakref.ref(payload), weakref.ref(extra))
+
+    def test_dict_subclass_uses_generic_traversal(self):
+        serial = self.collect_live_graph(self.make_dict_subclass_graph, False)
+        parallel = self.collect_live_graph(
+            self.make_dict_subclass_graph,
+            True,
+        )
+
+        self.assertEqual(serial, (True, True))
+        self.assertEqual(parallel, serial)
+
+    @requires_traversal_probe
+    def test_dict_subclass_does_not_use_exact_dict_path(self):
+        target = self.DictWithExtraReference(payload=GCTestObject())
+        target.extra = GCTestObject()
+
+        stats = self.collect_traversal_target_stats(target)
+
+        self.assertFalse(stats['traversal_target_fast_path'])
+        self.assertTrue(stats['traversal_target_generic_path'])
+
+
+@unittest.skipUnless(
+    FTP_BUILD and PARALLEL_GC_AVAILABLE,
+    "free-threaded parallel GC only",
+)
 class TestThreadPoolLifecycle(unittest.TestCase):
     """Test thread pool init/fini cycle (T2-F1, T2-F2, T2-F7)."""
 

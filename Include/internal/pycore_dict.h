@@ -293,6 +293,71 @@ static inline PyDictUnicodeEntry* DK_UNICODE_ENTRIES(PyDictKeysObject *dk) {
 
 #define DK_IS_UNICODE(dk) ((dk)->dk_kind != DICT_KEYS_GENERAL)
 
+/* Iterate over the references visited by dict_traverse().  Keep all
+ * dictionary layout knowledge here so callers can supply a direct operation
+ * without duplicating the split, Unicode, or general-table rules.
+ *
+ * REF names a PyObject * local that is valid only while BODY runs.  DICT is
+ * evaluated once.  BODY may return from the containing function.
+ */
+#define _PyDict_FOREACH_GC_REF(DICT, REF, BODY)                       \
+    do {                                                              \
+        PyDictObject *_dict_gc_dict = (DICT);                         \
+        PyDictKeysObject *_dict_gc_keys = _dict_gc_dict->ma_keys;     \
+        Py_ssize_t _dict_gc_n = _dict_gc_keys->dk_nentries;           \
+        if (DK_IS_UNICODE(_dict_gc_keys)) {                            \
+            if (_PyDict_HasSplitTable(_dict_gc_dict)) {               \
+                PyDictValues *_dict_gc_values =                       \
+                    _dict_gc_dict->ma_values;                         \
+                for (Py_ssize_t _dict_gc_i = 0;                       \
+                     _dict_gc_i < _dict_gc_n;                         \
+                     _dict_gc_i++)                                    \
+                {                                                     \
+                    PyObject *REF =                                   \
+                        _dict_gc_values->values[_dict_gc_i];          \
+                    if (REF != NULL) {                                \
+                        BODY;                                         \
+                    }                                                 \
+                }                                                     \
+            }                                                         \
+            else {                                                    \
+                PyDictUnicodeEntry *_dict_gc_entries =                \
+                    DK_UNICODE_ENTRIES(_dict_gc_keys);                \
+                for (Py_ssize_t _dict_gc_i = 0;                       \
+                     _dict_gc_i < _dict_gc_n;                         \
+                     _dict_gc_i++)                                    \
+                {                                                     \
+                    PyObject *REF =                                   \
+                        _dict_gc_entries[_dict_gc_i].me_value;        \
+                    if (REF != NULL) {                                \
+                        BODY;                                         \
+                    }                                                 \
+                }                                                     \
+            }                                                         \
+        }                                                             \
+        else {                                                        \
+            PyDictKeyEntry *_dict_gc_entries =                        \
+                DK_ENTRIES(_dict_gc_keys);                            \
+            for (Py_ssize_t _dict_gc_i = 0;                           \
+                 _dict_gc_i < _dict_gc_n;                             \
+                 _dict_gc_i++)                                        \
+            {                                                         \
+                PyDictKeyEntry *_dict_gc_entry =                      \
+                    &_dict_gc_entries[_dict_gc_i];                    \
+                if (_dict_gc_entry->me_value != NULL) {               \
+                    {                                                 \
+                        PyObject *REF = _dict_gc_entry->me_value;      \
+                        BODY;                                         \
+                    }                                                 \
+                    {                                                 \
+                        PyObject *REF = _dict_gc_entry->me_key;        \
+                        BODY;                                         \
+                    }                                                 \
+                }                                                     \
+            }                                                         \
+        }                                                             \
+    } while (0)
+
 #define DICT_VERSION_INCREMENT (1 << (DICT_MAX_WATCHERS + DICT_WATCHED_MUTATION_BITS))
 #define DICT_WATCHER_MASK ((1 << DICT_MAX_WATCHERS) - 1)
 #define DICT_WATCHER_AND_MODIFICATION_MASK ((1 << (DICT_MAX_WATCHERS + DICT_WATCHED_MUTATION_BITS)) - 1)

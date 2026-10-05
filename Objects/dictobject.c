@@ -5087,31 +5087,7 @@ static int
 dict_traverse(PyObject *op, visitproc visit, void *arg)
 {
     PyDictObject *mp = (PyDictObject *)op;
-    PyDictKeysObject *keys = mp->ma_keys;
-    Py_ssize_t i, n = keys->dk_nentries;
-
-    if (DK_IS_UNICODE(keys)) {
-        if (_PyDict_HasSplitTable(mp)) {
-            for (i = 0; i < n; i++) {
-                Py_VISIT(mp->ma_values->values[i]);
-            }
-        }
-        else {
-            PyDictUnicodeEntry *entries = DK_UNICODE_ENTRIES(keys);
-            for (i = 0; i < n; i++) {
-                Py_VISIT(entries[i].me_value);
-            }
-        }
-    }
-    else {
-        PyDictKeyEntry *entries = DK_ENTRIES(keys);
-        for (i = 0; i < n; i++) {
-            if (entries[i].me_value != NULL) {
-                Py_VISIT(entries[i].me_value);
-                Py_VISIT(entries[i].me_key);
-            }
-        }
-    }
+    _PyDict_FOREACH_GC_REF(mp, ref, Py_VISIT(ref));
     return 0;
 }
 

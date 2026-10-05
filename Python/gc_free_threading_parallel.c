@@ -12,6 +12,7 @@
 #include "pycore_gc.h"
 #include "pycore_gc_ft_parallel.h"
 #include "pycore_gc_random_walk.h"  // _PyGC_RandomWalkUpdate, _PyGC_RandomWalkSeed
+#include "pycore_dict.h"            // _PyDict_FOREACH_GC_REF
 #include "pycore_interp.h"
 #include "pycore_lock.h"                // PyMutex_Lock/Unlock
 #include "condvar.h"                    // PyMUTEX_INIT, PyCOND_INIT, etc.
@@ -1442,7 +1443,9 @@ propagate_pool_work(_PyGCThreadPool *pool, int worker_id)
                     ((PyList_Check(obj) &&
                       traverse != PyList_Type.tp_traverse) ||
                      (PyTuple_Check(obj) &&
-                      traverse != PyTuple_Type.tp_traverse)))
+                      traverse != PyTuple_Type.tp_traverse) ||
+                     (PyDict_Check(obj) &&
+                      traverse != PyDict_Type.tp_traverse)))
                 {
                     pool->test_traversal_target_generic_path = 1;
                 }
@@ -1506,6 +1509,27 @@ propagate_pool_work(_PyGCThreadPool *pool, int worker_id)
 #endif
                         propagate_pool_visit(worker, item);
                     }
+                }
+                else if (traverse == PyDict_Type.tp_traverse) {
+                    PyDictObject *dict = (PyDictObject *)obj;
+#ifdef Py_DEBUG
+                    if (is_test_traversal_target) {
+                        pool->test_traversal_target_fast_path = 1;
+                    }
+                    _PyDict_FOREACH_GC_REF(dict, item, {
+                        if (is_test_traversal_target) {
+                            if (pool->test_traversal_target_edges == 0) {
+                                pool->test_traversal_target_first = item;
+                            }
+                            pool->test_traversal_target_last = item;
+                            pool->test_traversal_target_edges++;
+                        }
+                        propagate_pool_visit(worker, item);
+                    });
+#else
+                    _PyDict_FOREACH_GC_REF(
+                        dict, item, propagate_pool_visit(worker, item));
+#endif
                 }
                 else {
                     traverse(obj,
