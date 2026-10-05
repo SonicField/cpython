@@ -1080,11 +1080,16 @@ gc_get_thread_pool_stats(PyObject *module, PyObject *args)
     size_t threads_created = _PyGC_ThreadPoolGetThreadsCreated(interp);
     size_t collections = _PyGC_ThreadPoolGetCollectionsCompleted(interp);
     _PyGCThreadPool *pool = interp->gc.thread_pool;
-    size_t target_edges = pool != NULL ? pool->test_list_target_edges : 0;
-    PyObject *target_first = pool != NULL ? pool->test_list_target_first : NULL;
-    PyObject *target_last = pool != NULL ? pool->test_list_target_last : NULL;
-    int target_fast = pool != NULL ? pool->test_list_target_fast_path : 0;
-    int target_generic = pool != NULL ? pool->test_list_target_generic_path : 0;
+    size_t target_edges =
+        pool != NULL ? pool->test_traversal_target_edges : 0;
+    PyObject *target_first =
+        pool != NULL ? pool->test_traversal_target_first : NULL;
+    PyObject *target_last =
+        pool != NULL ? pool->test_traversal_target_last : NULL;
+    int target_fast =
+        pool != NULL ? pool->test_traversal_target_fast_path : 0;
+    int target_generic =
+        pool != NULL ? pool->test_traversal_target_generic_path : 0;
     PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
 
     PyObject *result = PyDict_New();
@@ -1117,12 +1122,12 @@ gc_get_thread_pool_stats(PyObject *module, PyObject *args)
     PyObject *first = PyLong_FromVoidPtr(target_first);
     PyObject *last = PyLong_FromVoidPtr(target_last);
     if (edges == NULL || first == NULL || last == NULL ||
-        PyDict_SetItemString(result, "list_target_edges", edges) < 0 ||
-        PyDict_SetItemString(result, "list_target_first", first) < 0 ||
-        PyDict_SetItemString(result, "list_target_last", last) < 0 ||
-        PyDict_SetItemString(result, "list_target_fast_path",
+        PyDict_SetItemString(result, "traversal_target_edges", edges) < 0 ||
+        PyDict_SetItemString(result, "traversal_target_first", first) < 0 ||
+        PyDict_SetItemString(result, "traversal_target_last", last) < 0 ||
+        PyDict_SetItemString(result, "traversal_target_fast_path",
                              target_fast ? Py_True : Py_False) < 0 ||
-        PyDict_SetItemString(result, "list_target_generic_path",
+        PyDict_SetItemString(result, "traversal_target_generic_path",
                              target_generic ? Py_True : Py_False) < 0)
     {
         Py_XDECREF(edges);
@@ -1139,10 +1144,14 @@ gc_get_thread_pool_stats(PyObject *module, PyObject *args)
 }
 
 static PyObject *
-gc_test_set_parallel_list_target(PyObject *module, PyObject *arg)
+gc_test_set_parallel_traversal_target(PyObject *module, PyObject *arg)
 {
-    if (arg != Py_None && !PyList_Check(arg)) {
-        PyErr_SetString(PyExc_TypeError, "target must be a list or None");
+    if (arg != Py_None && !PyList_Check(arg) && !PyTuple_Check(arg) &&
+        !PyDict_Check(arg))
+    {
+        PyErr_SetString(
+            PyExc_TypeError,
+            "target must be a list, tuple, dictionary, or None");
         return NULL;
     }
 
@@ -1157,12 +1166,12 @@ gc_test_set_parallel_list_target(PyObject *module, PyObject *arg)
 
     // Retaining the target would make it a GC root and invalidate the test.
     // The caller owns a strong reference until it resets the target to None.
-    pool->test_list_target = arg == Py_None ? NULL : arg;
-    pool->test_list_target_edges = 0;
-    pool->test_list_target_first = NULL;
-    pool->test_list_target_last = NULL;
-    pool->test_list_target_fast_path = 0;
-    pool->test_list_target_generic_path = 0;
+    pool->test_traversal_target = arg == Py_None ? NULL : arg;
+    pool->test_traversal_target_edges = 0;
+    pool->test_traversal_target_first = NULL;
+    pool->test_traversal_target_last = NULL;
+    pool->test_traversal_target_fast_path = 0;
+    pool->test_traversal_target_generic_path = 0;
     PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
     Py_RETURN_NONE;
 }
@@ -1182,9 +1191,10 @@ gc_test_set_parallel_list_target(PyObject *module, PyObject *arg)
 #define GC_GET_THREAD_POOL_STATS_METHODDEF \
     {"_get_thread_pool_stats", gc_get_thread_pool_stats, METH_NOARGS, \
      "Get thread pool statistics (FTP test API)"},
-#define GC_TEST_SET_PARALLEL_LIST_TARGET_METHODDEF \
-    {"_test_set_parallel_list_target", gc_test_set_parallel_list_target, \
-     METH_O, "Set the exact-list traversal test target"},
+#define GC_TEST_SET_PARALLEL_TRAVERSAL_TARGET_METHODDEF \
+    {"_test_set_parallel_traversal_target", \
+     gc_test_set_parallel_traversal_target, METH_O, \
+     "Set the container traversal test target"},
 
 #else
 // Not FTP debug build - don't expose test APIs
@@ -1193,7 +1203,7 @@ gc_test_set_parallel_list_target(PyObject *module, PyObject *arg)
 #define GC_TEST_REAL_PAGE_ENUMERATION_METHODDEF
 #define GC_TEST_PARALLEL_MARK_METHODDEF
 #define GC_GET_THREAD_POOL_STATS_METHODDEF
-#define GC_TEST_SET_PARALLEL_LIST_TARGET_METHODDEF
+#define GC_TEST_SET_PARALLEL_TRAVERSAL_TARGET_METHODDEF
 #endif
 
 static PyMethodDef GcMethods[] = {
@@ -1226,7 +1236,7 @@ static PyMethodDef GcMethods[] = {
     GC_TEST_REAL_PAGE_ENUMERATION_METHODDEF
     GC_TEST_PARALLEL_MARK_METHODDEF
     GC_GET_THREAD_POOL_STATS_METHODDEF
-    GC_TEST_SET_PARALLEL_LIST_TARGET_METHODDEF
+    GC_TEST_SET_PARALLEL_TRAVERSAL_TARGET_METHODDEF
     {NULL,      NULL}           /* Sentinel */
 };
 

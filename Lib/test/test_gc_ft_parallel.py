@@ -42,8 +42,8 @@ except AttributeError:
 PARALLEL_GC_AVAILABLE = gc.get_parallel_config()['available']
 UNTRACKED_PROBE_AVAILABLE = hasattr(
     _testinternalcapi, 'parallel_gc_untracked_probe')
-LIST_TRAVERSAL_PROBE_AVAILABLE = hasattr(
-    gc, '_test_set_parallel_list_target')
+TRAVERSAL_PROBE_AVAILABLE = hasattr(
+    gc, '_test_set_parallel_traversal_target')
 
 
 def requires_ftp(test_func):
@@ -70,8 +70,8 @@ def requires_untracked_probe(test_func):
 def requires_list_traversal_probe(test_func):
     """Skip test if exact-list traversal instrumentation is unavailable."""
     return unittest.skipUnless(
-        LIST_TRAVERSAL_PROBE_AVAILABLE,
-        "Requires the exact-list traversal probe",
+        TRAVERSAL_PROBE_AVAILABLE,
+        "Requires the container traversal probe",
     )(test_func)
 
 
@@ -975,15 +975,15 @@ class TestParallelListTraversal(unittest.TestCase):
         gc.collect()
         return result
 
-    def collect_list_target_stats(self, target):
+    def collect_traversal_target_stats(self, target):
         self.set_parallel(True)
         gc.collect()
-        gc._test_set_parallel_list_target(target)
+        gc._test_set_parallel_traversal_target(target)
         try:
             gc.collect()
             return gc._get_thread_pool_stats()
         finally:
-            gc._test_set_parallel_list_target(None)
+            gc._test_set_parallel_traversal_target(None)
 
     @staticmethod
     def make_exact_list_graph():
@@ -1059,13 +1059,13 @@ class TestParallelListTraversal(unittest.TestCase):
                 first = id(target[-1]) if target else 0
                 last = id(target[0]) if target else 0
 
-                stats = self.collect_list_target_stats(target)
+                stats = self.collect_traversal_target_stats(target)
 
-                self.assertTrue(stats['list_target_fast_path'])
-                self.assertFalse(stats['list_target_generic_path'])
-                self.assertEqual(stats['list_target_edges'], size)
-                self.assertEqual(stats['list_target_first'], first)
-                self.assertEqual(stats['list_target_last'], last)
+                self.assertTrue(stats['traversal_target_fast_path'])
+                self.assertFalse(stats['traversal_target_generic_path'])
+                self.assertEqual(stats['traversal_target_edges'], size)
+                self.assertEqual(stats['traversal_target_first'], first)
+                self.assertEqual(stats['traversal_target_last'], last)
 
     @staticmethod
     def make_unreachable_list_cycles():
@@ -1129,10 +1129,10 @@ class TestParallelListTraversal(unittest.TestCase):
         target = self.ListWithExtraReference([GCTestObject()])
         target.extra = GCTestObject()
 
-        stats = self.collect_list_target_stats(target)
+        stats = self.collect_traversal_target_stats(target)
 
-        self.assertFalse(stats['list_target_fast_path'])
-        self.assertTrue(stats['list_target_generic_path'])
+        self.assertFalse(stats['traversal_target_fast_path'])
+        self.assertTrue(stats['traversal_target_generic_path'])
 
 
 @unittest.skipUnless(

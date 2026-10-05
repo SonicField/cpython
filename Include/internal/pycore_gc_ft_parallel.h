@@ -383,12 +383,12 @@ typedef struct _PyGCThreadPool {
 #ifdef Py_DEBUG
     // Raw pointer retained only for one synchronous traversal test. The test
     // owns a strong reference until it clears this field.
-    PyObject *test_list_target;
-    size_t test_list_target_edges;
-    PyObject *test_list_target_first;
-    PyObject *test_list_target_last;
-    int test_list_target_fast_path;
-    int test_list_target_generic_path;
+    PyObject *test_traversal_target;
+    size_t test_traversal_target_edges;
+    PyObject *test_traversal_target_first;
+    PyObject *test_traversal_target_last;
+    int test_traversal_target_fast_path;
+    int test_traversal_target_generic_path;
 #endif
 } _PyGCThreadPool;
 

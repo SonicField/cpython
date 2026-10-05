@@ -1436,30 +1436,30 @@ propagate_pool_work(_PyGCThreadPool *pool, int worker_id)
             traverseproc traverse = Py_TYPE(obj)->tp_traverse;
             if (traverse != NULL) {
 #ifdef Py_DEBUG
-                int is_test_list_target =
-                    obj == pool->test_list_target && PyList_Check(obj);
-                if (is_test_list_target &&
+                int is_test_traversal_target =
+                    obj == pool->test_traversal_target;
+                if (is_test_traversal_target && PyList_Check(obj) &&
                     traverse != PyList_Type.tp_traverse)
                 {
-                    pool->test_list_target_generic_path = 1;
+                    pool->test_traversal_target_generic_path = 1;
                 }
 #endif
                 if (traverse == PyList_Type.tp_traverse) {
                     PyListObject *list = (PyListObject *)obj;
 #ifdef Py_DEBUG
-                    if (is_test_list_target) {
-                        pool->test_list_target_fast_path = 1;
+                    if (is_test_traversal_target) {
+                        pool->test_traversal_target_fast_path = 1;
                     }
 #endif
                     for (Py_ssize_t i = Py_SIZE(list); --i >= 0;) {
                         PyObject *item = list->ob_item[i];
 #ifdef Py_DEBUG
-                        if (is_test_list_target) {
-                            if (pool->test_list_target_edges == 0) {
-                                pool->test_list_target_first = item;
+                        if (is_test_traversal_target) {
+                            if (pool->test_traversal_target_edges == 0) {
+                                pool->test_traversal_target_first = item;
                             }
-                            pool->test_list_target_last = item;
-                            pool->test_list_target_edges++;
+                            pool->test_traversal_target_last = item;
+                            pool->test_traversal_target_edges++;
                         }
 #endif
                         propagate_pool_visit(worker, item);
@@ -2287,11 +2287,11 @@ _PyGC_ParallelPropagateAliveWithPool(PyInterpreterState *interp,
     pool->current_work = &work;
 
 #ifdef Py_DEBUG
-    pool->test_list_target_edges = 0;
-    pool->test_list_target_first = NULL;
-    pool->test_list_target_last = NULL;
-    pool->test_list_target_fast_path = 0;
-    pool->test_list_target_generic_path = 0;
+    pool->test_traversal_target_edges = 0;
+    pool->test_traversal_target_first = NULL;
+    pool->test_traversal_target_last = NULL;
+    pool->test_traversal_target_fast_path = 0;
+    pool->test_traversal_target_generic_path = 0;
 #endif
 
     // Distribute roots round-robin to worker deques
