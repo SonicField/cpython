@@ -1406,6 +1406,66 @@ static PyTypeObject TraverseProbe_Type = {
     .tp_traverse = traverse_probe_traverse,
 };
 
+#ifdef Py_GIL_DISABLED
+typedef struct {
+    PyObject_HEAD
+    Py_ssize_t visits;
+} untracked_probe_object;
+
+static int
+untracked_probe_traverse(PyObject *op, visitproc visit, void *arg)
+{
+    untracked_probe_object *probe = (untracked_probe_object *)op;
+    _Py_atomic_add_ssize(&probe->visits, 1);
+    return 0;
+}
+
+static void
+untracked_probe_dealloc(PyObject *op)
+{
+    PyObject_GC_UnTrack(op);
+    PyObject_GC_Del(op);
+}
+
+static PyTypeObject UntrackedProbe_Type = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "_testinternalcapi._UntrackedProbe",
+    .tp_basicsize = sizeof(untracked_probe_object),
+    .tp_dealloc = untracked_probe_dealloc,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
+    .tp_traverse = untracked_probe_traverse,
+};
+
+static PyObject *
+parallel_gc_untracked_probe(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    if (PyType_Ready(&UntrackedProbe_Type) < 0) {
+        return NULL;
+    }
+
+    untracked_probe_object *probe = PyObject_GC_New(
+        untracked_probe_object, &UntrackedProbe_Type);
+    if (probe == NULL) {
+        return NULL;
+    }
+    probe->visits = 0;
+    PyObject_GC_Track(probe);
+    PyObject_GC_UnTrack(probe);
+    return (PyObject *)probe;
+}
+
+static PyObject *
+parallel_gc_untracked_probe_visits(PyObject *self, PyObject *arg)
+{
+    if (!Py_IS_TYPE(arg, &UntrackedProbe_Type)) {
+        PyErr_SetString(PyExc_TypeError, "expected an untracked GC probe");
+        return NULL;
+    }
+    untracked_probe_object *probe = (untracked_probe_object *)arg;
+    return PyLong_FromSsize_t(_Py_atomic_load_ssize(&probe->visits));
+}
+#endif
+
 static PyObject *
 parallel_gc_helper_visits(PyObject *self, PyObject *Py_UNUSED(ignored))
 {
@@ -1719,7 +1779,12 @@ static PyMethodDef test_methods[] = {
      METH_NOARGS, NULL},
     {"parallel_gc_helper_visits", parallel_gc_helper_visits,
      METH_NOARGS, NULL},
-#ifndef Py_GIL_DISABLED
+#ifdef Py_GIL_DISABLED
+    {"parallel_gc_untracked_probe", parallel_gc_untracked_probe,
+     METH_NOARGS, NULL},
+    {"parallel_gc_untracked_probe_visits",
+     parallel_gc_untracked_probe_visits, METH_O, NULL},
+#else
     {"parallel_gc_helper_visits_with_workers",
      parallel_gc_helper_visits_with_workers, METH_O, NULL},
     {"parallel_gc_stackref_visits", parallel_gc_stackref_visits,

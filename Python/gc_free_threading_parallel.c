@@ -1881,7 +1881,7 @@ static int
 propagate_pool_visitproc(PyObject *obj, void *arg)
 {
     _PyGC_ATOMIC_SET_PHASE(GC_ATOMIC_PHASE_POOL_PROPAGATE);
-    if (obj == NULL || !_PyObject_IS_GC(obj)) {
+    if (obj == NULL || !_PyObject_GC_IS_TRACKED(obj)) {
         return 0;
     }
     _PyGCWorkerState *worker = (_PyGCWorkerState *)arg;

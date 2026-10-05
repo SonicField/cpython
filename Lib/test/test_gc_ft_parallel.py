@@ -14,6 +14,8 @@ from test import support
 from test.support import import_helper
 from test.support import threading_helper
 
+_testinternalcapi = import_helper.import_module('_testinternalcapi')
+
 
 # Custom class that supports weak references (dict does not)
 class GCTestObject:
@@ -38,6 +40,8 @@ except AttributeError:
     PARALLEL_GC_TESTS_AVAILABLE = False
 
 PARALLEL_GC_AVAILABLE = gc.get_parallel_config()['available']
+UNTRACKED_PROBE_AVAILABLE = hasattr(
+    _testinternalcapi, 'parallel_gc_untracked_probe')
 
 
 def requires_ftp(test_func):
@@ -50,6 +54,14 @@ def requires_parallel_gc_tests(test_func):
     return unittest.skipUnless(
         PARALLEL_GC_TESTS_AVAILABLE,
         "Requires parallel GC test APIs"
+    )(test_func)
+
+
+def requires_untracked_probe(test_func):
+    """Skip test if the untracked-object probe is not available."""
+    return unittest.skipUnless(
+        UNTRACKED_PROBE_AVAILABLE,
+        "Requires the parallel GC untracked-object probe"
     )(test_func)
 
 
@@ -312,6 +324,51 @@ class TestParallelMarking(unittest.TestCase):
     Tests for REAL parallel marking via _test_parallel_mark().
     This exercises the actual _PyGC_ParallelMarkAlive() code path.
     """
+
+    @requires_ftp
+    @requires_untracked_probe
+    def test_parallel_mark_matches_serial_for_untracked_objects(self):
+        """Mark-alive must not add visits for an untracked GC object."""
+        was_enabled = gc.isenabled()
+        parallel_was_enabled = gc.get_parallel_config()['enabled']
+        gc.disable()
+        try:
+            if parallel_was_enabled:
+                gc.disable_parallel()
+
+            serial_probe = _testinternalcapi.parallel_gc_untracked_probe()
+            self.assertFalse(gc.is_tracked(serial_probe))
+            serial_holder = [serial_probe]
+            self.assertTrue(gc.is_tracked(serial_holder))
+            gc.collect()
+            serial_visits = (
+                _testinternalcapi.parallel_gc_untracked_probe_visits(
+                    serial_probe
+                )
+            )
+
+            gc.enable_parallel()
+
+            probe = _testinternalcapi.parallel_gc_untracked_probe()
+            self.assertFalse(gc.is_tracked(probe))
+            holder = [probe]
+            self.assertTrue(gc.is_tracked(holder))
+            gc.collect()
+
+            self.assertEqual(
+                _testinternalcapi.parallel_gc_untracked_probe_visits(probe),
+                serial_visits,
+            )
+            self.assertIs(holder[0], probe)
+            self.assertIs(serial_holder[0], serial_probe)
+        finally:
+            parallel_is_enabled = gc.get_parallel_config()['enabled']
+            if parallel_was_enabled and not parallel_is_enabled:
+                gc.enable_parallel()
+            elif not parallel_was_enabled and parallel_is_enabled:
+                gc.disable_parallel()
+            if was_enabled:
+                gc.enable()
 
     @requires_ftp
     @requires_parallel_gc_tests
