@@ -1853,7 +1853,11 @@ if test "$with_parallel_gc" = "yes"
 then
   AC_DEFINE([Py_PARALLEL_GC], [1],
             [Define if you want to enable parallel garbage collection])
+  PARALLEL_GC_PROFILE_TASK='$(srcdir)/Tools/build/parallel_gc_profile.py'
+else
+  PARALLEL_GC_PROFILE_TASK=
 fi
+AC_SUBST([PARALLEL_GC_PROFILE_TASK])
 
 # Check for --enable-pystats
 AC_MSG_CHECKING([for --enable-pystats])

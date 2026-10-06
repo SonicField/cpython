@@ -340,6 +340,9 @@ HOST_GNU_TYPE=	@host@
 # PROFILE_TASK="-m test --pgo-extended"
 PROFILE_TASK=	@PROFILE_TASK@
 
+# Additional profile task for builds configured with parallel GC support.
+PARALLEL_GC_PROFILE_TASK=	@PARALLEL_GC_PROFILE_TASK@
+
 # report files for gcov / lcov coverage report
 COVERAGE_INFO=	$(abs_builddir)/coverage.info
 COVERAGE_REPORT=$(abs_builddir)/lcov-report
@@ -849,6 +852,10 @@ profile-run-stamp:
 	# Next, run the profile task to generate the profile information.
 	@ # FIXME: can't run for a cross build
 	$(LLVM_PROF_FILE) $(RUNSHARED) ./$(BUILDPYTHON) $(PROFILE_TASK)
+	@if test -n "$(PARALLEL_GC_PROFILE_TASK)"; then \
+		echo "Running parallel GC profile task:"; \
+		$(LLVM_PROF_FILE) $(RUNSHARED) ./$(BUILDPYTHON) "$(PARALLEL_GC_PROFILE_TASK)"; \
+	fi
 	$(LLVM_PROF_MERGER)
 	# Remove profile generation binary since we are done with it.
 	$(MAKE) clean-retain-profile

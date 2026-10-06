@@ -36,7 +36,6 @@ esac
 fi
 
 
-
 # Reset variables that may have inherited troublesome values from
 # the environment.
 
@@ -945,6 +944,7 @@ LLVM_AR
 PROFILE_TASK
 DEF_MAKE_RULE
 DEF_MAKE_ALL_RULE
+PARALLEL_GC_PROFILE_TASK
 ABI_THREAD
 ABIFLAGS
 LN
@@ -8614,7 +8614,11 @@ then
 
 printf "%s\n" "#define Py_PARALLEL_GC 1" >>confdefs.h
 
+  PARALLEL_GC_PROFILE_TASK='$(srcdir)/Tools/build/parallel_gc_profile.py'
+else
+  PARALLEL_GC_PROFILE_TASK=
 fi
+
 
 # Check for --enable-pystats
 { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for --enable-pystats" >&5
