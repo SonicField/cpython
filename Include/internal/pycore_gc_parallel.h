@@ -220,6 +220,27 @@ typedef enum {
     _PyGC_PHASE_MARK,               // Work-stealing parallel marking
 } _PyGCPhase;
 
+typedef enum {
+    _PyGC_STARTUP_FAILURE_NONE,
+    _PyGC_STARTUP_FAILURE_RESOURCES,
+    _PyGC_STARTUP_FAILURE_TSTATE,
+    _PyGC_STARTUP_FAILURE_THREAD,
+} _PyGCStartupFailureStage;
+
+typedef enum {
+    _PyGC_POOL_DISABLED,
+    _PyGC_POOL_ARMED,
+    _PyGC_POOL_STARTING,
+    _PyGC_POOL_ACTIVE,
+    _PyGC_POOL_FAILED,
+} _PyGCPoolState;
+
+static inline int
+_PyGC_PoolStateIsEnabled(_PyGCPoolState state)
+{
+    return state == _PyGC_POOL_ARMED || state == _PyGC_POOL_ACTIVE;
+}
+
 // =============================================================================
 // Worker Thread State
 // =============================================================================
@@ -313,16 +334,14 @@ struct _PyParallelGCState {
     // Populated during level-1 expansion, consumed by workers
     _PyGCWorkQueue work_queue;
 
-    // Synchronizes worker startup - ensures all workers are ready before
-    // ParallelStart returns (prevents race condition in Stop).
-    //
-    // The previous mark_barrier and done_barrier fields were retired in
-    // Phase 5.3 when broadcast-barrier dispatch was replaced with per-worker
-    // condvar dispatch (see _PyGC_DispatchAndWait in gc_parallel.c plus the
-    // wake_mutex/wake_cond on each worker and done_mutex/done_cond at the
-    // pool level). startup_barrier remains because the once-per-pool worker
-    // handshake during ParallelStart is a natural fit for a barrier.
-    _PyGCBarrier startup_barrier;
+    // Startup uses a cancellable handshake rather than a fixed barrier.  If
+    // creation of worker N fails, workers 0..N-1 must be released and joined.
+    PyMUTEX_T startup_mutex;
+    PyCOND_T startup_cond;
+    size_t startup_ready;
+    size_t threads_created;
+    int startup_release;
+    int startup_cancel;
 
     // Tracks the number of workers actively running. When this reaches zero
     // it is safe to destroy shared state.
@@ -369,8 +388,19 @@ struct _PyParallelGCState {
 
     // =========================================================================
 
-    // Flag indicating parallel GC is enabled
-    int enabled;
+    // Pool lifecycle.  Enabling initially arms the collector without creating
+    // native threads.  An eligible collection starts them transactionally.
+    _PyGCPoolState pool_state;
+    int pool_resources_initialized;
+    int startup_warning_pending;
+    size_t pool_startup_failures;
+    _PyGCStartupFailureStage last_pool_startup_error;
+    _PyGCStartupFailureStage test_startup_failure_stage;
+    Py_ssize_t test_startup_failure_worker;
+
+    // A child forked from a finalizer must finish the inherited collection on
+    // the collecting thread before it may create a replacement worker pool.
+    int inherited_collection_serial;
 
     // Adaptive worker count — how many workers to wake per collection.
     // Stochastic hill climbing starts at min(4, num_workers), tries adjacent
@@ -437,6 +467,10 @@ PyAPI_FUNC(void) _PyGC_ParallelFini(PyInterpreterState *interp);
 // Start worker threads (called after initialization)
 PyAPI_FUNC(int) _PyGC_ParallelStart(PyInterpreterState *interp);
 
+// Start an armed pool.  On failure, leave the interpreter in permanent serial
+// fallback until the application explicitly enables parallel GC again.
+PyAPI_FUNC(int) _PyGC_ParallelEnsureStarted(PyInterpreterState *interp);
+
 // Stop worker threads (but don't destroy state - can restart later)
 PyAPI_FUNC(void) _PyGC_ParallelStop(PyInterpreterState *interp);
 
@@ -446,8 +480,14 @@ PyAPI_FUNC(int) _PyGC_ParallelAfterForkChild(PyInterpreterState *interp);
 // Check if parallel GC is enabled
 PyAPI_FUNC(int) _PyGC_ParallelIsEnabled(PyInterpreterState *interp);
 
-// Enable or disable parallel GC at runtime (workers must be started/stopped separately)
+// Arm or disable parallel GC at runtime.  The GIL pool starts lazily.
 PyAPI_FUNC(void) _PyGC_ParallelSetEnabled(PyInterpreterState *interp, int enabled);
+
+// Deterministic test injection for partial native-thread startup failures.
+PyAPI_FUNC(void) _PyGC_ParallelSetStartupFailureForTest(
+    PyInterpreterState *interp,
+    _PyGCStartupFailureStage stage,
+    Py_ssize_t worker);
 
 // Get current configuration
 PyAPI_FUNC(PyObject *) _PyGC_ParallelGetConfig(PyInterpreterState *interp);

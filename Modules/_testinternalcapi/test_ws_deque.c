@@ -1527,6 +1527,51 @@ parallel_gc_helper_visits(PyObject *self, PyObject *Py_UNUSED(ignored))
 
 #ifndef Py_GIL_DISABLED
 static PyObject *
+parallel_gc_set_startup_failure(PyObject *self, PyObject *args)
+{
+    const char *stage_name;
+    Py_ssize_t worker = -1;
+    if (!PyArg_ParseTuple(args, "s|n:parallel_gc_set_startup_failure",
+                          &stage_name, &worker)) {
+        return NULL;
+    }
+
+    _PyGCStartupFailureStage stage;
+    if (strcmp(stage_name, "none") == 0) {
+        stage = _PyGC_STARTUP_FAILURE_NONE;
+        worker = -1;
+    }
+    else if (strcmp(stage_name, "resources") == 0) {
+        stage = _PyGC_STARTUP_FAILURE_RESOURCES;
+        worker = -1;
+    }
+    else if (strcmp(stage_name, "tstate") == 0) {
+        stage = _PyGC_STARTUP_FAILURE_TSTATE;
+    }
+    else if (strcmp(stage_name, "thread") == 0) {
+        stage = _PyGC_STARTUP_FAILURE_THREAD;
+    }
+    else {
+        PyErr_Format(PyExc_ValueError,
+                     "unknown startup failure stage: %s", stage_name);
+        return NULL;
+    }
+
+    if ((stage == _PyGC_STARTUP_FAILURE_TSTATE ||
+         stage == _PyGC_STARTUP_FAILURE_THREAD) &&
+        (worker < 0 || worker >= _PyGC_MAX_WORKERS))
+    {
+        PyErr_Format(PyExc_ValueError,
+                     "worker must be between 0 and %d, got %zd",
+                     _PyGC_MAX_WORKERS - 1, worker);
+        return NULL;
+    }
+    _PyGC_ParallelSetStartupFailureForTest(
+        _PyInterpreterState_GET(), stage, worker);
+    Py_RETURN_NONE;
+}
+
+static PyObject *
 parallel_gc_helper_visits_with_workers(PyObject *self, PyObject *arg)
 {
     Py_ssize_t active_workers = PyLong_AsSsize_t(arg);
@@ -1536,7 +1581,9 @@ parallel_gc_helper_visits_with_workers(PyObject *self, PyObject *arg)
 
     PyInterpreterState *interp = _PyInterpreterState_GET();
     _PyParallelGCState *par_gc = interp->gc.parallel_gc;
-    if (par_gc == NULL || !par_gc->enabled) {
+    if (par_gc == NULL ||
+        !_PyGC_PoolStateIsEnabled(par_gc->pool_state))
+    {
         PyErr_SetString(PyExc_RuntimeError, "parallel GC is not enabled");
         return NULL;
     }
@@ -1785,6 +1832,8 @@ static PyMethodDef test_methods[] = {
     {"parallel_gc_untracked_probe_visits",
      parallel_gc_untracked_probe_visits, METH_O, NULL},
 #else
+    {"parallel_gc_set_startup_failure",
+     parallel_gc_set_startup_failure, METH_VARARGS, NULL},
     {"parallel_gc_helper_visits_with_workers",
      parallel_gc_helper_visits_with_workers, METH_O, NULL},
     {"parallel_gc_stackref_visits", parallel_gc_stackref_visits,

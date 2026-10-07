@@ -613,6 +613,9 @@ PyDoc_STRVAR(gc_enable_parallel__doc__,
 "\n"
 "Enable parallel garbage collection.\n"
 "\n"
+"Enabling arms the collector. Helper threads are created only when a GIL\n"
+"collection reaches the parallel-work threshold.\n"
+"\n"
 "The collector dynamically adjusts the active worker count between 2 and\n"
 "the implementation maximum for each collection.\n"
 "\n"
@@ -663,7 +666,11 @@ PyDoc_STRVAR(gc_get_parallel_config__doc__,
 "    Dictionary with keys:\n"
 "    - \'available\': bool - True if parallel GC is available\n"
 "    - \'enabled\': bool - True if parallel GC is enabled\n"
-"    - \'num_workers\': int - Number of worker threads (or 0 if disabled)\n"
+"    - \'num_workers\': int - Configured worker limit (or 0 if disabled)\n"
+"\n"
+"    GIL builds also return:\n"
+"    - \'pool_active\': bool - True if helper threads are running\n"
+"    - \'startup_failed\': bool - True if pool startup failed\n"
 "\n"
 "Available in builds configured with parallel GC support.");
 
@@ -695,6 +702,10 @@ PyDoc_STRVAR(gc_get_parallel_stats__doc__,
 "    - \'collections_succeeded\': int - Successful marking attempts\n"
 "    - \'workers\': list - Per-worker marking and stealing statistics\n"
 "\n"
+"    GIL builds also return:\n"
+"    - \'pool_startup_failures\': int - Pool startup failures\n"
+"    - \'last_pool_startup_error\': int - Startup error code (0-3)\n"
+"\n"
 "Available in builds configured with parallel GC support.");
 
 #define GC_GET_PARALLEL_STATS_METHODDEF    \
@@ -708,4 +719,4 @@ gc_get_parallel_stats(PyObject *module, PyObject *Py_UNUSED(ignored))
 {
     return gc_get_parallel_stats_impl(module);
 }
-/*[clinic end generated code: output=0c849f205719fcb6 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=3456602690da644f input=a9049054013a1b77]*/

@@ -536,6 +536,9 @@ gc.enable_parallel
 
 Enable parallel garbage collection.
 
+Enabling arms the collector. Helper threads are created only when a GIL
+collection reaches the parallel-work threshold.
+
 The collector dynamically adjusts the active worker count between 2 and
 the implementation maximum for each collection.
 
@@ -544,7 +547,7 @@ Available in builds configured with parallel GC support.
 
 static PyObject *
 gc_enable_parallel_impl(PyObject *module)
-/*[clinic end generated code: output=a7318a7304650e33 input=42375a28aab6dc4b]*/
+/*[clinic end generated code: output=a7318a7304650e33 input=5a345bb7002009a1]*/
 {
 #if defined(Py_GIL_DISABLED) && defined(Py_PARALLEL_GC)
     // FTP (free-threading) parallel GC
@@ -585,11 +588,15 @@ gc_enable_parallel_impl(PyObject *module)
     Py_RETURN_NONE;
 
 #elif defined(Py_PARALLEL_GC)
-    // GIL-based parallel GC (existing implementation)
-
-    // Get interpreter state
+    // GIL-based parallel GC
     PyInterpreterState *interp = _PyInterpreterState_GET();
     const int num_workers = _PyGC_MAX_WORKERS;
+
+    if (_Py_atomic_load_int(&interp->gc.collecting)) {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "cannot enable parallel GC during a collection");
+        return NULL;
+    }
 
     // Check if already initialized
     if (interp->gc.parallel_gc != NULL) {
@@ -610,15 +617,10 @@ gc_enable_parallel_impl(PyObject *module)
             Py_RETURN_NONE;
         }
 
-        // Was disabled. If the worker count matches the existing init,
-        // just restart the existing pool. Otherwise tear down and re-init
-        // so num_workers actually changes.
+        // Was disabled or a previous startup failed.  Re-arm the existing
+        // state; an eligible collection will start the pool transactionally.
         if ((size_t)num_workers == current_workers) {
             _PyGC_ParallelSetEnabled(interp, 1);
-            if (_PyGC_ParallelStart(interp) < 0) {
-                _PyGC_ParallelSetEnabled(interp, 0);
-                return NULL;
-            }
             Py_RETURN_NONE;
         }
 
@@ -629,12 +631,6 @@ gc_enable_parallel_impl(PyObject *module)
 
     // Initialize parallel GC state
     if (_PyGC_ParallelInit(interp, num_workers) < 0) {
-        return NULL;
-    }
-
-    // Start worker threads
-    if (_PyGC_ParallelStart(interp) < 0) {
-        _PyGC_ParallelFini(interp);
         return NULL;
     }
 
@@ -690,21 +686,23 @@ gc_disable_parallel_impl(PyObject *module)
     // GIL-based parallel GC
     PyInterpreterState *interp = _PyInterpreterState_GET();
 
+    if (_Py_atomic_load_int(&interp->gc.collecting)) {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "cannot disable parallel GC during a collection");
+        return NULL;
+    }
+
     // Check if parallel GC is initialized
     if (interp->gc.parallel_gc == NULL) {
         // Not initialized - nothing to disable
         Py_RETURN_NONE;
     }
 
-    // Check if already disabled
-    if (!_PyGC_ParallelIsEnabled(interp)) {
-        Py_RETURN_NONE;
-    }
-
-    // Stop worker threads
+    // Stop live workers if present.  ARMED and FAILED have none.
     _PyGC_ParallelStop(interp);
 
-    // Disable parallel GC (will fall back to serial/incremental)
+    // FAILED is distinct from an explicit disable, so always commit the
+    // DISABLED state even when policy is already off.
     _PyGC_ParallelSetEnabled(interp, 0);
 
     Py_RETURN_NONE;
@@ -727,14 +725,18 @@ Returns:
     Dictionary with keys:
     - 'available': bool - True if parallel GC is available
     - 'enabled': bool - True if parallel GC is enabled
-    - 'num_workers': int - Number of worker threads (or 0 if disabled)
+    - 'num_workers': int - Configured worker limit (or 0 if disabled)
+
+    GIL builds also return:
+    - 'pool_active': bool - True if helper threads are running
+    - 'startup_failed': bool - True if pool startup failed
 
 Available in builds configured with parallel GC support.
 [clinic start generated code]*/
 
 static PyObject *
 gc_get_parallel_config_impl(PyObject *module)
-/*[clinic end generated code: output=1560c2e1d57859e5 input=99774d18b8b358a0]*/
+/*[clinic end generated code: output=1560c2e1d57859e5 input=8f2e292291ea2bbe]*/
 {
     PyObject *result = PyDict_New();
     if (result == NULL) {
@@ -841,12 +843,16 @@ Returns:
     - 'collections_succeeded': int - Successful marking attempts
     - 'workers': list - Per-worker marking and stealing statistics
 
+    GIL builds also return:
+    - 'pool_startup_failures': int - Pool startup failures
+    - 'last_pool_startup_error': int - Startup error code (0-3)
+
 Available in builds configured with parallel GC support.
 [clinic start generated code]*/
 
 static PyObject *
 gc_get_parallel_stats_impl(PyObject *module)
-/*[clinic end generated code: output=bdc0714efc1df08c input=b62e70d5120c7598]*/
+/*[clinic end generated code: output=bdc0714efc1df08c input=574552f227ea5110]*/
 {
 #if defined(Py_GIL_DISABLED) && defined(Py_PARALLEL_GC)
     // FTP (free-threading) parallel GC

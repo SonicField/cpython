@@ -1485,7 +1485,10 @@ deduce_unreachable(PyGC_Head *base, PyGC_Head *unreachable) {
     _PyParallelGCState *par_gc = interp->gc.parallel_gc;
     Py_ssize_t candidates = 0;
 
-    if (par_gc != NULL && par_gc->enabled && par_gc->num_workers_active > 0) {
+    if (par_gc != NULL &&
+        _PyGC_PoolStateIsEnabled(par_gc->pool_state) &&
+        !par_gc->inherited_collection_serial)
+    {
         // Only record timing for first sub-collection in a gc.collect() call
         // If timing_valid is already set, a previous sub-collection succeeded
         // and we should preserve its timing
@@ -1533,6 +1536,14 @@ deduce_unreachable(PyGC_Head *base, PyGC_Head *unreachable) {
                 par_gc->subtract_refs_end_ns = subtract_refs_end;
             }
 
+            goto move_unreachable;
+        }
+
+        // Enabling only arms the collector.  Do not create native threads
+        // until the existing candidate and split-count decisions establish
+        // that this collection can use them.
+        if (_PyGC_ParallelEnsureStarted(interp) < 0) {
+            subtract_refs(base);
             goto move_unreachable;
         }
 
@@ -1633,7 +1644,10 @@ move_unreachable:
         // Parallel marking not available or chose not to run, use serial
         move_unreachable(base, unreachable);
         // Record mark end time for serial path
-        if (par_gc != NULL && !par_gc->timing_valid) {
+        if (par_gc != NULL &&
+            par_gc->pool_state == _PyGC_POOL_ACTIVE &&
+            par_gc->num_workers_active > 0 && !par_gc->timing_valid)
+        {
             PyTime_t mark_end;
             (void)PyTime_PerfCounterRaw(&mark_end);
             par_gc->mark_end_ns = mark_end;
@@ -1959,7 +1973,9 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
     // adaptive_workers is already set by the random walk controller.
     {
         _PyParallelGCState *_par_gc = tstate->interp->gc.parallel_gc;
-        if (_par_gc != NULL && _par_gc->enabled) {
+        if (_par_gc != NULL &&
+            _PyGC_PoolStateIsEnabled(_par_gc->pool_state))
+        {
             int gen = generation;
             if (gen < 0) gen = 0;
             if (gen > 2) gen = 2;
@@ -2076,7 +2092,9 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
         if (par_gc != NULL && par_gc->skip_adaptive_update) {
             par_gc->skip_adaptive_update = 0;
         }
-        else if (par_gc != NULL && par_gc->timing_valid &&
+        else if (par_gc != NULL &&
+                 par_gc->pool_state == _PyGC_POOL_ACTIVE &&
+                 par_gc->num_workers_active > 0 && par_gc->timing_valid &&
                  par_gc->cleanup_end_ns == 0)
         {
             PyTime_t cleanup_end;
@@ -2138,6 +2156,27 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
     assert(!_PyErr_Occurred(tstate));
     gcstate->frame = NULL;
     _Py_atomic_store_int(&gcstate->collecting, 0);
+
+#ifdef Py_PARALLEL_GC
+    _PyParallelGCState *par_gc = tstate->interp->gc.parallel_gc;
+    if (par_gc != NULL) {
+        par_gc->inherited_collection_serial = 0;
+        if (par_gc->startup_warning_pending) {
+            par_gc->startup_warning_pending = 0;
+            if (PyErr_WarnEx(
+                    PyExc_RuntimeWarning,
+                    "parallel GC worker pool could not be started; "
+                    "parallel GC has been disabled and collection "
+                    "continued serially",
+                    1) < 0)
+            {
+                // Collection has completed successfully.  Warning filters
+                // must not turn the recovery path into a collection failure.
+                _PyErr_Clear(tstate);
+            }
+        }
+    }
+#endif
     return stats.uncollectable + stats.collected;
 }
 
