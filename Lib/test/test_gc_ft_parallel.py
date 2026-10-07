@@ -730,6 +730,43 @@ class TestGILLazyPoolLifecycle(unittest.TestCase):
         self.assertTrue(config["enabled"])
         self.assertFalse(config["pool_active"])
 
+    def test_enable_preserves_and_reenable_resets_adaptive_state(self):
+        gc.enable_parallel()
+        self._collect_large_heap()
+        _testinternalcapi.parallel_gc_set_adaptive_workers(7)
+        learned_cost = gc.get_parallel_stats()["prev_cost_per_obj_ns"]
+        self.assertGreater(learned_cost, 0.0)
+
+        gc.enable_parallel()
+        config = gc.get_parallel_config()
+        self.assertTrue(config["pool_active"])
+        self.assertEqual(config["adaptive_workers"], 7)
+        self.assertEqual(
+            gc.get_parallel_stats()["prev_cost_per_obj_ns"],
+            learned_cost,
+        )
+
+        gc.disable_parallel()
+        gc.enable_parallel()
+        config = gc.get_parallel_config()
+        self.assertFalse(config["pool_active"])
+        self.assertEqual(config["adaptive_workers"], 4)
+        self.assertEqual(
+            gc.get_parallel_stats()["prev_cost_per_obj_ns"],
+            0.0,
+        )
+
+    def test_adaptive_worker_test_control_validates_bounds(self):
+        gc.enable_parallel()
+        with self.assertRaises(RuntimeError):
+            _testinternalcapi.parallel_gc_set_adaptive_workers(2)
+
+        self._collect_large_heap()
+        num_workers = gc.get_parallel_config()["num_workers"]
+        for invalid in (1, num_workers + 1):
+            with self.assertRaises(ValueError):
+                _testinternalcapi.parallel_gc_set_adaptive_workers(invalid)
+
     def _assert_lifecycle_change_rejected_during_collection(self, operation):
         results = []
 
@@ -1943,6 +1980,33 @@ class TestThreadPoolLifecycle(unittest.TestCase):
 
         # Serial collection should still work after disable
         gc.collect()
+
+    def test_enable_preserves_and_reenable_resets_adaptive_state(self):
+        gc.enable_parallel()
+        _testinternalcapi.parallel_gc_set_adaptive_workers(7)
+
+        gc.enable_parallel()
+        self.assertEqual(
+            gc.get_parallel_config()['adaptive_workers'],
+            7,
+        )
+
+        gc.disable_parallel()
+        gc.enable_parallel()
+        self.assertEqual(
+            gc.get_parallel_config()['adaptive_workers'],
+            4,
+        )
+
+    def test_adaptive_worker_test_control_validates_bounds(self):
+        with self.assertRaises(RuntimeError):
+            _testinternalcapi.parallel_gc_set_adaptive_workers(2)
+
+        gc.enable_parallel()
+        num_workers = gc.get_parallel_config()['num_workers']
+        for invalid in (1, num_workers + 1):
+            with self.assertRaises(ValueError):
+                _testinternalcapi.parallel_gc_set_adaptive_workers(invalid)
 
     def test_immediate_collection_after_enable(self):
         """An immediate first collection cannot race with helper startup."""

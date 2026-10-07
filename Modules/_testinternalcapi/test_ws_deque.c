@@ -7,7 +7,9 @@
 #ifdef Py_PARALLEL_GC
 #include "pycore_gc_parallel.h"    // _PyGCSplitVector, _PyGCWorkQueue, _PyGCSemaphore
 #include "pycore_gc_random_walk.h" // _PyGC_RandomWalkUpdate
-#ifndef Py_GIL_DISABLED
+#ifdef Py_GIL_DISABLED
+#include "pycore_gc_ft_parallel.h" // _PyGCThreadPool
+#else
 #include "pycore_stackref.h"       // _PyStackRef
 #endif
 #endif
@@ -1525,6 +1527,45 @@ parallel_gc_helper_visits(PyObject *self, PyObject *Py_UNUSED(ignored))
                          _Py_atomic_load_ssize(&context.helper_visits));
 }
 
+static PyObject *
+parallel_gc_set_adaptive_workers(PyObject *self, PyObject *arg)
+{
+    Py_ssize_t active_workers = PyLong_AsSsize_t(arg);
+    if (active_workers == -1 && PyErr_Occurred()) {
+        return NULL;
+    }
+
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+#ifdef Py_GIL_DISABLED
+    _PyGCThreadPool *pool = interp->gc.thread_pool;
+    if (pool == NULL) {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "parallel GC worker pool is not active");
+        return NULL;
+    }
+    size_t num_workers = (size_t)pool->num_workers;
+#else
+    _PyParallelGCState *pool = interp->gc.parallel_gc;
+    if (pool == NULL || pool->pool_state != _PyGC_POOL_ACTIVE) {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "parallel GC worker pool is not active");
+        return NULL;
+    }
+    size_t num_workers = pool->num_workers;
+#endif
+
+    if (active_workers < 2 || (size_t)active_workers > num_workers) {
+        PyErr_Format(PyExc_ValueError,
+                     "active_workers must be between 2 and %zu, got %zd",
+                     num_workers, active_workers);
+        return NULL;
+    }
+
+    pool->adaptive_workers = (size_t)active_workers;
+    pool->trial_previous_workers = 0;
+    Py_RETURN_NONE;
+}
+
 #ifndef Py_GIL_DISABLED
 static PyObject *
 parallel_gc_set_startup_failure(PyObject *self, PyObject *args)
@@ -1660,11 +1701,18 @@ advance_to_random_walk_trial(double cost,
                              size_t *workers)
 {
     for (int attempt = 0; attempt < 1000; attempt++) {
+        size_t accepted_workers = *workers;
         _PyGC_RandomWalkUpdate(
             (int64_t)cost, 1, previous_cost, trial_previous_workers,
             rng, workers, _PyGC_MAX_WORKERS);
         if (*trial_previous_workers != 0) {
             return 0;
+        }
+        if (*workers != accepted_workers) {
+            PyErr_SetString(
+                PyExc_AssertionError,
+                "accepted worker count changed without scheduling a trial");
+            return -1;
         }
     }
     PyErr_SetString(PyExc_AssertionError,
@@ -1771,6 +1819,69 @@ test_gc_random_walk_accept_reject(PyObject *self, PyObject *Py_UNUSED(ignored))
     Py_RETURN_NONE;
 }
 
+static PyObject *
+test_gc_random_walk_reset_and_noop(PyObject *self,
+                                   PyObject *Py_UNUSED(ignored))
+{
+    double previous_cost = 123.0;
+    size_t trial_previous_workers = 9;
+    uint32_t rng = 0;
+    size_t workers = 11;
+
+    _PyGC_RandomWalkReset(
+        _PyGC_MAX_WORKERS, &previous_cost, &trial_previous_workers,
+        &rng, &workers);
+    if (workers != 4 || previous_cost != 0.0 ||
+        trial_previous_workers != 0 || rng == 0)
+    {
+        PyErr_SetString(
+            PyExc_AssertionError,
+            "reset did not restore the initial random-walk state");
+        return NULL;
+    }
+
+    _PyGC_RandomWalkReset(
+        2, &previous_cost, &trial_previous_workers, &rng, &workers);
+    if (workers != 2 || previous_cost != 0.0 ||
+        trial_previous_workers != 0 || rng == 0)
+    {
+        PyErr_SetString(
+            PyExc_AssertionError,
+            "reset did not clamp the initial count to the worker ceiling");
+        return NULL;
+    }
+
+    previous_cost = 321.0;
+    trial_previous_workers = 6;
+    rng = 42;
+    workers = 7;
+    _PyGC_RandomWalkUpdate(
+        0, 1, &previous_cost, &trial_previous_workers,
+        &rng, &workers, _PyGC_MAX_WORKERS);
+    if (previous_cost != 321.0 || trial_previous_workers != 6 ||
+        rng != 42 || workers != 7)
+    {
+        PyErr_SetString(
+            PyExc_AssertionError,
+            "zero elapsed time changed random-walk state");
+        return NULL;
+    }
+
+    _PyGC_RandomWalkUpdate(
+        100, 0, &previous_cost, &trial_previous_workers,
+        &rng, &workers, _PyGC_MAX_WORKERS);
+    if (previous_cost != 321.0 || trial_previous_workers != 6 ||
+        rng != 42 || workers != 7)
+    {
+        PyErr_SetString(
+            PyExc_AssertionError,
+            "zero candidate count changed random-walk state");
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
 #endif  // Py_PARALLEL_GC
 
 // ============================================================================
@@ -1824,8 +1935,12 @@ static PyMethodDef test_methods[] = {
     {"semaphore_concurrent", semaphore_concurrent, METH_NOARGS, NULL},
     {"test_gc_random_walk_accept_reject", test_gc_random_walk_accept_reject,
      METH_NOARGS, NULL},
+    {"test_gc_random_walk_reset_and_noop",
+     test_gc_random_walk_reset_and_noop, METH_NOARGS, NULL},
     {"parallel_gc_helper_visits", parallel_gc_helper_visits,
      METH_NOARGS, NULL},
+    {"parallel_gc_set_adaptive_workers",
+     parallel_gc_set_adaptive_workers, METH_O, NULL},
 #ifdef Py_GIL_DISABLED
     {"parallel_gc_untracked_probe", parallel_gc_untracked_probe,
      METH_NOARGS, NULL},

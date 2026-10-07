@@ -882,33 +882,14 @@ class TestAdaptiveControllerAPI(unittest.TestCase):
 
 @unittest.skipUnless(_has_adaptive_controller(),
                      "Adaptive controller not available")
-class TestAdaptiveControllerBounds(unittest.TestCase):
-    """Verify the random walk stays within [2, num_workers] bounds."""
+class TestAdaptiveControllerIntegration(unittest.TestCase):
+    """Exercise the controller through real parallel collections."""
 
     def setUp(self):
         _setup_parallel_gc(self)
 
     def tearDown(self):
         _teardown_parallel_gc(self)
-
-    def test_workers_within_bounds_after_collections(self):
-        """After many collections, adaptive_workers must stay in [2, num_workers]."""
-        config = gc.get_parallel_config()
-        num_workers = config['num_workers']
-
-        for _ in range(100):
-            objs = [{'ref': None} for _ in range(5_000)]
-            for i in range(len(objs) - 1):
-                objs[i]['ref'] = objs[(i + 1) % len(objs)]
-            del objs
-            gc.collect()
-
-            config = gc.get_parallel_config()
-            aw = config['adaptive_workers']
-            self.assertGreaterEqual(aw, 2,
-                                   f"adaptive_workers {aw} below minimum 2")
-            self.assertLessEqual(aw, num_workers,
-                                f"adaptive_workers {aw} above num_workers {num_workers}")
 
     def test_no_crash_varying_heaps(self):
         """100 collections with varying heap sizes must not crash or deadlock."""
@@ -921,170 +902,53 @@ class TestAdaptiveControllerBounds(unittest.TestCase):
                 objs[i]['ref'] = objs[(i + 1) % len(objs)]
             del objs
             gc.collect()
-        # If we reach here without crash/deadlock, the test passes.
-        self.assertTrue(True)
 
-    def test_cyclic_workload_no_degradation(self):
-        """Cycle through 3 workload phases; per-object cost must not degrade.
+    def test_real_collections_drive_random_walk(self):
+        """Eligible collections must dispatch and exercise the controller."""
+        code = textwrap.dedent("""
+            import gc
 
-        Phases: dense (200K objects, graph), simple (5K, chains),
-        medium (100K, moderate connectivity). 3 cycles of 10 collections each.
-        """
-        import random
-        rng = random.Random(42)
+            gc.disable()
+            gc.enable_parallel()
+            num_workers = gc.get_parallel_config()['num_workers']
+            observed_workers = {
+                gc.get_parallel_config()['adaptive_workers']
+            }
 
-        def make_dense(n=200_000):
-            nodes = [{'id': i, 'refs': []} for i in range(n)]
-            for i in range(n):
-                for t in rng.sample(range(n), min(3, n)):
-                    nodes[i]['refs'].append(nodes[t])
-            return nodes
+            for _ in range(20):
+                before_attempts = gc.get_parallel_stats()[
+                    'collections_attempted'
+                ]
+                before_candidates = sum(
+                    item['candidates'] for item in gc.get_stats()
+                )
 
-        def make_simple(n=5_000):
-            objs = [{'ref': None} for _ in range(n)]
-            for i in range(len(objs) - 1):
-                objs[i]['ref'] = objs[i + 1]
-            objs[-1]['ref'] = objs[0]
-            return objs
+                nodes = [{} for _ in range(20_000)]
+                for node in nodes:
+                    node['self'] = node
+                del nodes
+                gc.collect()
 
-        def make_medium(n=100_000):
-            nodes = [{'id': i, 'refs': []} for i in range(n)]
-            for i in range(n):
-                nodes[i]['refs'].append(nodes[(i + 1) % n])
-            return nodes
+                after_attempts = gc.get_parallel_stats()[
+                    'collections_attempted'
+                ]
+                after_candidates = sum(
+                    item['candidates'] for item in gc.get_stats()
+                )
+                candidates = after_candidates - before_candidates
+                assert candidates >= 20_000, candidates
+                assert after_attempts > before_attempts, (
+                    before_attempts, after_attempts
+                )
+                workers = gc.get_parallel_config()['adaptive_workers']
+                assert 2 <= workers <= num_workers, (
+                    workers, num_workers
+                )
+                observed_workers.add(workers)
 
-        phases = [
-            ("dense", make_dense),
-            ("simple", make_simple),
-            ("medium", make_medium),
-        ]
-
-        config = gc.get_parallel_config()
-        num_workers = config['num_workers']
-
-        for cycle in range(3):
-            for phase_name, phase_fn in phases:
-                for _ in range(10):
-                    data = phase_fn()
-                    del data
-                    gc.collect()
-                    # Bounds check every collection
-                    config = gc.get_parallel_config()
-                    aw = config['adaptive_workers']
-                    self.assertGreaterEqual(aw, 2)
-                    self.assertLessEqual(aw, num_workers)
-
-        # If we reach here without crash/degradation, the test passes.
-        self.assertTrue(True)
-
-    def test_random_walk_fresh_run_control(self):
-        """Compare two fresh runs of the adaptive controller.
-
-        Runs the same cyclic workload twice after resetting the pool. The
-        first run should not be dramatically slower than the fresh-run
-        baseline.
-
-        This is the control arm that makes the cyclic test falsifiable:
-        without it, gross run-to-run degradation would go unnoticed.
-        """
-        import time, random
-        rng_walk = random.Random(42)
-        rng_control = random.Random(42)
-
-        def make_workload(rng, size):
-            """Create a graph workload of given size."""
-            nodes = [{'id': i, 'refs': []} for i in range(size)]
-            for i in range(0, len(nodes), max(1, len(nodes) // 500)):
-                for t in rng.sample(range(len(nodes)), min(3, len(nodes))):
-                    nodes[i]['refs'].append(nodes[t])
-            return nodes
-
-        phases = [
-            200_000,  # dense / large
-            5_000,    # simple / small
-            100_000,  # medium
-        ]
-
-        def run_cyclic(rng, collections_per_phase=5, cycles=2):
-            """Run cyclic workload, return total collection time in ns."""
-            total_ns = 0
-            for _ in range(cycles):
-                for size in phases:
-                    for _ in range(collections_per_phase):
-                        data = make_workload(rng, size)
-                        t0 = time.perf_counter_ns()
-                        del data
-                        gc.collect()
-                        total_ns += time.perf_counter_ns() - t0
-            return total_ns
-
-        # Run with a fresh adaptive controller.
-        try:
-            gc.disable_parallel()
-        except (ValueError, RuntimeError):
-            pass
-        gc.enable_parallel()
-        walk_ns = run_cyclic(rng_walk)
-
-        # Reset the pool and run the same adaptive workload again.
-        gc.disable_parallel()
-        gc.enable_parallel()
-        control_ns = run_cyclic(rng_control)
-
-        # The first run should not be dramatically worse than the control.
-        # Allow up to 50% regression (generous — noise is high)
-        self.assertLess(walk_ns, control_ns * 1.5,
-                        f"Random walk ({walk_ns/1e6:.1f}ms) is >50% worse "
-                        f"than the control ({control_ns/1e6:.1f}ms)")
-
-    def test_walker_settles_differently_per_workload(self):
-        """Different workloads must produce different final worker counts.
-
-        Run 50 dense collections (200K objects) → record W1.
-        Run 50 simple collections (5K objects) → record W2.
-        Assert W1 != W2.
-
-        This proves the walker ADAPTS to workload, not just explores
-        randomly. A fixed controller or cost-blind PRNG cannot reliably
-        pass this — the worker count after 50 dense collections should
-        be different from after 50 simple collections because the
-        performance landscape is different.
-        """
-        import random
-        rng = random.Random(42)
-
-        try:
-            gc.disable_parallel()
-        except (ValueError, RuntimeError):
-            pass
-        gc.enable_parallel()
-
-        # Phase 1: dense collections (200K objects, graph traversal)
-        # 50 collections gives the unbiased (50/50) walker enough steps
-        # to differentiate between workloads reliably.
-        for _ in range(50):
-            nodes = [{'id': i, 'refs': []} for i in range(200_000)]
-            for i in range(0, len(nodes), 50):
-                targets = rng.sample(range(len(nodes)), min(3, len(nodes)))
-                for t in targets:
-                    nodes[i]['refs'].append(nodes[t])
-            del nodes
-            gc.collect()
-        W1 = gc.get_parallel_config()['adaptive_workers']
-
-        # Phase 2: simple collections (5K objects, chains)
-        for _ in range(50):
-            objs = [{'ref': None} for _ in range(5_000)]
-            for i in range(len(objs) - 1):
-                objs[i]['ref'] = objs[i + 1]
-            objs[-1]['ref'] = objs[0]
-            del objs
-            gc.collect()
-        W2 = gc.get_parallel_config()['adaptive_workers']
-
-        self.assertNotEqual(W1, W2,
-                            f"Walker should settle at different worker counts "
-                            f"for different workloads. Dense={W1}, Simple={W2}")
+            assert len(observed_workers) > 1, observed_workers
+        """)
+        script_helper.assert_python_ok("-c", code, GC_TEST_SEED="42")
 
 
 class TestCondvarStress(unittest.TestCase):

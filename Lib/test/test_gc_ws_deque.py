@@ -191,6 +191,9 @@ class TestAdaptiveWorkerController(unittest.TestCase):
     def test_accepts_improvement_and_rejects_regression(self):
         _testinternalcapi.test_gc_random_walk_accept_reject()
 
+    def test_reset_and_invalid_measurements(self):
+        _testinternalcapi.test_gc_random_walk_reset_and_noop()
+
 
 class TestParallelExecution(unittest.TestCase):
 
