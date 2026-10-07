@@ -6,7 +6,6 @@ import gc
 import json
 import sys
 
-
 DEFAULT_NODE_COUNT = 9_000
 DEFAULT_COLLECTIONS = 1
 CONTAINER_SAMPLE_COUNT = 8
