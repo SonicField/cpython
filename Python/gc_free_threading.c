@@ -2575,6 +2575,16 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
 #endif
         return 0;
     }
+#ifdef Py_PARALLEL_GC
+    if (gcstate->parallel_gc_pool_state == _PyGC_POOL_ARMED &&
+        !gcstate->parallel_gc_inherited_collection_serial)
+    {
+        // Pool startup may create thread states and stop the world to grow
+        // FT runtime tables.  Complete it before gc_collect_internal() stops
+        // the world for collection.
+        (void)_PyGC_ThreadPoolEnsureStarted(tstate->interp);
+    }
+#endif
     gcstate->frame = tstate->current_frame;
 #ifdef Py_PARALLEL_GC
     PyMutex_Unlock(&gcstate->parallel_gc_lifecycle_mutex);
@@ -2678,8 +2688,30 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
     }
 
     assert(!_PyErr_Occurred(tstate));
+#ifdef Py_PARALLEL_GC
+    PyMutex_Lock(&gcstate->parallel_gc_lifecycle_mutex);
+#endif
     gcstate->frame = NULL;
     _Py_atomic_store_int(&gcstate->collecting, 0);
+#ifdef Py_PARALLEL_GC
+    gcstate->parallel_gc_inherited_collection_serial = 0;
+    int warn_startup_failure =
+        gcstate->parallel_gc_startup_warning_pending;
+    gcstate->parallel_gc_startup_warning_pending = 0;
+    PyMutex_Unlock(&gcstate->parallel_gc_lifecycle_mutex);
+    if (warn_startup_failure &&
+        PyErr_WarnEx(
+            PyExc_RuntimeWarning,
+            "parallel GC worker pool could not be started; "
+            "parallel GC has been disabled and collection "
+            "continued serially",
+            1) < 0)
+    {
+        // Collection completed successfully. Warning filters must not turn
+        // the serial recovery path into a collection failure.
+        _PyErr_Clear(tstate);
+    }
+#endif
     return n + m;
 }
 

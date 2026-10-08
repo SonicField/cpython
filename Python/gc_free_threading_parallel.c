@@ -2000,9 +2000,18 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
         // Already initialized
         return -1;
     }
+    interp->gc.parallel_gc_last_pool_startup_error =
+        _PyGC_STARTUP_FAILURE_RESOURCES;
+    if (interp->gc.parallel_gc_test_startup_failure_stage ==
+            _PyGC_STARTUP_FAILURE_RESOURCES)
+    {
+        PyErr_NoMemory();
+        return -1;
+    }
 
     _PyGCThreadPool *pool = PyMem_RawCalloc(1, sizeof(_PyGCThreadPool));
     if (pool == NULL) {
+        PyErr_NoMemory();
         return -1;
     }
 
@@ -2042,6 +2051,7 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
     pool->threads = PyMem_RawCalloc(num_workers - 1, sizeof(PyThread_handle_t));
     if (pool->threads == NULL) {
         thread_pool_free_resources(pool);
+        PyErr_NoMemory();
         return -1;
     }
 
@@ -2049,6 +2059,7 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
     pool->workers = PyMem_RawCalloc(num_workers, sizeof(_PyGCWorkerState));
     if (pool->workers == NULL) {
         thread_pool_free_resources(pool);
+        PyErr_NoMemory();
         return -1;
     }
 
@@ -2069,7 +2080,8 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
         PyCOND_INIT(&worker->wake_cond);
         worker->wake_flag = 0;
 
-        // Allocate thread-local pool (done once at enable time, not per-collection)
+        // Allocate the thread-local pool once at first collection, not for
+        // every collection.
         worker->local_pool = PyMem_RawCalloc(1, pool_bytes);
         worker->local_pool_size = pool_entries;
 
@@ -2091,6 +2103,7 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
                                         sizeof(_PyGCPoolWorkerArgs));
     if (pool->worker_args == NULL) {
         thread_pool_free_resources(pool);
+        PyErr_NoMemory();
         return -1;
     }
 
@@ -2099,9 +2112,23 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
     // table, so helpers must not perform this step asynchronously with the
     // first collection.
     for (int i = 1; i < num_workers; i++) {
-        pool->workers[i].tstate = _PyThreadState_New(
-            interp, _PyThreadState_WHENCE_UNKNOWN);
+        if (interp->gc.parallel_gc_test_startup_failure_stage ==
+                _PyGC_STARTUP_FAILURE_TSTATE &&
+            interp->gc.parallel_gc_test_startup_failure_worker == i)
+        {
+            pool->workers[i].tstate = NULL;
+            PyErr_NoMemory();
+        }
+        else {
+            pool->workers[i].tstate = _PyThreadState_New(
+                interp, _PyThreadState_WHENCE_UNKNOWN);
+        }
         if (pool->workers[i].tstate == NULL) {
+            interp->gc.parallel_gc_last_pool_startup_error =
+                _PyGC_STARTUP_FAILURE_TSTATE;
+            if (!PyErr_Occurred()) {
+                PyErr_NoMemory();
+            }
             thread_pool_delete_tstates(pool);
             thread_pool_free_resources(pool);
             return -1;
@@ -2114,10 +2141,25 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
         pool->worker_args[i].worker_id = i + 1;  // Workers 1..N-1
 
         PyThread_ident_t ident;
-        int rc = PyThread_start_joinable_thread(
-            thread_pool_worker, &pool->worker_args[i],
-            &ident, &pool->threads[i]);
+        int worker_id = i + 1;
+        int rc;
+        if (interp->gc.parallel_gc_test_startup_failure_stage ==
+                _PyGC_STARTUP_FAILURE_THREAD &&
+            interp->gc.parallel_gc_test_startup_failure_worker == worker_id)
+        {
+            rc = -1;
+        }
+        else {
+            rc = PyThread_start_joinable_thread(
+                thread_pool_worker, &pool->worker_args[i],
+                &ident, &pool->threads[i]);
+        }
         if (rc != 0) {
+            interp->gc.parallel_gc_last_pool_startup_error =
+                _PyGC_STARTUP_FAILURE_THREAD;
+            PyErr_Format(PyExc_RuntimeError,
+                         "failed to create parallel GC worker %d: error %d",
+                         worker_id, rc);
             // Stop and join helpers that were created before the failure.
             _Py_atomic_store_int_relaxed(&pool->shutdown, 1);
             for (size_t j = 1; j <= pool->threads_created; j++) {
@@ -2148,6 +2190,10 @@ _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers)
     PyMUTEX_UNLOCK(&pool->startup_mutex);
 
     interp->gc.thread_pool = pool;
+    interp->gc.parallel_gc_pool_state = _PyGC_POOL_ACTIVE;
+    interp->gc.parallel_gc_adaptive_workers = pool->adaptive_workers;
+    interp->gc.parallel_gc_last_pool_startup_error =
+        _PyGC_STARTUP_FAILURE_NONE;
 
     // postcondition: pool fully initialized (worker 0 is main thread, not a created thread)
     assert(pool->threads_created == pool->num_workers - 1);
@@ -2162,6 +2208,13 @@ _PyGC_ThreadPoolFini(PyInterpreterState *interp)
     assert(interp != NULL);  // interp dereferenced for gc.thread_pool below
     _PyGCThreadPool *pool = interp->gc.thread_pool;
     if (pool == NULL) {
+        interp->gc.parallel_gc_pool_state = _PyGC_POOL_DISABLED;
+        interp->gc.parallel_gc_num_workers = 0;
+        interp->gc.parallel_gc_adaptive_workers = 0;
+        interp->gc.parallel_gc_startup_warning_pending = 0;
+        interp->gc.parallel_gc_inherited_collection_serial = 0;
+        interp->gc.parallel_gc_last_pool_startup_error =
+            _PyGC_STARTUP_FAILURE_NONE;
         return;
     }
 
@@ -2185,8 +2238,78 @@ _PyGC_ThreadPoolFini(PyInterpreterState *interp)
     thread_pool_free_resources(pool);
 
     interp->gc.thread_pool = NULL;
-    interp->gc.parallel_gc_enabled = 0;
+    interp->gc.parallel_gc_pool_state = _PyGC_POOL_DISABLED;
     interp->gc.parallel_gc_num_workers = 0;
+    interp->gc.parallel_gc_adaptive_workers = 0;
+    interp->gc.parallel_gc_startup_warning_pending = 0;
+    interp->gc.parallel_gc_inherited_collection_serial = 0;
+    interp->gc.parallel_gc_last_pool_startup_error =
+        _PyGC_STARTUP_FAILURE_NONE;
+}
+
+int
+_PyGC_ThreadPoolEnsureStarted(PyInterpreterState *interp)
+{
+    if (interp->gc.parallel_gc_pool_state == _PyGC_POOL_ACTIVE) {
+        assert(interp->gc.thread_pool != NULL);
+        return 0;
+    }
+    if (interp->gc.parallel_gc_pool_state != _PyGC_POOL_ARMED ||
+        interp->gc.parallel_gc_inherited_collection_serial)
+    {
+        return -1;
+    }
+
+    assert(interp->gc.thread_pool == NULL);
+    interp->gc.parallel_gc_pool_state = _PyGC_POOL_STARTING;
+    if (_PyGC_ThreadPoolInit(
+            interp, interp->gc.parallel_gc_num_workers) == 0)
+    {
+        return 0;
+    }
+
+    PyErr_Clear();
+    interp->gc.parallel_gc_pool_state = _PyGC_POOL_FAILED;
+    interp->gc.parallel_gc_startup_warning_pending = 1;
+    interp->gc.parallel_gc_pool_startup_failures++;
+    return -1;
+}
+
+void
+_PyGC_FTParallelSetEnabled(PyInterpreterState *interp, int enabled)
+{
+    interp->gc.parallel_gc_startup_warning_pending = 0;
+    interp->gc.parallel_gc_inherited_collection_serial = 0;
+    if (enabled) {
+        if (_PyGC_PoolStateIsEnabled(
+                interp->gc.parallel_gc_pool_state))
+        {
+            return;
+        }
+        assert(interp->gc.thread_pool == NULL);
+        interp->gc.parallel_gc_pool_state = _PyGC_POOL_ARMED;
+        interp->gc.parallel_gc_last_pool_startup_error =
+            _PyGC_STARTUP_FAILURE_NONE;
+        interp->gc.parallel_gc_adaptive_workers =
+            _PyGC_RandomWalkInitialWorkers(
+                interp->gc.parallel_gc_num_workers);
+    }
+    else {
+        assert(interp->gc.thread_pool == NULL);
+        interp->gc.parallel_gc_pool_state = _PyGC_POOL_DISABLED;
+        interp->gc.parallel_gc_num_workers = 0;
+        interp->gc.parallel_gc_adaptive_workers = 0;
+    }
+}
+
+void
+_PyGC_FTParallelSetStartupFailureForTest(
+    PyInterpreterState *interp,
+    _PyGCStartupFailureStage stage,
+    Py_ssize_t worker)
+{
+    interp->gc.parallel_gc_test_startup_failure_stage = stage;
+    interp->gc.parallel_gc_test_startup_failure_worker = worker;
 }
 
 static void
@@ -2246,28 +2369,33 @@ _PyGC_ThreadPoolAfterForkChild(PyInterpreterState *interp)
     // The owner of an inherited lifecycle mutex does not survive fork.
     _PyMutex_at_fork_reinit(&interp->gc.parallel_gc_lifecycle_mutex);
 
+    _PyGCPoolState inherited_state = interp->gc.parallel_gc_pool_state;
     _PyGCThreadPool *inherited = interp->gc.thread_pool;
-    if (inherited == NULL || !interp->gc.parallel_gc_enabled) {
-        return 0;
+    int inherited_collection =
+        _Py_atomic_load_int_relaxed(&interp->gc.collecting);
+    if (inherited != NULL) {
+        // Python callbacks run outside parallel phases. A raw fork from a C
+        // traversal callback bypasses CPython's supported fork protocol.
+        assert(!_Py_atomic_load_int_relaxed(&inherited->dispatch_in_progress));
+        thread_pool_abandon_after_fork(inherited);
+        interp->gc.thread_pool = NULL;
     }
-
-    // Python callbacks run outside parallel phases. A raw fork from a C
-    // traversal callback bypasses CPython's supported fork protocol.
-    assert(!_Py_atomic_load_int_relaxed(&inherited->dispatch_in_progress));
-
-    int num_workers = inherited->num_workers;
-    int skip_adaptive_update =
-        _Py_atomic_load_int_relaxed(&interp->gc.collecting) &&
-        interp->gc.cleanup_end_ns == 0;
-
-    thread_pool_abandon_after_fork(inherited);
-    interp->gc.thread_pool = NULL;
     reset_forked_child_timing(interp);
 
-    if (_PyGC_ThreadPoolInit(interp, num_workers) < 0) {
-        return -1;
+    if (inherited_state == _PyGC_POOL_ARMED ||
+        inherited_state == _PyGC_POOL_ACTIVE ||
+        inherited_state == _PyGC_POOL_STARTING)
+    {
+        interp->gc.parallel_gc_pool_state = _PyGC_POOL_ARMED;
+        interp->gc.parallel_gc_adaptive_workers =
+            _PyGC_RandomWalkInitialWorkers(
+                interp->gc.parallel_gc_num_workers);
+        interp->gc.parallel_gc_last_pool_startup_error =
+            _PyGC_STARTUP_FAILURE_NONE;
+        interp->gc.parallel_gc_startup_warning_pending = 0;
+        interp->gc.parallel_gc_inherited_collection_serial =
+            inherited_collection;
     }
-    interp->gc.thread_pool->skip_adaptive_update = skip_adaptive_update;
     return 0;
 }
 
@@ -3525,12 +3653,18 @@ PyObject *
 _PyGC_FTParallelGetStats(PyInterpreterState *interp)
 {
     PyMutex_Lock(&interp->gc.parallel_gc_lifecycle_mutex);
-    int parallel_enabled = interp->gc.parallel_gc_enabled;
+    _PyGCPoolState pool_state = interp->gc.parallel_gc_pool_state;
+    int parallel_enabled = _PyGC_PoolStateIsEnabled(pool_state);
     int num_workers = parallel_enabled ?
                       interp->gc.parallel_gc_num_workers : 0;
-    size_t adaptive_workers = 0;
+    size_t adaptive_workers = interp->gc.parallel_gc_adaptive_workers;
     double prev_cost_per_obj_ns = 0.0;
-    if (parallel_enabled && interp->gc.thread_pool != NULL) {
+    size_t pool_startup_failures =
+        interp->gc.parallel_gc_pool_startup_failures;
+    _PyGCStartupFailureStage last_pool_startup_error =
+        interp->gc.parallel_gc_last_pool_startup_error;
+    if (pool_state == _PyGC_POOL_ACTIVE) {
+        assert(interp->gc.thread_pool != NULL);
         adaptive_workers = interp->gc.thread_pool->adaptive_workers;
         prev_cost_per_obj_ns =
             interp->gc.thread_pool->prev_cost_per_obj_ns;
@@ -3558,6 +3692,28 @@ _PyGC_FTParallelGetStats(PyInterpreterState *interp)
         return NULL;
     }
     Py_DECREF(workers);
+
+    PyObject *failures = PyLong_FromSize_t(pool_startup_failures);
+    if (failures == NULL ||
+        PyDict_SetItemString(
+            result, "pool_startup_failures", failures) < 0)
+    {
+        Py_XDECREF(failures);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(failures);
+
+    PyObject *startup_error = PyLong_FromLong(last_pool_startup_error);
+    if (startup_error == NULL ||
+        PyDict_SetItemString(
+            result, "last_pool_startup_error", startup_error) < 0)
+    {
+        Py_XDECREF(startup_error);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(startup_error);
 
     if (parallel_enabled) {
         PyObject *aw = PyLong_FromSize_t(adaptive_workers);

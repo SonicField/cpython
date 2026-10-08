@@ -221,6 +221,29 @@ struct gc_stats {
     struct gc_old_stats_buffer old[2];
 };
 
+#ifdef Py_PARALLEL_GC
+typedef enum {
+    _PyGC_STARTUP_FAILURE_NONE,
+    _PyGC_STARTUP_FAILURE_RESOURCES,
+    _PyGC_STARTUP_FAILURE_TSTATE,
+    _PyGC_STARTUP_FAILURE_THREAD,
+} _PyGCStartupFailureStage;
+
+typedef enum {
+    _PyGC_POOL_DISABLED,
+    _PyGC_POOL_ARMED,
+    _PyGC_POOL_STARTING,
+    _PyGC_POOL_ACTIVE,
+    _PyGC_POOL_FAILED,
+} _PyGCPoolState;
+
+static inline int
+_PyGC_PoolStateIsEnabled(_PyGCPoolState state)
+{
+    return state == _PyGC_POOL_ARMED || state == _PyGC_POOL_ACTIVE;
+}
+#endif
+
 struct _gc_runtime_state {
     /* Is automatic collection enabled? */
     int enabled;
@@ -273,9 +296,16 @@ struct _gc_runtime_state {
 #ifdef Py_PARALLEL_GC
     /* Parallel GC configuration for FTP */
     PyMutex parallel_gc_lifecycle_mutex;  /* Serializes pool lifecycle changes */
-    int parallel_gc_enabled;    /* 1 = enabled, 0 = disabled (default) */
+    _PyGCPoolState parallel_gc_pool_state;
     int parallel_gc_num_workers; /* Number of workers, 0 = auto (based on CPU count) */
     struct _PyGCThreadPool *thread_pool;  /* Persistent thread pool for parallel GC */
+    size_t parallel_gc_adaptive_workers;
+    int parallel_gc_startup_warning_pending;
+    size_t parallel_gc_pool_startup_failures;
+    _PyGCStartupFailureStage parallel_gc_last_pool_startup_error;
+    _PyGCStartupFailureStage parallel_gc_test_startup_failure_stage;
+    Py_ssize_t parallel_gc_test_startup_failure_worker;
+    int parallel_gc_inherited_collection_serial;
 
     /* Phase timing for benchmarking (nanoseconds) */
     int64_t gc_start_ns;              /* Start of gc_collect_internal */

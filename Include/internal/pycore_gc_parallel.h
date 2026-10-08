@@ -220,27 +220,6 @@ typedef enum {
     _PyGC_PHASE_MARK,               // Work-stealing parallel marking
 } _PyGCPhase;
 
-typedef enum {
-    _PyGC_STARTUP_FAILURE_NONE,
-    _PyGC_STARTUP_FAILURE_RESOURCES,
-    _PyGC_STARTUP_FAILURE_TSTATE,
-    _PyGC_STARTUP_FAILURE_THREAD,
-} _PyGCStartupFailureStage;
-
-typedef enum {
-    _PyGC_POOL_DISABLED,
-    _PyGC_POOL_ARMED,
-    _PyGC_POOL_STARTING,
-    _PyGC_POOL_ACTIVE,
-    _PyGC_POOL_FAILED,
-} _PyGCPoolState;
-
-static inline int
-_PyGC_PoolStateIsEnabled(_PyGCPoolState state)
-{
-    return state == _PyGC_POOL_ARMED || state == _PyGC_POOL_ACTIVE;
-}
-
 // =============================================================================
 // Worker Thread State
 // =============================================================================

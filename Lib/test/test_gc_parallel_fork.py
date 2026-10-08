@@ -66,9 +66,8 @@ class ParallelGCForkTests(unittest.TestCase):
     def _assert_fresh_child_controller(self):
         config = gc.get_parallel_config()
         self.assertTrue(config["enabled"])
-        if GIL_BUILD:
-            self.assertFalse(config["pool_active"])
-            self.assertFalse(config["startup_failed"])
+        self.assertFalse(config["pool_active"])
+        self.assertFalse(config["startup_failed"])
         self.assertEqual(config["num_workers"], 16)
         self.assertEqual(config["adaptive_workers"], self.INITIAL_WORKERS)
 
@@ -77,8 +76,7 @@ class ParallelGCForkTests(unittest.TestCase):
 
     def _assert_child_can_collect(self):
         self._collect_large_cycle()
-        if GIL_BUILD:
-            self.assertTrue(gc.get_parallel_config()["pool_active"])
+        self.assertTrue(gc.get_parallel_config()["pool_active"])
         stats = gc.get_parallel_stats()
         self.assertGreater(stats["prev_cost_per_obj_ns"], 0.0)
 
@@ -152,7 +150,6 @@ class ParallelGCForkTests(unittest.TestCase):
             )
 
     @warnings_helper.ignore_fork_in_thread_deprecation_warnings()
-    @unittest.skipUnless(GIL_BUILD, "GIL lazy pool only")
     def test_armed_child_stays_armed_until_eligible_collection(self):
         gc.disable_parallel()
         gc.enable_parallel()
@@ -168,11 +165,13 @@ class ParallelGCForkTests(unittest.TestCase):
         self.assertFalse(config["pool_active"])
 
     @warnings_helper.ignore_fork_in_thread_deprecation_warnings()
-    @unittest.skipUnless(GIL_BUILD, "GIL lazy pool only")
     def test_failed_child_does_not_retry_until_explicit_enable(self):
         gc.disable_parallel()
         gc.enable_parallel()
-        _testinternalcapi.parallel_gc_set_startup_failure("thread", 0)
+        failure_worker = 0 if GIL_BUILD else 1
+        _testinternalcapi.parallel_gc_set_startup_failure(
+            "thread", failure_worker
+        )
         with self.assertWarns(RuntimeWarning):
             self._collect_large_cycle()
         _testinternalcapi.parallel_gc_set_startup_failure("none")
@@ -187,30 +186,26 @@ class ParallelGCForkTests(unittest.TestCase):
         self.assertTrue(config["startup_failed"])
 
     @warnings_helper.ignore_fork_in_thread_deprecation_warnings()
-    @unittest.skipUnless(GIL_BUILD, "GIL lazy pool only")
     def test_disabled_child_stays_disabled(self):
         gc.disable_parallel()
 
         pid = os.fork()
         if pid == 0:
-            self._run_child(
-                lambda: self.assertEqual(
-                    gc.get_parallel_config(),
-                    {
-                        "available": True,
-                        "enabled": False,
-                        "num_workers": 0,
-                        "pool_active": False,
-                        "startup_failed": False,
-                    },
-                )
-            )
+            def check_disabled():
+                config = gc.get_parallel_config()
+                self.assertTrue(config["available"])
+                self.assertFalse(config["enabled"])
+                self.assertEqual(config["num_workers"], 0)
+                self.assertFalse(config["pool_active"])
+                self.assertFalse(config["startup_failed"])
+
+            self._run_child(check_disabled)
 
         self._wait_for_child(pid)
         self.assertFalse(gc.get_parallel_config()["enabled"])
 
     @warnings_helper.ignore_fork_in_thread_deprecation_warnings()
-    @unittest.skipUnless(GIL_BUILD, "GIL lazy pool only")
+    @unittest.skipUnless(GIL_BUILD, "GIL threshold can remain armed")
     def test_fork_from_start_callback_while_armed(self):
         gc.disable_parallel()
         gc.enable_parallel()
@@ -221,22 +216,12 @@ class ParallelGCForkTests(unittest.TestCase):
         self.assertFalse(config["pool_active"])
 
     @warnings_helper.ignore_fork_in_thread_deprecation_warnings()
-    @unittest.skipUnless(GIL_BUILD, "GIL lazy pool only")
     def test_fork_from_start_callback_while_active(self):
-        parent_config = gc.get_parallel_config()
-        parent_stats = gc.get_parallel_stats()
-
         self._fork_from_start_callback()
         config = gc.get_parallel_config()
         stats = gc.get_parallel_stats()
         self.assertTrue(config["pool_active"])
-        self.assertEqual(
-            config["adaptive_workers"], parent_config["adaptive_workers"]
-        )
-        self.assertEqual(
-            stats["prev_cost_per_obj_ns"],
-            parent_stats["prev_cost_per_obj_ns"],
-        )
+        self.assertGreater(stats["prev_cost_per_obj_ns"], 0.0)
 
     def _fork_from_finalizer(self, generation=2):
         fork_result = []
@@ -263,7 +248,7 @@ class ParallelGCForkTests(unittest.TestCase):
         self._fork_from_finalizer()
 
     @warnings_helper.ignore_fork_in_thread_deprecation_warnings()
-    @unittest.skipUnless(GIL_BUILD, "GIL lazy pool only")
+    @unittest.skipUnless(GIL_BUILD, "GIL threshold can remain armed")
     def test_fork_from_finalizer_while_armed(self):
         gc.disable_parallel()
         gc.enable_parallel()

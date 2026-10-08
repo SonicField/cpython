@@ -1594,6 +1594,7 @@ class TestParallelTupleTraversal(_ParallelTraversalTest):
     @requires_traversal_probe
     def test_untracked_tuple_clears_alive_bit(self):
         self.set_parallel(True)
+        gc.collect()
         target = self.make_untrackable_tuple_chain()
         self.assertTrue(gc.is_tracked(target))
 
@@ -1940,6 +1941,7 @@ class TestThreadPoolLifecycle(unittest.TestCase):
         gc.disable_parallel()
 
     def tearDown(self):
+        _testinternalcapi.parallel_gc_set_startup_failure("none")
         gc.disable_parallel()
         if self.gc_was_enabled:
             gc.enable()
@@ -1977,6 +1979,50 @@ class TestThreadPoolLifecycle(unittest.TestCase):
         finally:
             gc.disable_parallel()
 
+    def test_enable_arms_without_starting_threads(self):
+        gc.enable_parallel()
+
+        config = gc.get_parallel_config()
+        self.assertTrue(config['enabled'])
+        self.assertFalse(config['pool_active'])
+        self.assertFalse(config['startup_failed'])
+        self.assertEqual(config['num_workers'], 16)
+        self.assertEqual(config['adaptive_workers'], 4)
+        stats = gc._get_thread_pool_stats()
+        self.assertFalse(stats['active'])
+        self.assertEqual(stats['threads_created'], 0)
+
+    def test_first_collection_starts_pool(self):
+        gc.enable_parallel()
+
+        gc.collect()
+
+        config = gc.get_parallel_config()
+        self.assertTrue(config['enabled'])
+        self.assertTrue(config['pool_active'])
+        self.assertFalse(config['startup_failed'])
+        self.assertEqual(
+            gc._get_thread_pool_stats()['threads_created'],
+            15,
+        )
+
+    def test_repeated_enable_keeps_pool_armed(self):
+        for _ in range(10):
+            gc.enable_parallel()
+
+        config = gc.get_parallel_config()
+        self.assertTrue(config['enabled'])
+        self.assertFalse(config['pool_active'])
+
+    def test_disable_armed_pool(self):
+        gc.enable_parallel()
+        gc.disable_parallel()
+
+        config = gc.get_parallel_config()
+        self.assertFalse(config['enabled'])
+        self.assertFalse(config['pool_active'])
+        self.assertFalse(config['startup_failed'])
+
     def test_enable_disable_cycle(self):
         """Enable → collect → disable → collect cycle works cleanly."""
         gc.enable_parallel()
@@ -1990,6 +2036,7 @@ class TestThreadPoolLifecycle(unittest.TestCase):
 
     def test_enable_preserves_and_reenable_resets_adaptive_state(self):
         gc.enable_parallel()
+        gc.collect()
         _testinternalcapi.parallel_gc_set_adaptive_workers(7)
 
         gc.enable_parallel()
@@ -2000,16 +2047,16 @@ class TestThreadPoolLifecycle(unittest.TestCase):
 
         gc.disable_parallel()
         gc.enable_parallel()
-        self.assertEqual(
-            gc.get_parallel_config()['adaptive_workers'],
-            4,
-        )
+        config = gc.get_parallel_config()
+        self.assertFalse(config['pool_active'])
+        self.assertEqual(config['adaptive_workers'], 4)
 
     def test_adaptive_worker_test_control_validates_bounds(self):
         with self.assertRaises(RuntimeError):
             _testinternalcapi.parallel_gc_set_adaptive_workers(2)
 
         gc.enable_parallel()
+        gc.collect()
         num_workers = gc.get_parallel_config()['num_workers']
         for invalid in (1, num_workers + 1):
             with self.assertRaises(ValueError):
@@ -2038,11 +2085,13 @@ class TestThreadPoolLifecycle(unittest.TestCase):
         config = gc.get_parallel_config()
         self.assertTrue(config['enabled'])
         self.assertEqual(config['num_workers'], 16)
-        if hasattr(gc, '_get_thread_pool_stats'):
-            stats = gc._get_thread_pool_stats()
-            self.assertTrue(stats['active'])
-            self.assertEqual(stats['threads_created'], 15)
+        stats = gc._get_thread_pool_stats()
+        self.assertFalse(stats['active'])
+        self.assertEqual(stats['threads_created'], 0)
         gc.collect()
+        stats = gc._get_thread_pool_stats()
+        self.assertTrue(stats['active'])
+        self.assertEqual(stats['threads_created'], 15)
 
     def test_concurrent_enable_disable_is_coherent(self):
         for _ in range(50):
@@ -2141,6 +2190,164 @@ class TestThreadPoolLifecycle(unittest.TestCase):
     def test_disable_during_collection_is_rejected(self):
         gc.enable_parallel()
         self.check_lifecycle_change_during_collection(gc.disable_parallel)
+
+    def test_each_partial_thread_start_failure_falls_back_cleanly(self):
+        for worker in range(1, 16):
+            with self.subTest(worker=worker):
+                gc.disable_parallel()
+                gc.enable_parallel()
+                failures_before = gc.get_parallel_stats()[
+                    'pool_startup_failures'
+                ]
+                _testinternalcapi.parallel_gc_set_startup_failure(
+                    'thread', worker
+                )
+
+                with self.assertWarnsRegex(
+                    RuntimeWarning,
+                    'parallel GC worker pool could not be started',
+                ):
+                    gc.collect()
+
+                config = gc.get_parallel_config()
+                self.assertFalse(config['enabled'])
+                self.assertFalse(config['pool_active'])
+                self.assertTrue(config['startup_failed'])
+                stats = gc.get_parallel_stats()
+                self.assertEqual(
+                    stats['pool_startup_failures'],
+                    failures_before + 1,
+                )
+                self.assertEqual(stats['last_pool_startup_error'], 3)
+
+    def test_startup_failure_control_validates_helper_bounds(self):
+        for worker in (0, 16):
+            with self.subTest(worker=worker):
+                with self.assertRaises(ValueError):
+                    _testinternalcapi.parallel_gc_set_startup_failure(
+                        'thread', worker
+                    )
+
+    def test_each_partial_tstate_failure_falls_back_cleanly(self):
+        for worker in range(1, 16):
+            with self.subTest(worker=worker):
+                gc.disable_parallel()
+                gc.enable_parallel()
+                _testinternalcapi.parallel_gc_set_startup_failure(
+                    'tstate', worker
+                )
+
+                with self.assertWarns(RuntimeWarning):
+                    gc.collect()
+
+                config = gc.get_parallel_config()
+                self.assertFalse(config['enabled'])
+                self.assertFalse(config['pool_active'])
+                self.assertTrue(config['startup_failed'])
+                self.assertEqual(
+                    gc.get_parallel_stats()['last_pool_startup_error'],
+                    2,
+                )
+
+    def test_resource_failure_falls_back_cleanly(self):
+        gc.enable_parallel()
+        _testinternalcapi.parallel_gc_set_startup_failure('resources')
+
+        with self.assertWarns(RuntimeWarning):
+            gc.collect()
+
+        config = gc.get_parallel_config()
+        self.assertFalse(config['enabled'])
+        self.assertFalse(config['pool_active'])
+        self.assertTrue(config['startup_failed'])
+        self.assertEqual(
+            gc.get_parallel_stats()['last_pool_startup_error'],
+            1,
+        )
+
+    def test_start_failure_is_not_retried_automatically(self):
+        gc.enable_parallel()
+        _testinternalcapi.parallel_gc_set_startup_failure('thread', 1)
+        with self.assertWarns(RuntimeWarning):
+            gc.collect()
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            gc.collect()
+        self.assertEqual(caught, [])
+        self.assertFalse(gc.get_parallel_config()['enabled'])
+
+    def test_disable_clears_failed_state(self):
+        gc.enable_parallel()
+        _testinternalcapi.parallel_gc_set_startup_failure('thread', 1)
+        with self.assertWarns(RuntimeWarning):
+            gc.collect()
+
+        self.assertTrue(gc.get_parallel_config()['startup_failed'])
+        gc.disable_parallel()
+        config = gc.get_parallel_config()
+        self.assertFalse(config['enabled'])
+        self.assertFalse(config['pool_active'])
+        self.assertFalse(config['startup_failed'])
+
+    def test_explicit_enable_retries_after_start_failure(self):
+        gc.enable_parallel()
+        _testinternalcapi.parallel_gc_set_startup_failure('thread', 7)
+        with self.assertWarns(RuntimeWarning):
+            gc.collect()
+
+        _testinternalcapi.parallel_gc_set_startup_failure('none')
+        gc.enable_parallel()
+        self.assertFalse(gc.get_parallel_config()['pool_active'])
+
+        gc.collect()
+        config = gc.get_parallel_config()
+        self.assertTrue(config['enabled'])
+        self.assertTrue(config['pool_active'])
+        self.assertFalse(config['startup_failed'])
+        self.assertEqual(
+            gc.get_parallel_stats()['last_pool_startup_error'],
+            0,
+        )
+
+    def test_warning_filter_cannot_turn_fallback_into_failure(self):
+        gc.enable_parallel()
+        _testinternalcapi.parallel_gc_set_startup_failure('thread', 1)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', RuntimeWarning)
+            gc.collect()
+
+        config = gc.get_parallel_config()
+        self.assertFalse(config['enabled'])
+        self.assertTrue(config['startup_failed'])
+
+    def test_interpreter_shutdown_in_each_pool_state(self):
+        scripts = {
+            'disabled': 'import gc; gc.disable_parallel()',
+            'armed': 'import gc; gc.enable_parallel()',
+            'active': (
+                'import gc\n'
+                'gc.disable()\n'
+                'gc.enable_parallel()\n'
+                'gc.collect()\n'
+                "assert gc.get_parallel_config()['pool_active']\n"
+            ),
+            'failed': (
+                'import gc, warnings, _testinternalcapi\n'
+                'gc.disable()\n'
+                'gc.enable_parallel()\n'
+                '_testinternalcapi.parallel_gc_set_startup_failure('
+                "'thread', 7)\n"
+                'with warnings.catch_warnings():\n'
+                "    warnings.simplefilter('ignore')\n"
+                '    gc.collect()\n'
+                "assert gc.get_parallel_config()['startup_failed']\n"
+            ),
+        }
+        for state, script in scripts.items():
+            with self.subTest(state=state):
+                script_helper.assert_python_ok('-c', script)
 
     def test_subinterpreters_own_independent_pools(self):
         _interpreters = import_helper.import_module('_interpreters')

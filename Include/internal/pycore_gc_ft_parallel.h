@@ -350,8 +350,8 @@ typedef struct _PyGCThreadPool {
     int dispatch_in_progress;
 
     // Helper-startup handshake. Helpers report ready after binding their
-    // pre-created thread states; ThreadPoolInit waits for all of them before
-    // publishing the pool.
+    // pre-created thread states; lazy ThreadPoolInit waits for all of them
+    // before publishing the pool.
     PyMUTEX_T startup_mutex;
     PyCOND_T startup_cond;
     int workers_ready;
@@ -399,6 +399,14 @@ PyAPI_FUNC(int) _PyGC_ThreadPoolInit(PyInterpreterState *interp, int num_workers
 PyAPI_FUNC(void) _PyGC_ThreadPoolFini(PyInterpreterState *interp);
 PyAPI_FUNC(int) _PyGC_ThreadPoolIsActive(PyInterpreterState *interp);
 PyAPI_FUNC(int) _PyGC_ThreadPoolAfterForkChild(PyInterpreterState *interp);
+PyAPI_FUNC(int) _PyGC_ThreadPoolEnsureStarted(PyInterpreterState *interp);
+PyAPI_FUNC(void) _PyGC_FTParallelSetEnabled(
+    PyInterpreterState *interp,
+    int enabled);
+PyAPI_FUNC(void) _PyGC_FTParallelSetStartupFailureForTest(
+    PyInterpreterState *interp,
+    _PyGCStartupFailureStage stage,
+    Py_ssize_t worker);
 
 // Get thread pool statistics for testing
 PyAPI_FUNC(size_t) _PyGC_ThreadPoolGetThreadsCreated(PyInterpreterState *interp);
@@ -583,21 +591,18 @@ struct _PyGCScanHeapResult {
 // and don't enter the work functions. The internal phase_barrier is resized
 // to adaptive_workers per dispatch so it only waits for active participants.
 //
-// Falls back to configured num_workers only if the pool isn't initialised
-// yet (e.g. enable_parallel hasn't completed). Once pool exists, the
-// adaptive count owned by the pool is authoritative.
 static inline int
 _PyGC_GetParallelWorkers(PyInterpreterState *interp)
 {
     struct _gc_runtime_state *gc = &interp->gc;
-    if (!gc->parallel_gc_enabled) {
+    if (gc->parallel_gc_pool_state != _PyGC_POOL_ACTIVE ||
+        gc->parallel_gc_inherited_collection_serial)
+    {
         return 0;
     }
     _PyGCThreadPool *pool = gc->thread_pool;
-    if (pool != NULL) {
-        return (int)pool->adaptive_workers;
-    }
-    return gc->parallel_gc_num_workers;
+    assert(pool != NULL);
+    return (int)pool->adaptive_workers;
 }
 
 // Check if parallel GC should be used.

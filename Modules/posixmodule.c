@@ -718,6 +718,11 @@ PyOS_BeforeFork(void)
     PyInterpreterState *interp = _PyInterpreterState_GET();
     run_at_forkers(interp->before_forkers, 1);
 
+#if defined(Py_PARALLEL_GC) && defined(Py_GIL_DISABLED)
+    // Pool startup and teardown must finish before the world is stopped.
+    // Otherwise another thread could be paused while holding this mutex.
+    PyMutex_Lock(&interp->gc.parallel_gc_lifecycle_mutex);
+#endif
     _PyImport_AcquireLock(interp);
     _PyEval_StopTheWorldAll(&_PyRuntime);
     HEAD_LOCK(&_PyRuntime);
@@ -727,9 +732,12 @@ void
 PyOS_AfterFork_Parent(void)
 {
     HEAD_UNLOCK(&_PyRuntime);
-    _PyEval_StartTheWorldAll(&_PyRuntime);
 
     PyInterpreterState *interp = _PyInterpreterState_GET();
+#if defined(Py_PARALLEL_GC) && defined(Py_GIL_DISABLED)
+    PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
+#endif
+    _PyEval_StartTheWorldAll(&_PyRuntime);
     _PyImport_ReleaseLock(interp);
     run_at_forkers(interp->after_forkers_parent, 0);
 }

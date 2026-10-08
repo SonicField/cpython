@@ -537,7 +537,8 @@ gc.enable_parallel
 Enable parallel garbage collection.
 
 Enabling arms the collector. Helper threads are created only when a GIL
-collection reaches the parallel-work threshold.
+collection reaches the parallel-work threshold, or when a free-threaded
+collection first runs.
 
 The collector dynamically adjusts the active worker count between 2 and
 the implementation maximum for each collection.
@@ -547,7 +548,7 @@ Available in builds configured with parallel GC support.
 
 static PyObject *
 gc_enable_parallel_impl(PyObject *module)
-/*[clinic end generated code: output=a7318a7304650e33 input=5a345bb7002009a1]*/
+/*[clinic end generated code: output=a7318a7304650e33 input=3a0acad8390dba0b]*/
 {
 #if defined(Py_GIL_DISABLED) && defined(Py_PARALLEL_GC)
     // FTP (free-threading) parallel GC
@@ -562,27 +563,15 @@ gc_enable_parallel_impl(PyObject *module)
         return NULL;
     }
 
-    // If already enabled with same settings, just return
-    if (interp->gc.parallel_gc_enabled && interp->gc.thread_pool != NULL) {
-        int current_workers = interp->gc.thread_pool->num_workers;
-        if (current_workers == num_workers) {
-            PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
-            Py_RETURN_NONE;  // Already enabled with same worker count
-        }
-        // Different worker count - need to reinitialize
-        _PyGC_ThreadPoolFini(interp);
-    }
-
-    // Initialize thread pool
-    if (_PyGC_ThreadPoolInit(interp, num_workers) < 0) {
+    if (_PyGC_PoolStateIsEnabled(interp->gc.parallel_gc_pool_state)) {
+        assert(interp->gc.parallel_gc_num_workers == num_workers);
         PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
-        PyErr_SetString(PyExc_RuntimeError, "Failed to initialize GC thread pool");
-        return NULL;
+        Py_RETURN_NONE;
     }
 
-    // Set configuration
-    interp->gc.parallel_gc_enabled = 1;
+    assert(interp->gc.thread_pool == NULL);
     interp->gc.parallel_gc_num_workers = num_workers;
+    _PyGC_FTParallelSetEnabled(interp, 1);
 
     PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
     Py_RETURN_NONE;
@@ -677,8 +666,7 @@ gc_disable_parallel_impl(PyObject *module)
         _PyGC_ThreadPoolFini(interp);
     }
 
-    interp->gc.parallel_gc_enabled = 0;
-    interp->gc.parallel_gc_num_workers = 0;
+    _PyGC_FTParallelSetEnabled(interp, 0);
     PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
     Py_RETURN_NONE;
 
@@ -727,7 +715,6 @@ Returns:
     - 'enabled': bool - True if parallel GC is enabled
     - 'num_workers': int - Configured worker limit (or 0 if disabled)
 
-    GIL builds also return:
     - 'pool_active': bool - True if helper threads are running
     - 'startup_failed': bool - True if pool startup failed
 
@@ -736,7 +723,7 @@ Available in builds configured with parallel GC support.
 
 static PyObject *
 gc_get_parallel_config_impl(PyObject *module)
-/*[clinic end generated code: output=1560c2e1d57859e5 input=8f2e292291ea2bbe]*/
+/*[clinic end generated code: output=1560c2e1d57859e5 input=0fc409434fcb22d5]*/
 {
     PyObject *result = PyDict_New();
     if (result == NULL) {
@@ -748,11 +735,15 @@ gc_get_parallel_config_impl(PyObject *module)
     PyInterpreterState *interp = _PyInterpreterState_GET();
 
     PyMutex_Lock(&interp->gc.parallel_gc_lifecycle_mutex);
-    int parallel_enabled = interp->gc.parallel_gc_enabled;
+    _PyGCPoolState pool_state = interp->gc.parallel_gc_pool_state;
+    int parallel_enabled = _PyGC_PoolStateIsEnabled(pool_state);
     int num_workers = parallel_enabled ?
                       interp->gc.parallel_gc_num_workers : 0;
-    size_t adaptive_workers = 0;
-    if (parallel_enabled && interp->gc.thread_pool != NULL) {
+    size_t adaptive_workers = interp->gc.parallel_gc_adaptive_workers;
+    int pool_active = pool_state == _PyGC_POOL_ACTIVE;
+    int startup_failed = pool_state == _PyGC_POOL_FAILED;
+    if (pool_active) {
+        assert(interp->gc.thread_pool != NULL);
         adaptive_workers = interp->gc.thread_pool->adaptive_workers;
     }
     PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
@@ -787,6 +778,15 @@ gc_get_parallel_config_impl(PyObject *module)
             return NULL;
         }
         Py_DECREF(aw);
+    }
+
+    if (PyDict_SetItemString(result, "pool_active",
+                             pool_active ? Py_True : Py_False) < 0 ||
+        PyDict_SetItemString(result, "startup_failed",
+                             startup_failed ? Py_True : Py_False) < 0)
+    {
+        Py_DECREF(result);
+        return NULL;
     }
 
     // Parallel cleanup is available in FTP builds
@@ -843,7 +843,6 @@ Returns:
     - 'collections_succeeded': int - Successful marking attempts
     - 'workers': list - Per-worker marking and stealing statistics
 
-    GIL builds also return:
     - 'pool_startup_failures': int - Pool startup failures
     - 'last_pool_startup_error': int - Startup error code (0-3)
 
@@ -852,7 +851,7 @@ Available in builds configured with parallel GC support.
 
 static PyObject *
 gc_get_parallel_stats_impl(PyObject *module)
-/*[clinic end generated code: output=bdc0714efc1df08c input=574552f227ea5110]*/
+/*[clinic end generated code: output=bdc0714efc1df08c input=667a3c7d6ec102bc]*/
 {
 #if defined(Py_GIL_DISABLED) && defined(Py_PARALLEL_GC)
     // FTP (free-threading) parallel GC

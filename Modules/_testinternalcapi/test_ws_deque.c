@@ -1580,7 +1580,6 @@ parallel_gc_dispatch_count(PyObject *self, PyObject *Py_UNUSED(ignored))
     return PyLong_FromSize_t(count);
 }
 
-#ifndef Py_GIL_DISABLED
 static PyObject *
 parallel_gc_set_startup_failure(PyObject *self, PyObject *args)
 {
@@ -1612,20 +1611,31 @@ parallel_gc_set_startup_failure(PyObject *self, PyObject *args)
         return NULL;
     }
 
+#ifdef Py_GIL_DISABLED
+    const int first_worker = 1;
+#else
+    const int first_worker = 0;
+#endif
     if ((stage == _PyGC_STARTUP_FAILURE_TSTATE ||
          stage == _PyGC_STARTUP_FAILURE_THREAD) &&
-        (worker < 0 || worker >= _PyGC_MAX_WORKERS))
+        (worker < first_worker || worker >= _PyGC_MAX_WORKERS))
     {
         PyErr_Format(PyExc_ValueError,
-                     "worker must be between 0 and %d, got %zd",
-                     _PyGC_MAX_WORKERS - 1, worker);
+                     "worker must be between %d and %d, got %zd",
+                     first_worker, _PyGC_MAX_WORKERS - 1, worker);
         return NULL;
     }
+#ifdef Py_GIL_DISABLED
+    _PyGC_FTParallelSetStartupFailureForTest(
+        _PyInterpreterState_GET(), stage, worker);
+#else
     _PyGC_ParallelSetStartupFailureForTest(
         _PyInterpreterState_GET(), stage, worker);
+#endif
     Py_RETURN_NONE;
 }
 
+#ifndef Py_GIL_DISABLED
 static PyObject *
 parallel_gc_helper_visits_with_workers(PyObject *self, PyObject *arg)
 {
@@ -1957,14 +1967,14 @@ static PyMethodDef test_methods[] = {
      parallel_gc_set_adaptive_workers, METH_O, NULL},
     {"parallel_gc_dispatch_count", parallel_gc_dispatch_count,
      METH_NOARGS, NULL},
+    {"parallel_gc_set_startup_failure",
+     parallel_gc_set_startup_failure, METH_VARARGS, NULL},
 #ifdef Py_GIL_DISABLED
     {"parallel_gc_untracked_probe", parallel_gc_untracked_probe,
      METH_NOARGS, NULL},
     {"parallel_gc_untracked_probe_visits",
      parallel_gc_untracked_probe_visits, METH_O, NULL},
 #else
-    {"parallel_gc_set_startup_failure",
-     parallel_gc_set_startup_failure, METH_VARARGS, NULL},
     {"parallel_gc_helper_visits_with_workers",
      parallel_gc_helper_visits_with_workers, METH_O, NULL},
     {"parallel_gc_stackref_visits", parallel_gc_stackref_visits,
