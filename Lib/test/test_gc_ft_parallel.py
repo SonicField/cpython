@@ -767,6 +767,13 @@ class TestGILLazyPoolLifecycle(unittest.TestCase):
             with self.assertRaises(ValueError):
                 _testinternalcapi.parallel_gc_set_adaptive_workers(invalid)
 
+    def test_private_dispatch_counter_observes_parallel_collection(self):
+        gc.enable_parallel()
+        before = _testinternalcapi.parallel_gc_dispatch_count()
+        self._collect_large_heap()
+        after = _testinternalcapi.parallel_gc_dispatch_count()
+        self.assertGreater(after, before)
+
     def _assert_lifecycle_change_rejected_during_collection(self, operation):
         results = []
 
@@ -2007,6 +2014,13 @@ class TestThreadPoolLifecycle(unittest.TestCase):
         for invalid in (1, num_workers + 1):
             with self.assertRaises(ValueError):
                 _testinternalcapi.parallel_gc_set_adaptive_workers(invalid)
+
+    def test_private_dispatch_counter_observes_parallel_collection(self):
+        gc.enable_parallel()
+        before = _testinternalcapi.parallel_gc_dispatch_count()
+        gc.collect()
+        after = _testinternalcapi.parallel_gc_dispatch_count()
+        self.assertGreater(after, before)
 
     def test_immediate_collection_after_enable(self):
         """An immediate first collection cannot race with helper startup."""

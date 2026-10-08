@@ -1566,6 +1566,20 @@ parallel_gc_set_adaptive_workers(PyObject *self, PyObject *arg)
     Py_RETURN_NONE;
 }
 
+static PyObject *
+parallel_gc_dispatch_count(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+#ifdef Py_GIL_DISABLED
+    size_t count = _PyGC_ThreadPoolGetCollectionsCompleted(interp);
+#else
+    _PyParallelGCState *par_gc = interp->gc.parallel_gc;
+    size_t count = par_gc == NULL ? 0 :
+        par_gc->parallel_collections_attempted;
+#endif
+    return PyLong_FromSize_t(count);
+}
+
 #ifndef Py_GIL_DISABLED
 static PyObject *
 parallel_gc_set_startup_failure(PyObject *self, PyObject *args)
@@ -1941,6 +1955,8 @@ static PyMethodDef test_methods[] = {
      METH_NOARGS, NULL},
     {"parallel_gc_set_adaptive_workers",
      parallel_gc_set_adaptive_workers, METH_O, NULL},
+    {"parallel_gc_dispatch_count", parallel_gc_dispatch_count,
+     METH_NOARGS, NULL},
 #ifdef Py_GIL_DISABLED
     {"parallel_gc_untracked_probe", parallel_gc_untracked_probe,
      METH_NOARGS, NULL},
