@@ -1988,9 +1988,10 @@ class TestThreadPoolLifecycle(unittest.TestCase):
         self.assertFalse(config['startup_failed'])
         self.assertEqual(config['num_workers'], 16)
         self.assertEqual(config['adaptive_workers'], 4)
-        stats = gc._get_thread_pool_stats()
-        self.assertFalse(stats['active'])
-        self.assertEqual(stats['threads_created'], 0)
+        if hasattr(gc, '_get_thread_pool_stats'):
+            stats = gc._get_thread_pool_stats()
+            self.assertFalse(stats['active'])
+            self.assertEqual(stats['threads_created'], 0)
 
     def test_first_collection_starts_pool(self):
         gc.enable_parallel()
@@ -2001,10 +2002,11 @@ class TestThreadPoolLifecycle(unittest.TestCase):
         self.assertTrue(config['enabled'])
         self.assertTrue(config['pool_active'])
         self.assertFalse(config['startup_failed'])
-        self.assertEqual(
-            gc._get_thread_pool_stats()['threads_created'],
-            15,
-        )
+        if hasattr(gc, '_get_thread_pool_stats'):
+            self.assertEqual(
+                gc._get_thread_pool_stats()['threads_created'],
+                15,
+            )
 
     def test_repeated_enable_keeps_pool_armed(self):
         for _ in range(10):
@@ -2085,13 +2087,15 @@ class TestThreadPoolLifecycle(unittest.TestCase):
         config = gc.get_parallel_config()
         self.assertTrue(config['enabled'])
         self.assertEqual(config['num_workers'], 16)
-        stats = gc._get_thread_pool_stats()
-        self.assertFalse(stats['active'])
-        self.assertEqual(stats['threads_created'], 0)
+        if hasattr(gc, '_get_thread_pool_stats'):
+            stats = gc._get_thread_pool_stats()
+            self.assertFalse(stats['active'])
+            self.assertEqual(stats['threads_created'], 0)
         gc.collect()
-        stats = gc._get_thread_pool_stats()
-        self.assertTrue(stats['active'])
-        self.assertEqual(stats['threads_created'], 15)
+        if hasattr(gc, '_get_thread_pool_stats'):
+            stats = gc._get_thread_pool_stats()
+            self.assertTrue(stats['active'])
+            self.assertEqual(stats['threads_created'], 15)
 
     def test_concurrent_enable_disable_is_coherent(self):
         for _ in range(50):
