@@ -129,16 +129,6 @@ worklist_pop(struct worklist *worklist)
     return op;
 }
 
-#ifdef Py_PARALLEL_GC
-// Clear a worklist without processing its elements.
-// Used after parallel processing has already handled all elements via an array.
-static void
-worklist_clear(struct worklist *worklist)
-{
-    worklist->head = 0;
-}
-#endif
-
 static void
 worklist_iter_init(struct worklist_iter *iter, uintptr_t *next)
 {
@@ -157,48 +147,6 @@ worklist_remove(struct worklist_iter *iter)
     op->ob_tid = 0;
     iter->next = iter->ptr;
 }
-
-#ifdef Py_PARALLEL_GC
-// Count objects in a worklist
-static Py_ssize_t
-worklist_count(struct worklist *worklist)
-{
-    Py_ssize_t count = 0;
-    PyObject *op;
-    WORKSTACK_FOR_EACH(worklist, op) {
-        count++;
-    }
-    return count;
-}
-
-// Convert worklist to array for parallel access
-// Returns allocated array and sets *out_count to number of elements
-// Caller must free the returned array with PyMem_RawFree
-static PyObject **
-worklist_to_array(struct worklist *worklist, Py_ssize_t *out_count)
-{
-    Py_ssize_t count = worklist_count(worklist);
-    if (count == 0) {
-        *out_count = 0;
-        return NULL;
-    }
-
-    PyObject **array = PyMem_RawMalloc(count * sizeof(PyObject *));
-    if (array == NULL) {
-        *out_count = 0;
-        return NULL;
-    }
-
-    Py_ssize_t i = 0;
-    PyObject *op;
-    WORKSTACK_FOR_EACH(worklist, op) {
-        array[i++] = op;
-    }
-
-    *out_count = count;
-    return array;
-}
-#endif
 
 static inline int
 gc_has_bit(PyObject *op, uint8_t bit)
@@ -368,40 +316,6 @@ disable_deferred_refcounting(PyObject *op)
         frame_disable_deferred_refcounting(((PyFrameObject *)op)->f_frame);
     }
 }
-
-#ifdef Py_PARALLEL_GC
-// Version of disable_deferred_refcounting for objects already on worklists.
-// These objects have already been merged by par_merge_refcount, and their
-// ob_tid is used as the worklist next pointer. We must NOT clear ob_tid.
-static void
-disable_deferred_refcounting_on_worklist(PyObject *op)
-{
-    if (_PyObject_HasDeferredRefcount(op)) {
-        op->ob_gc_bits &= ~_PyGC_BITS_DEFERRED;
-        op->ob_ref_shared -= _Py_REF_SHARED(_Py_REF_DEFERRED, 0);
-        // NOTE: Do NOT call merge_refcount here! The object is already merged
-        // (by par_merge_refcount in parallel scan_heap), and ob_tid is used
-        // as the worklist next pointer. Calling merge_refcount would set
-        // ob_tid = 0, corrupting the worklist.
-
-        // Heap types and code objects also use per-thread refcounting, which
-        // should also be disabled when we turn off deferred refcounting.
-        _PyObject_DisablePerThreadRefcounting(op);
-    }
-
-    // Generators and frame objects may contain deferred references to other
-    // objects. If the pointed-to objects are part of cyclic trash, we may
-    // have disabled deferred refcounting on them and need to ensure that we
-    // use strong references, in case the generator or frame object is
-    // resurrected by a finalizer.
-    if (PyGen_CheckExact(op) || PyCoro_CheckExact(op) || PyAsyncGen_CheckExact(op)) {
-        frame_disable_deferred_refcounting(&((PyGenObject *)op)->gi_iframe);
-    }
-    else if (PyFrame_Check(op)) {
-        frame_disable_deferred_refcounting(((PyFrameObject *)op)->f_frame);
-    }
-}
-#endif  // Py_PARALLEL_GC
 
 static void
 gc_restore_tid(PyObject *op)

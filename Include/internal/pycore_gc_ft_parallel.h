@@ -138,13 +138,6 @@ _PyGC_TryClearBit(PyObject *op, uint8_t bit)
     return (old_bits & bit) != 0;  // Return 1 if bit was set before
 }
 
-// Atomically set a GC bit (fire-and-forget, for when we don't need return value).
-static inline void
-_PyGC_AtomicSetBit(PyObject *op, uint8_t bit)
-{
-    (void)_Py_atomic_or_uint8(&op->ob_gc_bits, bit);
-}
-
 // Atomically clear a GC bit (fire-and-forget, for when we don't need return value).
 static inline void
 _PyGC_AtomicClearBit(PyObject *op, uint8_t bit)

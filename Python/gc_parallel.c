@@ -234,11 +234,6 @@ _parallel_subtract_refs_worker(_PyParallelGCWorker *worker,
                                PyGC_Head *start,
                                PyGC_Head *end);
 
-// Coordinator-based termination functions (defined after semaphore implementation)
-static int _PyGCWorker_TakeCoordinator(_PyParallelGCWorker *worker);
-static void _PyGCWorker_DropCoordinator(_PyParallelGCWorker *worker);
-static void _PyGCWorker_CoordinateStealing(_PyParallelGCWorker *worker);
-
 // Worker thread entry point
 static void
 _parallel_gc_worker_thread(void *arg)
@@ -1841,106 +1836,6 @@ _PyGCSemaphore_Wait(_PyGCSemaphore *sema)
     }
     sema->tokens--;
     PyMUTEX_UNLOCK(&sema->lock);
-}
-
-
-// =============================================================================
-// Coordinator-Based Termination for Work-Stealing Mark Phase
-// =============================================================================
-
-// Try to become the coordinator. Returns 1 if successful, 0 if another worker
-// is already coordinator.
-static int
-_PyGCWorker_TakeCoordinator(_PyParallelGCWorker *worker)
-{
-    _PyParallelGCState *par_gc = worker->par_gc;
-    int success = 0;
-
-    PyMUTEX_LOCK(&par_gc->steal_coord_lock);
-    if (par_gc->steal_coordinator == NULL) {
-        par_gc->steal_coordinator = worker;
-        success = 1;
-    }
-    PyMUTEX_UNLOCK(&par_gc->steal_coord_lock);
-
-    return success;
-}
-
-// Give up coordinator role.
-static void
-_PyGCWorker_DropCoordinator(_PyParallelGCWorker *worker)
-{
-    _PyParallelGCState *par_gc = worker->par_gc;
-
-    PyMUTEX_LOCK(&par_gc->steal_coord_lock);
-    if (par_gc->steal_coordinator == worker) {
-        par_gc->steal_coordinator = NULL;
-    }
-    PyMUTEX_UNLOCK(&par_gc->steal_coord_lock);
-}
-
-// Coordinator logic: poll all deques, wake workers if work exists, or terminate.
-// Called when this worker has become the coordinator.
-static void
-_PyGCWorker_CoordinateStealing(_PyParallelGCWorker *worker)
-{
-    _PyParallelGCState *par_gc = worker->par_gc;
-    int backoff = 1;
-
-    while (1) {
-        // Load current count of active workers
-        int num_marking = _Py_atomic_load_int_acquire(&par_gc->num_workers_marking);
-
-        // TERMINATION: coordinator is the only active worker
-        // All others have: emptied their deques, failed steals, decremented counter
-        if (num_marking == 1) {
-            // Decrement our own count (now 0)
-            _Py_atomic_add_int(&par_gc->num_workers_marking, -1);
-            // Wake all waiters so they can exit the loop
-            Py_ssize_t to_wake = (Py_ssize_t)par_gc->num_workers - 1;
-            if (to_wake > 0) {
-                _PyGCSemaphore_Post(&par_gc->steal_sema, to_wake);
-            }
-            return;
-        }
-
-        // Scan all deques for work
-        Py_ssize_t work_available = 0;
-        for (size_t i = 0; i < par_gc->num_workers; i++) {
-            work_available += _PyWSDeque_Size(&par_gc->workers[i].deque);
-        }
-
-        if (work_available > 0) {
-            // Calculate how many workers to wake (at most 1 per 64 items of work)
-            Py_ssize_t workers_to_wake = work_available / 64;
-            if (workers_to_wake < 1) {
-                workers_to_wake = 1;
-            }
-            // Don't wake more than are sleeping
-            Py_ssize_t sleeping = (Py_ssize_t)par_gc->num_workers - num_marking;
-            if (workers_to_wake > sleeping) {
-                workers_to_wake = sleeping;
-            }
-
-            if (workers_to_wake > 0) {
-                // CRITICAL: increment counter BEFORE posting to semaphore
-                // This prevents race where worker wakes but coordinator doesn't see it
-                _Py_atomic_add_int(&par_gc->num_workers_marking, (int)workers_to_wake);
-                _PyGCSemaphore_Post(&par_gc->steal_sema, workers_to_wake);
-            }
-            // Give up coordinator role and re-enter work loop
-            return;
-        }
-
-        // No work found, backoff and retry
-        for (int i = 0; i < backoff; i++) {
-            _Py_cpu_relax();
-        }
-        backoff = backoff * 2;
-        if (backoff > 64) {
-            backoff = 64;
-        }
-    }
 }
 
 
