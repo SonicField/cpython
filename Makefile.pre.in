@@ -1349,6 +1349,10 @@ PYTHON_HEADERS= \
 		$(srcdir)/Include/internal/pycore_freelist_state.h \
 		$(srcdir)/Include/internal/pycore_function.h \
 		$(srcdir)/Include/internal/pycore_gc.h \
+		$(srcdir)/Include/internal/pycore_gc_barrier.h \
+		$(srcdir)/Include/internal/pycore_gc_ft_parallel.h \
+		$(srcdir)/Include/internal/pycore_gc_parallel.h \
+		$(srcdir)/Include/internal/pycore_gc_random_walk.h \
 		$(srcdir)/Include/internal/pycore_genobject.h \
 		$(srcdir)/Include/internal/pycore_getopt.h \
 		$(srcdir)/Include/internal/pycore_gil.h \
@@ -1450,6 +1454,7 @@ PYTHON_HEADERS= \
 		$(srcdir)/Include/internal/pycore_uop_metadata.h \
 		$(srcdir)/Include/internal/pycore_warnings.h \
 		$(srcdir)/Include/internal/pycore_weakref.h \
+		$(srcdir)/Include/internal/pycore_ws_deque.h \
 		$(DTRACE_HEADERS) \
 		@PLATFORM_HEADERS@ \
 		\
