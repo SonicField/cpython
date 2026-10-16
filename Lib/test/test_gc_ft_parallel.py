@@ -332,11 +332,108 @@ class TestRealPageEnumeration(unittest.TestCase):
         self.assertEqual(sum(result['bucket_sizes']), result['pages_enumerated'])
 
 
+VERIFY_PROBE_AVAILABLE = hasattr(gc, '_test_set_parallel_mark_verify')
+
+# Name of a module created only for the work-stealing test.  The heap hangs
+# off that module, which is reachable only through sys.modules.  The test
+# module itself is not suitable: regrtest holds it in a frame local, which
+# makes it a stack root.
+_MODULE_ROOT_NAME = '_test_gc_ft_parallel_module_root'
+
+
+def requires_verify_probe(test_func):
+    """Skip test if the mark-alive verifier is unavailable."""
+    return unittest.skipUnless(
+        VERIFY_PROBE_AVAILABLE,
+        "Requires the parallel mark-alive verifier",
+    )(test_func)
+
+
 class TestParallelMarking(unittest.TestCase):
     """
-    Tests for REAL parallel marking via _test_parallel_mark().
-    This exercises the actual _PyGC_ParallelMarkAlive() code path.
+    Tests for the production parallel mark-alive pass
+    (_PyGC_ParallelPropagateAliveWithPool) run by gc.collect().
+
+    The verifier recomputes the ALIVE set serially from the same roots in the
+    same collection.  verify_missing counts objects the parallel pass failed
+    to mark; verify_extra counts objects it marked that the serial pass did
+    not among objects that remain tracked. Serial replay can untrack outer
+    tuples made eligible by the first pass; verify_untracked records those
+    snapshot objects separately. Later phases can recover a missed mark, so
+    final heap liveness alone cannot detect a mark-alive defect.
     """
+
+    def setUp(self):
+        if not (FTP_BUILD and PARALLEL_GC_AVAILABLE and VERIFY_PROBE_AVAILABLE):
+            return
+        self.was_enabled = gc.isenabled()
+        self.parallel_was_enabled = gc.get_parallel_config()['enabled']
+        gc.disable()
+        gc.enable_parallel()
+        gc.collect()  # creates the pool lazily
+        self.capacity = gc.get_parallel_stats()['num_workers']
+        gc._test_set_parallel_mark_verify(True)
+
+    def tearDown(self):
+        if not (FTP_BUILD and PARALLEL_GC_AVAILABLE and VERIFY_PROBE_AVAILABLE):
+            return
+        sys.modules.pop(_MODULE_ROOT_NAME, None)
+        if gc._get_thread_pool_stats()['active']:
+            gc._test_set_parallel_mark_verify(False)
+        if not self.parallel_was_enabled:
+            gc.disable_parallel()
+        if self.was_enabled:
+            gc.enable()
+
+    def verified_collect(self, workers):
+        """Collect with a fixed participant count; return pool statistics."""
+        workers = min(workers, self.capacity)
+        before = gc._get_thread_pool_stats()['verify_runs']
+        _testinternalcapi.parallel_gc_set_adaptive_workers(workers)
+        gc.collect()
+        stats = gc._get_thread_pool_stats()
+        self.assertEqual(stats['verify_runs'], before + 1,
+                         "the parallel mark-alive pass did not run")
+        self.assertEqual(len(stats['propagate_per_worker_marked']), workers)
+        return stats
+
+    def assert_matches_serial(self, stats):
+        self.assertEqual(
+            (stats['verify_missing'], stats['verify_extra']), (0, 0),
+            f"parallel ALIVE set differs from the serial closure: {stats}")
+        self.assertEqual(stats['verify_parallel_alive'] -
+                         stats['verify_untracked'],
+                         stats['verify_serial_alive'])
+
+    @requires_ftp
+    @requires_verify_probe
+    def test_parallel_mark_verifier_is_opt_in(self):
+        script_helper.assert_python_ok('-c', '''
+import gc
+gc.enable_parallel()
+gc.collect()
+assert gc._get_thread_pool_stats()['verify_runs'] == 0
+gc.collect()
+assert gc._get_thread_pool_stats()['verify_runs'] == 0
+gc.disable_parallel()
+''')
+
+    @requires_ftp
+    @requires_verify_probe
+    def test_parallel_mark_verifier_toggle_resets_results(self):
+        self.assert_matches_serial(self.verified_collect(4))
+        for enabled in (False, True):
+            gc._test_set_parallel_mark_verify(enabled)
+            stats = gc._get_thread_pool_stats()
+            for name in ('verify_runs', 'verify_parallel_alive',
+                         'verify_serial_alive', 'verify_missing',
+                         'verify_extra', 'verify_untracked'):
+                self.assertEqual(stats[name], 0, name)
+            gc.collect()
+            stats = gc._get_thread_pool_stats()
+            self.assertEqual(stats['verify_runs'], int(enabled))
+            if enabled:
+                self.assert_matches_serial(stats)
 
     @requires_ftp
     @requires_untracked_probe
@@ -384,154 +481,122 @@ class TestParallelMarking(unittest.TestCase):
                 gc.enable()
 
     @requires_ftp
-    @requires_parallel_gc_tests
+    @requires_verify_probe
     def test_parallel_mark_returns_valid_data(self):
-        """Parallel marking should return valid data."""
-        # Allocate some objects first
+        """Per-worker counts cover every object the parallel pass marked."""
         objects = [GCTestObject(id=i) for i in range(1000)]
-
-        result = gc._test_parallel_mark(4)
-
-        self.assertIn('total_objects', result)
-        self.assertIn('per_worker_marked', result)
-
-        # Should have marked some objects
-        self.assertGreater(result['total_objects'], 0)
-        self.assertEqual(len(result['per_worker_marked']), 4)
-
-        # Sum should equal total
-        self.assertEqual(sum(result['per_worker_marked']), result['total_objects'])
-
+        stats = self.verified_collect(4)
+        self.assert_matches_serial(stats)
+        marked = stats['propagate_per_worker_marked']
+        # Workers also count tuples they untrack, which end up not ALIVE.
+        self.assertGreaterEqual(sum(marked), stats['verify_parallel_alive'])
+        self.assertGreater(stats['verify_parallel_alive'], 0)
         del objects
 
     @requires_ftp
-    @requires_parallel_gc_tests
+    @requires_verify_probe
     def test_parallel_mark_finds_objects(self):
-        """Parallel marking should find objects after allocation."""
-        gc.collect()
-
-        # Allocate many objects
+        """Every object reachable from a frame root is marked ALIVE."""
         objects = [GCTestObject(data='x' * 100) for _ in range(5000)]
-
-        result = gc._test_parallel_mark(4)
-
-        # We should have marked many objects
-        self.assertGreater(result['total_objects'], 0,
-            "Expected to mark objects after allocating 5000")
-
+        stats = self.verified_collect(4)
+        self.assert_matches_serial(stats)
+        self.assertGreaterEqual(stats['verify_parallel_alive'], 5000)
         del objects
 
     @requires_ftp
-    @requires_parallel_gc_tests
+    @requires_verify_probe
     def test_parallel_mark_different_worker_counts(self):
-        """Parallel marking should work with different worker counts."""
+        """The ALIVE set matches the serial closure at each worker count."""
         objects = [GCTestObject(id=i) for i in range(2000)]
-
-        for num_workers in [1, 2, 4, 8]:
-            result = gc._test_parallel_mark(num_workers)
-
-            self.assertEqual(len(result['per_worker_marked']), num_workers)
-            self.assertEqual(sum(result['per_worker_marked']), result['total_objects'])
-            self.assertGreater(result['total_objects'], 0)
-
+        for workers in (2, 4, 8):
+            with self.subTest(workers=workers):
+                self.assert_matches_serial(self.verified_collect(workers))
         del objects
 
     @requires_ftp
-    @requires_parallel_gc_tests
+    @requires_verify_probe
     def test_parallel_mark_clears_alive_bits(self):
-        """Parallel marking test should clean up ALIVE bits properly."""
+        """ALIVE bits do not survive the collection or keep garbage alive."""
         objects = [GCTestObject(id=i) for i in range(1000)]
+        self.assert_matches_serial(self.verified_collect(4))
 
-        # Run parallel marking
-        result = gc._test_parallel_mark(4)
-        self.assertGreater(result['total_objects'], 0)
-
-        # GC should work fine after (ALIVE bits cleared)
-        gc.collect()
-
-        # Objects should still be alive (we hold refs)
+        garbage = GCTestObject()
+        garbage.ref = garbage
+        ref = weakref.ref(garbage)
+        del garbage
+        self.assert_matches_serial(self.verified_collect(4))
+        self.assertIsNone(ref(), "unreachable cycle survived a collection")
         self.assertEqual(len(objects), 1000)
-
         del objects
 
     @requires_ftp
-    @requires_parallel_gc_tests
+    @requires_verify_probe
     def test_parallel_mark_multiple_runs(self):
-        """Multiple parallel marking runs should work correctly."""
+        """Repeated collections each match the serial closure."""
         objects = [GCTestObject(id=i) for i in range(1000)]
-
-        # Run parallel marking multiple times
-        results = []
         for _ in range(5):
-            result = gc._test_parallel_mark(4)
-            results.append(result['total_objects'])
-            # Run gc between tests
-            gc.collect()
-
-        # Each run should mark objects
-        for count in results:
-            self.assertGreater(count, 0)
-
+            self.assert_matches_serial(self.verified_collect(4))
         del objects
 
+    # Known open issue (OPEN_ISSUES.md, root placement): with module-rooted
+    # live data, idle helpers can leave PROPAGATE before stealable work exists,
+    # so one worker may mark most objects.  That is a performance limitation,
+    # not a correctness one, and the work balance is a timing race, so it is
+    # not asserted.  The marking result itself must match the serial collector.
     @requires_ftp
-    @requires_parallel_gc_tests
-    def test_parallel_mark_work_stealing_occurs(self):
-        """Work-stealing should result in uneven per-worker distribution."""
-        # Create objects with varying reference depths to trigger work-stealing
-        # Some objects have deep reference chains, others are shallow
-        objects = []
-        for i in range(500):
-            # Create chains of varying lengths
-            chain_len = (i % 10) + 1
-            chain = [GCTestObject(chain_id=i, depth=d) for d in range(chain_len)]
-            for j in range(len(chain) - 1):
-                chain[j].ref = chain[j + 1]
-            objects.extend(chain)
-
-        result = gc._test_parallel_mark(4)
-
-        # With work-stealing, we expect non-uniform distribution
-        per_worker = result['per_worker_marked']
-        self.assertEqual(len(per_worker), 4)
-        self.assertEqual(sum(per_worker), result['total_objects'])
-
-        # At least some workers should have done work
-        workers_with_work = sum(1 for c in per_worker if c > 0)
-        self.assertGreater(workers_with_work, 0)
-
-        del objects
+    @requires_verify_probe
+    def test_parallel_mark_module_rooted_graph_matches_serial(self):
+        """A large module-rooted graph is marked exactly as serially."""
+        import random
+        import types
+        rng = random.Random(1)
+        nodes = [GCTestObject() for _ in range(200_000)]
+        for node in nodes:
+            node.ref = nodes[rng.randrange(len(nodes))]
+            node.data = {'next': nodes[rng.randrange(len(nodes))]}
+        root = types.ModuleType(_MODULE_ROOT_NAME)
+        root.heap = nodes
+        sys.modules[_MODULE_ROOT_NAME] = root
+        del nodes, node, root
+        self.assert_matches_serial(self.verified_collect(4))
 
     @requires_ftp
-    @requires_parallel_gc_tests
-    def test_parallel_mark_single_worker(self):
-        """Single worker should mark all objects."""
+    @requires_verify_probe
+    def test_parallel_mark_nested_tuple_untracking_matches_serial(self):
+        """Serial replay can untrack tuples made eligible by the first pass."""
+        import types
+        root = types.ModuleType(_MODULE_ROOT_NAME)
+        root.heap = [tuple([tuple([tuple([i])])]) for i in range(1000)]
+        self.assertTrue(all(gc.is_tracked(outer) for outer in root.heap))
+        self.assertTrue(all(gc.is_tracked(outer[0]) for outer in root.heap))
+        sys.modules[_MODULE_ROOT_NAME] = root
+        del root
+
+        stats = self.verified_collect(4)
+        self.assert_matches_serial(stats)
+        self.assertGreaterEqual(stats['verify_untracked'], 1000)
+        self.assertTrue(all(
+            not gc.is_tracked(outer)
+            for outer in sys.modules[_MODULE_ROOT_NAME].heap))
+
+    @requires_ftp
+    @requires_verify_probe
+    def test_parallel_mark_minimum_workers(self):
+        """Two participants, the minimum parallel count, mark correctly."""
         objects = [GCTestObject(id=i) for i in range(1000)]
-
-        result = gc._test_parallel_mark(1)
-
-        self.assertEqual(len(result['per_worker_marked']), 1)
-        self.assertEqual(result['per_worker_marked'][0], result['total_objects'])
-        self.assertGreater(result['total_objects'], 0)
-
+        self.assert_matches_serial(self.verified_collect(2))
         del objects
 
     @requires_ftp
-    @requires_parallel_gc_tests
+    @requires_verify_probe
     def test_parallel_mark_many_workers(self):
-        """Many workers (more than pages) should still work."""
+        """All pool participants mark correctly on a small heap."""
         objects = [GCTestObject(id=i) for i in range(100)]
-
-        # Use more workers than likely pages
-        result = gc._test_parallel_mark(16)
-
-        self.assertEqual(len(result['per_worker_marked']), 16)
-        self.assertEqual(sum(result['per_worker_marked']), result['total_objects'])
-
+        self.assert_matches_serial(self.verified_collect(self.capacity))
         del objects
 
     @requires_ftp
-    @requires_parallel_gc_tests
+    @requires_verify_probe
     def test_parallel_mark_with_ctypes_loaded(self):
         """Parallel marking must work when ctypes is loaded.
 
@@ -541,19 +606,9 @@ class TestParallelMarking(unittest.TestCase):
         Worker threads without a PyThreadState would segfault.
         """
         import_helper.import_module('ctypes')
-
         objects = [GCTestObject(id=i) for i in range(1000)]
-
-        # Must not segfault
-        result = gc._test_parallel_mark(4)
-        self.assertGreater(result['total_objects'], 0)
-        self.assertEqual(sum(result['per_worker_marked']),
-                         result['total_objects'])
-
-        # GC should still work after
-        gc.collect()
+        self.assert_matches_serial(self.verified_collect(4))
         self.assertEqual(len(objects), 1000)
-
         del objects
 
 

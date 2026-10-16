@@ -1392,10 +1392,14 @@ gc_propagate_alive(gc_mark_args_t *args)
 // alive bit set.
 //
 // Returns -1 on failure (out of memory).
+// IF allow_parallel is zero, THEN the pass is serial.  *used_parallel is set
+// to 1 when the parallel pass ran.
 static int
-gc_mark_alive_from_roots(PyInterpreterState *interp,
-                         struct collection_state *state)
+gc_mark_alive_from_roots_impl(PyInterpreterState *interp,
+                              struct collection_state *state,
+                              int allow_parallel, int *used_parallel)
 {
+    *used_parallel = 0;
 #ifdef GC_DEBUG
     // Check that all objects don't have alive bit set
     gc_visit_heaps(interp, &validate_alive_bits, &state->base);
@@ -1453,7 +1457,7 @@ gc_mark_alive_from_roots(PyInterpreterState *interp,
 
     // Check if parallel GC should be used
 #ifdef Py_PARALLEL_GC
-    int num_workers = _PyGC_ShouldUseParallel(interp);
+    int num_workers = allow_parallel ? _PyGC_ShouldUseParallel(interp) : 0;
     if (num_workers > 1 && num_roots > 0) {
         // Parallel propagation: drain stack into array and use parallel workers
         PyObject **roots = PyMem_RawMalloc(num_roots * sizeof(PyObject *));
@@ -1488,6 +1492,7 @@ gc_mark_alive_from_roots(PyInterpreterState *interp,
             gc_abort_mark_alive(interp, state, &mark_args);
             return -1;
         }
+        *used_parallel = 1;
     }
     else
 #endif // Py_PARALLEL_GC
@@ -1506,6 +1511,136 @@ gc_mark_alive_from_roots(PyInterpreterState *interp,
     assert(mark_args.stack.head == NULL);
 
     return 0;
+}
+
+#if defined(Py_DEBUG) && defined(Py_PARALLEL_GC)
+// Debug verifier for the parallel mark-alive pass.  A test enables it with
+// gc._test_set_parallel_mark_verify().  After a parallel pass, the verifier
+// records the ALIVE set, clears it, recomputes it serially from the same
+// roots, and records how the two sets differ.  The serial result is kept.
+struct alive_verify_args {
+    struct visitor_args base;
+    PyObject **items;       // ALIVE objects after the parallel pass, sorted
+    Py_ssize_t size;
+    Py_ssize_t capacity;
+    Py_ssize_t serial_alive;
+    Py_ssize_t matched;
+    Py_ssize_t missing;
+    int error;
+};
+
+static bool
+alive_verify_snapshot(const mi_heap_t *heap, const mi_heap_area_t *area,
+                      void *block, size_t block_size, void *args)
+{
+    struct alive_verify_args *a = (struct alive_verify_args *)args;
+    PyObject *op = op_from_block(block, args, false);
+    if (op == NULL || !gc_is_alive(op)) {
+        return true;
+    }
+    if (a->size == a->capacity) {
+        Py_ssize_t capacity = a->capacity ? a->capacity * 2 : 1024;
+        PyObject **items = PyMem_RawRealloc(a->items,
+                                            capacity * sizeof(PyObject *));
+        if (items == NULL) {
+            a->error = 1;
+            return false;
+        }
+        a->items = items;
+        a->capacity = capacity;
+    }
+    a->items[a->size++] = op;
+    return true;
+}
+
+static int
+alive_verify_cmp(const void *x, const void *y)
+{
+    uintptr_t a = (uintptr_t)*(PyObject *const *)x;
+    uintptr_t b = (uintptr_t)*(PyObject *const *)y;
+    return (a > b) - (a < b);
+}
+
+static bool
+alive_verify_compare(const mi_heap_t *heap, const mi_heap_area_t *area,
+                     void *block, size_t block_size, void *args)
+{
+    struct alive_verify_args *a = (struct alive_verify_args *)args;
+    PyObject *op = op_from_block(block, args, false);
+    if (op == NULL || !gc_is_alive(op)) {
+        return true;
+    }
+    a->serial_alive++;
+    if (bsearch(&op, a->items, a->size, sizeof(PyObject *),
+                alive_verify_cmp) != NULL) {
+        a->matched++;
+    }
+    else {
+        a->missing++;
+    }
+    return true;
+}
+
+static int
+gc_verify_parallel_mark_alive(PyInterpreterState *interp,
+                              struct collection_state *state,
+                              _PyGCThreadPool *pool)
+{
+    struct alive_verify_args a = {0};
+    gc_visit_heaps(interp, &alive_verify_snapshot, &a.base);
+    if (a.error) {
+        // The parallel ALIVE bits are still in place; record no run.
+        PyMem_RawFree(a.items);
+        return 0;
+    }
+    if (a.size > 1) {
+        qsort(a.items, a.size, sizeof(PyObject *), alive_verify_cmp);
+    }
+    gc_visit_heaps(interp, &gc_clear_alive_bits, &a.base);
+    int used_parallel;
+    if (gc_mark_alive_from_roots_impl(interp, state, 0, &used_parallel) < 0) {
+        PyMem_RawFree(a.items);
+        return -1;
+    }
+    assert(!used_parallel);
+    gc_visit_heaps(interp, &alive_verify_compare, &a.base);
+    pool->test_verify_runs++;
+    pool->test_verify_parallel_alive = a.size;
+    pool->test_verify_serial_alive = a.serial_alive;
+    pool->test_verify_missing = a.missing;
+    // The first pass can untrack inner tuples, making their outer tuples
+    // eligible for untracking during serial replay. Compare marks only for
+    // objects that remain tracked; report that population change separately.
+    Py_ssize_t newly_untracked = 0;
+    for (Py_ssize_t i = 0; i < a.size; i++) {
+        if (!gc_has_bit(a.items[i], _PyGC_BITS_TRACKED)) {
+            newly_untracked++;
+        }
+    }
+    pool->test_verify_untracked = newly_untracked;
+    pool->test_verify_extra = a.size - a.matched - newly_untracked;
+    PyMem_RawFree(a.items);
+    return 0;
+}
+#endif  // Py_DEBUG && Py_PARALLEL_GC
+
+static int
+gc_mark_alive_from_roots(PyInterpreterState *interp,
+                         struct collection_state *state)
+{
+    int used_parallel;
+    int err = gc_mark_alive_from_roots_impl(interp, state, 1, &used_parallel);
+#if defined(Py_DEBUG) && defined(Py_PARALLEL_GC)
+    _PyGCThreadPool *pool = interp->gc.thread_pool;
+    if (err == 0 && used_parallel && pool != NULL &&
+        pool->test_verify_mark_alive)
+    {
+        err = gc_verify_parallel_mark_alive(interp, state, pool);
+    }
+#else
+    (void)used_parallel;
+#endif
+    return err;
 }
 #endif // GC_ENABLE_MARK_ALIVE
 
@@ -1530,13 +1665,7 @@ deduce_unreachable_heap(PyInterpreterState *interp,
         // Parallel path: use parallel update_refs and mark_heap
         par_state.num_workers = num_workers;
         par_state.buckets = NULL;
-        par_state.workers = NULL;
-        par_state.threads = NULL;
-        par_state.error_flag = 0;
-        par_state.workers_done = 0;
         par_state.total_pages = 0;
-        par_state.total_objects = 0;
-        par_state.per_worker_marked = NULL;
 
         // Assign pages to worker buckets
         if (_PyGC_AssignPagesToBuckets(interp, &par_state) < 0) {

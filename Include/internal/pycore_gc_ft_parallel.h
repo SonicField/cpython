@@ -262,6 +262,11 @@ typedef struct _PyGCWorkerState {
     size_t objects_marked;   // Objects marked by this worker
     size_t objects_stolen;   // Objects stolen from other workers
     size_t steals_attempted; // Number of steal attempts
+#ifdef Py_DEBUG
+    // objects_marked at the end of the last PROPAGATE dispatch. MARK_HEAP
+    // resets objects_marked, so tests read this copy.
+    size_t test_propagate_marked;
+#endif
 
 #if GC_DEBUG_ATOMICS
     // Per-phase atomic stats - copied from TLS after work completes
@@ -384,6 +389,18 @@ typedef struct _PyGCThreadPool {
     int test_traversal_target_generic_path;
     int test_traversal_target_untracked;
     int test_traversal_target_alive_after_untrack;
+
+    // Mark-alive verifier, enabled by gc._test_set_parallel_mark_verify().
+    // After each parallel mark-alive pass, the collector recomputes the
+    // ALIVE set serially from the same roots and records the difference.
+    int test_verify_mark_alive;
+    size_t test_verify_runs;
+    Py_ssize_t test_verify_parallel_alive;
+    Py_ssize_t test_verify_serial_alive;
+    Py_ssize_t test_verify_missing;  // ALIVE after the serial pass only
+    Py_ssize_t test_verify_extra;    // Parallel-only ALIVE, still tracked
+    Py_ssize_t test_verify_untracked;  // Snapshot objects untracked by replay
+    size_t test_propagate_participants;
 #endif
 } _PyGCThreadPool;
 
@@ -416,28 +433,11 @@ typedef struct _PyGCPageBucket {
     size_t capacity;         // Allocated capacity
 } _PyGCPageBucket;
 
-// State for page-based parallel GC
+// Page buckets for the pool-based update_refs and mark_heap phases
 typedef struct {
     int num_workers;
     _PyGCPageBucket *buckets;     // One bucket per worker
-    _PyGCWorkerState *workers;    // Per-worker state (including deques)
-    PyThread_handle_t *threads;   // Thread handles (workers 1..N-1)
-
-    // Barriers for phase synchronization
-    _PyGCBarrier phase_barrier;  // Sync between GC phases
-    _PyGCBarrier done_barrier;   // Sync at end of parallel work
-
-    // Flags
-    int error_flag;       // Set if any worker encounters an error (use atomics)
-    int workers_done;     // Count of workers that finished
-
-    // Statistics
     size_t total_pages;
-    size_t total_objects;
-    size_t *per_worker_marked;    // Per-worker objects marked (saved before free)
-
-    // Pre-created thread states for test workers (NULL in production)
-    PyThreadState **worker_tstates;
 } _PyGCFTParState;
 
 //-----------------------------------------------------------------------------
@@ -461,13 +461,6 @@ PyAPI_FUNC(void) _PyGC_FreeBuckets(_PyGCFTParState *state);
 //-----------------------------------------------------------------------------
 // Parallel marking (Phase 1: mark alive)
 //-----------------------------------------------------------------------------
-
-// Run parallel mark-alive phase.
-// Each worker processes its assigned pages and uses work-stealing
-// for transitively discovered objects.
-PyAPI_FUNC(int) _PyGC_ParallelMarkAlive(
-    PyInterpreterState *interp,
-    _PyGCFTParState *state);
 
 // Parallel propagation using persistent thread pool.
 // This is the only supported parallel propagation function.
@@ -634,21 +627,11 @@ PyAPI_FUNC(size_t *) _PyGC_TestPageAssignment(
     size_t total_pages,
     int num_workers);
 
-// Test atomic bit operations
-// Creates test object and runs concurrent bit operations
-// Returns 0 on success, -1 on failure
-PyAPI_FUNC(int) _PyGC_TestAtomicBitOps(int num_threads);
-
 // Test REAL page enumeration (stops the world, runs actual code path)
 // Returns array of [total_pages, bucket0, bucket1, ...] (num_workers+1 elements)
 // Caller must free with PyMem_RawFree. Returns NULL on error.
 PyAPI_FUNC(size_t *) _PyGC_TestRealPageEnumeration(int num_workers);
 
-// Test REAL parallel marking (stops the world, runs actual marking)
-// Returns array of [total_objects, worker0_marked, worker1_marked, ...]
-// (num_workers+1 elements). Caller must free with PyMem_RawFree.
-// Returns NULL on error.
-PyAPI_FUNC(size_t *) _PyGC_TestParallelMark(int num_workers);
 
 #endif  // Py_DEBUG
 

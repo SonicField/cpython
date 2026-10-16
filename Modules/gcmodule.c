@@ -1021,59 +1021,6 @@ gc_test_real_page_enumeration(PyObject *module, PyObject *args)
     return result;
 }
 
-// gc._test_parallel_mark(num_workers) - Test REAL parallel marking
-// Stops the world, assigns pages, runs parallel marking, returns results
-static PyObject *
-gc_test_parallel_mark(PyObject *module, PyObject *args)
-{
-    int num_workers;
-
-    if (!PyArg_ParseTuple(args, "i", &num_workers)) {
-        return NULL;
-    }
-
-    if (num_workers <= 0) {
-        PyErr_SetString(PyExc_ValueError, "num_workers must be positive");
-        return NULL;
-    }
-    if (num_workers > 64) {
-        PyErr_SetString(PyExc_ValueError, "num_workers must be <= 64");
-        return NULL;
-    }
-
-    size_t *data = _PyGC_TestParallelMark(num_workers);
-    if (data == NULL) {
-        return PyErr_NoMemory();
-    }
-
-    // Return dict with total_objects and per_worker_marked list
-    PyObject *per_worker_marked = PyList_New(num_workers);
-    if (per_worker_marked == NULL) {
-        PyMem_RawFree(data);
-        return NULL;
-    }
-
-    for (int i = 0; i < num_workers; i++) {
-        PyObject *count = PyLong_FromSize_t(data[i + 1]);
-        if (count == NULL) {
-            Py_DECREF(per_worker_marked);
-            PyMem_RawFree(data);
-            return NULL;
-        }
-        PyList_SET_ITEM(per_worker_marked, i, count);
-    }
-
-    PyObject *result = Py_BuildValue(
-        "{s:n, s:O}",
-        "total_objects", (Py_ssize_t)data[0],
-        "per_worker_marked", per_worker_marked
-    );
-
-    Py_DECREF(per_worker_marked);
-    PyMem_RawFree(data);
-    return result;
-}
-
 // Get thread pool statistics for testing
 static PyObject *
 gc_get_thread_pool_stats(PyObject *module, PyObject *args)
@@ -1099,12 +1046,68 @@ gc_get_thread_pool_stats(PyObject *module, PyObject *args)
         pool != NULL ? pool->test_traversal_target_untracked : 0;
     int target_alive_after_untrack =
         pool != NULL ? pool->test_traversal_target_alive_after_untrack : 0;
+    Py_ssize_t verify[6] = {0};
+    size_t propagate_marked[64];
+    size_t participants = 0;
+    if (pool != NULL) {
+        verify[0] = (Py_ssize_t)pool->test_verify_runs;
+        verify[1] = pool->test_verify_parallel_alive;
+        verify[2] = pool->test_verify_serial_alive;
+        verify[3] = pool->test_verify_missing;
+        verify[4] = pool->test_verify_extra;
+        verify[5] = pool->test_verify_untracked;
+        participants = pool->test_propagate_participants;
+        if (participants > Py_ARRAY_LENGTH(propagate_marked)) {
+            participants = Py_ARRAY_LENGTH(propagate_marked);
+        }
+        for (size_t i = 0; i < participants; i++) {
+            propagate_marked[i] = pool->workers[i].test_propagate_marked;
+        }
+    }
     PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
 
     PyObject *result = PyDict_New();
     if (result == NULL) {
         return NULL;
     }
+
+    static const char *const verify_keys[6] = {
+        "verify_runs", "verify_parallel_alive", "verify_serial_alive",
+        "verify_missing", "verify_extra", "verify_untracked",
+    };
+    for (int i = 0; i < 6; i++) {
+        PyObject *value = PyLong_FromSsize_t(verify[i]);
+        if (value == NULL ||
+            PyDict_SetItemString(result, verify_keys[i], value) < 0)
+        {
+            Py_XDECREF(value);
+            Py_DECREF(result);
+            return NULL;
+        }
+        Py_DECREF(value);
+    }
+    PyObject *marked = PyList_New((Py_ssize_t)participants);
+    if (marked == NULL) {
+        Py_DECREF(result);
+        return NULL;
+    }
+    for (size_t i = 0; i < participants; i++) {
+        PyObject *value = PyLong_FromSize_t(propagate_marked[i]);
+        if (value == NULL) {
+            Py_DECREF(marked);
+            Py_DECREF(result);
+            return NULL;
+        }
+        PyList_SET_ITEM(marked, (Py_ssize_t)i, value);
+    }
+    if (PyDict_SetItemString(result, "propagate_per_worker_marked",
+                             marked) < 0)
+    {
+        Py_DECREF(marked);
+        Py_DECREF(result);
+        return NULL;
+    }
+    Py_DECREF(marked);
 
     if (PyDict_SetItemString(result, "active", is_active ? Py_True : Py_False) < 0) {
         Py_DECREF(result);
@@ -1156,6 +1159,35 @@ gc_get_thread_pool_stats(PyObject *module, PyObject *args)
     return result;
 }
 
+// gc._test_set_parallel_mark_verify(flag): after each parallel mark-alive
+// pass, recompute the ALIVE set serially and record the difference in
+// gc._get_thread_pool_stats().  Resets the recorded results.
+static PyObject *
+gc_test_set_parallel_mark_verify(PyObject *module, PyObject *arg)
+{
+    int flag = PyObject_IsTrue(arg);
+    if (flag < 0) {
+        return NULL;
+    }
+    PyInterpreterState *interp = _PyInterpreterState_GET();
+    PyMutex_Lock(&interp->gc.parallel_gc_lifecycle_mutex);
+    _PyGCThreadPool *pool = interp->gc.thread_pool;
+    if (pool == NULL) {
+        PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
+        PyErr_SetString(PyExc_RuntimeError, "parallel GC pool is not active");
+        return NULL;
+    }
+    pool->test_verify_mark_alive = flag;
+    pool->test_verify_runs = 0;
+    pool->test_verify_parallel_alive = 0;
+    pool->test_verify_serial_alive = 0;
+    pool->test_verify_missing = 0;
+    pool->test_verify_extra = 0;
+    pool->test_verify_untracked = 0;
+    PyMutex_Unlock(&interp->gc.parallel_gc_lifecycle_mutex);
+    Py_RETURN_NONE;
+}
+
 static PyObject *
 gc_test_set_parallel_traversal_target(PyObject *module, PyObject *arg)
 {
@@ -1200,9 +1232,9 @@ gc_test_set_parallel_traversal_target(PyObject *module, PyObject *arg)
 #define GC_TEST_REAL_PAGE_ENUMERATION_METHODDEF \
     {"_test_real_page_enumeration", gc_test_real_page_enumeration, METH_VARARGS, \
      "Test REAL page enumeration - stops the world (FTP test API)"},
-#define GC_TEST_PARALLEL_MARK_METHODDEF \
-    {"_test_parallel_mark", gc_test_parallel_mark, METH_VARARGS, \
-     "Test REAL parallel marking - stops the world (FTP test API)"},
+#define GC_TEST_SET_PARALLEL_MARK_VERIFY_METHODDEF \
+    {"_test_set_parallel_mark_verify", gc_test_set_parallel_mark_verify, \
+     METH_O, "Enable or disable the parallel mark-alive verifier"},
 #define GC_GET_THREAD_POOL_STATS_METHODDEF \
     {"_get_thread_pool_stats", gc_get_thread_pool_stats, METH_NOARGS, \
      "Get thread pool statistics (FTP test API)"},
@@ -1216,7 +1248,7 @@ gc_test_set_parallel_traversal_target(PyObject *module, PyObject *arg)
 #define GC_COUNT_GC_PAGES_METHODDEF
 #define GC_TEST_PAGE_ASSIGNMENT_METHODDEF
 #define GC_TEST_REAL_PAGE_ENUMERATION_METHODDEF
-#define GC_TEST_PARALLEL_MARK_METHODDEF
+#define GC_TEST_SET_PARALLEL_MARK_VERIFY_METHODDEF
 #define GC_GET_THREAD_POOL_STATS_METHODDEF
 #define GC_TEST_SET_PARALLEL_TRAVERSAL_TARGET_METHODDEF
 #endif
@@ -1249,7 +1281,7 @@ static PyMethodDef GcMethods[] = {
     GC_COUNT_GC_PAGES_METHODDEF
     GC_TEST_PAGE_ASSIGNMENT_METHODDEF
     GC_TEST_REAL_PAGE_ENUMERATION_METHODDEF
-    GC_TEST_PARALLEL_MARK_METHODDEF
+    GC_TEST_SET_PARALLEL_MARK_VERIFY_METHODDEF
     GC_GET_THREAD_POOL_STATS_METHODDEF
     GC_TEST_SET_PARALLEL_TRAVERSAL_TARGET_METHODDEF
     {NULL,      NULL}           /* Sentinel */
